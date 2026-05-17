@@ -1,0 +1,283 @@
+cmake_minimum_required(VERSION 3.16)
+project(sqgi VERSION 0.1.0 LANGUAGES C CXX)
+
+set(CMAKE_C_STANDARD 11)
+set(CMAKE_C_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+include(GNUInstallDirs)
+
+# ── Optional sanitizers (must be set before targets are created so the
+# instrumentation flags propagate to libsqgi, sqgi-bin and all test binaries) ──
+option(SQGI_ENABLE_ASAN "Build with AddressSanitizer + UndefinedBehaviorSanitizer" OFF)
+if(SQGI_ENABLE_ASAN)
+    message(STATUS "SQGI: AddressSanitizer + UBSan enabled")
+    add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer -g)
+    add_link_options(-fsanitize=address,undefined)
+endif()
+
+# ── Bundled Squirrel3 ─────────────────────────────────────────────────────────
+set(DISABLE_STATIC ON CACHE BOOL "" FORCE)
+set(SQ_DISABLE_INSTALLER ON CACHE BOOL "" FORCE)
+add_subdirectory(Squirrel3)
+
+# ── System Dependencies ───────────────────────────────────────────────────────
+find_package(PkgConfig REQUIRED)
+find_package(Threads REQUIRED)
+pkg_check_modules(GLIB REQUIRED glib-2.0)
+pkg_check_modules(GOBJECT REQUIRED gobject-2.0)
+pkg_check_modules(GIO REQUIRED gio-2.0)
+pkg_check_modules(GI REQUIRED gobject-introspection-1.0)
+pkg_check_modules(FFI REQUIRED libffi)
+pkg_check_modules(CAIRO REQUIRED cairo)
+
+# ── libsqgi shared library ─────────────────────────────────────────────────────
+set(LIBSQGI_SRC
+    src/sqgi_vm.c
+    src/sqgi_marshal.c
+    src/sqgi_gi.c
+    src/sqgi_gi_object.c
+    src/sqgi_signal.c
+    src/sqgi_import.c
+    src/sqgi_async.c
+    src/sqgi_gerror.c
+    src/sqgi_subclass.c
+    src/sqgi_json.c
+    src/sqgi_cairo.c
+)
+
+add_library(sqgi SHARED ${LIBSQGI_SRC})
+
+set_target_properties(sqgi PROPERTIES
+    VERSION   ${PROJECT_VERSION}
+    SOVERSION ${PROJECT_VERSION_MAJOR}
+)
+
+target_include_directories(sqgi
+    PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+        ${CMAKE_CURRENT_SOURCE_DIR}/Squirrel3/include
+        ${GLIB_INCLUDE_DIRS}
+        ${GOBJECT_INCLUDE_DIRS}
+        ${GIO_INCLUDE_DIRS}
+        ${GI_INCLUDE_DIRS}
+        ${FFI_INCLUDE_DIRS}
+        ${CAIRO_INCLUDE_DIRS}
+)
+
+target_compile_options(sqgi PRIVATE
+    ${GLIB_CFLAGS_OTHER}
+    ${GOBJECT_CFLAGS_OTHER}
+    ${GIO_CFLAGS_OTHER}
+    ${GI_CFLAGS_OTHER}
+    ${FFI_CFLAGS_OTHER}
+    ${CAIRO_CFLAGS_OTHER}
+)
+
+target_link_libraries(sqgi
+    squirrel
+    sqstdlib
+    ${GLIB_LIBRARIES}
+    ${GOBJECT_LIBRARIES}
+    ${GIO_LIBRARIES}
+    ${GI_LIBRARIES}
+    ${FFI_LIBRARIES}
+    ${CAIRO_LIBRARIES}
+    Threads::Threads
+)
+
+# ── sqgi executable ────────────────────────────────────────────────────────────
+add_executable(sqgi-bin src/main.c)
+set_target_properties(sqgi-bin PROPERTIES OUTPUT_NAME sqgi)
+
+target_include_directories(sqgi-bin PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/Squirrel3/include
+    ${GLIB_INCLUDE_DIRS}
+)
+
+target_link_libraries(sqgi-bin sqgi)
+
+target_compile_definitions(sqgi-bin PRIVATE
+    SQGI_VERSION="${PROJECT_VERSION}"
+)
+
+# ── Optional sanitizers ──────────────────────────────────────────────────────
+# (Now declared above so flags reach all targets — kept here as a no-op
+# anchor to preserve the prior file layout for diff readability.)
+
+# ── Tests (CTest) ────────────────────────────────────────────────────────────
+enable_testing()
+
+set(SQGI_TEST_ENV
+    "LD_LIBRARY_PATH=${CMAKE_BINARY_DIR}/Squirrel3/squirrel:${CMAKE_BINARY_DIR}/Squirrel3/sqstdlib:${CMAKE_BINARY_DIR}"
+    "SQGI_BIN=${CMAKE_BINARY_DIR}/sqgi"
+    "LSAN_OPTIONS=suppressions=${CMAKE_SOURCE_DIR}/.github/lsan.supp:print_suppressions=0"
+    "ASAN_OPTIONS=detect_leaks=1:halt_on_error=1:abort_on_error=0")
+
+# Under ASan, the heavy fuzz/soak tests dominate run time (json_fuzz ~6 min,
+# marshal_fuzz ~75s) without finding much beyond what a single iteration
+# would. Scale iteration counts down 10x — still exercises every code path,
+# just with fewer samples. Override locally with `SQGI_FUZZ_SCALE=1 ctest`.
+if(SQGI_ENABLE_ASAN)
+    list(APPEND SQGI_TEST_ENV "SQGI_FUZZ_SCALE=10")
+endif()
+
+function(add_sqgi_nut_test test_name test_file)
+    add_test(
+        NAME ${test_name}
+        COMMAND ${CMAKE_BINARY_DIR}/sqgi ${CMAKE_SOURCE_DIR}/test/${test_file}
+    )
+    set_tests_properties(${test_name} PROPERTIES
+        ENVIRONMENT "${SQGI_TEST_ENV}"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    )
+endfunction()
+
+add_sqgi_nut_test(sqgi_test_glib                        test_glib.nut)
+add_sqgi_nut_test(sqgi_test_gobject                     test_gobject.nut)
+add_sqgi_nut_test(sqgi_test_signals                     test_signals.nut)
+add_sqgi_nut_test(sqgi_test_import_nut                  test_import_nut.nut)
+add_sqgi_nut_test(sqgi_test_async                       test_async.nut)
+add_sqgi_nut_test(sqgi_test_async_jsstyle               test_async_jsstyle.nut)
+add_sqgi_nut_test(sqgi_test_async_reentrancy            test_async_reentrancy.nut)
+add_sqgi_nut_test(sqgi_test_newthread                   test_newthread.nut)
+add_sqgi_nut_test(sqgi_test_vget_download               test_vget_download.nut)
+add_sqgi_nut_test(sqgi_test_application                 test_application.nut)
+add_sqgi_nut_test(sqgi_test_application_run_regression  test_application_run_crash_regression.nut)
+add_sqgi_nut_test(sqgi_test_application_command_line    test_application_command_line.nut)
+add_sqgi_nut_test(sqgi_test_emit                        test_emit.nut)
+add_sqgi_nut_test(sqgi_test_marshal_argcount            test_marshal_argcount.nut)
+add_sqgi_nut_test(sqgi_test_gvalue                      test_gvalue.nut)
+add_sqgi_nut_test(sqgi_test_gvariant                    test_gvariant.nut)
+add_sqgi_nut_test(sqgi_test_unhandled_rejection         test_unhandled_rejection.nut)
+add_sqgi_nut_test(sqgi_test_task_cancel                 test_task_cancel.nut)
+add_sqgi_nut_test(sqgi_test_new_object                  test_new_object.nut)
+add_sqgi_nut_test(sqgi_test_promise_combinators         test_promise_combinators.nut)
+add_sqgi_nut_test(sqgi_test_stack_balance               test_stack_balance.nut)
+add_sqgi_nut_test(sqgi_test_gerror                      test_gerror.nut)
+add_sqgi_nut_test(sqgi_test_gio_async                   test_gio_async.nut)
+add_sqgi_nut_test(sqgi_test_subclass                    test_subclass.nut)
+add_sqgi_nut_test(sqgi_test_marshal_fuzz                test_marshal_fuzz.nut)
+set_tests_properties(sqgi_test_marshal_fuzz PROPERTIES TIMEOUT 300 LABELS "slow;fuzz")
+add_sqgi_nut_test(sqgi_test_soak                        test_soak.nut)
+set_tests_properties(sqgi_test_soak PROPERTIES LABELS "slow")
+add_sqgi_nut_test(sqgi_test_json                        test_json.nut)
+add_sqgi_nut_test(sqgi_test_json_fuzz                   test_json_fuzz.nut)
+set_tests_properties(sqgi_test_json_fuzz PROPERTIES TIMEOUT 600 LABELS "slow;fuzz")
+add_sqgi_nut_test(sqgi_test_gvariant_classes            test_gvariant_classes.nut)
+add_sqgi_nut_test(sqgi_test_subclass_errors             test_subclass_errors.nut)
+add_sqgi_nut_test(sqgi_test_signals_extended            test_signals_extended.nut)
+add_sqgi_nut_test(sqgi_test_edge_cases                  test_edge_cases.nut)
+add_sqgi_nut_test(sqgi_test_coverage_extras             test_coverage_extras.nut)
+add_sqgi_nut_test(sqgi_test_gvalue_types                test_gvalue_types.nut)
+add_sqgi_nut_test(sqgi_test_subclass_vfuncs             test_subclass_vfuncs.nut)
+add_sqgi_nut_test(sqgi_test_gi_multi_out                test_gi_multi_out.nut)
+add_sqgi_nut_test(sqgi_test_bytes_converters            test_bytes_converters.nut)
+add_sqgi_nut_test(sqgi_test_cairo                       test_cairo.nut)
+
+# Cover error/exit-code paths in main.c
+add_test(
+    NAME sqgi_test_cli_nonexistent_file
+    COMMAND ${CMAKE_BINARY_DIR}/sqgi /nonexistent/script.nut
+)
+set_tests_properties(sqgi_test_cli_nonexistent_file PROPERTIES
+    ENVIRONMENT "${SQGI_TEST_ENV}"
+    WILL_FAIL TRUE
+)
+
+add_test(
+    NAME sqgi_test_cli_dash_e_syntax_error
+    COMMAND ${CMAKE_BINARY_DIR}/sqgi -e "this is not valid squirrel @"
+)
+set_tests_properties(sqgi_test_cli_dash_e_syntax_error PROPERTIES
+    ENVIRONMENT "${SQGI_TEST_ENV}"
+    WILL_FAIL TRUE
+)
+
+# ── In-tree C tests (test/c/) ────────────────────────────────────────────────
+# These exercise internal libsqgi paths that pure-Squirrel tests cannot reach,
+# such as cross-thread signal marshalling. Each test is a standalone C binary
+# linked against libsqgi; they are NOT installed and are NOT part of the public
+# API surface — they live only in the source tree.
+function(add_sqgi_c_test test_name source_file)
+    add_executable(${test_name} ${source_file})
+    target_link_libraries(${test_name} PRIVATE sqgi)
+    target_include_directories(${test_name} PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+        ${CMAKE_CURRENT_SOURCE_DIR}/Squirrel3/include
+        ${GLIB_INCLUDE_DIRS}
+        ${GOBJECT_INCLUDE_DIRS}
+        ${GIO_INCLUDE_DIRS}
+    )
+    add_test(NAME ${test_name} COMMAND ${test_name})
+    set_tests_properties(${test_name} PROPERTIES
+        ENVIRONMENT "${SQGI_TEST_ENV}"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+        TIMEOUT 30
+    )
+endfunction()
+
+add_sqgi_c_test(sqgi_test_c_signal_crossthread test/c/test_signal_crossthread.c)
+add_sqgi_c_test(sqgi_test_c_signal_crossthread_sync test/c/test_signal_crossthread_sync.c)
+add_sqgi_c_test(sqgi_test_c_signal_vm_closing test/c/test_signal_vm_closing.c)
+add_sqgi_c_test(sqgi_test_c_gvalue_branches test/c/test_gvalue_branches.c)
+
+# Cover the -e / dobuffer path (sqgi_vm_dobuffer)
+add_test(
+    NAME sqgi_test_cli_dash_e
+    COMMAND ${CMAKE_BINARY_DIR}/sqgi -e "print(\"cli-eval=\" + (40+2))"
+)
+set_tests_properties(sqgi_test_cli_dash_e PROPERTIES
+    ENVIRONMENT "${SQGI_TEST_ENV}"
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    PASS_REGULAR_EXPRESSION "cli-eval=42"
+)
+
+add_custom_target(check
+    COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure
+    DEPENDS sqgi-bin
+    COMMENT "Running SQGI test suite"
+)
+
+# ── Install ───────────────────────────────────────────────────────────────────
+# Public C headers consumed by external embedders. The vm header is the
+# canonical entry point; the marshal/async/signal/object headers are exposed
+# as a public surface so out-of-tree extensions can use the same helpers.
+set(SQGI_PUBLIC_HEADERS
+    src/sqgi_vm.h
+    src/sqgi_marshal.h
+    src/sqgi_async.h
+    src/sqgi_signal.h
+    src/sqgi_gi.h
+    src/sqgi_gi_object.h
+    src/sqgi_import.h
+    src/sqgi_gerror.h
+    src/sqgi_subclass.h
+    src/sqgi_json.h
+)
+
+install(TARGETS sqgi
+    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+)
+
+install(TARGETS sqgi-bin
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+)
+
+install(FILES ${SQGI_PUBLIC_HEADERS}
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/sqgi
+)
+
+# pkg-config file
+configure_file(
+    ${CMAKE_CURRENT_SOURCE_DIR}/sqgi.pc.in
+    ${CMAKE_CURRENT_BINARY_DIR}/sqgi.pc
+    @ONLY
+)
+install(FILES ${CMAKE_CURRENT_BINARY_DIR}/sqgi.pc
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig
+)
