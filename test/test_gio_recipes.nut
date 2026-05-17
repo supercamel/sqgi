@@ -511,6 +511,37 @@ async function run_async() {
         check("sqgi.all every result nonempty", all_nonempty, "one was empty")
     }
 
+    // ── 16. Subprocess.communicate{,_utf8}_async: multi-OUT byte arrays ─
+    // Previously listed as a "remaining gap" but actually works — regression
+    // pin so it stays working.
+    {
+        local sp = Gio.Subprocess.new(
+            ["/bin/sh", "-c", "echo stdout-payload; echo stderr-payload 1>&2"],
+            Gio.SubprocessFlags.stdout_pipe | Gio.SubprocessFlags.stderr_pipe)
+        local r = await sp.communicate_async(null, null)
+        check("communicate_async returns array of two", typeof(r) == "array" && r.len() == 2,
+              "got " + typeof(r) + " len " + (typeof(r) == "array" ? r.len() : -1))
+        check("communicate_async stdout GBytes nonempty",
+              r[0] != null && r[0].get_size() > 0,
+              "stdout size=" + (r[0] != null ? r[0].get_size() : -1))
+        check("communicate_async stderr GBytes nonempty",
+              r[1] != null && r[1].get_size() > 0,
+              "stderr size=" + (r[1] != null ? r[1].get_size() : -1))
+
+        local sp2 = Gio.Subprocess.new(
+            ["/bin/sh", "-c", "echo line1; echo line2 1>&2"],
+            Gio.SubprocessFlags.stdout_pipe | Gio.SubprocessFlags.stderr_pipe)
+        local r2 = await sp2.communicate_utf8_async(null, null)
+        check("communicate_utf8_async returns array of two strings",
+              typeof(r2) == "array" && r2.len() == 2 &&
+              typeof(r2[0]) == "string" && typeof(r2[1]) == "string",
+              "got " + typeof(r2))
+        check("communicate_utf8_async stdout contains 'line1'",
+              r2[0].find("line1") != null, "got " + r2[0])
+        check("communicate_utf8_async stderr contains 'line2'",
+              r2[1].find("line2") != null, "got " + r2[1])
+    }
+
     loop.quit()
 }
 

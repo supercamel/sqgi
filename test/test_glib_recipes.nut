@@ -228,6 +228,48 @@ function test_variant() {
         check("VariantType.equal self", vt.equal(GLib.VariantType.new("s")),
               "expected equal")
     }
+
+    // 7e. Boxed-record constructors taking array+length: previously these
+    // failed because the in-arg marshaller pushed NULL for arrays of
+    // interface-typed elements.
+    local vstrv = GLib.Variant.new_strv(["a","b","c"])
+    check("Variant.new_strv tag",  vstrv.get_type_string() == "as",
+          "got " + vstrv.get_type_string())
+    check("Variant.new_strv n",    vstrv.n_children() == 3,
+          "got " + vstrv.n_children())
+
+    local vbsa = GLib.Variant.new_bytestring_array(["foo","bar"])
+    check("Variant.new_bytestring_array tag", vbsa.get_type_string() == "aay",
+          "got " + vbsa.get_type_string())
+
+    local vobj = GLib.Variant.new_objv(["/a/b","/c/d"])
+    check("Variant.new_objv tag",  vobj.get_type_string() == "ao",
+          "got " + vobj.get_type_string())
+
+    // 7f. Arrays of GVariant pointers (new_tuple / new_array): exercises the
+    // GI_TYPE_TAG_ARRAY-of-INTERFACE-element marshal path.
+    local kids = [GLib.Variant.new_int32(42), GLib.Variant.new_string("hi")]
+    local tup = GLib.Variant.new_tuple(kids)
+    check("Variant.new_tuple tag", tup.get_type_string() == "(is)",
+          "got " + tup.get_type_string())
+    check("Variant.new_tuple n",   tup.n_children() == 2,
+          "got " + tup.n_children())
+
+    local nums = [GLib.Variant.new_int32(1),
+                  GLib.Variant.new_int32(2),
+                  GLib.Variant.new_int32(3)]
+    local varr = GLib.Variant.new_array(null, nums)
+    check("Variant.new_array tag", varr.get_type_string() == "ai",
+          "got " + varr.get_type_string())
+    check("Variant.new_array n",   varr.n_children() == 3,
+          "got " + varr.n_children())
+
+    // 7g. Empty array with explicit element type — auto-length must still
+    // be filled (n_children=0) and the spine pointer correctly handled.
+    local vempty = GLib.Variant.new_array(GLib.VariantType.new("s"), [])
+    check("Variant.new_array empty",
+          vempty.get_type_string() == "as" && vempty.n_children() == 0,
+          "got " + vempty.get_type_string() + " n=" + vempty.n_children())
 }
 test_variant()
 

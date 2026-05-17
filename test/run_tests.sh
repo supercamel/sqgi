@@ -50,6 +50,7 @@ TESTS=(
   "test_soup_server.nut"
   "test_gio_recipes.nut"
   "test_gstreamer_recipes.nut"
+  "test_gdkpixbuf_recipes.nut"
   "test_application_run_crash_regression.nut"
 )
 
