@@ -362,14 +362,10 @@ buf.connect("changed", function() {
 })
 
 // Read the whole buffer:
-local start = buf.get_start_iter()[1]
-local end   = buf.get_end_iter()[1]
-local text  = buf.get_text(start, end, false)[1]
+local start = buf.get_start_iter()
+local end   = buf.get_end_iter()
+local text  = buf.get_text(start, end, false)
 ```
-
-Some `Gtk.TextBuffer` getters return tuples (success flag, value). Index
-`[1]` to skip the success flag; see `docs/language/07-gi-imports-and-gobject-basics.md`
-on multi-return shape.
 
 ## 8. Multi-page layouts
 

@@ -109,8 +109,8 @@ target_link_libraries(sqgi
 
 # ── sqgi executable ────────────────────────────────────────────────────────────
 
-# ── sqgi executable (static link Squirrel3 and stdlib) ──
-add_executable(sqgi-bin src/main.c ${SQUIRREL3_SRC})
+# ── sqgi executable ──
+add_executable(sqgi-bin src/main.c)
 set_target_properties(sqgi-bin PROPERTIES OUTPUT_NAME sqgi)
 target_include_directories(sqgi-bin PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src

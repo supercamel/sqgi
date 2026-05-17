@@ -215,10 +215,14 @@ sudo apt install cmake build-essential libglib2.0-dev libgirepository1.0-dev lib
 ```
 
 ```sh
-cmake -S . -B build
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j
 build/sqgi --version
 ```
+
+For debugger-friendly builds, use `-DCMAKE_BUILD_TYPE=Debug`. With Makefile
+generators, leaving `CMAKE_BUILD_TYPE` empty produces an unoptimized binary,
+which is useful for quick local hacking but misleading for benchmarks.
 
 Run the tests:
 

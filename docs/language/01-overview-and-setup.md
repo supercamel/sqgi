@@ -69,9 +69,13 @@ Required packages (Debian/Ubuntu names):
 From the project root:
 
 ```sh
-cmake -S . -B build
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j
 ```
+
+`Release` matters: it enables the compiler optimizations Squirrel needs for
+representative VM performance. Use `-DCMAKE_BUILD_TYPE=Debug` when you are
+debugging C code, but avoid benchmarking an unoptimized build.
 
 Confirm it works:
 

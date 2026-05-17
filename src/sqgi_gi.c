@@ -456,7 +456,7 @@ static void sqgi_gi_free_in_arg_allocs(GICallableInfo *callable, GIArgument *in_
 static void sqgi_push_out_arg(HSQUIRRELVM v, GICallableInfo *callable,
                               gint i, GITypeInfo *ati, GITransfer atransfer,
                               GIArgument *out_storage, const gint *arg_to_out,
-                              gint n_args)
+                              gint n_args, const GType *owned_out_gtypes)
 {
     if (g_type_info_get_tag(ati) == GI_TYPE_TAG_ARRAY) {
         GITypeInfo *elem = g_type_info_get_param_type(ati, 0);
@@ -501,7 +501,40 @@ static void sqgi_push_out_arg(HSQUIRRELVM v, GICallableInfo *callable,
         }
         g_base_info_unref(elem);
     }
+    if (owned_out_gtypes && arg_to_out[i] >= 0) {
+        GType owned_gtype = owned_out_gtypes[arg_to_out[i]];
+        if (owned_gtype != G_TYPE_INVALID && owned_gtype != G_TYPE_NONE &&
+            g_type_info_get_tag(ati) == GI_TYPE_TAG_INTERFACE &&
+            out_storage[arg_to_out[i]].v_pointer) {
+            GIBaseInfo *iface = g_type_info_get_interface(ati);
+            sqgi_push_owned_registered_instance(v, iface,
+                                                out_storage[arg_to_out[i]].v_pointer);
+            g_base_info_unref(iface);
+            return;
+        }
+    }
     sqgi_push_gi_argument(v, &out_storage[arg_to_out[i]], ati, atransfer);
+}
+
+static gsize sqgi_caller_allocated_size(GIBaseInfo *info)
+{
+    GIInfoType itype = g_base_info_get_type(info);
+    if (itype == GI_INFO_TYPE_STRUCT || itype == GI_INFO_TYPE_BOXED) {
+        return (gsize)g_struct_info_get_size((GIStructInfo *)info);
+    }
+    if (itype == GI_INFO_TYPE_UNION) {
+        return (gsize)g_union_info_get_size((GIUnionInfo *)info);
+    }
+    return 0;
+}
+
+static void sqgi_free_caller_allocated_out(gpointer *caller_allocated_out, gint n_out_args)
+{
+    if (!caller_allocated_out) return;
+    for (gint i = 0; i < n_out_args; i++) {
+        g_free(caller_allocated_out[i]);
+        caller_allocated_out[i] = NULL;
+    }
 }
 
 static SQInteger gi_function_call(HSQUIRRELVM v)
@@ -622,6 +655,11 @@ static SQInteger gi_function_call(HSQUIRRELVM v)
      * memory we own.  We allocate one slot per out-arg and place its address
      * in out_args[].v_pointer. */
     GIArgument *out_storage = g_new0(GIArgument, n_out_args > 0 ? n_out_args : 1);
+    gpointer *caller_allocated_out = g_new0(gpointer, n_out_args > 0 ? n_out_args : 1);
+    GType *owned_out_gtypes = g_new0(GType, n_out_args > 0 ? n_out_args : 1);
+    for (gint i = 0; i < n_out_args; i++) {
+        owned_out_gtypes[i] = G_TYPE_INVALID;
+    }
 
     gint *arg_to_in = g_new0(gint, n_args > 0 ? n_args : 1);
     gint *arg_to_out = g_new0(gint, n_args > 0 ? n_args : 1);
@@ -643,6 +681,8 @@ static SQInteger gi_function_call(HSQUIRRELVM v)
             g_free(in_args);
             g_free(out_args);
             g_free(out_storage);
+            g_free(caller_allocated_out);
+            g_free(owned_out_gtypes);
             g_free(arg_to_in);
             g_free(arg_to_out);
             g_free(user_visible);
@@ -660,8 +700,29 @@ static SQInteger gi_function_call(HSQUIRRELVM v)
         GITypeInfo *type_info = g_arg_info_get_type(arg_info);
 
         if (dir == GI_DIRECTION_OUT || dir == GI_DIRECTION_INOUT) {
-            /* Provide caller-allocated storage and pass its address */
-            out_args[out_idx].v_pointer = &out_storage[out_idx];
+            /* Provide caller-allocated storage and pass its address. For
+             * caller-allocated records (GtkTextIter, etc.), the destination
+             * must be large enough for the full struct, not just GIArgument. */
+            gboolean allocated_record = FALSE;
+            if (g_type_info_get_tag(type_info) == GI_TYPE_TAG_INTERFACE) {
+                GIBaseInfo *iface = g_type_info_get_interface(type_info);
+                GIInfoType itype = g_base_info_get_type(iface);
+                if (g_arg_info_is_caller_allocates(arg_info) &&
+                    (itype == GI_INFO_TYPE_STRUCT || itype == GI_INFO_TYPE_BOXED ||
+                     itype == GI_INFO_TYPE_UNION)) {
+                    gsize size = sqgi_caller_allocated_size(iface);
+                    if (size > 0) {
+                        caller_allocated_out[out_idx] = g_malloc0(size);
+                        out_storage[out_idx].v_pointer = caller_allocated_out[out_idx];
+                        out_args[out_idx].v_pointer = caller_allocated_out[out_idx];
+                        allocated_record = TRUE;
+                    }
+                }
+                g_base_info_unref(iface);
+            }
+            if (!allocated_record) {
+                out_args[out_idx].v_pointer = &out_storage[out_idx];
+            }
             arg_to_out[i] = out_idx;
             out_idx++;
         }
@@ -694,7 +755,10 @@ static SQInteger gi_function_call(HSQUIRRELVM v)
                             sqgi_gi_free_in_arg_allocs(callable, in_args, arg_to_in, n_args);
                             g_free(in_args);
                             g_free(out_args);
+                            sqgi_free_caller_allocated_out(caller_allocated_out, n_out_args);
                             g_free(out_storage);
+                            g_free(caller_allocated_out);
+                            g_free(owned_out_gtypes);
                             g_free(arg_to_in);
                             g_free(arg_to_out);
                             g_free(user_visible);
@@ -763,7 +827,10 @@ static SQInteger gi_function_call(HSQUIRRELVM v)
                         sqgi_gi_free_in_arg_allocs(callable, in_args, arg_to_in, n_args);
                         g_free(in_args);
                         g_free(out_args);
+                        sqgi_free_caller_allocated_out(caller_allocated_out, n_out_args);
                         g_free(out_storage);
+                        g_free(caller_allocated_out);
+                        g_free(owned_out_gtypes);
                         g_free(arg_to_in);
                         g_free(arg_to_out);
                         g_free(user_visible);
@@ -817,7 +884,10 @@ static SQInteger gi_function_call(HSQUIRRELVM v)
                         sqgi_gi_free_in_arg_allocs(callable, in_args, arg_to_in, n_args);
                         g_free(in_args);
                         g_free(out_args);
+                        sqgi_free_caller_allocated_out(caller_allocated_out, n_out_args);
                         g_free(out_storage);
+                        g_free(caller_allocated_out);
+                        g_free(owned_out_gtypes);
                         g_free(arg_to_in);
                         g_free(arg_to_out);
                         g_free(user_visible);
@@ -836,7 +906,10 @@ static SQInteger gi_function_call(HSQUIRRELVM v)
                         sqgi_gi_free_in_arg_allocs(callable, in_args, arg_to_in, n_args);
                         g_free(in_args);
                         g_free(out_args);
+                        sqgi_free_caller_allocated_out(caller_allocated_out, n_out_args);
                         g_free(out_storage);
+                        g_free(caller_allocated_out);
+                        g_free(owned_out_gtypes);
                         g_free(arg_to_in);
                         g_free(arg_to_out);
                         g_free(user_visible);
@@ -952,13 +1025,43 @@ static SQInteger gi_function_call(HSQUIRRELVM v)
         g_ptr_array_free(callback_bindings, TRUE);
         g_free(in_args);
         g_free(out_args);
+        sqgi_free_caller_allocated_out(caller_allocated_out, n_out_args);
         g_free(out_storage);
+        g_free(caller_allocated_out);
+        g_free(owned_out_gtypes);
         g_free(arg_to_in);
         g_free(arg_to_out);
         g_free(user_visible);
         g_free(arg_sq_idx);
         SQRESULT res = sqgi_gerror_throw(v, error, "unknown GI invocation error");
         return res;
+    }
+
+    for (gint i = 0; i < n_args; i++) {
+        gint out_pos = arg_to_out[i];
+        if (out_pos < 0 || !caller_allocated_out[out_pos]) continue;
+
+        GIArgInfo *ai = g_callable_info_get_arg(callable, i);
+        GITypeInfo *ti = g_arg_info_get_type(ai);
+        if (g_type_info_get_tag(ti) == GI_TYPE_TAG_INTERFACE) {
+            GIBaseInfo *iface = g_type_info_get_interface(ti);
+            GType gtype = g_registered_type_info_get_g_type((GIRegisteredTypeInfo *)iface);
+            if (gtype != G_TYPE_INVALID && gtype != G_TYPE_NONE &&
+                g_type_is_a(gtype, G_TYPE_BOXED)) {
+                gpointer boxed = g_boxed_copy(gtype, caller_allocated_out[out_pos]);
+                g_free(caller_allocated_out[out_pos]);
+                caller_allocated_out[out_pos] = NULL;
+                out_storage[out_pos].v_pointer = boxed;
+                owned_out_gtypes[out_pos] = gtype;
+            } else {
+                /* Keep the caller-allocated record alive for the wrapper.
+                 * Plain non-boxed records have no generic destroy hook. */
+                caller_allocated_out[out_pos] = NULL;
+            }
+            g_base_info_unref(iface);
+        }
+        g_base_info_unref(ti);
+        g_base_info_unref(ai);
     }
 
     /* Marshal return value */
@@ -1161,7 +1264,8 @@ static SQInteger gi_function_call(HSQUIRRELVM v)
                     GITypeInfo *ati = g_arg_info_get_type(ai);
                     GITransfer  atransfer = g_arg_info_get_ownership_transfer(ai);
                     sqgi_push_out_arg(v, callable, i, ati, atransfer,
-                                      out_storage, arg_to_out, n_args);
+                                      out_storage, arg_to_out, n_args,
+                                      owned_out_gtypes);
                     g_base_info_unref(ati);
                     g_base_info_unref(ai);
                     break;
@@ -1178,7 +1282,8 @@ static SQInteger gi_function_call(HSQUIRRELVM v)
                     GITypeInfo *ati = g_arg_info_get_type(ai);
                     GITransfer  atransfer = g_arg_info_get_ownership_transfer(ai);
                     sqgi_push_out_arg(v, callable, i, ati, atransfer,
-                                      out_storage, arg_to_out, n_args);
+                                      out_storage, arg_to_out, n_args,
+                                      owned_out_gtypes);
                     sq_arrayappend(v, -2);
                     g_base_info_unref(ati);
                 }
@@ -1200,7 +1305,8 @@ static SQInteger gi_function_call(HSQUIRRELVM v)
                 GITypeInfo *ati = g_arg_info_get_type(ai);
                 GITransfer  atransfer = g_arg_info_get_ownership_transfer(ai);
                 sqgi_push_out_arg(v, callable, i, ati, atransfer,
-                                  out_storage, arg_to_out, n_args);
+                                  out_storage, arg_to_out, n_args,
+                                  owned_out_gtypes);
                 sq_arrayappend(v, -2);
                 g_base_info_unref(ati);
             }
@@ -1227,7 +1333,10 @@ static SQInteger gi_function_call(HSQUIRRELVM v)
     sqgi_gi_free_in_arg_allocs(callable, in_args, arg_to_in, n_args);
     g_free(in_args);
     g_free(out_args);
+    sqgi_free_caller_allocated_out(caller_allocated_out, n_out_args);
     g_free(out_storage);
+    g_free(caller_allocated_out);
+    g_free(owned_out_gtypes);
     g_free(arg_to_in);
     g_free(arg_to_out);
 
