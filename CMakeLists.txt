@@ -47,13 +47,37 @@ set(LIBSQGI_SRC
     src/sqgi_cairo.c
 )
 
-add_library(sqgi SHARED ${LIBSQGI_SRC})
 
+# ── Squirrel3 and sqstdlib sources ──
+set(SQUIRREL3_SRC
+    Squirrel3/squirrel/sqapi.cpp
+    Squirrel3/squirrel/sqbaselib.cpp
+    Squirrel3/squirrel/sqclass.cpp
+    Squirrel3/squirrel/sqcompiler.cpp
+    Squirrel3/squirrel/sqdebug.cpp
+    Squirrel3/squirrel/sqfuncstate.cpp
+    Squirrel3/squirrel/sqlexer.cpp
+    Squirrel3/squirrel/sqmem.cpp
+    Squirrel3/squirrel/sqobject.cpp
+    Squirrel3/squirrel/sqstate.cpp
+    Squirrel3/squirrel/sqtable.cpp
+    Squirrel3/squirrel/sqvm.cpp
+    Squirrel3/sqstdlib/sqstdaux.cpp
+    Squirrel3/sqstdlib/sqstdblob.cpp
+    Squirrel3/sqstdlib/sqstdio.cpp
+    Squirrel3/sqstdlib/sqstdmath.cpp
+    Squirrel3/sqstdlib/sqstdrex.cpp
+    Squirrel3/sqstdlib/sqstdstream.cpp
+    Squirrel3/sqstdlib/sqstdstring.cpp
+    Squirrel3/sqstdlib/sqstdsystem.cpp
+)
+
+# ── sqgi shared library ──
+add_library(sqgi SHARED ${LIBSQGI_SRC} ${SQUIRREL3_SRC})
 set_target_properties(sqgi PROPERTIES
     VERSION   ${PROJECT_VERSION}
     SOVERSION ${PROJECT_VERSION_MAJOR}
 )
-
 target_include_directories(sqgi
     PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/src
@@ -65,7 +89,6 @@ target_include_directories(sqgi
         ${FFI_INCLUDE_DIRS}
         ${CAIRO_INCLUDE_DIRS}
 )
-
 target_compile_options(sqgi PRIVATE
     ${GLIB_CFLAGS_OTHER}
     ${GOBJECT_CFLAGS_OTHER}
@@ -74,10 +97,7 @@ target_compile_options(sqgi PRIVATE
     ${FFI_CFLAGS_OTHER}
     ${CAIRO_CFLAGS_OTHER}
 )
-
 target_link_libraries(sqgi
-    squirrel
-    sqstdlib
     ${GLIB_LIBRARIES}
     ${GOBJECT_LIBRARIES}
     ${GIO_LIBRARIES}
@@ -88,17 +108,16 @@ target_link_libraries(sqgi
 )
 
 # ── sqgi executable ────────────────────────────────────────────────────────────
-add_executable(sqgi-bin src/main.c)
-set_target_properties(sqgi-bin PROPERTIES OUTPUT_NAME sqgi)
 
+# ── sqgi executable (static link Squirrel3 and stdlib) ──
+add_executable(sqgi-bin src/main.c ${SQUIRREL3_SRC})
+set_target_properties(sqgi-bin PROPERTIES OUTPUT_NAME sqgi)
 target_include_directories(sqgi-bin PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}/Squirrel3/include
     ${GLIB_INCLUDE_DIRS}
 )
-
 target_link_libraries(sqgi-bin sqgi)
-
 target_compile_definitions(sqgi-bin PRIVATE
     SQGI_VERSION="${PROJECT_VERSION}"
 )
