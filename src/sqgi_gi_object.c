@@ -76,6 +76,69 @@ static SQInteger gobject_release_hook(SQUserPointer p, SQInteger size)
     return 0;
 }
 
+/* ── Boxed/refcounted record ownership tracking ──────────────────────────
+ *
+ * GVariant / GBytes / GIB-defined boxed records returned from constructors
+ * arrive with a transferred ref but Squirrel only knows the raw pointer —
+ * there's no way to learn the GType from the release hook. We maintain a
+ * process-wide map (raw pointer → GType) populated when we register
+ * ownership, consulted by the release hook to dispatch the correct
+ * teardown.
+ *
+ * Same-pointer collisions are statistically rare (GVariant/GBytes
+ * constructors return fresh allocations), and the worst case is that
+ * the second register replaces the first → first wrapper's release
+ * becomes a no-op (leak), not a double free. */
+
+static GMutex sqgi_boxed_owners_mu;
+static GHashTable *sqgi_boxed_owners = NULL; /* gpointer → GSIZE(GType) */
+
+static SQInteger boxed_release_hook(SQUserPointer p, SQInteger size)
+{
+    (void)size;
+    if (!p) return 0;
+    GType gtype = G_TYPE_INVALID;
+    g_mutex_lock(&sqgi_boxed_owners_mu);
+    if (sqgi_boxed_owners) {
+        gpointer val = g_hash_table_lookup(sqgi_boxed_owners, p);
+        if (val) {
+            gtype = (GType)GPOINTER_TO_SIZE(val);
+            g_hash_table_remove(sqgi_boxed_owners, p);
+        }
+    }
+    g_mutex_unlock(&sqgi_boxed_owners_mu);
+    if (gtype == G_TYPE_INVALID) return 0;
+
+    if (gtype == G_TYPE_VARIANT) {
+        g_variant_unref((GVariant *)p);
+    } else if (gtype == G_TYPE_BYTES) {
+        g_bytes_unref((GBytes *)p);
+    } else if (g_type_is_a(gtype, G_TYPE_BOXED)) {
+        g_boxed_free(gtype, p);
+    }
+    /* Plain (non-boxed) structs: we don't know how to free safely. Leave
+     * the pointer alone — Squirrel side never owned the storage. */
+    return 0;
+}
+
+void sqgi_boxed_track_ownership(HSQUIRRELVM v, SQInteger instance_idx,
+                                gpointer ptr, GType gtype)
+{
+    if (!ptr || gtype == G_TYPE_INVALID || gtype == G_TYPE_NONE) return;
+    /* Only types we know how to free. */
+    if (gtype != G_TYPE_VARIANT && gtype != G_TYPE_BYTES &&
+        !g_type_is_a(gtype, G_TYPE_BOXED)) {
+        return;
+    }
+    g_mutex_lock(&sqgi_boxed_owners_mu);
+    if (!sqgi_boxed_owners) {
+        sqgi_boxed_owners = g_hash_table_new(NULL, NULL);
+    }
+    g_hash_table_insert(sqgi_boxed_owners, ptr, GSIZE_TO_POINTER(gtype));
+    g_mutex_unlock(&sqgi_boxed_owners_mu);
+    sq_setreleasehook(v, instance_idx, boxed_release_hook);
+}
+
 /* ── _get metamethod (property access) ──────────────────────────────────── */
 
 static SQInteger gobject_get(HSQUIRRELVM v)

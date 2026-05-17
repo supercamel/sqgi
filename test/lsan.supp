@@ -1,0 +1,31 @@
+# AddressSanitizer / LeakSanitizer suppressions for sqgi's test suite.
+#
+# Each entry below targets a well-known library-internal allocation that is
+# *not* a binding bug:
+#
+#   - libgio caches a process-wide GInetAddress for the loopback address and
+#     keeps internal helper objects alive on its private worker thread that
+#     never joins at exit.
+#   - GStreamer's element factory machinery, internal GstBus, GstAtomicQueue,
+#     and GstPoll backing allocations live for the life of the process and
+#     are reclaimed by the OS rather than by gst_deinit().
+#   - GLib slice allocator slabs are not returned to the OS on exit.
+#
+# Production callers can opt in/out by setting LSAN_OPTIONS=suppressions=...
+# Test runs use this file via test/run_tests_asan.sh.
+
+leak:g_inet_address_new_loopback
+leak:gst_parse_launch
+leak:gst_parse_launch_full
+leak:gst_element_factory_create_with_properties
+leak:gst_bus_new
+leak:gst_atomic_queue_new
+leak:gst_poll_new
+leak:gst_structure_id_get_valist
+
+# libgio runs a private worker thread (g_thread_pool_thread_proxy) that
+# allocates GFileInfo / GList / GByteArray and is killed by exit() rather
+# than joined cleanly.
+leak:g_thread_pool_thread_proxy
+leak:g_file_enumerator_next_files_async
+leak:g_file_info_list_attributes

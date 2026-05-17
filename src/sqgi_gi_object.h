@@ -72,6 +72,22 @@ SQRESULT sqgi_gi_object_lookup_class(HSQUIRRELVM v, const char *gtype_name);
  */
 void sqgi_gi_object_register_helpers(HSQUIRRELVM v);
 
+/*
+ * sqgi_boxed_track_ownership
+ *
+ * Mark a boxed/refcounted record pointer as owned by the Squirrel wrapper
+ * currently on the top of the stack. When the wrapper is GC'd, its release
+ * hook will perform the appropriate teardown (g_variant_unref for
+ * GVariant, g_bytes_unref for GBytes, g_boxed_free for generic G_TYPE_BOXED
+ * descendants). Safe to call with G_TYPE_NONE / G_TYPE_INVALID — becomes a
+ * no-op (the wrapper is then non-owning).
+ *
+ * Callers MUST hold a transferred-everything reference: the registered
+ * unref/free happens exactly once.
+ */
+void sqgi_boxed_track_ownership(HSQUIRRELVM v, SQInteger instance_idx,
+                                gpointer ptr, GType gtype);
+
 #ifdef __cplusplus
 }
 #endif

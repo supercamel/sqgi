@@ -352,6 +352,44 @@ static void sqgi_push_registered_instance_for_info(HSQUIRRELVM v, GIBaseInfo *in
     }
 }
 
+/* Identical to sqgi_push_registered_instance_for_info but additionally
+ * installs the boxed-ownership release hook so a transferred-everything
+ * record (constructor return, etc.) is freed when the wrapper is GC'd. */
+static void sqgi_push_owned_registered_instance(HSQUIRRELVM v, GIBaseInfo *info, gpointer ptr)
+{
+    sqgi_push_registered_instance_for_info(v, info, ptr);
+    if (!ptr) return;
+    if (sq_gettype(v, -1) != OT_INSTANCE) return;
+    GIInfoType itype = g_base_info_get_type(info);
+    if (itype != GI_INFO_TYPE_STRUCT && itype != GI_INFO_TYPE_BOXED &&
+        itype != GI_INFO_TYPE_UNION) return;
+    GType gtype = g_registered_type_info_get_g_type((GIRegisteredTypeInfo *)info);
+    sqgi_boxed_track_ownership(v, -1, ptr, gtype);
+}
+
+/* Constructor-return version: handles GIR's floating-ref convention for
+ * GVariant. Most GVariant.new_* are annotated transfer-none because they
+ * return a *floating* reference. We sink the float and treat the result
+ * as owned, so the wrapper's release hook frees it. For everything else,
+ * mirror the explicit transfer annotation. */
+static void sqgi_push_constructor_record(HSQUIRRELVM v, GIBaseInfo *info,
+                                         gpointer ptr, GITransfer transfer)
+{
+    if (!ptr) { sq_pushnull(v); return; }
+    GType gtype = g_registered_type_info_get_g_type((GIRegisteredTypeInfo *)info);
+
+    gboolean own = (transfer == GI_TRANSFER_EVERYTHING);
+    if (!own && gtype == G_TYPE_VARIANT && g_variant_is_floating((GVariant *)ptr)) {
+        g_variant_ref_sink((GVariant *)ptr);
+        own = TRUE;
+    }
+    if (own) {
+        sqgi_push_owned_registered_instance(v, info, ptr);
+    } else {
+        sqgi_push_registered_instance_for_info(v, info, ptr);
+    }
+}
+
 /* ── Function data userdata release hook ─────────────────────────────────── */
 
 typedef struct {
@@ -394,6 +432,12 @@ static void sqgi_gi_free_in_arg_allocs(GICallableInfo *callable, GIArgument *in_
                 in_args[arg_to_in[i]].v_pointer) {
                 g_strfreev((char **)in_args[arg_to_in[i]].v_pointer);
                 in_args[arg_to_in[i]].v_pointer = NULL;
+            } else if (ptag == GI_TYPE_TAG_INTERFACE &&
+                       in_args[arg_to_in[i]].v_pointer) {
+                /* We only own the spine (gpointer[]); element refs/lifetime
+                 * are managed by their Squirrel wrappers. */
+                g_free(in_args[arg_to_in[i]].v_pointer);
+                in_args[arg_to_in[i]].v_pointer = NULL;
             }
             g_base_info_unref(param);
         }
@@ -433,6 +477,10 @@ static void sqgi_push_out_arg(HSQUIRRELVM v, GICallableInfo *callable,
             if (blen >= 0 && out_storage[arg_to_out[i]].v_pointer) {
                 sq_pushstring(v, (const SQChar *)out_storage[arg_to_out[i]].v_pointer,
                               (SQInteger)blen);
+                if (atransfer == GI_TRANSFER_EVERYTHING) {
+                    g_free(out_storage[arg_to_out[i]].v_pointer);
+                    out_storage[arg_to_out[i]].v_pointer = NULL;
+                }
                 g_base_info_unref(elem);
                 return;
             }
@@ -443,6 +491,10 @@ static void sqgi_push_out_arg(HSQUIRRELVM v, GICallableInfo *callable,
                 out_storage[arg_to_out[i]].v_pointer) {
                 const char *bp = (const char *)out_storage[arg_to_out[i]].v_pointer;
                 sq_pushstring(v, (const SQChar *)bp, (SQInteger)strlen(bp));
+                if (atransfer == GI_TRANSFER_EVERYTHING) {
+                    g_free(out_storage[arg_to_out[i]].v_pointer);
+                    out_storage[arg_to_out[i]].v_pointer = NULL;
+                }
                 g_base_info_unref(elem);
                 return;
             }
@@ -975,6 +1027,12 @@ static SQInteger gi_function_call(HSQUIRRELVM v)
         if (len >= 0 && (elem_tag == GI_TYPE_TAG_UINT8 || elem_tag == GI_TYPE_TAG_INT8)) {
             sq_pushstring(v, (const SQChar *)return_arg.v_pointer, (SQInteger)len);
             pushed_return = TRUE;
+            /* Release the GLib-allocated buffer if the callee transferred it
+             * (e.g. g_base64_decode returns a guint8* with transfer-full). */
+            if (ret_transfer == GI_TRANSFER_EVERYTHING) {
+                g_free(return_arg.v_pointer);
+                return_arg.v_pointer = NULL;
+            }
         }
 
         g_base_info_unref(elem_type);
@@ -994,7 +1052,11 @@ static SQInteger gi_function_call(HSQUIRRELVM v)
                      * leaking 1 strong ref per construction. */
                     sqgi_push_gi_argument(v, &return_arg, ret_type, ret_transfer);
                 } else {
-                    sqgi_push_registered_instance_for_info(v, iface, return_arg.v_pointer);
+                    /* Boxed/struct/union constructor: install a release
+                     * hook based on the GType so refcounted records
+                     * (GVariant / GBytes / generic G_TYPE_BOXED) are
+                     * freed when their Squirrel wrapper is GC'd. */
+                    sqgi_push_constructor_record(v, iface, return_arg.v_pointer, ret_transfer);
                 }
                 g_base_info_unref(iface);
             } else {
@@ -1316,6 +1378,11 @@ SQRESULT sqgi_gi_load_namespace(HSQUIRRELVM v, const char *namespace_name,
             sq_pushstring(v, name, -1);
             sqgi_push_gi_argument(v, &cval, ctype, GI_TRANSFER_NOTHING);
             sq_rawset(v, -3);
+            /* The constant value memory (typically a heap-duped string) is
+             * owned by GLib's GI machinery via g_memdup2 — release it here
+             * since sqgi_push_gi_argument copied/converted whatever it
+             * needed. */
+            g_constant_info_free_value((GIConstantInfo *)info, &cval);
             g_base_info_unref(ctype);
             break;
         }

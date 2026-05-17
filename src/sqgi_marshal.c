@@ -265,6 +265,12 @@ void sqgi_push_gi_argument(HSQUIRRELVM v, GIArgument *arg,
                     sq_createinstance(v, -1);
                     sq_remove(v, -2);
                     sq_setinstanceup(v, -1, arg->v_pointer);
+                    /* If the callee transferred ownership of a refcounted
+                     * boxed (GVariant / GBytes / G_TYPE_BOXED descendant),
+                     * arrange for the Squirrel GC to release it. */
+                    if (transfer == GI_TRANSFER_EVERYTHING) {
+                        sqgi_boxed_track_ownership(v, -1, arg->v_pointer, gtype);
+                    }
                 } else {
                     sq_pushuserpointer(v, arg->v_pointer);
                 }
@@ -282,6 +288,7 @@ void sqgi_push_gi_argument(HSQUIRRELVM v, GIArgument *arg,
         /* Convert to a Squirrel array */
         GIArrayType atype = g_type_info_get_array_type(type_info);
         GITypeInfo *param = g_type_info_get_param_type(type_info, 0);
+        GITypeTag elem_tag = g_type_info_get_tag(param);
         sq_newarray(v, 0);
 
         if (atype == GI_ARRAY_TYPE_C && arg->v_pointer) {
@@ -305,6 +312,20 @@ void sqgi_push_gi_argument(HSQUIRRELVM v, GIArgument *arg,
                     sq_arrayappend(v, -2);
                 }
             }
+            /* Free the array spine / contents as required by the GIR
+             * transfer annotation. We only know how to free a few element
+             * kinds — refuse to free anything else to avoid double-free. */
+            if (transfer == GI_TRANSFER_EVERYTHING &&
+                (elem_tag == GI_TYPE_TAG_UTF8 || elem_tag == GI_TYPE_TAG_FILENAME)) {
+                g_strfreev((char **)arg->v_pointer);
+                arg->v_pointer = NULL;
+            } else if (transfer == GI_TRANSFER_CONTAINER ||
+                       (transfer == GI_TRANSFER_EVERYTHING && len < 0)) {
+                /* Plain pointer-array spine (no per-element teardown we
+                 * can safely apply): free just the array. */
+                g_free(arg->v_pointer);
+                arg->v_pointer = NULL;
+            }
         } else if (atype == GI_ARRAY_TYPE_PTR_ARRAY) {
             GPtrArray *pa = (GPtrArray *)arg->v_pointer;
             if (pa) {
@@ -312,6 +333,11 @@ void sqgi_push_gi_argument(HSQUIRRELVM v, GIArgument *arg,
                     GIArgument elem = { .v_pointer = pa->pdata[pi] };
                     sqgi_push_gi_argument(v, &elem, param, GI_TRANSFER_NOTHING);
                     sq_arrayappend(v, -2);
+                }
+                if (transfer == GI_TRANSFER_EVERYTHING ||
+                    transfer == GI_TRANSFER_CONTAINER) {
+                    g_ptr_array_unref(pa);
+                    arg->v_pointer = NULL;
                 }
             }
         }
@@ -322,11 +348,21 @@ void sqgi_push_gi_argument(HSQUIRRELVM v, GIArgument *arg,
     case GI_TYPE_TAG_GLIST:
     case GI_TYPE_TAG_GSLIST: {
         GITypeInfo *param = g_type_info_get_param_type(type_info, 0);
+        gboolean is_slist = (g_type_info_get_tag(type_info) == GI_TYPE_TAG_GSLIST);
         sq_newarray(v, 0);
         for (GList *l = (GList *)arg->v_pointer; l; l = l->next) {
             GIArgument elem = { .v_pointer = l->data };
             sqgi_push_gi_argument(v, &elem, param, GI_TRANSFER_NOTHING);
             sq_arrayappend(v, -2);
+        }
+        /* Container-or-full transfer ⇒ free the spine; we don't have a
+         * generic per-element freer so transfer-full degrades to
+         * container (leaks elements, never double-frees). */
+        if (arg->v_pointer && (transfer == GI_TRANSFER_CONTAINER ||
+                               transfer == GI_TRANSFER_EVERYTHING)) {
+            if (is_slist) g_slist_free((GSList *)arg->v_pointer);
+            else          g_list_free((GList *)arg->v_pointer);
+            arg->v_pointer = NULL;
         }
         g_base_info_unref(param);
         break;
@@ -445,6 +481,46 @@ SQRESULT sqgi_get_gi_argument(HSQUIRRELVM v, SQInteger idx,
             }
             strv[n] = NULL;
             arg->v_pointer = strv;
+
+            g_base_info_unref(param);
+            break;
+        }
+
+        /* C arrays of interface-typed pointers: GObject*, GVariant*,
+         * boxed records, etc. Used by GVariant.new_tuple/new_array,
+         * g_object_bind_property_with_closures, GListStore.splice, …
+         * We build a gpointer[] of the underlying instance pointers and
+         * hand it to the callee. Element ownership is NOT transferred —
+         * we only own the spine array, freed in the caller post-dispatch. */
+        if (atype == GI_ARRAY_TYPE_C && ptag == GI_TYPE_TAG_INTERFACE &&
+            (sq_gettype(v, idx) == OT_ARRAY || sq_gettype(v, idx) == OT_TABLE)) {
+
+            SQInteger n = sq_getsize(v, idx);
+            if (n < 0) {
+                g_base_info_unref(param);
+                return sq_throwerror(v, "sqgi: invalid array size for interface array argument");
+            }
+
+            gpointer *ptrv = g_new0(gpointer, (gsize)n + 1);
+            for (SQInteger i = 0; i < n; i++) {
+                sq_push(v, idx);
+                sq_pushinteger(v, i);
+                if (SQ_SUCCEEDED(sq_get(v, -2))) {
+                    SQUserPointer up = NULL;
+                    if (sq_gettype(v, -1) == OT_NULL) {
+                        ptrv[i] = NULL;
+                    } else if (SQ_SUCCEEDED(sq_getinstanceup(v, -1, &up, NULL, SQFalse)) && up) {
+                        ptrv[i] = up;
+                    } else if (SQ_SUCCEEDED(sq_getuserpointer(v, -1, &up))) {
+                        ptrv[i] = up;
+                    } else {
+                        ptrv[i] = NULL;
+                    }
+                }
+                sq_pop(v, 2);
+            }
+            ptrv[n] = NULL;
+            arg->v_pointer = ptrv;
 
             g_base_info_unref(param);
             break;
