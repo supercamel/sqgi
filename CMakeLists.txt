@@ -215,6 +215,25 @@ set_tests_properties(sqgi_test_cli_dash_e_syntax_error PROPERTIES
     WILL_FAIL TRUE
 )
 
+add_test(
+    NAME sqgi_test_shebang
+    COMMAND bash ${CMAKE_SOURCE_DIR}/test/test_shebang.sh ${CMAKE_BINARY_DIR}/sqgi
+)
+set_tests_properties(sqgi_test_shebang PROPERTIES
+    ENVIRONMENT "${SQGI_TEST_ENV}"
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+)
+
+add_test(
+    NAME sqgi_test_sqgipkg
+    COMMAND bash ${CMAKE_SOURCE_DIR}/tools/sqgipkg_tests/run_tests.sh ${CMAKE_BINARY_DIR}/sqgi
+)
+set_tests_properties(sqgi_test_sqgipkg PROPERTIES
+    ENVIRONMENT "${SQGI_TEST_ENV}"
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    TIMEOUT 300
+)
+
 # ── In-tree C tests (test/c/) ────────────────────────────────────────────────
 # These exercise internal libsqgi paths that pure-Squirrel tests cannot reach,
 # such as cross-thread signal marshalling. Each test is a standalone C binary
@@ -285,6 +304,10 @@ install(TARGETS sqgi
 
 install(TARGETS sqgi-bin
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+)
+
+install(PROGRAMS tools/sqgipkg
+    DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
 
 install(FILES ${SQGI_PUBLIC_HEADERS}

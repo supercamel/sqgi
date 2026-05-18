@@ -111,6 +111,23 @@ Notes for newcomers:
 2. The `\n` inside the string is a *newline*. Without it, the next thing you print would be on the same line.
 3. There is no semicolon at the end. Squirrel allows them but does not require them; both styles are accepted.
 
+You can also make a script executable with a shebang:
+
+```squirrel
+#!/usr/bin/env sqgi
+print("hello from sqgi\n")
+```
+
+Then run it directly:
+
+```sh
+chmod +x hello.nut
+./hello.nut
+```
+
+Use an absolute interpreter path, such as `#!/bin/sqgi`, if that is where
+`sqgi` is installed on your system.
+
 ## 1.6 Loading libraries
 
 To use a library you `import` it. The result is a namespace you store in a local variable:

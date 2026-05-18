@@ -70,6 +70,26 @@ for test_file in "${TESTS[@]}"; do
   echo
 done
 
+echo "==> Running test_shebang.sh"
+if bash "${ROOT_DIR}/test/test_shebang.sh" "${SQGI_BIN}"; then
+  echo "PASS: test_shebang.sh"
+  PASS_COUNT=$((PASS_COUNT + 1))
+else
+  echo "FAIL: test_shebang.sh"
+  FAIL_COUNT=$((FAIL_COUNT + 1))
+fi
+echo
+
+echo "==> Running tools/sqgipkg_tests/run_tests.sh"
+if bash "${ROOT_DIR}/tools/sqgipkg_tests/run_tests.sh" "${SQGI_BIN}"; then
+  echo "PASS: tools/sqgipkg_tests/run_tests.sh"
+  PASS_COUNT=$((PASS_COUNT + 1))
+else
+  echo "FAIL: tools/sqgipkg_tests/run_tests.sh"
+  FAIL_COUNT=$((FAIL_COUNT + 1))
+fi
+echo
+
 echo "Summary: ${PASS_COUNT} passed, ${FAIL_COUNT} failed"
 
 if [[ ${FAIL_COUNT} -ne 0 ]]; then

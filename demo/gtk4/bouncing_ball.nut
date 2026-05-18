@@ -93,7 +93,7 @@ app.connect("activate", function() {
         cr.set_font_size(12)
         cr.move_to(10, 18)
         cr.show_text(format("frame %d  pos (%.0f, %.0f)", S.frames, S.x, S.y))
-    }, null, null)
+    }, null, function(_) {})
 
     // Per-frame tick. add_tick_callback(cb, user_data, destroy_notify);
     // cb signature: (widget, frame_clock) → bool (true = keep firing).
@@ -116,7 +116,7 @@ app.connect("activate", function() {
         S.frames = S.frames + 1
         widget.queue_draw()
         return true  // G_SOURCE_CONTINUE
-    }, null, null)
+    }, null, function(_) {})
 
     win.set_child(area)
     win.present()

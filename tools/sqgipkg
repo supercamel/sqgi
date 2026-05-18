@@ -1,0 +1,1589 @@
+#!/usr/bin/env sqgi
+
+local GLib = import("GLib")
+local Gio = import("Gio")
+
+class SqgiPkg {
+    app = null
+    raw_args = null
+
+    constructor(args) {
+        this.raw_args = args
+        this.app = Gio.Application.new(
+            "org.sqgi.sqgipkg",
+            Gio.ApplicationFlags.handles_command_line
+        )
+
+        this.app.add_main_option("name", 'n', 0, GLib.OptionArg.string,
+            "Application name shown to users", "NAME")
+        this.app.add_main_option("manifest", 'm', 0, GLib.OptionArg.string,
+            "Distribution manifest JSON file", "FILE")
+        this.app.add_main_option("target", 't', 0, GLib.OptionArg.string,
+            "Package target: appimage, appdir, tarball", "TARGET")
+        this.app.add_main_option("build-dir", 0, 0, GLib.OptionArg.string,
+            "SQGI build directory", "DIR")
+        this.app.add_main_option("output", 'o', 0, GLib.OptionArg.string,
+            "Output directory", "DIR")
+        this.app.add_main_option("appimagetool", 0, 0, GLib.OptionArg.string,
+            "appimagetool executable", "PATH")
+        this.app.add_main_option("appimagetool-cache", 0, 0, GLib.OptionArg.string,
+            "Directory used for downloaded appimagetool", "DIR")
+        this.app.add_main_option("refresh-appimagetool", 0, 0, GLib.OptionArg.none,
+            "Download the latest appimagetool before building", null)
+        this.app.add_main_option("keep-appdir", 0, 0, GLib.OptionArg.none,
+            "Keep the staged AppDir after building", null)
+        this.app.add_main_option("doctor", 0, 0, GLib.OptionArg.none,
+            "Check manifest paths, script compilation, and portability hints", null)
+        this.app.add_main_option("smoke-test", 0, 0, GLib.OptionArg.string,
+            "Run the built AppImage with ARGS after packaging", "ARGS")
+        this.app.add_main_option("smoke-test-isolated", 0, 0, GLib.OptionArg.none,
+            "Run smoke test with host GStreamer plugin discovery disabled", null)
+        this.app.add_main_option("init", 0, 0, GLib.OptionArg.string,
+            "Write a starter manifest: simple, gtk4, gtk4-gstreamer, native-gobject, native-vala", "TEMPLATE")
+        this.app.add_main_option("no-compile-scripts", 0, 0, GLib.OptionArg.none,
+            "Copy .nut scripts as source instead of compiling bytecode", null)
+        this.app.add_main_option("script", 0, 0, GLib.OptionArg.string,
+            "Add a project .nut script or PATH=DEST script module", "SPEC")
+        this.app.add_main_option("script-dir", 0, 0, GLib.OptionArg.string,
+            "Recursively add .nut scripts from a project directory", "DIR")
+        this.app.add_main_option("file", 0, 0, GLib.OptionArg.string,
+            "Copy PATH=DEST into the AppDir without special handling", "SPEC")
+        this.app.add_main_option("library", 0, 0, GLib.OptionArg.string,
+            "Copy shared library file or directory into usr/lib", "PATH")
+        this.app.add_main_option("include", 0, 0, GLib.OptionArg.string,
+            "Copy PATH or PATH=DEST into the AppDir", "SPEC")
+        this.app.add_main_option("resource", 0, 0, GLib.OptionArg.string,
+            "Copy project resource into usr/share/sqgi/app/resources", "PATH")
+        this.app.add_main_option("gstreamer-plugin", 0, 0, GLib.OptionArg.string,
+            "Copy GStreamer plugin file or directory into usr/lib/gstreamer-1.0", "PATH")
+        this.app.add_main_option("typelib", 0, 0, GLib.OptionArg.string,
+            "Copy GI typelib file or directory into usr/lib/girepository-1.0", "PATH")
+        this.app.add_main_option("gsettings-schema", 0, 0, GLib.OptionArg.string,
+            "Copy GSettings schema file or directory into usr/share/glib-2.0/schemas", "PATH")
+        this.app.add_main_option("gtk-data", 0, 0, GLib.OptionArg.string,
+            "Copy GTK/icon/theme data into usr/share", "PATH")
+        this.app.add_main_option("gio-module", 0, 0, GLib.OptionArg.string,
+            "Copy GIO module file or directory into usr/lib/gio/modules", "PATH")
+        this.app.add_main_option("gdk-pixbuf-loader", 0, 0, GLib.OptionArg.string,
+            "Copy gdk-pixbuf loader file or directory into usr/lib/gdk-pixbuf-2.0/2.10.0/loaders", "PATH")
+
+        this.app.connect("command-line", function(command_line) {
+            try {
+                local opts = this.parse_args(this.raw_args)
+                if (opts.help) {
+                    this.usage()
+                    return 0
+                }
+
+                if (opts.init_template != "") {
+                    this.init_manifest(opts.init_template)
+                    return 0
+                }
+
+                if (opts.doctor) {
+                    this.validate_doctor_options(opts)
+                    return this.doctor(opts)
+                }
+
+                this.validate_options(opts)
+
+                if (opts.target == "appimage") {
+                    this.build_appimage(opts)
+                } else if (opts.target == "appdir") {
+                    this.fail("--target appdir is reserved but not implemented yet")
+                } else if (opts.target == "tarball") {
+                    this.fail("--target tarball is reserved but not implemented yet")
+                } else {
+                    this.fail("unknown target: " + opts.target)
+                }
+
+                return 0
+            } catch (e) {
+                print(e + "\n")
+                return 1
+            }
+        }.bindenv(this))
+    }
+
+    function usage() {
+        print(@"Usage:
+  sqgipkg SCRIPT --name NAME --target appimage [options]
+  sqgipkg --manifest sqgipkg.json [options]
+  sqgipkg SCRIPT --name NAME --target appdir
+  sqgipkg SCRIPT --name NAME --target tarball
+
+Options:
+  --manifest FILE     Load distribution settings from a JSON manifest
+  --name NAME          Application name shown to users
+  --target TARGET      Package target: appimage, appdir, tarball
+  --build-dir DIR      SQGI build directory (default: build)
+  --output DIR         Output directory (default: dist)
+  --appimagetool PATH  appimagetool executable (default: appimagetool in PATH)
+  --appimagetool-cache DIR
+                       Download cache (default: ~/.cache/sqgipkg/tools)
+  --refresh-appimagetool
+                       Download the latest appimagetool before building
+  --keep-appdir        Keep the staged AppDir after building
+  --doctor             Check manifest paths, compilation, and portability hints
+  --smoke-test ARGS    Run the built AppImage with ARGS after packaging
+  --smoke-test-isolated
+                       Smoke test without host GStreamer plugin discovery
+  --init TEMPLATE      Write a starter manifest: simple, gtk4, gtk4-gstreamer, native-gobject, native-vala
+  --no-compile-scripts Copy .nut scripts as source instead of bytecode
+  --script SPEC        Add a project .nut script or PATH=DEST module
+  --script-dir DIR     Recursively add .nut scripts from a project directory
+  --file SPEC          Copy PATH=DEST into the AppDir exactly as declared
+  --library PATH       Copy shared library file or directory under usr/lib
+  --include SPEC       Copy PATH or PATH=DEST into the AppDir
+  --resource PATH      Copy project resource under usr/share/sqgi/app/resources
+  --gstreamer-plugin PATH
+                       Copy GStreamer plugin(s) under usr/lib/gstreamer-1.0
+  --typelib PATH       Copy GI typelib(s) under usr/lib/girepository-1.0
+  --gsettings-schema PATH
+                       Copy schema(s) under usr/share/glib-2.0/schemas
+  --gtk-data PATH      Copy GTK/icon/theme data under usr/share
+  --gio-module PATH    Copy GIO module(s) under usr/lib/gio/modules
+  --gdk-pixbuf-loader PATH
+                       Copy gdk-pixbuf loader(s) under the loader directory
+  -h, --help           Show this help
+
+Examples:
+  sqgipkg --init gtk4
+  sqgipkg --manifest sqgipkg.json --doctor
+  sqgipkg --manifest sqgipkg.json
+  sqgipkg --manifest sqgipkg.json --smoke-test '--timeout=2'
+  sqgipkg main.nut --name Squrl --target appimage
+  sqgipkg main.nut --name Squrl --target appimage --script-dir .
+  sqgipkg main.nut --name Squrl --target appimage --file data/theme.css=usr/share/sqgi/app/theme.css
+  sqgipkg main.nut --name Squrl --target appimage --library build/libmyapp.so --typelib build/MyApp-1.0.typelib
+  sqgipkg main.nut --name Squrl --target appimage --resource assets
+  sqgipkg main.nut --name Player --target appimage --gstreamer-plugin /usr/lib/x86_64-linux-gnu/gstreamer-1.0
+  sqgipkg main.nut --name Squrl --target appdir
+  sqgipkg main.nut --name Squrl --target tarball
+")
+    }
+
+    function fail(message) {
+        throw "sqgipkg: " + message
+    }
+
+    function info(message) {
+        print("sqgipkg: " + message + "\n")
+        stdout.flush()
+    }
+
+    function path_exists(path) {
+        return Gio.File.new_for_path(path).query_exists(null)
+    }
+
+    function mkdir_p(path) {
+        local rc = GLib.mkdir_with_parents(path, 493)
+        if (rc != 0) this.fail("failed to create directory: " + path)
+    }
+
+    function write_file(path, contents) {
+        local ok = GLib.file_set_contents(path, contents, -1)
+        if (!ok) this.fail("failed to write file: " + path)
+    }
+
+    function read_file(path) {
+        local data = Gio.File.new_for_path(path).load_contents(null)
+        return (typeof(data) == "array") ? data[0] : data
+    }
+
+    function file_contains(path, needle) {
+        try {
+            return this.read_file(path).find(needle) != null
+        } catch (e) {
+            return false
+        }
+    }
+
+    function chmod_exec(path) {
+        local rc = GLib.chmod(path, 493)
+        if (rc != 0) this.fail("failed to make executable: " + path)
+    }
+
+    function shell_quote(value) {
+        local out = "'"
+        for (local i = 0; i < value.len(); i++) {
+            local ch = value.slice(i, i + 1)
+            out += (ch == "'") ? "'\\''" : ch
+        }
+        return out + "'"
+    }
+
+    function run_shell(command, description) {
+        local status = system(command)
+        if (status != 0) this.fail(description + " failed")
+    }
+
+    function run_shell_in_dir(command, dir, description) {
+        local status = system("cd " + this.shell_quote(dir) + " && " + command)
+        if (status != 0) this.fail(description + " failed")
+    }
+
+    function contains_slash(value) {
+        for (local i = 0; i < value.len(); i++) {
+            if (value.slice(i, i + 1) == "/") return true
+        }
+        return false
+    }
+
+    function executable_available(path) {
+        if (this.contains_slash(path)) return this.path_exists(path)
+        return GLib.find_program_in_path(path) != null
+    }
+
+    function executable_path(path) {
+        if (this.contains_slash(path)) return this.path_exists(path) ? path : null
+        return GLib.find_program_in_path(path)
+    }
+
+    function dirname(path) {
+        return GLib.path_get_dirname(path)
+    }
+
+    function basename(path) {
+        return GLib.path_get_basename(path)
+    }
+
+    function strip_trailing_slashes(path) {
+        while (path.len() > 1 && path.slice(path.len() - 1) == "/")
+            path = path.slice(0, path.len() - 1)
+        return path
+    }
+
+    function abs_path(path) {
+        if (GLib.path_is_absolute(path)) return path
+        if (path.len() >= 2 && path.slice(0, 2) == "./") path = path.slice(2)
+        return GLib.build_filenamev([GLib.get_current_dir(), path])
+    }
+
+    function default_appimagetool_cache_dir() {
+        return GLib.build_filenamev([GLib.get_user_cache_dir(), "sqgipkg", "tools"])
+    }
+
+    function machine_arch() {
+        local tmp = GLib.build_filenamev([GLib.get_tmp_dir(), "sqgipkg-uname-" + GLib.get_monotonic_time()])
+        local status = system("uname -m > " + this.shell_quote(tmp))
+        if (status == 0 && this.path_exists(tmp)) {
+            try {
+                local data = Gio.File.new_for_path(tmp).load_contents(null)
+                remove(tmp)
+                local text = (typeof(data) == "array") ? data[0] : data
+                while (text.len() > 0 && (text.slice(text.len() - 1) == "\n" || text.slice(text.len() - 1) == "\r"))
+                    text = text.slice(0, text.len() - 1)
+                if (text.len() > 0) return text
+            } catch (e) {}
+        }
+        return "x86_64"
+    }
+
+    function appimagetool_asset_arch() {
+        local arch = this.machine_arch()
+        if (arch == "amd64") return "x86_64"
+        if (arch == "arm64") return "aarch64"
+        return arch
+    }
+
+    function appimagetool_download_url() {
+        return "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-" +
+            this.appimagetool_asset_arch() + ".AppImage"
+    }
+
+    function downloader_command(url, dest) {
+        if (this.executable_available("curl"))
+            return "curl -L --fail --show-error --output " + this.shell_quote(dest) + " " + this.shell_quote(url)
+        if (this.executable_available("wget"))
+            return "wget -O " + this.shell_quote(dest) + " " + this.shell_quote(url)
+        this.fail("cannot download appimagetool: install curl or wget")
+    }
+
+    function download_latest_appimagetool(cache_dir) {
+        this.mkdir_p(cache_dir)
+
+        local tool = GLib.build_filenamev([cache_dir, "appimagetool-" + this.appimagetool_asset_arch() + ".AppImage"])
+        local tmp = tool + ".download"
+        local url = this.appimagetool_download_url()
+
+        this.info("downloading latest appimagetool")
+        this.run_shell(this.downloader_command(url, tmp), "downloading appimagetool")
+        this.chmod_exec(tmp)
+        if (this.path_exists(tool)) remove(tool)
+        rename(tmp, tool)
+        this.chmod_exec(tool)
+
+        return tool
+    }
+
+    function resolve_appimagetool(opts) {
+        if (opts.refresh_appimagetool)
+            return this.download_latest_appimagetool(opts.appimagetool_cache)
+
+        local existing = this.executable_path(opts.appimagetool)
+        if (existing != null) return existing
+
+        return this.download_latest_appimagetool(opts.appimagetool_cache)
+    }
+
+    function is_alnum_lower(ch) {
+        local c = ch[0]
+        return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')
+    }
+
+    function trim_dashes(value) {
+        while (value.len() > 0 && value.slice(0, 1) == "-") value = value.slice(1)
+        while (value.len() > 0 && value.slice(value.len() - 1) == "-") value = value.slice(0, value.len() - 1)
+        return value
+    }
+
+    function split_once(value, needle) {
+        for (local i = 0; i < value.len(); i++) {
+            if (value.slice(i, i + 1) == needle) {
+                return [value.slice(0, i), value.slice(i + 1)]
+            }
+        }
+        return [value, null]
+    }
+
+    function split_lines(value) {
+        local out = []
+        local start = 0
+        for (local i = 0; i <= value.len(); i++) {
+            if (i == value.len() || value.slice(i, i + 1) == "\n") {
+                local line = value.slice(start, i)
+                if (line.len() > 0 && line.slice(line.len() - 1) == "\r")
+                    line = line.slice(0, line.len() - 1)
+                if (line.len() > 0) out.push(line)
+                start = i + 1
+            }
+        }
+        return out
+    }
+
+    function starts_with(value, prefix) {
+        return value.len() >= prefix.len() && value.slice(0, prefix.len()) == prefix
+    }
+
+    function ends_with(value, suffix) {
+        return value.len() >= suffix.len() && value.slice(value.len() - suffix.len()) == suffix
+    }
+
+    function replace_suffix(value, suffix, replacement) {
+        if (!this.ends_with(value, suffix)) return value
+        return value.slice(0, value.len() - suffix.len()) + replacement
+    }
+
+    function append_value(list, value) {
+        list.push(value)
+    }
+
+    function append_values(list, values) {
+        if (values == null) return
+        if (typeof(values) == "array") {
+            foreach (value in values) list.push(value)
+        } else {
+            list.push(values)
+        }
+    }
+
+    function table_get(table, key, fallback = null) {
+        try {
+            return table[key]
+        } catch (e) {
+            return fallback
+        }
+    }
+
+    function new_report() {
+        return {
+            scripts_compiled = 0,
+            scripts_copied = 0,
+            script_links = 0,
+            manual_files = 0,
+            includes = 0,
+            libraries = 0,
+            native_projects = 0,
+            resources = 0,
+            gstreamer_plugins = 0,
+            typelibs = 0,
+            gsettings_schemas = 0,
+            gtk_data = 0,
+            gio_modules = 0,
+            gdk_pixbuf_loaders = 0,
+            used_gtk = false,
+            used_gst = false,
+            warnings = []
+        }
+    }
+
+    function report_inc(opts, key) {
+        opts.report[key] = this.table_get(opts.report, key, 0) + 1
+    }
+
+    function report_warn(opts, message) {
+        opts.report.warnings.push(message)
+    }
+
+    function relative_dest(dest) {
+        if (dest.len() == 0) this.fail("empty destination in include spec")
+        if (GLib.path_is_absolute(dest)) this.fail("include destination must be relative: " + dest)
+
+        local part = ""
+        for (local i = 0; i <= dest.len(); i++) {
+            local end = i == dest.len()
+            local ch = end ? "/" : dest.slice(i, i + 1)
+            if (ch == "/") {
+                if (part == "..") this.fail("include destination cannot contain '..': " + dest)
+                part = ""
+            } else {
+                part += ch
+            }
+        }
+
+        return dest
+    }
+
+    function shell_has_matches(pattern) {
+        return system("find " + this.shell_quote(this.dirname(pattern)) + " -maxdepth 1 -name " + this.shell_quote(this.basename(pattern)) + " | grep -q .") == 0
+    }
+
+    function sanitize_id(raw) {
+        local lowered = raw.tolower()
+        local out = ""
+        local last_dash = false
+
+        for (local i = 0; i < lowered.len(); i++) {
+            local ch = lowered.slice(i, i + 1)
+            if (this.is_alnum_lower(ch)) {
+                out += ch
+                last_dash = false
+            } else if (!last_dash) {
+                out += "-"
+                last_dash = true
+            }
+        }
+
+        out = this.trim_dashes(out)
+        return (out.len() == 0) ? "sqgi-app" : out
+    }
+
+    function package_basename(raw) {
+        local out = ""
+        local last_dash = false
+
+        for (local i = 0; i < raw.len(); i++) {
+            local ch = raw.slice(i, i + 1)
+            local c = ch[0]
+            local control = c < 32 || c == 127
+            if (ch == "/" || control) {
+                if (!last_dash) {
+                    out += "-"
+                    last_dash = true
+                }
+            } else {
+                out += ch
+                last_dash = false
+            }
+        }
+
+        out = this.trim_dashes(out)
+        return (out.len() == 0) ? "sqgi-app" : out
+    }
+
+    function parse_args(args) {
+        local opts = {
+            script = "",
+            manifest = "",
+            name = "",
+            target = "",
+            build_dir = "build",
+            output_dir = "dist",
+            appimagetool = "appimagetool",
+            appimagetool_cache = this.default_appimagetool_cache_dir(),
+            refresh_appimagetool = false,
+            keep_appdir = false,
+            doctor = false,
+            smoke_test_args = null,
+            smoke_test_isolated = false,
+            init_template = "",
+            compile_scripts = true,
+            help = false,
+            report = this.new_report(),
+            scripts = [],
+            script_dirs = [],
+            files = [],
+            libraries = [],
+            native_projects = [],
+            includes = [],
+            resources = [],
+            gstreamer_plugins = [],
+            typelibs = [],
+            gsettings_schemas = [],
+            gtk_data = [],
+            gio_modules = [],
+            gdk_pixbuf_loaders = []
+        }
+
+        local i = 0
+        while (i < args.len()) {
+            local arg = args[i]
+            if (arg == "-h" || arg == "--help") {
+                opts.help = true
+                i++
+            } else if (arg == "--name" || arg == "-n") {
+                if (i + 1 >= args.len()) this.fail(arg + " requires a value")
+                opts.name = args[i + 1]
+                i += 2
+            } else if (arg == "--manifest" || arg == "-m") {
+                if (i + 1 >= args.len()) this.fail(arg + " requires a value")
+                opts.manifest = args[i + 1]
+                i += 2
+            } else if (arg == "--target" || arg == "-t") {
+                if (i + 1 >= args.len()) this.fail(arg + " requires a value")
+                opts.target = args[i + 1]
+                i += 2
+            } else if (arg == "--build-dir") {
+                if (i + 1 >= args.len()) this.fail("--build-dir requires a value")
+                opts.build_dir = args[i + 1]
+                i += 2
+            } else if (arg == "--output" || arg == "-o") {
+                if (i + 1 >= args.len()) this.fail(arg + " requires a value")
+                opts.output_dir = args[i + 1]
+                i += 2
+            } else if (arg == "--appimagetool") {
+                if (i + 1 >= args.len()) this.fail("--appimagetool requires a value")
+                opts.appimagetool = args[i + 1]
+                i += 2
+            } else if (arg == "--appimagetool-cache") {
+                if (i + 1 >= args.len()) this.fail("--appimagetool-cache requires a value")
+                opts.appimagetool_cache = args[i + 1]
+                i += 2
+            } else if (arg == "--refresh-appimagetool") {
+                opts.refresh_appimagetool = true
+                i++
+            } else if (arg == "--keep-appdir") {
+                opts.keep_appdir = true
+                i++
+            } else if (arg == "--doctor") {
+                opts.doctor = true
+                i++
+            } else if (arg == "--smoke-test") {
+                if (i + 1 >= args.len()) this.fail("--smoke-test requires a value")
+                opts.smoke_test_args = args[i + 1]
+                i += 2
+            } else if (arg == "--smoke-test-isolated") {
+                opts.smoke_test_isolated = true
+                i++
+            } else if (arg == "--init") {
+                if (i + 1 >= args.len()) this.fail("--init requires a value")
+                opts.init_template = args[i + 1]
+                i += 2
+            } else if (arg == "--no-compile-scripts") {
+                opts.compile_scripts = false
+                i++
+            } else if (arg == "--script") {
+                if (i + 1 >= args.len()) this.fail("--script requires a value")
+                this.append_value(opts.scripts, args[i + 1])
+                i += 2
+            } else if (arg == "--script-dir") {
+                if (i + 1 >= args.len()) this.fail("--script-dir requires a value")
+                this.append_value(opts.script_dirs, args[i + 1])
+                i += 2
+            } else if (arg == "--file") {
+                if (i + 1 >= args.len()) this.fail("--file requires a value")
+                this.append_value(opts.files, args[i + 1])
+                i += 2
+            } else if (arg == "--library") {
+                if (i + 1 >= args.len()) this.fail("--library requires a value")
+                this.append_value(opts.libraries, args[i + 1])
+                i += 2
+            } else if (arg == "--include") {
+                if (i + 1 >= args.len()) this.fail("--include requires a value")
+                this.append_value(opts.includes, args[i + 1])
+                i += 2
+            } else if (arg == "--resource") {
+                if (i + 1 >= args.len()) this.fail("--resource requires a value")
+                this.append_value(opts.resources, args[i + 1])
+                i += 2
+            } else if (arg == "--gstreamer-plugin") {
+                if (i + 1 >= args.len()) this.fail("--gstreamer-plugin requires a value")
+                this.append_value(opts.gstreamer_plugins, args[i + 1])
+                i += 2
+            } else if (arg == "--typelib") {
+                if (i + 1 >= args.len()) this.fail("--typelib requires a value")
+                this.append_value(opts.typelibs, args[i + 1])
+                i += 2
+            } else if (arg == "--gsettings-schema") {
+                if (i + 1 >= args.len()) this.fail("--gsettings-schema requires a value")
+                this.append_value(opts.gsettings_schemas, args[i + 1])
+                i += 2
+            } else if (arg == "--gtk-data") {
+                if (i + 1 >= args.len()) this.fail("--gtk-data requires a value")
+                this.append_value(opts.gtk_data, args[i + 1])
+                i += 2
+            } else if (arg == "--gio-module") {
+                if (i + 1 >= args.len()) this.fail("--gio-module requires a value")
+                this.append_value(opts.gio_modules, args[i + 1])
+                i += 2
+            } else if (arg == "--gdk-pixbuf-loader") {
+                if (i + 1 >= args.len()) this.fail("--gdk-pixbuf-loader requires a value")
+                this.append_value(opts.gdk_pixbuf_loaders, args[i + 1])
+                i += 2
+            } else if (arg.len() >= 2 && arg.slice(0, 2) == "--") {
+                this.fail("unknown option: " + arg)
+            } else {
+                if (opts.script != "") this.fail("only one script may be packaged")
+                opts.script = arg
+                i++
+            }
+        }
+
+        this.apply_manifest(opts)
+        return opts
+    }
+
+    function apply_manifest(opts) {
+        if (opts.manifest == "") return
+
+        local manifest_path = this.abs_path(opts.manifest)
+        if (!this.path_exists(manifest_path)) this.fail("manifest not found: " + opts.manifest)
+
+        local manifest = sqgi.json.parse(this.read_file(manifest_path))
+        local base_dir = this.dirname(manifest_path)
+
+        local script = this.table_get(manifest, "script")
+        local name = this.table_get(manifest, "name")
+        local target = this.table_get(manifest, "target")
+        local build_dir = this.table_get(manifest, "build_dir")
+        local output_dir = this.table_get(manifest, "output")
+        local appimagetool = this.table_get(manifest, "appimagetool")
+        local appimagetool_cache = this.table_get(manifest, "appimagetool_cache")
+        local refresh_appimagetool = this.table_get(manifest, "refresh_appimagetool")
+        local keep_appdir = this.table_get(manifest, "keep_appdir")
+        local compile_scripts = this.table_get(manifest, "compile_scripts")
+
+        if (opts.script == "" && script != null) opts.script = this.manifest_path(base_dir, script)
+        if (opts.name == "" && name != null) opts.name = name
+        if (opts.target == "" && target != null) opts.target = target
+        if (opts.build_dir == "build" && build_dir != null) opts.build_dir = this.manifest_path(base_dir, build_dir)
+        if (opts.output_dir == "dist" && output_dir != null) opts.output_dir = this.manifest_path(base_dir, output_dir)
+        if (opts.appimagetool == "appimagetool" && appimagetool != null) opts.appimagetool = this.manifest_path(base_dir, appimagetool)
+        if (opts.appimagetool_cache == this.default_appimagetool_cache_dir() && appimagetool_cache != null)
+            opts.appimagetool_cache = this.manifest_path(base_dir, appimagetool_cache)
+        if (!opts.refresh_appimagetool && refresh_appimagetool != null) opts.refresh_appimagetool = refresh_appimagetool
+        if (!opts.keep_appdir && keep_appdir != null) opts.keep_appdir = keep_appdir
+        if (compile_scripts != null) opts.compile_scripts = compile_scripts
+
+        this.append_values(opts.scripts, this.manifest_includes(base_dir, this.table_get(manifest, "scripts")))
+        this.append_values(opts.script_dirs, this.manifest_paths(base_dir, this.table_get(manifest, "script_dirs")))
+        this.append_values(opts.files, this.manifest_files(base_dir, this.table_get(manifest, "files")))
+        this.append_values(opts.libraries, this.manifest_paths(base_dir, this.table_get(manifest, "libraries")))
+        this.append_values(opts.native_projects, this.manifest_native_projects(base_dir, this.table_get(manifest, "native_projects")))
+        this.append_values(opts.includes, this.manifest_includes(base_dir, this.table_get(manifest, "includes")))
+        this.append_values(opts.resources, this.manifest_paths(base_dir, this.table_get(manifest, "resources")))
+        this.append_values(opts.gstreamer_plugins, this.manifest_paths(base_dir, this.table_get(manifest, "gstreamer_plugins")))
+        this.append_values(opts.typelibs, this.manifest_paths(base_dir, this.table_get(manifest, "typelibs")))
+        this.append_values(opts.gsettings_schemas, this.manifest_paths(base_dir, this.table_get(manifest, "gsettings_schemas")))
+        this.append_values(opts.gtk_data, this.manifest_paths(base_dir, this.table_get(manifest, "gtk_data")))
+        this.append_values(opts.gio_modules, this.manifest_paths(base_dir, this.table_get(manifest, "gio_modules")))
+        this.append_values(opts.gdk_pixbuf_loaders, this.manifest_paths(base_dir, this.table_get(manifest, "gdk_pixbuf_loaders")))
+    }
+
+    function manifest_path(base_dir, path) {
+        if (path == null) return null
+        if (GLib.path_is_absolute(path)) return path
+        return GLib.build_filenamev([base_dir, path])
+    }
+
+    function manifest_paths(base_dir, values) {
+        if (values == null) return []
+        local out = []
+        if (typeof(values) == "array") {
+            foreach (value in values) out.push(this.manifest_path(base_dir, value))
+        } else {
+            out.push(this.manifest_path(base_dir, values))
+        }
+        return out
+    }
+
+    function manifest_includes(base_dir, values) {
+        if (values == null) return []
+
+        local out = []
+        local items = (typeof(values) == "array") ? values : [values]
+        foreach (item in items) {
+            if (typeof(item) == "string") {
+                local parts = this.split_once(item, "=")
+                local src = this.manifest_path(base_dir, parts[0])
+                out.push(parts[1] == null ? src : (src + "=" + parts[1]))
+            } else {
+                local src = this.table_get(item, "path")
+                local dest = this.table_get(item, "dest")
+                if (src == null) this.fail("manifest include object requires path")
+                src = this.manifest_path(base_dir, src)
+                out.push(dest == null ? src : (src + "=" + dest))
+            }
+        }
+        return out
+    }
+
+    function manifest_files(base_dir, values) {
+        if (values == null) return []
+
+        local out = []
+        local items = (typeof(values) == "array") ? values : [values]
+        foreach (item in items) {
+            if (typeof(item) == "string") {
+                local parts = this.split_once(item, "=")
+                if (parts[1] == null) this.fail("manifest file string requires PATH=DEST")
+                local src = this.manifest_path(base_dir, parts[0])
+                out.push(src + "=" + parts[1])
+            } else {
+                local src = this.table_get(item, "path")
+                local dest = this.table_get(item, "dest")
+                if (src == null) this.fail("manifest file object requires path")
+                if (dest == null) this.fail("manifest file object requires dest")
+                src = this.manifest_path(base_dir, src)
+                out.push(src + "=" + dest)
+            }
+        }
+        return out
+    }
+
+    function manifest_command_list(value) {
+        if (value == null) return []
+        if (typeof(value) == "array") return value
+        return [value]
+    }
+
+    function manifest_native_project_paths(base_dir, project_dir, values) {
+        if (values == null) return []
+        local out = []
+        local items = (typeof(values) == "array") ? values : [values]
+        foreach (value in items) {
+            if (GLib.path_is_absolute(value)) out.push(value)
+            else out.push(GLib.build_filenamev([project_dir == null ? base_dir : project_dir, value]))
+        }
+        return out
+    }
+
+    function manifest_native_project_files(base_dir, project_dir, values) {
+        if (values == null) return []
+
+        local out = []
+        local items = (typeof(values) == "array") ? values : [values]
+        foreach (item in items) {
+            if (typeof(item) == "string") {
+                local parts = this.split_once(item, "=")
+                if (parts[1] == null) this.fail("native project file string requires PATH=DEST")
+                local src = GLib.path_is_absolute(parts[0])
+                    ? parts[0]
+                    : GLib.build_filenamev([project_dir == null ? base_dir : project_dir, parts[0]])
+                out.push(src + "=" + parts[1])
+            } else {
+                local src = this.table_get(item, "path")
+                local dest = this.table_get(item, "dest")
+                if (src == null) this.fail("native project file object requires path")
+                if (dest == null) this.fail("native project file object requires dest")
+                src = GLib.path_is_absolute(src)
+                    ? src
+                    : GLib.build_filenamev([project_dir == null ? base_dir : project_dir, src])
+                out.push(src + "=" + dest)
+            }
+        }
+        return out
+    }
+
+    function manifest_native_projects(base_dir, values) {
+        if (values == null) return []
+
+        local out = []
+        local items = (typeof(values) == "array") ? values : [values]
+        foreach (item in items) {
+            if (typeof(item) != "table") this.fail("native project entry must be an object")
+
+            local dir = this.table_get(item, "dir", ".")
+            local project_dir = this.manifest_path(base_dir, dir)
+            local build = this.manifest_command_list(this.table_get(item, "build"))
+            local libraries = this.manifest_native_project_paths(base_dir, project_dir, this.table_get(item, "libraries"))
+            local typelibs = this.manifest_native_project_paths(base_dir, project_dir, this.table_get(item, "typelibs"))
+            local files = this.manifest_native_project_files(base_dir, project_dir, this.table_get(item, "files"))
+
+            out.push({
+                dir = project_dir,
+                build = build,
+                libraries = libraries,
+                typelibs = typelibs,
+                files = files
+            })
+        }
+        return out
+    }
+
+    function validate_options(opts) {
+        if (opts.script == "") this.fail("missing script")
+        if (opts.name == "") this.fail("missing --name")
+        if (opts.target == "") this.fail("missing --target")
+    }
+
+    function validate_doctor_options(opts) {
+        if (opts.script == "") this.fail("doctor requires a script")
+        if (opts.name == "") this.fail("doctor requires a name")
+    }
+
+    function copy_sqgi_runtime(build_dir, appdir) {
+        local sqgi_bin = GLib.build_filenamev([build_dir, "sqgi"])
+        local libsqgi = GLib.build_filenamev([build_dir, "libsqgi.so.0"])
+
+        if (!this.path_exists(sqgi_bin))
+            this.fail("sqgi binary not found at " + sqgi_bin + "; run cmake --build " + build_dir + " first")
+        if (!this.path_exists(libsqgi))
+            this.fail("libsqgi not found in " + build_dir + "; run cmake --build " + build_dir + " first")
+
+        this.mkdir_p(GLib.build_filenamev([appdir, "usr", "bin"]))
+        this.mkdir_p(GLib.build_filenamev([appdir, "usr", "lib"]))
+
+        this.run_shell(
+            "cp " + this.shell_quote(sqgi_bin) + " " + this.shell_quote(GLib.build_filenamev([appdir, "usr", "bin", "sqgi"])),
+            "copying sqgi"
+        )
+
+        this.run_shell(
+            "cp -P " + this.shell_quote(build_dir) + "/libsqgi.so* " + this.shell_quote(GLib.build_filenamev([appdir, "usr", "lib"])) + "/",
+            "copying libsqgi"
+        )
+    }
+
+    function copy_into_appdir(src, appdir, dest_rel, description) {
+        local src_abs = this.abs_path(src)
+        if (!this.path_exists(src_abs)) this.fail(description + " not found: " + src)
+
+        dest_rel = this.relative_dest(dest_rel)
+        local dest_abs = GLib.build_filenamev([appdir, dest_rel])
+        this.mkdir_p(this.dirname(dest_abs))
+        this.run_shell(
+            "cp -a " + this.shell_quote(src_abs) + " " + this.shell_quote(dest_abs),
+            "copying " + description
+        )
+    }
+
+    function copy_to_dir(src, appdir, dest_dir_rel, description) {
+        local src_abs = this.abs_path(src)
+        if (!this.path_exists(src_abs)) this.fail(description + " not found: " + src)
+
+        local dest_dir_abs = GLib.build_filenamev([appdir, this.relative_dest(dest_dir_rel)])
+        this.mkdir_p(dest_dir_abs)
+        this.run_shell(
+            "cp -a " + this.shell_quote(src_abs) + " " + this.shell_quote(dest_dir_abs) + "/",
+            "copying " + description
+        )
+    }
+
+    function script_dest_for_source(src, script_root = null) {
+        local src_abs = this.abs_path(src)
+        if (script_root != null) {
+            local root = this.strip_trailing_slashes(this.abs_path(script_root))
+            local prefix = root + "/"
+            if (src_abs == root) return this.basename(src_abs)
+            if (this.starts_with(src_abs, prefix)) return src_abs.slice(prefix.len())
+        }
+        return this.basename(src_abs)
+    }
+
+    function scan_script_imports(opts, src_abs) {
+        if (!this.ends_with(src_abs, ".nut")) return
+        if (this.file_contains(src_abs, "import(\"Gtk") || this.file_contains(src_abs, "import('Gtk"))
+            opts.report.used_gtk = true
+        if (this.file_contains(src_abs, "import(\"Gst") || this.file_contains(src_abs, "import('Gst"))
+            opts.report.used_gst = true
+    }
+
+    function cnut_dest_for_script_dest(dest_rel) {
+        return this.ends_with(dest_rel, ".nut")
+            ? this.replace_suffix(dest_rel, ".nut", ".cnut")
+            : (dest_rel + ".cnut")
+    }
+
+    function compile_script_to(src_abs, dest_abs) {
+        local closure = loadfile(src_abs, true)
+        if (closure == null) this.fail("failed to compile script: " + src_abs)
+        writeclosuretofile(dest_abs, closure)
+    }
+
+    function link_script_compat(opts, appdir, script_dest_rel, cnut_dest_rel) {
+        if (script_dest_rel == cnut_dest_rel) return
+
+        local link_abs = GLib.build_filenamev([appdir, script_dest_rel])
+        local target_rel = this.basename(cnut_dest_rel)
+        this.run_shell(
+            "rm -f " + this.shell_quote(link_abs) + " && ln -s " + this.shell_quote(target_rel) + " " + this.shell_quote(link_abs),
+            "linking script bytecode compatibility path"
+        )
+        this.report_inc(opts, "script_links")
+    }
+
+    function stage_script_file(opts, appdir, src, dest_rel, description, staged) {
+        local src_abs = this.abs_path(src)
+        if (!this.path_exists(src_abs)) this.fail(description + " not found: " + src)
+        this.scan_script_imports(opts, src_abs)
+
+        dest_rel = this.relative_dest(dest_rel)
+        if (this.table_get(staged, dest_rel, false)) return null
+        staged[dest_rel] <- true
+
+        if (!opts.compile_scripts) {
+            this.copy_into_appdir(src_abs, appdir, dest_rel, description)
+            this.report_inc(opts, "scripts_copied")
+            return dest_rel
+        }
+
+        local cnut_dest_rel = this.relative_dest(this.cnut_dest_for_script_dest(dest_rel))
+        local cnut_abs = GLib.build_filenamev([appdir, cnut_dest_rel])
+        this.mkdir_p(this.dirname(cnut_abs))
+        this.compile_script_to(src_abs, cnut_abs)
+        this.report_inc(opts, "scripts_compiled")
+        this.link_script_compat(opts, appdir, dest_rel, cnut_dest_rel)
+        return cnut_dest_rel
+    }
+
+    function copy_or_compile_include_spec(opts, spec, appdir, staged) {
+        local parts = this.split_once(spec, "=")
+        local src = parts[0]
+        local dest = parts[1]
+        if (dest == null) {
+            dest = GLib.build_filenamev(["usr", "share", "sqgi", "resources", this.basename(src)])
+        }
+
+        if (this.ends_with(src, ".nut") || this.ends_with(dest, ".nut") || this.ends_with(dest, ".cnut")) {
+            this.stage_script_file(opts, appdir, src, dest, "include script", staged)
+            return
+        }
+
+        this.copy_into_appdir(src, appdir, dest, "include")
+        this.report_inc(opts, "includes")
+    }
+
+    function add_script_spec(opts, appdir, spec, staged) {
+        local parts = this.split_once(spec, "=")
+        local src = parts[0]
+        local dest = parts[1]
+        if (dest == null) dest = this.script_dest_for_source(src)
+        dest = GLib.build_filenamev(["usr", "share", "sqgi", "app", dest])
+        this.stage_script_file(opts, appdir, src, dest, "script", staged)
+    }
+
+    function list_nut_files(dir) {
+        local dir_abs = this.abs_path(dir)
+        if (this.ends_with(dir_abs, "/."))
+            dir_abs = dir_abs.slice(0, dir_abs.len() - 2)
+        if (!this.path_exists(dir_abs)) this.fail("script directory not found: " + dir)
+
+        local tmp = GLib.build_filenamev([GLib.get_tmp_dir(), "sqgipkg-scripts-" + GLib.get_monotonic_time()])
+        this.run_shell(
+            "find " + this.shell_quote(dir_abs) +
+            " \\( -name .git -o -name build -o -name dist -o -name AppDir -o -name '*.AppDir' \\) -type d -prune" +
+            " -o -type f -name '*.nut' -print | sort > " + this.shell_quote(tmp),
+            "listing script directory"
+        )
+        local files = this.split_lines(this.read_file(tmp))
+        remove(tmp)
+        return files
+    }
+
+    function add_script_dir(opts, appdir, dir, main_script_abs, staged) {
+        foreach (src in this.list_nut_files(dir)) {
+            local src_abs = this.abs_path(src)
+            if (src_abs == main_script_abs) continue
+
+            local dest = this.script_dest_for_source(src_abs, dir)
+            dest = GLib.build_filenamev(["usr", "share", "sqgi", "app", dest])
+            this.stage_script_file(opts, appdir, src_abs, dest, "script directory entry", staged)
+        }
+    }
+
+    function copy_file_spec(opts, spec, appdir) {
+        local parts = this.split_once(spec, "=")
+        local src = parts[0]
+        local dest = parts[1]
+        if (dest == null) this.fail("--file requires PATH=DEST")
+        this.copy_into_appdir(src, appdir, dest, "file")
+        this.report_inc(opts, "manual_files")
+    }
+
+    function copy_library(opts, path, appdir, description = "shared library") {
+        this.copy_to_dir(path, appdir, GLib.build_filenamev(["usr", "lib"]), description)
+        this.report_inc(opts, "libraries")
+    }
+
+    function stage_native_projects(opts, appdir) {
+        foreach (project in opts.native_projects) {
+            local dir = project.dir
+            if (!this.path_exists(dir)) this.fail("native project directory not found: " + dir)
+
+            foreach (command in project.build) {
+                this.info("native build: " + command)
+                this.run_shell_in_dir(command, dir, "native build")
+            }
+
+            this.report_inc(opts, "native_projects")
+
+            foreach (path in project.libraries)
+                this.copy_library(opts, path, appdir, "native shared library")
+
+            foreach (path in project.typelibs) {
+                this.copy_to_dir(path, appdir, GLib.build_filenamev(["usr", "lib", "girepository-1.0"]), "native GI typelib")
+                this.report_inc(opts, "typelibs")
+            }
+
+            foreach (spec in project.files)
+                this.copy_file_spec(opts, spec, appdir)
+        }
+    }
+
+    function copy_include_spec(spec, appdir) {
+        local parts = this.split_once(spec, "=")
+        local src = parts[0]
+        local dest = parts[1]
+        if (dest == null) {
+            dest = GLib.build_filenamev(["usr", "share", "sqgi", "resources", this.basename(src)])
+        }
+        this.copy_into_appdir(src, appdir, dest, "include")
+    }
+
+    function stage_extra_files(opts, appdir, staged_scripts) {
+        foreach (spec in opts.files)
+            this.copy_file_spec(opts, spec, appdir)
+
+        foreach (spec in opts.includes)
+            this.copy_or_compile_include_spec(opts, spec, appdir, staged_scripts)
+
+        foreach (path in opts.libraries)
+            this.copy_library(opts, path, appdir)
+
+        foreach (path in opts.resources) {
+            this.copy_to_dir(path, appdir, GLib.build_filenamev(["usr", "share", "sqgi", "app", "resources"]), "resource")
+            this.report_inc(opts, "resources")
+        }
+
+        foreach (path in opts.gstreamer_plugins) {
+            this.copy_to_dir(path, appdir, GLib.build_filenamev(["usr", "lib", "gstreamer-1.0"]), "GStreamer plugin")
+            this.report_inc(opts, "gstreamer_plugins")
+        }
+
+        foreach (path in opts.typelibs) {
+            this.copy_to_dir(path, appdir, GLib.build_filenamev(["usr", "lib", "girepository-1.0"]), "GI typelib")
+            this.report_inc(opts, "typelibs")
+        }
+
+        foreach (path in opts.gsettings_schemas) {
+            this.copy_to_dir(path, appdir, GLib.build_filenamev(["usr", "share", "glib-2.0", "schemas"]), "GSettings schema")
+            this.report_inc(opts, "gsettings_schemas")
+        }
+
+        foreach (path in opts.gtk_data) {
+            this.copy_to_dir(path, appdir, GLib.build_filenamev(["usr", "share"]), "GTK data")
+            this.report_inc(opts, "gtk_data")
+        }
+
+        foreach (path in opts.gio_modules) {
+            this.copy_to_dir(path, appdir, GLib.build_filenamev(["usr", "lib", "gio", "modules"]), "GIO module")
+            this.report_inc(opts, "gio_modules")
+        }
+
+        foreach (path in opts.gdk_pixbuf_loaders) {
+            this.copy_to_dir(path, appdir, GLib.build_filenamev(["usr", "lib", "gdk-pixbuf-2.0", "2.10.0", "loaders"]), "gdk-pixbuf loader")
+            this.report_inc(opts, "gdk_pixbuf_loaders")
+        }
+    }
+
+    function run_optional_tool(command, description) {
+        local status = system(command)
+        if (status != 0) this.info(description + " skipped or failed")
+    }
+
+    function postprocess_extra_files(appdir) {
+        local schema_dir = GLib.build_filenamev([appdir, "usr", "share", "glib-2.0", "schemas"])
+        if (this.path_exists(schema_dir) &&
+            this.executable_available("glib-compile-schemas") &&
+            this.shell_has_matches(GLib.build_filenamev([schema_dir, "*.xml"]))) {
+            this.run_optional_tool(
+                "glib-compile-schemas " + this.shell_quote(schema_dir),
+                "GSettings schema compilation"
+            )
+        }
+
+        local gio_dir = GLib.build_filenamev([appdir, "usr", "lib", "gio", "modules"])
+        if (this.path_exists(gio_dir) && this.executable_available("gio-querymodules")) {
+            this.run_optional_tool(
+                "gio-querymodules " + this.shell_quote(gio_dir),
+                "GIO module cache generation"
+            )
+        }
+
+        local pixbuf_dir = GLib.build_filenamev([appdir, "usr", "lib", "gdk-pixbuf-2.0", "2.10.0", "loaders"])
+        local pixbuf_cache = GLib.build_filenamev([appdir, "usr", "lib", "gdk-pixbuf-2.0", "2.10.0", "loaders.cache"])
+        if (this.path_exists(pixbuf_dir) &&
+            this.executable_available("gdk-pixbuf-query-loaders") &&
+            this.shell_has_matches(GLib.build_filenamev([pixbuf_dir, "*.so"]))) {
+            this.run_optional_tool(
+                "gdk-pixbuf-query-loaders " + this.shell_quote(pixbuf_dir) + "/* > " + this.shell_quote(pixbuf_cache),
+                "gdk-pixbuf loader cache generation"
+            )
+        }
+    }
+
+    function finalize_report(opts) {
+        if (opts.report.used_gst && opts.gstreamer_plugins.len() == 0) {
+            this.report_warn(opts, "GStreamer import detected, but no gstreamer_plugins entries were bundled")
+        }
+        if (opts.report.used_gtk && opts.gtk_data.len() == 0 && opts.typelibs.len() == 0) {
+            this.report_warn(opts, "GTK import detected; this AppImage may rely on host GTK assets and typelibs")
+        }
+    }
+
+    function print_report(opts, appdir, appimage) {
+        this.finalize_report(opts)
+
+        print("\nsqgipkg report\n")
+        print("  appdir: " + appdir + "\n")
+        if (appimage != null) print("  appimage: " + appimage + "\n")
+        print("  scripts: " + opts.report.scripts_compiled + " compiled, " +
+            opts.report.scripts_copied + " copied, " + opts.report.script_links + " compatibility links\n")
+        print("  resources: " + opts.report.resources + "\n")
+        print("  manual files: " + opts.report.manual_files + "\n")
+        print("  includes: " + opts.report.includes + "\n")
+        print("  native projects: " + opts.report.native_projects + "\n")
+        print("  shared libraries: " + opts.report.libraries + "\n")
+        print("  gstreamer plugins: " + opts.report.gstreamer_plugins + "\n")
+        print("  typelibs: " + opts.report.typelibs + "\n")
+        print("  gtk data: " + opts.report.gtk_data + "\n")
+        print("  gsettings schemas: " + opts.report.gsettings_schemas + "\n")
+        print("  gio modules: " + opts.report.gio_modules + "\n")
+        print("  gdk-pixbuf loaders: " + opts.report.gdk_pixbuf_loaders + "\n")
+
+        if (opts.report.warnings.len() > 0) {
+            print("  warnings:\n")
+            foreach (warning in opts.report.warnings)
+                print("    - " + warning + "\n")
+        }
+    }
+
+    function smoke_test_command(appimage, args, isolated) {
+        local prefix = "APPIMAGE_EXTRACT_AND_RUN=1 "
+        if (isolated)
+            prefix = "GST_PLUGIN_SYSTEM_PATH_1_0= GST_PLUGIN_SYSTEM_PATH= " + prefix
+        return prefix + this.shell_quote(appimage) + (args == null || args.len() == 0 ? "" : " " + args)
+    }
+
+    function run_smoke_test(opts, appimage) {
+        if (opts.smoke_test_args == null && !opts.smoke_test_isolated) return
+
+        this.info(opts.smoke_test_isolated ? "running isolated smoke test" : "running smoke test")
+        local status = system(this.smoke_test_command(appimage, opts.smoke_test_args, opts.smoke_test_isolated))
+        if (status != 0) this.fail("smoke test failed")
+        this.info("smoke test passed")
+    }
+
+    function write_apprun(appdir, entry_script_rel) {
+        local path = GLib.build_filenamev([appdir, "AppRun"])
+        this.write_file(path,
+            "#!/usr/bin/env bash\n" +
+            "set -euo pipefail\n" +
+            "\n" +
+            "HERE=\"$(dirname \"$(readlink -f \"${BASH_SOURCE[0]}\")\")\"\n" +
+            "export SQGI_APPDIR=\"${HERE}\"\n" +
+            "export SQGI_APP_SHARE=\"${HERE}/usr/share/sqgi/app\"\n" +
+            "export SQGI_APP_RESOURCES=\"${HERE}/usr/share/sqgi/app/resources\"\n" +
+            "export LD_LIBRARY_PATH=\"${HERE}/usr/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}\"\n" +
+            "export XDG_DATA_DIRS=\"${HERE}/usr/share${XDG_DATA_DIRS:+:${XDG_DATA_DIRS}}\"\n" +
+            "export GI_TYPELIB_PATH=\"${HERE}/usr/lib/girepository-1.0${GI_TYPELIB_PATH:+:${GI_TYPELIB_PATH}}\"\n" +
+            "export GSETTINGS_SCHEMA_DIR=\"${HERE}/usr/share/glib-2.0/schemas\"\n" +
+            "export GIO_EXTRA_MODULES=\"${HERE}/usr/lib/gio/modules${GIO_EXTRA_MODULES:+:${GIO_EXTRA_MODULES}}\"\n" +
+            "export GDK_PIXBUF_MODULEDIR=\"${HERE}/usr/lib/gdk-pixbuf-2.0/2.10.0/loaders\"\n" +
+            "export GDK_PIXBUF_MODULE_FILE=\"${HERE}/usr/lib/gdk-pixbuf-2.0/2.10.0/loaders.cache\"\n" +
+            "export GST_PLUGIN_PATH=\"${HERE}/usr/lib/gstreamer-1.0${GST_PLUGIN_PATH:+:${GST_PLUGIN_PATH}}\"\n" +
+            "mkdir -p \"${XDG_CACHE_HOME:-${HOME:-/tmp}/.cache}/sqgi\"\n" +
+            "export GST_REGISTRY=\"${XDG_CACHE_HOME:-${HOME:-/tmp}/.cache}/sqgi/gstreamer-registry.bin\"\n" +
+            "exec \"${HERE}/usr/bin/sqgi\" \"${HERE}/" + entry_script_rel + "\" \"$@\"\n")
+        this.chmod_exec(path)
+    }
+
+    function write_desktop_file(appdir, app_id, app_name) {
+        this.write_file(GLib.build_filenamev([appdir, app_id + ".desktop"]),
+            "[Desktop Entry]\n" +
+            "Type=Application\n" +
+            "Name=" + app_name + "\n" +
+            "Exec=AppRun\n" +
+            "Icon=" + app_id + "\n" +
+            "Categories=Utility;\n" +
+            "Terminal=true\n")
+    }
+
+    function write_icon(appdir, app_id) {
+        local icon_dir = GLib.build_filenamev([appdir, "usr", "share", "icons", "hicolor", "scalable", "apps"])
+        this.mkdir_p(icon_dir)
+
+        local icon =
+            "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"128\" height=\"128\" viewBox=\"0 0 128 128\">\n" +
+            "  <rect width=\"128\" height=\"128\" rx=\"24\" fill=\"#1d2733\"/>\n" +
+            "  <path d=\"M32 72c0-22 18-40 40-40h16v16H72c-13.25 0-24 10.75-24 24s10.75 24 24 24h24v16H72c-22 0-40-18-40-40z\" fill=\"#76d275\"/>\n" +
+            "  <path d=\"M64 56h32v16H64z\" fill=\"#f3f7f0\"/>\n" +
+            "  <path d=\"M64 80h40v16H64z\" fill=\"#f3f7f0\"/>\n" +
+            "</svg>\n"
+
+        local root_icon = GLib.build_filenamev([appdir, app_id + ".svg"])
+        this.write_file(root_icon, icon)
+        this.write_file(GLib.build_filenamev([icon_dir, app_id + ".svg"]), icon)
+    }
+
+    function template_manifest(name) {
+        if (name == "simple") {
+            return @"{
+  ""script"": ""main.nut"",
+  ""name"": ""MyApp"",
+  ""target"": ""appimage"",
+  ""script_dirs"": [
+    "".""
+  ],
+  ""resources"": [
+    ""assets""
+  ]
+}
+"
+        }
+
+        if (name == "gtk4") {
+            return @"{
+  ""script"": ""main.nut"",
+  ""name"": ""MyGtkApp"",
+  ""target"": ""appimage"",
+  ""script_dirs"": [
+    "".""
+  ],
+  ""resources"": [
+    ""assets""
+  ],
+  ""libraries"": [
+  ],
+  ""files"": [
+  ]
+}
+"
+        }
+
+        if (name == "gtk4-gstreamer") {
+            return @"{
+  ""script"": ""main.nut"",
+  ""name"": ""MyMediaApp"",
+  ""target"": ""appimage"",
+  ""script_dirs"": [
+    "".""
+  ],
+  ""resources"": [
+    ""assets""
+  ],
+  ""gstreamer_plugins"": [
+  ],
+  ""libraries"": [
+  ],
+  ""files"": [
+  ]
+}
+"
+        }
+
+        if (name == "native-gobject") {
+            return @"{
+  ""script"": ""main.nut"",
+  ""name"": ""MyNativeApp"",
+  ""target"": ""appimage"",
+  ""script_dirs"": [
+    "".""
+  ],
+  ""native_projects"": [
+    {
+      ""dir"": ""native"",
+      ""build"": [
+        ""meson setup build --wipe || meson setup build"",
+        ""meson compile -C build""
+      ],
+      ""libraries"": [
+        ""build/libmynative-1.0.so""
+      ],
+      ""typelibs"": [
+        ""build/MyNative-1.0.typelib""
+      ]
+    }
+  ]
+}
+"
+        }
+
+        if (name == "native-vala") {
+            return @"{
+  ""script"": ""main.nut"",
+  ""name"": ""MyValaApp"",
+  ""target"": ""appimage"",
+  ""script_dirs"": [
+    "".""
+  ],
+  ""native_projects"": [
+    {
+      ""dir"": ""native"",
+      ""build"": [
+        ""meson setup build --wipe || meson setup build"",
+        ""meson compile -C build""
+      ],
+      ""libraries"": [
+        ""build/libmyvala-1.0.so""
+      ],
+      ""typelibs"": [
+        ""build/MyVala-1.0.typelib""
+      ]
+    }
+  ]
+}
+"
+        }
+
+        this.fail("unknown template '" + name + "'; use simple, gtk4, gtk4-gstreamer, native-gobject, or native-vala")
+    }
+
+    function init_manifest(name) {
+        local path = "sqgipkg.json"
+        if (this.path_exists(path)) this.fail("sqgipkg.json already exists")
+        this.write_file(path, this.template_manifest(name))
+        this.info("wrote sqgipkg.json from " + name + " template")
+    }
+
+    function doctor_path(errors, label, path) {
+        if (this.path_exists(path)) {
+            print("OK: " + label + ": " + path + "\n")
+            return errors
+        }
+        print("ERROR: missing " + label + ": " + path + "\n")
+        return errors + 1
+    }
+
+    function doctor_dest(errors, label, dest) {
+        try {
+            this.relative_dest(dest)
+            return errors
+        } catch (e) {
+            print("ERROR: invalid " + label + " destination: " + dest + "\n")
+            return errors + 1
+        }
+    }
+
+    function doctor_script(errors, opts, label, path) {
+        local src_abs = this.abs_path(path)
+        errors = this.doctor_path(errors, label, src_abs)
+        if (!this.path_exists(src_abs)) return errors
+
+        this.scan_script_imports(opts, src_abs)
+        try {
+            local closure = loadfile(src_abs, true)
+            if (closure == null) {
+                print("ERROR: failed to compile " + label + ": " + src_abs + "\n")
+                return errors + 1
+            }
+            print("OK: compiles " + label + "\n")
+        } catch (e) {
+            print("ERROR: failed to compile " + label + ": " + e + "\n")
+            return errors + 1
+        }
+
+        return errors
+    }
+
+    function doctor(opts) {
+        local errors = 0
+        local warnings = []
+        local script_abs = this.abs_path(opts.script)
+
+        print("sqgipkg doctor\n")
+        errors = this.doctor_script(errors, opts, "entry script", script_abs)
+
+        foreach (spec in opts.scripts) {
+            local parts = this.split_once(spec, "=")
+            errors = this.doctor_script(errors, opts, "script", parts[0])
+            if (parts[1] != null)
+                errors = this.doctor_dest(errors, "script", parts[1])
+        }
+
+        foreach (dir in opts.script_dirs) {
+            local dir_abs = this.abs_path(dir)
+            errors = this.doctor_path(errors, "script directory", dir_abs)
+            if (this.path_exists(dir_abs)) {
+                foreach (src in this.list_nut_files(dir_abs)) {
+                    if (this.abs_path(src) != script_abs)
+                        errors = this.doctor_script(errors, opts, "script directory entry", src)
+                }
+            }
+        }
+
+        foreach (spec in opts.files) {
+            local parts = this.split_once(spec, "=")
+            errors = this.doctor_path(errors, "file", parts[0])
+            if (parts[1] == null) {
+                print("ERROR: file entry requires PATH=DEST\n")
+                errors = errors + 1
+            } else {
+                errors = this.doctor_dest(errors, "file", parts[1])
+            }
+        }
+
+        foreach (spec in opts.includes) {
+            local parts = this.split_once(spec, "=")
+            errors = this.doctor_path(errors, "include", parts[0])
+            if (parts[1] != null)
+                errors = this.doctor_dest(errors, "include", parts[1])
+        }
+
+        foreach (path in opts.resources)
+            errors = this.doctor_path(errors, "resource", path)
+        foreach (path in opts.libraries)
+            errors = this.doctor_path(errors, "shared library", path)
+        foreach (path in opts.gstreamer_plugins)
+            errors = this.doctor_path(errors, "GStreamer plugin", path)
+        foreach (path in opts.typelibs)
+            errors = this.doctor_path(errors, "GI typelib", path)
+        foreach (path in opts.gsettings_schemas)
+            errors = this.doctor_path(errors, "GSettings schema", path)
+        foreach (path in opts.gtk_data)
+            errors = this.doctor_path(errors, "GTK data", path)
+        foreach (path in opts.gio_modules)
+            errors = this.doctor_path(errors, "GIO module", path)
+        foreach (path in opts.gdk_pixbuf_loaders)
+            errors = this.doctor_path(errors, "gdk-pixbuf loader", path)
+
+        foreach (project in opts.native_projects) {
+            errors = this.doctor_path(errors, "native project directory", project.dir)
+            if (project.build.len() == 0)
+                warnings.push("native project has no build commands: " + project.dir)
+            foreach (command in project.build)
+                print("OK: native build command: " + command + "\n")
+            foreach (path in project.libraries) {
+                if (this.path_exists(path)) print("OK: native shared library output: " + path + "\n")
+                else warnings.push("native shared library output not found yet: " + path)
+            }
+            foreach (path in project.typelibs) {
+                if (this.path_exists(path)) print("OK: native GI typelib output: " + path + "\n")
+                else warnings.push("native GI typelib output not found yet: " + path)
+            }
+            foreach (spec in project.files) {
+                local parts = this.split_once(spec, "=")
+                if (this.path_exists(parts[0])) print("OK: native file output: " + parts[0] + "\n")
+                else warnings.push("native file output not found yet: " + parts[0])
+                if (parts[1] == null)
+                    errors = errors + 1
+                else
+                    errors = this.doctor_dest(errors, "native file", parts[1])
+            }
+        }
+
+        if (opts.report.used_gst && opts.gstreamer_plugins.len() == 0)
+            warnings.push("GStreamer import detected; package may rely on host GStreamer plugins")
+        if (opts.report.used_gtk && opts.gtk_data.len() == 0 && opts.typelibs.len() == 0)
+            warnings.push("GTK import detected; package may rely on host GTK assets and typelibs")
+
+        if (!this.path_exists(GLib.build_filenamev([opts.build_dir, "sqgi"])))
+            warnings.push("sqgi binary not found in build_dir yet: " + opts.build_dir)
+        if (!this.path_exists(GLib.build_filenamev([opts.build_dir, "libsqgi.so.0"])))
+            warnings.push("libsqgi.so.0 not found in build_dir yet: " + opts.build_dir)
+        if (this.executable_path(opts.appimagetool) == null)
+            warnings.push("appimagetool not found in PATH; build will download it if curl or wget is available")
+
+        foreach (warning in warnings)
+            print("WARN: " + warning + "\n")
+
+        if (errors == 0) {
+            print("Doctor: OK with " + warnings.len() + " warning(s)\n")
+            return 0
+        }
+
+        print("Doctor: FAILED with " + errors + " error(s) and " + warnings.len() + " warning(s)\n")
+        return 1
+    }
+
+    function stage_appdir(opts) {
+        local app_id = this.sanitize_id(opts.name)
+        local package_name = this.package_basename(opts.name)
+        local script_abs = this.abs_path(opts.script)
+        local appdir = GLib.build_filenamev([opts.output_dir, package_name + ".AppDir"])
+
+        if (!this.path_exists(script_abs)) this.fail("script not found: " + opts.script)
+
+        this.run_shell("rm -rf " + this.shell_quote(appdir), "removing existing AppDir")
+        this.mkdir_p(GLib.build_filenamev([appdir, "usr", "share", "sqgi", "app"]))
+
+        this.copy_sqgi_runtime(opts.build_dir, appdir)
+        local staged_scripts = {}
+        local entry_script_rel = this.stage_script_file(
+            opts,
+            appdir,
+            script_abs,
+            GLib.build_filenamev(["usr", "share", "sqgi", "app", "main.nut"]),
+            "main script",
+            staged_scripts
+        )
+
+        foreach (spec in opts.scripts)
+            this.add_script_spec(opts, appdir, spec, staged_scripts)
+
+        foreach (dir in opts.script_dirs)
+            this.add_script_dir(opts, appdir, dir, script_abs, staged_scripts)
+
+        this.stage_native_projects(opts, appdir)
+        this.stage_extra_files(opts, appdir, staged_scripts)
+        this.postprocess_extra_files(appdir)
+        this.write_apprun(appdir, entry_script_rel)
+        this.write_desktop_file(appdir, app_id, opts.name)
+        this.write_icon(appdir, app_id)
+
+        return appdir
+    }
+
+    function build_appimage(opts) {
+        this.mkdir_p(opts.output_dir)
+
+        local package_name = this.package_basename(opts.name)
+        local appdir = this.stage_appdir(opts)
+        local appimage = GLib.build_filenamev([opts.output_dir, package_name + ".AppImage"])
+
+        local appimagetool = this.resolve_appimagetool(opts)
+
+        this.info("building AppImage")
+        local status = system("ARCH=$(uname -m) " + this.shell_quote(appimagetool) + " " + this.shell_quote(appdir) + " " + this.shell_quote(appimage))
+        if (status != 0) this.fail("building AppImage failed")
+
+        this.print_report(opts, appdir, appimage)
+        this.run_smoke_test(opts, appimage)
+
+        if (!opts.keep_appdir) {
+            this.run_shell("rm -rf " + this.shell_quote(appdir), "removing staged AppDir")
+        } else {
+            this.info("kept AppDir at " + appdir)
+        }
+
+        this.info("wrote " + appimage)
+    }
+
+    function run(args) {
+        foreach (a in args) {
+            if (a == "-h" || a == "--help") {
+                this.usage()
+                return 0
+            }
+        }
+
+        local argv = ["sqgipkg"]
+        foreach (a in args) argv.push(a)
+        return this.app.run(argv.len(), argv)
+    }
+}
+
+local pkg = SqgiPkg(vargv)
+return pkg.run(vargv)

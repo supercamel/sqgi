@@ -1,0 +1,24 @@
+{
+  "script": "main.nut",
+  "name": "MyValaApp",
+  "target": "appimage",
+  "script_dirs": [
+    "."
+  ],
+  "native_projects": [
+    {
+      "dir": "native",
+      "build": [
+        "meson setup build --wipe || meson setup build",
+        "meson compile -C build",
+        "g-ir-compiler build/MyVala-1.0.gir --output build/MyVala-1.0.typelib"
+      ],
+      "libraries": [
+        "build/libmyvala-1.0.so"
+      ],
+      "typelibs": [
+        "build/MyVala-1.0.typelib"
+      ]
+    }
+  ]
+}

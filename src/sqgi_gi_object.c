@@ -318,6 +318,110 @@ static void add_method(HSQUIRRELVM v, const SQChar *name, SQFUNCTION fn)
     sq_newslot(v, -3, SQFalse);
 }
 
+static gboolean sqgi_name_has_suffix(const char *name, const char *suffix)
+{
+    if (!name || !suffix) return FALSE;
+    size_t name_len = strlen(name);
+    size_t suffix_len = strlen(suffix);
+    return name_len >= suffix_len &&
+           strcmp(name + name_len - suffix_len, suffix) == 0;
+}
+
+static gboolean sqgi_type_is_gio_cancellable(GITypeInfo *type_info)
+{
+    if (g_type_info_get_tag(type_info) != GI_TYPE_TAG_INTERFACE)
+        return FALSE;
+
+    GIBaseInfo *iface = g_type_info_get_interface(type_info);
+    const char *ns = g_base_info_get_namespace(iface);
+    const char *name = g_base_info_get_name(iface);
+    gboolean is_cancellable =
+        ns && name && strcmp(ns, "Gio") == 0 && strcmp(name, "Cancellable") == 0;
+    g_base_info_unref(iface);
+    return is_cancellable;
+}
+
+static gboolean sqgi_callable_arg_is_callback(GICallableInfo *callable, gint arg_index)
+{
+    GIArgInfo *arg_info = g_callable_info_get_arg(callable, arg_index);
+    GITypeInfo *type_info = g_arg_info_get_type(arg_info);
+    gboolean is_callback = FALSE;
+
+    if (g_type_info_get_tag(type_info) == GI_TYPE_TAG_INTERFACE) {
+        GIBaseInfo *iface = g_type_info_get_interface(type_info);
+        is_callback = (g_base_info_get_type(iface) == GI_INFO_TYPE_CALLBACK);
+        g_base_info_unref(iface);
+    }
+
+    g_base_info_unref(type_info);
+    g_base_info_unref(arg_info);
+    return is_callback;
+}
+
+static gboolean sqgi_async_method_omits_cancellable(GIFunctionInfo *method)
+{
+    const char *name = g_base_info_get_name((GIBaseInfo *)method);
+    if (!sqgi_name_has_suffix(name, "_async"))
+        return FALSE;
+
+    GICallableInfo *callable = (GICallableInfo *)method;
+    gint n_args = g_callable_info_get_n_args(callable);
+    for (gint i = 0; i < n_args; i++) {
+        if (!sqgi_callable_arg_is_callback(callable, i))
+            continue;
+
+        if (i <= 0)
+            return TRUE;
+
+        GIArgInfo *prev_arg = g_callable_info_get_arg(callable, i - 1);
+        GITypeInfo *prev_type = g_arg_info_get_type(prev_arg);
+        gboolean has_cancellable = sqgi_type_is_gio_cancellable(prev_type);
+        g_base_info_unref(prev_type);
+        g_base_info_unref(prev_arg);
+        return !has_cancellable;
+    }
+
+    return FALSE;
+}
+
+static void sqgi_note_async_method_shape(HSQUIRRELVM v, SQInteger klass_idx,
+                                         GIFunctionInfo *method)
+{
+    if (klass_idx < 0)
+        klass_idx = sq_gettop(v) + klass_idx + 1;
+
+    const char *name = g_base_info_get_name((GIBaseInfo *)method);
+    if (!sqgi_name_has_suffix(name, "_async"))
+        return;
+
+    size_t base_len = strlen(name) - strlen("_async");
+    char *base = g_strndup(name, base_len);
+    gboolean omits_cancellable = sqgi_async_method_omits_cancellable(method);
+    SQInteger top = sq_gettop(v);
+
+    sq_pushstring(v, "__sqgi_async_no_cancellable", -1);
+    if (SQ_FAILED(sq_get(v, klass_idx))) {
+        sq_settop(v, top);
+        sq_pushstring(v, "__sqgi_async_no_cancellable", -1);
+        sq_newtable(v);
+        sq_newslot(v, klass_idx, SQTrue);
+
+        sq_pushstring(v, "__sqgi_async_no_cancellable", -1);
+        if (SQ_FAILED(sq_get(v, klass_idx))) {
+            sq_settop(v, top);
+            g_free(base);
+            return;
+        }
+    }
+
+    SQInteger table_idx = sq_gettop(v);
+    sq_pushstring(v, base, -1);
+    sq_pushbool(v, omits_cancellable ? SQTrue : SQFalse);
+    sq_rawset(v, table_idx);
+    sq_settop(v, top);
+    g_free(base);
+}
+
 /* Scan the class on top of the stack for `<bn>_async` / `<bn>_finish`
  * pairs and install a bare-name `<bn>` method that returns an awaitable
  * Task. The wrapper closure is built by the Squirrel-side helper
@@ -407,11 +511,30 @@ static void sqgi_install_async_wrappers(HSQUIRRELVM v)
         sq_newslot(v, klass_idx, SQFalse);
         sq_poptop(v);                         /* drop raw closure */
 
+        SQBool no_cancellable = SQFalse;
+        SQInteger before_shape_lookup = sq_gettop(v);
+        sq_pushstring(v, "__sqgi_async_no_cancellable", -1);
+        if (SQ_SUCCEEDED(sq_get(v, klass_idx))) {
+            SQInteger shape_table_idx = sq_gettop(v);
+            sq_pushstring(v, bn_dup, -1);
+            if (SQ_SUCCEEDED(sq_get(v, shape_table_idx))) {
+                if (sq_gettype(v, -1) == OT_BOOL)
+                    sq_getbool(v, -1, &no_cancellable);
+                sq_poptop(v);
+            } else {
+                sq_settop(v, shape_table_idx);
+            }
+            sq_poptop(v);
+        } else {
+            sq_settop(v, before_shape_lookup);
+        }
+
         /* maker(bn) → wrapper closure */
         sq_push(v, maker_idx);
         sq_push(v, sqgi_idx);                 /* this = sqgi */
         sq_pushstring(v, bn_dup, -1);         /* arg = bn */
-        if (SQ_SUCCEEDED(sq_call(v, 2, SQTrue, SQTrue))) {
+        sq_pushbool(v, no_cancellable);
+        if (SQ_SUCCEEDED(sq_call(v, 3, SQTrue, SQTrue))) {
             /* Stack top: wrapper closure. Override `<bn>_async`. */
             sq_pushstring(v, an_name, -1);
             sq_push(v, -2);                   /* duplicate the closure */
@@ -481,6 +604,7 @@ void sqgi_gi_object_build_class(HSQUIRRELVM v, GIObjectInfo *info)
                 sq_pushstring(v, mname, -1);
                 sqgi_gi_wrap_function(v, meth);
                 sq_newslot(v, -3, SQFalse);
+                sqgi_note_async_method_shape(v, -1, meth);
                 g_base_info_unref(meth);
             }
             g_base_info_unref(iface_info);
@@ -492,6 +616,7 @@ void sqgi_gi_object_build_class(HSQUIRRELVM v, GIObjectInfo *info)
         sq_pushstring(v, mname, -1);
         sqgi_gi_wrap_function(v, meth);
         sq_newslot(v, -3, SQFalse);
+        sqgi_note_async_method_shape(v, -1, meth);
         g_base_info_unref(meth);
     }
 
@@ -548,6 +673,7 @@ void sqgi_gi_object_build_interface_class(HSQUIRRELVM v, GIInterfaceInfo *info)
         sq_pushstring(v, mname, -1);
         sqgi_gi_wrap_function(v, meth);
         sq_newslot(v, -3, SQFalse);
+        sqgi_note_async_method_shape(v, -1, meth);
         g_base_info_unref(meth);
     }
 

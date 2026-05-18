@@ -430,13 +430,14 @@ area.set_draw_func(function(widget, cr, w, h) {
     cr.set_font_size(14)
     cr.move_to(12, 22)
     cr.show_text("Hello, Cairo")
-}, null, null)
+}, null, function(_) {})
 
 win.set_child(area)
 ```
 
-`set_draw_func(fn, user_data, destroy_notify)`. Pass `null, null` for the
-trailing two unless you have C-side context to share.
+`set_draw_func(fn, user_data, destroy_notify)`. Pass `null` for `user_data`
+and a no-op closure such as `function(_) {}` for `destroy_notify` unless you
+have C-side context to share.
 
 ### Gradients
 

@@ -1,0 +1,23 @@
+{
+  "script": "main.nut",
+  "name": "MyNativeApp",
+  "target": "appimage",
+  "script_dirs": [
+    "."
+  ],
+  "native_projects": [
+    {
+      "dir": "native",
+      "build": [
+        "meson setup build --wipe || meson setup build",
+        "meson compile -C build"
+      ],
+      "libraries": [
+        "build/libmynative-1.0.so"
+      ],
+      "typelibs": [
+        "build/MyNative-1.0.typelib"
+      ]
+    }
+  ]
+}
