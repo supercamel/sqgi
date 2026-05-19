@@ -1,26 +1,32 @@
 # SQGI
 
-**A lightweight Squirrel scripting runtime for native Linux applications.**
+**A lightweight Squirrel runtime for native cross-platform applications.**
 
-SQGI gives you a familiar, embeddable scripting language with direct access to
-the GObject ecosystem: GTK, Gio, GStreamer, libsoup, GdkPixbuf, WebKit, and any
-other library that ships GObject Introspection metadata. Write small scripts,
-build real desktop/media/network tools, call native libraries, extend your app
-with C/C++/Vala code, and package the result for distribution.
+SQGI combines a small, embeddable scripting runtime with direct access to
+native desktop, multimedia, networking, and system libraries. Build GTK apps,
+media tools, HTTP clients, local services, automation utilities, and native
+desktop software using a familiar scripting language with `async` / `await`,
+native extensions, and portable packaging.
 
-The goal is simple: keep the scripting experience pleasant, while staying close
+Under the hood, SQGI uses GObject Introspection to expose mature native
+libraries like GTK, Gio, GStreamer, libsoup, WebKit, GdkPixbuf, and many
+others without generating bindings by hand.
+
+The goal is simple: keep the scripting experience pleasant while staying close
 to the native platform.
 
-- **Familiar scripting**: Squirrel syntax, closures, classes, exceptions, and
-  `async` / `await`.
-- **Small runtime**: a compact C runtime built on Squirrel, GLib, GIRepository,
-  and libffi.
-- **Native libraries**: import GObject Introspection namespaces directly with
-  `import("Gtk", "4.0")`, `import("Gio")`, `import("Gst")`, and friends.
-- **Native extensions**: call your own C/C++/Vala GObject libraries through
-  `.so` + `.typelib` files.
-- **Distribution story**: `sqgipkg` packages scripts, resources, native
-  libraries, typelibs, and AppImages.
+- **Familiar scripting**: Squirrel syntax, closures, classes, exceptions,
+  modules, and `async` / `await`.
+- **Small runtime**: a compact C runtime designed to stay lightweight,
+  understandable, and embeddable.
+- **Native capabilities**: build GUIs, network tools, multimedia apps,
+  image pipelines, and system utilities with direct access to native APIs.
+- **Native extensions**: call your own C/C++/Vala libraries through `.so`
+  + `.typelib` files.
+- **Portable packaging**: `sqgipkg` bundles scripts, resources, typelibs,
+  plugins, native libraries, and AppImages for distribution.
+- **AI-friendly workflows**: coherent APIs and a compact runtime make SQGI
+  practical for modern AI-assisted development workflows.
 
 ## A Tiny Demo
 
