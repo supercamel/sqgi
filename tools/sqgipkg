@@ -231,6 +231,8 @@ Options:
                        Use or write a CMake MinGW toolchain file for Ubuntu cross-builds
   --win-meson-cross-file FILE
                        Use or write a Meson MinGW cross file for Ubuntu native extension builds
+  windows.native_dependencies
+                       Manifest-only: build/install private Windows deps into the generated sysroot before app build
   --refresh-msys2-packages
                        Refresh cached MSYS2 databases and package archives
   --no-msys2-download  Require MSYS2 packages to already exist in msys2-root
@@ -690,6 +692,7 @@ Examples:
                 libraries = [],
                 typelibs = [],
                 files = [],
+                native_dependencies = [],
                 native_projects = [],
                 gtk_theme = "",
                 gtk_icon_theme = "",
@@ -1035,6 +1038,9 @@ Examples:
         local gtk_prefer_dark = this.table_get(windows, "gtk_prefer_dark")
         local gdk_backend = this.table_get(windows, "gdk_backend")
         local nsis_options = this.table_get(windows, "nsis_options")
+        local native_dependencies = this.table_get(windows, "native_dependencies")
+        if (native_dependencies == null)
+            native_dependencies = this.table_get(windows, "build_dependencies")
 
         if (opts.windows.build_dir == "" && build_dir != null)
             opts.windows.build_dir = this.manifest_path(base_dir, build_dir)
@@ -1065,6 +1071,7 @@ Examples:
         this.append_values(opts.windows.libraries, this.manifest_paths(base_dir, this.table_get(windows, "libraries")))
         this.append_values(opts.windows.typelibs, this.manifest_paths(base_dir, this.table_get(windows, "typelibs")))
         this.append_values(opts.windows.files, this.manifest_files(base_dir, this.table_get(windows, "files")))
+        this.append_values(opts.windows.native_dependencies, this.manifest_native_projects(base_dir, native_dependencies))
         this.append_values(opts.windows.native_projects, this.manifest_native_projects(base_dir, this.table_get(windows, "native_projects")))
     }
 
@@ -1242,6 +1249,21 @@ Examples:
         return out
     }
 
+    function git_repo_basename(repo) {
+        if (repo == null || repo == "") return "native-dependency"
+
+        local value = repo
+        if (this.ends_with(value, "/")) value = value.slice(0, value.len() - 1)
+        local slash = null
+        for (local i = value.len() - 1; i >= 0; i--) {
+            local ch = value.slice(i, i + 1)
+            if (ch == "/" || ch == ":") { slash = i; break }
+        }
+        if (slash != null) value = value.slice(slash + 1)
+        if (this.ends_with(value, ".git")) value = value.slice(0, value.len() - 4)
+        return value.len() == 0 ? "native-dependency" : value
+    }
+
     function manifest_native_projects(base_dir, values) {
         if (values == null) return []
 
@@ -1250,19 +1272,55 @@ Examples:
         foreach (item in items) {
             if (typeof(item) != "table") this.fail("native project entry must be an object")
 
-            local dir = this.table_get(item, "dir", ".")
+            local repo = this.table_get(item, "repo")
+            if (repo == null) repo = this.table_get(item, "git")
+            local branch = this.table_get(item, "branch")
+            local tag = this.table_get(item, "tag")
+            local ref = this.table_get(item, "ref")
+            local commit = this.table_get(item, "commit")
+            if (ref == null && tag != null) ref = tag
+            if (ref == null && commit != null) ref = commit
+            local update = this.table_get(item, "update", true)
+            local shallow = this.table_get(item, "shallow", false)
+            local submodules = this.table_get(item, "submodules", false)
+
+            local name = this.table_get(item, "name")
+            if (name == null && repo != null) name = this.git_repo_basename(repo)
+
+            local dir = this.table_get(item, "dir")
+            if (dir == null) {
+                if (repo != null) {
+                    dir = GLib.build_filenamev([".sqgipkg", "native", name == null ? this.git_repo_basename(repo) : name])
+                } else {
+                    dir = "."
+                }
+            }
+
             local project_dir = this.manifest_path(base_dir, dir)
+            if (name == null) name = this.basename(project_dir)
+
             local build = this.manifest_command_list(this.table_get(item, "build"))
+            local install = this.manifest_command_list(this.table_get(item, "install"))
             local libraries = this.manifest_native_project_paths(base_dir, project_dir, this.table_get(item, "libraries"))
             local typelibs = this.manifest_native_project_paths(base_dir, project_dir, this.table_get(item, "typelibs"))
             local files = this.manifest_native_project_files(base_dir, project_dir, this.table_get(item, "files"))
+            local stage = this.table_get(item, "stage", true)
 
             out.push({
+                name = name,
                 dir = project_dir,
+                repo = repo,
+                branch = branch,
+                ref = ref,
+                update = update,
+                shallow = shallow,
+                submodules = submodules,
                 build = build,
+                install = install,
                 libraries = libraries,
                 typelibs = typelibs,
-                files = files
+                files = files,
+                stage = stage
             })
         }
         return out
@@ -1577,6 +1635,8 @@ Examples:
 
     function stage_native_projects(opts, appdir) {
         foreach (project in opts.native_projects) {
+            this.ensure_git_native_project(project, "native project " + project.name)
+
             local dir = project.dir
             if (!this.path_exists(dir)) this.fail("native project directory not found: " + dir)
 
@@ -1600,26 +1660,93 @@ Examples:
         }
     }
 
+    function ensure_git_native_project(project, label) {
+        if (project.repo == null || project.repo == "") return
+        if (!this.executable_available("git")) this.fail(label + " requires git in PATH")
+
+        local dir = project.dir
+        local git_dir = GLib.build_filenamev([dir, ".git"])
+
+        if (!this.path_exists(dir)) {
+            this.mkdir_p(this.dirname(dir))
+            local clone_cmd = "git clone "
+            if (project.shallow) clone_cmd += "--depth 1 "
+            if (project.branch != null && project.branch != "")
+                clone_cmd += "--branch " + this.shell_quote(project.branch) + " "
+            clone_cmd += this.shell_quote(project.repo) + " " + this.shell_quote(dir)
+            this.info(label + " clone_cmd: " + project.repo)
+            this.run_shell(clone_cmd, label + " clone")
+        } else if (!this.path_exists(git_dir)) {
+            this.fail(label + " directory exists but is not a git checkout: " + dir)
+        } else if (project.update) {
+            this.info(label + " git fetch")
+            this.run_shell("git -C " + this.shell_quote(dir) + " fetch --all --tags --prune", label + " git fetch")
+            if (project.branch != null && project.branch != "") {
+                this.info(label + " git checkout branch: " + project.branch)
+                this.run_shell("git -C " + this.shell_quote(dir) + " checkout " + this.shell_quote(project.branch), label + " git checkout")
+                this.run_shell("git -C " + this.shell_quote(dir) + " pull --ff-only", label + " git pull")
+            }
+        }
+
+        if (project.ref != null && project.ref != "") {
+            this.info(label + " git checkout ref: " + project.ref)
+            this.run_shell("git -C " + this.shell_quote(dir) + " checkout " + this.shell_quote(project.ref), label + " git checkout ref")
+        } else if (project.branch != null && project.branch != "") {
+            this.run_shell("git -C " + this.shell_quote(dir) + " checkout " + this.shell_quote(project.branch), label + " git checkout branch")
+        }
+
+        if (project.submodules) {
+            this.info(label + " git submodules")
+            this.run_shell("git -C " + this.shell_quote(dir) + " submodule update --init --recursive", label + " git submodules")
+        }
+    }
+
+    function run_windows_native_project_commands(opts, project, label) {
+        this.ensure_git_native_project(project, label)
+
+        local dir = project.dir
+        if (!this.path_exists(dir)) this.fail(label + " directory not found: " + dir)
+
+        foreach (command in project.build) {
+            this.info(label + " build: " + command)
+            this.run_windows_shell_in_dir(opts, command, dir, label + " build")
+        }
+
+        foreach (command in project.install) {
+            this.info(label + " install: " + command)
+            this.run_windows_shell_in_dir(opts, command, dir, label + " install")
+        }
+
+        this.report_inc(opts, "native_projects")
+    }
+
+    function stage_windows_native_project_outputs(opts, project, windir, label) {
+        if (!project.stage) return
+
+        foreach (path in project.libraries)
+            this.copy_windows_library(opts, path, windir, label + " shared library")
+
+        foreach (path in project.typelibs)
+            this.copy_windows_typelib(opts, path, windir, label + " GI typelib")
+
+        foreach (spec in project.files)
+            this.copy_file_spec(opts, spec, windir)
+    }
+
+    function build_windows_native_dependencies(opts) {
+        foreach (project in opts.windows.native_dependencies)
+            this.run_windows_native_project_commands(opts, project, "Windows native dependency " + project.name)
+    }
+
+    function stage_windows_native_dependencies(opts, windir) {
+        foreach (project in opts.windows.native_dependencies)
+            this.stage_windows_native_project_outputs(opts, project, windir, "Windows native dependency " + project.name)
+    }
+
     function stage_windows_native_projects(opts, windir) {
         foreach (project in opts.windows.native_projects) {
-            local dir = project.dir
-            if (!this.path_exists(dir)) this.fail("Windows native project directory not found: " + dir)
-
-            foreach (command in project.build) {
-                this.info("Windows native build: " + command)
-                this.run_windows_shell_in_dir(opts, command, dir, "Windows native build")
-            }
-
-            this.report_inc(opts, "native_projects")
-
-            foreach (path in project.libraries)
-                this.copy_windows_library(opts, path, windir, "Windows native shared library")
-
-            foreach (path in project.typelibs)
-                this.copy_windows_typelib(opts, path, windir, "Windows native GI typelib")
-
-            foreach (spec in project.files)
-                this.copy_file_spec(opts, spec, windir)
+            this.run_windows_native_project_commands(opts, project, "Windows native project " + project.name)
+            this.stage_windows_native_project_outputs(opts, project, windir, "Windows native project " + project.name)
         }
     }
 
@@ -2021,6 +2148,7 @@ Examples:
         local prefix_dir = this.windows_sysroot_prefix_dir(opts)
         local needs_sysroot = opts.windows.packages.len() > 0 ||
             opts.windows.build.len() > 0 ||
+            opts.windows.native_dependencies.len() > 0 ||
             opts.windows.native_projects.len() > 0
         if (!this.path_exists(prefix_dir) && !needs_sysroot)
             return
@@ -2037,6 +2165,10 @@ Examples:
         // $SQGI_MESON_CROSS_FILE from any build directory.
         GLib.setenv("SQGI_WIN_CMAKE_TOOLCHAIN", toolchain, true)
         GLib.setenv("SQGI_MESON_CROSS_FILE", cross_file, true)
+        GLib.setenv("SQGI_WINDOWS_SYSROOT", sysroot, true)
+        GLib.setenv("SQGI_WINDOWS_PREFIX", "/" + opts.windows.msys2_prefix, true)
+        GLib.setenv("SQGI_WINDOWS_PREFIX_DIR", prefix_dir, true)
+        GLib.setenv("SQGI_WINDOWS_SYSROOT_PREFIX", prefix_dir, true)
 
         // Lock pkg-config to the Windows sysroot.  This prevents the host
         // /usr/include and /usr/lib/pkgconfig paths from leaking into MinGW
@@ -2065,8 +2197,14 @@ Examples:
     }
 
     function windows_native_builds_contain(opts, needle) {
+        foreach (project in opts.windows.native_dependencies) {
+            if (this.command_list_contains(project.build, needle) ||
+                this.command_list_contains(project.install, needle))
+                return true
+        }
         foreach (project in opts.windows.native_projects) {
-            if (this.command_list_contains(project.build, needle))
+            if (this.command_list_contains(project.build, needle) ||
+                this.command_list_contains(project.install, needle))
                 return true
         }
         return false
@@ -2096,7 +2234,11 @@ Examples:
             "PKG_CONFIG_SYSROOT_DIR=" + this.shell_quote(sysroot) + " " +
             "PKG_CONFIG_LIBDIR=" + this.shell_quote(prefix_dir + "/lib/pkgconfig:" + prefix_dir + "/share/pkgconfig") + " " +
             "SQGI_WIN_CMAKE_TOOLCHAIN=" + this.shell_quote(GLib.getenv("SQGI_WIN_CMAKE_TOOLCHAIN")) + " " +
-            "SQGI_MESON_CROSS_FILE=" + this.shell_quote(GLib.getenv("SQGI_MESON_CROSS_FILE")) + " "
+            "SQGI_MESON_CROSS_FILE=" + this.shell_quote(GLib.getenv("SQGI_MESON_CROSS_FILE")) + " " +
+            "SQGI_WINDOWS_SYSROOT=" + this.shell_quote(sysroot) + " " +
+            "SQGI_WINDOWS_PREFIX=" + this.shell_quote("/" + opts.windows.msys2_prefix) + " " +
+            "SQGI_WINDOWS_PREFIX_DIR=" + this.shell_quote(prefix_dir) + " " +
+            "SQGI_WINDOWS_SYSROOT_PREFIX=" + this.shell_quote(prefix_dir) + " "
     }
 
     function run_windows_shell_in_dir(opts, command, dir, description) {
@@ -2940,6 +3082,7 @@ Examples:
         this.apply_windows_package_defaults(opts)
         this.ensure_msys2_packages(opts)
         this.prepare_windows_cross_environment(opts)
+        this.build_windows_native_dependencies(opts)
         this.run_windows_build(opts)
         this.run_shell("rm -rf " + this.shell_quote(windir), "removing existing Windows dist directory")
         this.mkdir_p(GLib.build_filenamev([windir, "share", "sqgi", "app"]))
@@ -2950,6 +3093,7 @@ Examples:
         local staged_scripts = {}
         local entry_rel = this.stage_windows_scripts(opts, windir, staged_scripts)
 
+        this.stage_windows_native_dependencies(opts, windir)
         this.stage_windows_native_projects(opts, windir)
         if (opts.entry_type == "native")
             entry_rel = this.copy_windows_native_entry(opts, windir)
@@ -3286,6 +3430,7 @@ Examples:
         this.apply_windows_package_defaults(opts)
         this.ensure_msys2_packages(opts)
         this.prepare_windows_cross_environment(opts)
+        this.build_windows_native_dependencies(opts)
 
         local sysroot = this.windows_sysroot_root(opts)
         local prefix_dir = this.windows_sysroot_prefix_dir(opts)
@@ -3298,6 +3443,9 @@ Examples:
         this.info("  Meson cross file: " + GLib.getenv("SQGI_MESON_CROSS_FILE"))
         this.info("  pkg-config sysroot: " + GLib.getenv("PKG_CONFIG_SYSROOT_DIR"))
         this.info("  pkg-config libdir: " + GLib.getenv("PKG_CONFIG_LIBDIR"))
+        this.info("  SQGI_WINDOWS_SYSROOT=" + GLib.getenv("SQGI_WINDOWS_SYSROOT"))
+        this.info("  SQGI_WINDOWS_PREFIX=" + GLib.getenv("SQGI_WINDOWS_PREFIX"))
+        this.info("  SQGI_WINDOWS_PREFIX_DIR=" + GLib.getenv("SQGI_WINDOWS_PREFIX_DIR"))
     }
 
     function build_windows_dir(opts) {

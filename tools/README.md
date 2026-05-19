@@ -23,8 +23,11 @@ putting the ugly platform work inside `sqgipkg`.
 - Resource staging under `share/sqgi/app/resources`.
 - Exact manual file staging.
 - Native GObject extension builds and staging.
+- Git-managed native projects: clone/fetch/checkout private dependencies before building.
+- Git-managed script/data dependencies for vendoring shared Squirrel modules, themes, schemas, assets, or other payloads.
 - Native executable entrypoints for C/C++/Vala apps that do not launch through SQGI.
 - Vala/C/C++ native module support, including `.dll`/`.so` plus `.typelib`.
+- Windows native dependency builds that install private libraries into the generated MSYS2 sysroot before the app is configured.
 - GObject Introspection typelib staging.
 - GStreamer plugin staging.
 - GSettings schema staging and optional schema compilation.
@@ -531,6 +534,166 @@ for C/C++/Vala GObject libraries.
 
 Build commands run from `dir`. Paths inside the entry are relative to `dir`.
 
+Native project entries can also fetch their source from Git before building. This
+works for top-level `native_projects`, `windows.native_projects`, and
+`windows.native_dependencies`:
+
+```json
+{
+  "name": "my-lib",
+  "repo": "https://github.com/example/my-lib.git",
+  "dir": ".sqgipkg/native/my-lib",
+  "branch": "main",
+  "update": true,
+  "submodules": true,
+  "build": [
+    "meson setup build --wipe || meson setup build",
+    "ninja -C build"
+  ],
+  "libraries": [
+    "build/libmy-lib-1.0.so"
+  ],
+  "typelibs": [
+    "build/MyLib-1.0.typelib"
+  ]
+}
+```
+
+Supported Git fields are:
+
+| Field | Purpose |
+|---|---|
+| `repo` / `git` | Repository URL to clone. |
+| `dir` | Checkout directory. Defaults to `.sqgipkg/native/<repo-name>`. |
+| `branch` | Branch to clone/checkout and fast-forward pull. |
+| `tag` | Tag to checkout. |
+| `ref` | Arbitrary ref to checkout. |
+| `commit` | Commit to checkout. |
+| `update` | Fetch/pull existing checkouts. Defaults to `true`. |
+| `shallow` | Clone with `--depth 1`. |
+| `submodules` | Run `git submodule update --init --recursive`. |
+
+If `dir` does not exist, `sqgipkg` clones the repo. If it exists and is a Git
+checkout, `sqgipkg` updates/checks out the requested branch/ref. If it exists but
+is not a Git checkout, the build fails loudly instead of silently using the wrong
+source tree.
+
+#### Git-managed script/data dependencies
+
+Git-backed project entries are not limited to compiled native code. A project can
+leave `build` and `install` empty and simply stage files from the checkout. This
+provides a lightweight way to vendor shared Squirrel modules, GTK themes,
+GSettings schemas, icons, sample data, or other project assets without copying
+them into every application repository.
+
+For Linux/AppImage packages, stage files into the normal AppDir layout. For
+example, a shared Squirrel module repo can be placed under the packaged app
+module tree:
+
+```json
+{
+  "native_projects": [
+    {
+      "name": "sqgi-http-utils",
+      "repo": "https://github.com/example/sqgi-http-utils.git",
+      "dir": ".sqgipkg/deps/sqgi-http-utils",
+      "branch": "main",
+      "update": true,
+      "build": [],
+      "install": [],
+      "stage": true,
+      "files": [
+        {
+          "path": "src",
+          "dest": "usr/share/sqgi/app/vendor/http-utils"
+        }
+      ]
+    }
+  ]
+}
+```
+
+Packaged code can then import the vendored module by its staged path:
+
+```squirrel
+local http = import("vendor/http-utils/client.nut")
+```
+
+For Windows, use the Windows staging layout instead:
+
+```json
+{
+  "windows": {
+    "native_dependencies": [
+      {
+        "name": "sqgi-http-utils",
+        "repo": "https://github.com/example/sqgi-http-utils.git",
+        "dir": ".sqgipkg/deps/sqgi-http-utils",
+        "branch": "main",
+        "update": true,
+        "build": [],
+        "install": [],
+        "stage": true,
+        "files": [
+          {
+            "path": "src",
+            "dest": "share/sqgi/app/vendor/http-utils"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+For cross-platform script/data dependencies, declare the same repo in both places
+with platform-specific destinations:
+
+```json
+{
+  "native_projects": [
+    {
+      "name": "sqgi-http-utils",
+      "repo": "https://github.com/example/sqgi-http-utils.git",
+      "dir": ".sqgipkg/deps/sqgi-http-utils",
+      "build": [],
+      "install": [],
+      "stage": true,
+      "files": [
+        {
+          "path": "src",
+          "dest": "usr/share/sqgi/app/vendor/http-utils"
+        }
+      ]
+    }
+  ],
+  "windows": {
+    "native_dependencies": [
+      {
+        "name": "sqgi-http-utils",
+        "repo": "https://github.com/example/sqgi-http-utils.git",
+        "dir": ".sqgipkg/deps/sqgi-http-utils",
+        "build": [],
+        "install": [],
+        "stage": true,
+        "files": [
+          {
+            "path": "src",
+            "dest": "share/sqgi/app/vendor/http-utils"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+This is intentionally simple. `sqgipkg` does not resolve semantic versions, lock
+files, or transitive dependency graphs. It clones or updates exactly the repos
+you declare, checks out the requested branch/tag/ref/commit, runs any declared
+commands, and stages the files you specify. Pin `tag`, `ref`, or `commit` when
+you need reproducible builds.
+
 For a fully native app, pair `native_projects` with `entry.type = "native"`:
 
 ```json
@@ -1007,10 +1170,70 @@ Exact manual copies for Windows staging.
 ]
 ```
 
+### `windows.native_dependencies` / `windows.build_dependencies`
+
+Private Windows build dependencies that must be available before the main Windows
+app is configured. These projects run after the MSYS2 sysroot and cross files are
+prepared, but before `windows.build` and `windows.native_projects`.
+
+Use this for project-local libraries that provide headers, `.pc` files, DLLs, or
+typelibs that the main application needs during Meson/CMake configuration, such
+as private Vala/GObject libraries.
+
+A dependency usually installs into the generated MSYS2-style sysroot:
+
+```json
+"windows": {
+  "native_dependencies": [
+    {
+      "name": "gserial",
+      "repo": "https://github.com/example/gserial.git",
+      "dir": ".sqgipkg/native/gserial",
+      "branch": "main",
+      "update": true,
+      "submodules": true,
+      "build": [
+        "meson setup build-win --cross-file \"$SQGI_MESON_CROSS_FILE\" --prefix \"$SQGI_WINDOWS_PREFIX\" --wipe || meson setup build-win --cross-file \"$SQGI_MESON_CROSS_FILE\" --prefix \"$SQGI_WINDOWS_PREFIX\"",
+        "ninja -C build-win"
+      ],
+      "install": [
+        "meson install -C build-win --destdir \"$SQGI_WINDOWS_SYSROOT\""
+      ],
+      "stage": false
+    }
+  ]
+}
+```
+
+The `install` commands are optional. They run after `build` commands and are the
+recommended way to place headers, pkg-config files, typelibs, import libraries,
+and DLLs into the temporary sysroot. Once installed there, the main app can use
+normal Meson declarations such as:
+
+```meson
+dependency('gserial-1.0')
+```
+
+`stage` controls whether declared `libraries`, `typelibs`, and `files` from that
+project are copied directly into the final package. For build-only dependencies
+that install into the sysroot and are linked by the app, `stage: false` is often
+fine because recursive DLL resolution will copy linked DLLs from the sysroot. If
+the dependency provides typelibs or extra runtime files that are not discovered
+through DLL imports, set `stage: true` and declare them explicitly.
+
+`windows.build_dependencies` is accepted as an alias for
+`windows.native_dependencies`.
+
+Although the name says "native", these entries can also be used as Git-managed
+script/data dependencies. Leave `build` and `install` empty, set `stage: true`,
+and copy files from the checkout into Windows destinations such as
+`share/sqgi/app/vendor/...`, `share/themes/...`, or `share/glib-2.0/schemas/...`.
+
 ### `windows.native_projects`
 
-Windows-specific native builds. This keeps Linux `.so` builds and Windows `.dll`
-builds separate.
+Windows-specific native builds for the application itself or runtime modules.
+These run after `windows.native_dependencies`. This keeps Linux `.so` builds and
+Windows `.dll` builds separate.
 
 ```json
 "native_projects": [
@@ -1028,6 +1251,12 @@ builds separate.
   }
 ]
 ```
+
+`windows.native_projects` entries support the same fields as other native project
+entries, including `repo`, `branch`, `ref`, `submodules`, `install`, and `stage`.
+Use `windows.native_dependencies` when the project must be installed before the
+main app is configured; use `windows.native_projects` when it is part of the app
+build/staging phase.
 
 ## Windows cross-build support
 
@@ -1047,10 +1276,15 @@ and exports:
 PKG_CONFIG_PATH=
 PKG_CONFIG_SYSROOT_DIR=<absolute MSYS2 sysroot>
 PKG_CONFIG_LIBDIR=<prefix>/lib/pkgconfig:<prefix>/share/pkgconfig
+SQGI_WINDOWS_SYSROOT=<absolute MSYS2 sysroot>
+SQGI_WINDOWS_PREFIX=/mingw64                 # or /ucrt64, /clang64, ...
+SQGI_WINDOWS_PREFIX_DIR=<absolute prefix dir>
+SQGI_WINDOWS_SYSROOT_PREFIX=<absolute prefix dir>
 ```
 
 This prevents host `/usr/include` and host `pkg-config` paths from leaking into
-MinGW builds.
+MinGW builds, and gives native dependency builds stable paths for Meson/CMake
+install steps.
 
 ### `windows.cmake_toolchain` / `--win-cmake-toolchain`
 
@@ -1234,6 +1468,23 @@ A Vala package normally needs the Vala package in the MSYS2 sysroot:
 For Ubuntu cross-builds, use `mingw64` unless you also have a matching UCRT
 compiler/toolchain.
 
+### Private dependency build order
+
+For a native Windows app with private libraries, the normal order is:
+
+```text
+1. prepare MSYS2 sysroot and package dependencies
+2. clone/update native dependency repos
+3. build/install native dependencies into the sysroot
+4. configure/build the main app against that sysroot
+5. stage the app executable, scripts, resources, typelibs, and extra files
+6. recursively resolve DLL dependencies from the sysroot
+7. write the portable directory or NSIS installer
+```
+
+That is what `windows.native_dependencies` is for. It lets app manifests stay
+small while still supporting private libraries that have to exist at build time.
+
 ## Diagnostics
 
 ### `--doctor`
@@ -1362,6 +1613,14 @@ Windows/MSYS2 options:
 --win-meson-cross-file FILE
 ```
 
+Manifest-only Windows build fields include:
+
+```text
+windows.native_dependencies
+windows.build_dependencies     # alias
+windows.native_projects
+```
+
 NSIS options:
 
 ```text
@@ -1432,6 +1691,22 @@ sqgipkg --manifest sqgipkg.json --smoke-test "--analyse --timeout=2"
       "cmake --build build-win"
     ],
     "build_dir": "build-win",
+    "native_dependencies": [
+      {
+        "name": "my-private-lib",
+        "repo": "https://github.com/example/my-private-lib.git",
+        "dir": ".sqgipkg/native/my-private-lib",
+        "branch": "main",
+        "build": [
+          "meson setup build-win --cross-file \"$SQGI_MESON_CROSS_FILE\" --prefix \"$SQGI_WINDOWS_PREFIX\" --wipe || meson setup build-win --cross-file \"$SQGI_MESON_CROSS_FILE\" --prefix \"$SQGI_WINDOWS_PREFIX\"",
+          "ninja -C build-win"
+        ],
+        "install": [
+          "meson install -C build-win --destdir \"$SQGI_WINDOWS_SYSROOT\""
+        ],
+        "stage": false
+      }
+    ],
     "gtk_theme": "Adwaita",
     "gtk_icon_theme": "Adwaita",
     "gtk_font_name": "Segoe UI 10",
@@ -1509,6 +1784,9 @@ It covers:
 - doctor mode
 - smoke tests
 - Windows sysroot preparation
+- Windows native dependency build/install ordering
+- Git-managed native project checkout/update paths
+- Git-managed script/data dependency staging
 - Windows directory/NSIS staging paths
 
 ## Current limitations
@@ -1517,7 +1795,8 @@ It covers:
 - Reserved targets: `appdir`, `tarball`.
 - Linux dependency discovery is intentionally not a full distro dependency solver.
 - Windows package downloading resolves normal dependencies from one MSYS2 repo; virtual `provides` and cross-repo resolution are limited.
-- Native modules must declare explicit library and typelib outputs.
+- Native modules must declare explicit library and typelib outputs when they need to be staged directly.
+- Git-managed native projects and script/data dependencies are updated from the declared repo/ref; pin `tag`, `ref`, or `commit` for reproducible builds.
 - GTK/GStreamer portability still depends on declared runtime data and testing.
 - Bytecode is useful for packaging and casual source hiding, but it is not strong code secrecy.
 - Ubuntu stock MinGW cross-builds should use `mingw64`; UCRT64 is a good future/native MSYS2 target, but only with a matching UCRT toolchain.
