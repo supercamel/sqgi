@@ -1,0 +1,39 @@
+{
+  "name": "GtkWidgetThemes",
+  "gtk_theme": "SQGI-Violet-Dark",
+  "gtk_icon_theme": "Adwaita",
+  "gtk_prefer_dark": true,
+  "script_dirs": [
+    "."
+  ],
+  "files": [
+    {
+      "path": "themes/SQGI-Violet-Dark",
+      "dest": "usr/share/themes/SQGI-Violet-Dark"
+    }
+  ],
+  "windows": {
+    "msys2_prefix": "mingw64",
+    "build": [
+      "cmake -S ../../.. -B build-win -G Ninja ${SQGI_WIN_CMAKE_TOOLCHAIN:+-DCMAKE_TOOLCHAIN_FILE=$SQGI_WIN_CMAKE_TOOLCHAIN} -DCMAKE_BUILD_TYPE=Release",
+      "cmake --build build-win"
+    ],
+    "build_dir": "build-win",
+    "gtk_theme": "SQGI-Violet-Dark",
+    "gtk_icon_theme": "Adwaita",
+    "gtk_prefer_dark": true,
+    "gtk_font_name": "Segoe UI 10",
+    "gdk_backend": "win32",
+    "files": [
+      {
+        "path": "themes/SQGI-Violet-Dark",
+        "dest": "share/themes/SQGI-Violet-Dark"
+      }
+    ],
+    "nsis_options": {
+      "desktop_shortcut": true,
+      "start_menu_shortcut": true,
+      "start_menu_folder": "SQGI"
+    }
+  }
+}

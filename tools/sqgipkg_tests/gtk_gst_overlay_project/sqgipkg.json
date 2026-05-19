@@ -1,8 +1,13 @@
 {
-  "script": "main.nut",
   "name": "GtkGstOverlay",
-  "target": "appimage",
   "script_dirs": [
     "."
-  ]
+  ],
+  "windows": {
+    "build": [
+      "cmake -S ../../.. -B build-win -G Ninja ${SQGI_WIN_CMAKE_TOOLCHAIN:+-DCMAKE_TOOLCHAIN_FILE=$SQGI_WIN_CMAKE_TOOLCHAIN} -DCMAKE_BUILD_TYPE=Release",
+      "cmake --build build-win"
+    ],
+    "build_dir": "build-win"
+  }
 }

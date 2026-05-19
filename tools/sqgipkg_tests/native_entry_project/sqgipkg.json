@@ -1,0 +1,31 @@
+{
+  "name": "NativeEntryProject",
+  "entry": {
+    "type": "native",
+    "linux": "native/build/sq-native-entry",
+    "windows": "native/build-win/sq-native-entry.exe"
+  },
+  "script_dirs": [
+    "scripts"
+  ],
+  "native_projects": [
+    {
+      "dir": "native",
+      "build": [
+        "./build.sh"
+      ]
+    }
+  ],
+  "windows": {
+    "msys2_prefix": "mingw64",
+    "build": [],
+    "native_projects": [
+      {
+        "dir": "native",
+        "build": [
+          "BUILD_DIR=build-win MESON_CROSS_FILE=\"$SQGI_MESON_CROSS_FILE\" ./build.sh"
+        ]
+      }
+    ]
+  }
+}

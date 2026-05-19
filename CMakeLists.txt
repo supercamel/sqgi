@@ -25,12 +25,46 @@ add_subdirectory(Squirrel3)
 # ── System Dependencies ───────────────────────────────────────────────────────
 find_package(PkgConfig REQUIRED)
 find_package(Threads REQUIRED)
-pkg_check_modules(GLIB REQUIRED glib-2.0)
-pkg_check_modules(GOBJECT REQUIRED gobject-2.0)
-pkg_check_modules(GIO REQUIRED gio-2.0)
-pkg_check_modules(GI REQUIRED gobject-introspection-1.0)
-pkg_check_modules(FFI REQUIRED libffi)
-pkg_check_modules(CAIRO REQUIRED cairo)
+
+# Use imported pkg-config targets instead of hand-splicing *_LIBRARIES.
+# This preserves -L search paths and any extra linker flags, which matters
+# when cross-building against an MSYS2 sysroot from Linux.
+pkg_check_modules(GLIB REQUIRED IMPORTED_TARGET glib-2.0)
+pkg_check_modules(GOBJECT REQUIRED IMPORTED_TARGET gobject-2.0)
+pkg_check_modules(GIO REQUIRED IMPORTED_TARGET gio-2.0)
+pkg_check_modules(GI REQUIRED IMPORTED_TARGET gobject-introspection-1.0)
+pkg_check_modules(FFI REQUIRED IMPORTED_TARGET libffi)
+pkg_check_modules(CAIRO REQUIRED IMPORTED_TARGET cairo)
+
+# ── MinGW runtime linking ─────────────────────────────────────────────────────
+#
+# Ubuntu/MinGW-built C++ binaries can otherwise depend on the host toolchain's
+# libstdc++-6.dll/libgcc_s_seh-1.dll while sqgipkg bundles MSYS2 runtime DLLs.
+# That mixture can fail at process start with missing C++ entry points such as
+# std::ios_base_library_init().  Statically link the compiler runtime into SQGI
+# targets by default when cross-building for Windows, while leaving normal
+# GLib/GI/cairo dependencies dynamic.
+option(SQGI_MINGW_STATIC_CXX_RUNTIME
+    "Statically link libgcc/libstdc++ into SQGI MinGW targets" ON)
+
+set(SQGI_MINGW_RUNTIME_LINK_OPTIONS)
+if(MINGW AND SQGI_MINGW_STATIC_CXX_RUNTIME)
+    message(STATUS "SQGI: statically linking MinGW libgcc/libstdc++ into SQGI targets")
+    list(APPEND SQGI_MINGW_RUNTIME_LINK_OPTIONS
+        -static-libgcc
+        -static-libstdc++
+    )
+endif()
+
+set(SQGI_DEPS
+    PkgConfig::GLIB
+    PkgConfig::GOBJECT
+    PkgConfig::GIO
+    PkgConfig::GI
+    PkgConfig::FFI
+    PkgConfig::CAIRO
+    Threads::Threads
+)
 
 # ── libsqgi shared library ─────────────────────────────────────────────────────
 set(LIBSQGI_SRC
@@ -72,52 +106,58 @@ set(SQUIRREL3_SRC
     Squirrel3/sqstdlib/sqstdsystem.cpp
 )
 
-# ── sqgi shared library ──
-add_library(sqgi SHARED ${LIBSQGI_SRC} ${SQUIRREL3_SRC})
+# ── SQGI core objects ─────────────────────────────────────────────────────────
+#
+# Build the runtime once as an OBJECT library, then reuse those objects for:
+#   - libsqgi, the embeddable shared library
+#   - sqgi-bin, the CLI executable
+#
+# sqgi-bin intentionally links the core objects directly instead of linking
+# against libsqgi. That keeps the CLI self-contained with respect to SQGI itself
+# (no runtime dependency on libsqgi.dll / libsqgi.so), while still linking the
+# normal GLib/GI/cairo system libraries.
+add_library(sqgi-core OBJECT ${LIBSQGI_SRC} ${SQUIRREL3_SRC})
+set_target_properties(sqgi-core PROPERTIES
+    POSITION_INDEPENDENT_CODE ON
+)
+target_include_directories(sqgi-core
+    PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+        ${CMAKE_CURRENT_SOURCE_DIR}/Squirrel3/include
+)
+target_link_libraries(sqgi-core PUBLIC ${SQGI_DEPS})
+
+# ── libsqgi shared library ────────────────────────────────────────────────────
+add_library(sqgi SHARED $<TARGET_OBJECTS:sqgi-core>)
 set_target_properties(sqgi PROPERTIES
     VERSION   ${PROJECT_VERSION}
     SOVERSION ${PROJECT_VERSION_MAJOR}
+    LINKER_LANGUAGE CXX
 )
 target_include_directories(sqgi
     PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/src
         ${CMAKE_CURRENT_SOURCE_DIR}/Squirrel3/include
-        ${GLIB_INCLUDE_DIRS}
-        ${GOBJECT_INCLUDE_DIRS}
-        ${GIO_INCLUDE_DIRS}
-        ${GI_INCLUDE_DIRS}
-        ${FFI_INCLUDE_DIRS}
-        ${CAIRO_INCLUDE_DIRS}
 )
-target_compile_options(sqgi PRIVATE
-    ${GLIB_CFLAGS_OTHER}
-    ${GOBJECT_CFLAGS_OTHER}
-    ${GIO_CFLAGS_OTHER}
-    ${GI_CFLAGS_OTHER}
-    ${FFI_CFLAGS_OTHER}
-    ${CAIRO_CFLAGS_OTHER}
-)
-target_link_libraries(sqgi
-    ${GLIB_LIBRARIES}
-    ${GOBJECT_LIBRARIES}
-    ${GIO_LIBRARIES}
-    ${GI_LIBRARIES}
-    ${FFI_LIBRARIES}
-    ${CAIRO_LIBRARIES}
-    Threads::Threads
-)
+target_link_libraries(sqgi PUBLIC ${SQGI_DEPS})
+if(SQGI_MINGW_RUNTIME_LINK_OPTIONS)
+    target_link_options(sqgi PRIVATE ${SQGI_MINGW_RUNTIME_LINK_OPTIONS})
+endif()
 
 # ── sqgi executable ────────────────────────────────────────────────────────────
-
-# ── sqgi executable ──
-add_executable(sqgi-bin src/main.c)
-set_target_properties(sqgi-bin PROPERTIES OUTPUT_NAME sqgi)
+add_executable(sqgi-bin src/main.c $<TARGET_OBJECTS:sqgi-core>)
+set_target_properties(sqgi-bin PROPERTIES
+    OUTPUT_NAME sqgi
+    LINKER_LANGUAGE CXX
+)
 target_include_directories(sqgi-bin PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}/Squirrel3/include
-    ${GLIB_INCLUDE_DIRS}
 )
-target_link_libraries(sqgi-bin sqgi)
+target_link_libraries(sqgi-bin PRIVATE ${SQGI_DEPS})
+if(SQGI_MINGW_RUNTIME_LINK_OPTIONS)
+    target_link_options(sqgi-bin PRIVATE ${SQGI_MINGW_RUNTIME_LINK_OPTIONS})
+endif()
 target_compile_definitions(sqgi-bin PRIVATE
     SQGI_VERSION="${PROJECT_VERSION}"
 )
@@ -245,9 +285,6 @@ function(add_sqgi_c_test test_name source_file)
     target_include_directories(${test_name} PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src
         ${CMAKE_CURRENT_SOURCE_DIR}/Squirrel3/include
-        ${GLIB_INCLUDE_DIRS}
-        ${GOBJECT_INCLUDE_DIRS}
-        ${GIO_INCLUDE_DIRS}
     )
     add_test(NAME ${test_name} COMMAND ${test_name})
     set_tests_properties(${test_name} PROPERTIES
@@ -308,6 +345,10 @@ install(TARGETS sqgi-bin
 
 install(PROGRAMS tools/sqgipkg
     DESTINATION ${CMAKE_INSTALL_BINDIR}
+)
+
+install(DIRECTORY tools/sqgipkg_templates
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/sqgi
 )
 
 install(FILES ${SQGI_PUBLIC_HEADERS}

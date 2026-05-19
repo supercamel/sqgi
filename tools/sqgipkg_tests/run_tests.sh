@@ -37,6 +37,10 @@ assert_file() {
   [[ -f "$1" ]] || fail "expected file: $1"
 }
 
+assert_not_file() {
+  [[ ! -f "$1" ]] || fail "did not expect file: $1"
+}
+
 assert_executable() {
   [[ -x "$1" ]] || fail "expected executable: $1"
 }
@@ -97,6 +101,7 @@ HELP_OUT="${WORK_DIR}/help.out"
 run_sqgipkg --help >"${HELP_OUT}"
 assert_contains "${HELP_OUT}" "sqgipkg SCRIPT --name NAME --target appimage"
 assert_contains "${HELP_OUT}" "sqgipkg --manifest sqgipkg.json"
+assert_contains "${HELP_OUT}" "sqgipkg SCRIPT --name NAME --target all"
 assert_contains "${HELP_OUT}" "--resource PATH"
 assert_contains "${HELP_OUT}" "--refresh-appimagetool"
 assert_contains "${HELP_OUT}" "--script-dir DIR"
@@ -113,6 +118,7 @@ mkdir -p "${INIT_DIR}"
 (cd "${INIT_DIR}" && run_sqgipkg --init gtk4 >"${WORK_DIR}/init.out")
 assert_file "${INIT_DIR}/sqgipkg.json"
 assert_contains "${INIT_DIR}/sqgipkg.json" "\"script_dirs\""
+assert_contains "${INIT_DIR}/sqgipkg.json" "\"gdk_backend\""
 assert_contains "${WORK_DIR}/init.out" "wrote sqgipkg.json"
 pass "manifest init template"
 
@@ -188,9 +194,72 @@ assert_contains "${WORK_DIR}/package.out" "manual files:"
 assert_contains "${WORK_DIR}/package.out" "smoke test passed"
 pass "real appimage build with extra payloads"
 
+THEME_PROJECT="${WORK_DIR}/theme-project"
+mkdir -p "${THEME_PROJECT}/themes/TestTheme/gtk-4.0"
+cat >"${THEME_PROJECT}/main.nut" <<'EOF'
+print("theme project\n")
+EOF
+cat >"${THEME_PROJECT}/themes/TestTheme/index.theme" <<'EOF'
+[Theme]
+Name=TestTheme
+EOF
+cat >"${THEME_PROJECT}/sqgipkg.json" <<'EOF'
+{
+  "name": "ThemeProject",
+  "gtk_theme": "TestTheme",
+  "gtk_icon_theme": "Adwaita",
+  "gtk_font_name": "Cantarell 11",
+  "gtk_prefer_dark": true,
+  "gdk_backend": "x11",
+  "files": [
+    {
+      "path": "themes/TestTheme",
+      "dest": "usr/share/themes/TestTheme"
+    }
+  ]
+}
+EOF
+THEME_OUT="${WORK_DIR}/theme-out"
+(
+  cd "${THEME_PROJECT}"
+  run_sqgipkg \
+    --output "${THEME_OUT}" \
+    --appimagetool "${APPIMAGETOOL}" \
+    --keep-appdir \
+    >"${WORK_DIR}/theme-package.out"
+)
+THEME_APPDIR="${THEME_OUT}/ThemeProject.AppDir"
+assert_file "${THEME_APPDIR}/usr/share/themes/TestTheme/index.theme"
+assert_file "${THEME_APPDIR}/usr/etc/gtk-4.0/settings.ini"
+assert_file "${THEME_APPDIR}/usr/etc/gtk-3.0/settings.ini"
+assert_contains "${THEME_APPDIR}/usr/etc/gtk-4.0/settings.ini" "gtk-theme-name=TestTheme"
+assert_contains "${THEME_APPDIR}/usr/etc/gtk-4.0/settings.ini" "gtk-icon-theme-name=Adwaita"
+assert_contains "${THEME_APPDIR}/usr/etc/gtk-4.0/settings.ini" "gtk-font-name=Cantarell 11"
+assert_contains "${THEME_APPDIR}/usr/etc/gtk-4.0/settings.ini" "gtk-application-prefer-dark-theme=true"
+assert_contains "${THEME_APPDIR}/AppRun" "XDG_CONFIG_DIRS"
+assert_contains "${THEME_APPDIR}/AppRun" "GTK_THEME='TestTheme'"
+assert_contains "${THEME_APPDIR}/AppRun" "GDK_BACKEND='x11'"
+pass "AppImage GTK theme selection"
+
 run_appimage "${APPIMAGE}" alpha beta >"${WORK_DIR}/appimage.out"
 assert_contains "${WORK_DIR}/appimage.out" "sqgipkg packaged app ran"
 pass "real custom AppImage execution"
+
+DEFAULT_PROJECT="${WORK_DIR}/default-project"
+mkdir -p "${DEFAULT_PROJECT}"
+cat >"${DEFAULT_PROJECT}/main.nut" <<'EOF'
+print("default project packaged\n")
+EOF
+(
+  cd "${DEFAULT_PROJECT}"
+  PATH="${BUILD_DIR}:${PATH}" run_sqgipkg \
+    --appimagetool "${APPIMAGETOOL}" \
+    >"${WORK_DIR}/default-project-package.out"
+)
+assert_file "${DEFAULT_PROJECT}/dist/default-project.AppImage"
+run_appimage "${DEFAULT_PROJECT}/dist/default-project.AppImage" >"${WORK_DIR}/default-project-run.out"
+assert_contains "${WORK_DIR}/default-project-run.out" "default project packaged"
+pass "default project packaging"
 
 PATH="${BUILD_DIR}:${PATH}" LD_LIBRARY_PATH="${BUILD_DIR}${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}" \
   "${SQGIPKG}" "${ROOT_DIR}/demo/glib/paths_env.nut" \
@@ -278,6 +347,307 @@ run_appimage "${MANIFEST_FILES_OUT}/ManifestFiles.AppImage" >"${WORK_DIR}/manife
 assert_contains "${WORK_DIR}/manifest-files-run.out" "manual payload: manifest file works"
 pass "manifest files payload"
 
+NATIVE_ENTRY_PROJECT="${WORK_DIR}/native-entry-project"
+mkdir -p "${NATIVE_ENTRY_PROJECT}/build-native"
+cat >"${NATIVE_ENTRY_PROJECT}/build-native/native-entry" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+test -f "${SQGI_APP_SHARE}/helper.cnut"
+echo "native entry ran with ${1:-none}"
+EOF
+chmod +x "${NATIVE_ENTRY_PROJECT}/build-native/native-entry"
+cat >"${NATIVE_ENTRY_PROJECT}/helper.nut" <<'EOF'
+return {
+    message = "compiled nut payload"
+}
+EOF
+cat >"${NATIVE_ENTRY_PROJECT}/sqgipkg.json" <<'EOF'
+{
+  "name": "NativeEntry",
+  "entry": {
+    "type": "native",
+    "linux": "build-native/native-entry"
+  },
+  "script_dirs": [
+    "."
+  ]
+}
+EOF
+
+NATIVE_ENTRY_OUT="${WORK_DIR}/native-entry"
+(
+  cd "${NATIVE_ENTRY_PROJECT}"
+  run_sqgipkg \
+    --output "${NATIVE_ENTRY_OUT}" \
+    --appimagetool "${APPIMAGETOOL}" \
+    --keep-appdir \
+    >"${WORK_DIR}/native-entry-package.out"
+)
+assert_file "${NATIVE_ENTRY_OUT}/NativeEntry.AppDir/usr/bin/native-entry"
+assert_not_file "${NATIVE_ENTRY_OUT}/NativeEntry.AppDir/usr/bin/sqgi"
+assert_file "${NATIVE_ENTRY_OUT}/NativeEntry.AppDir/usr/share/sqgi/app/helper.cnut"
+assert_contains "${NATIVE_ENTRY_OUT}/NativeEntry.AppDir/AppRun" 'exec "${HERE}/usr/bin/native-entry" "$@"'
+run_appimage "${NATIVE_ENTRY_OUT}/NativeEntry.AppImage" alpha >"${WORK_DIR}/native-entry-run.out"
+assert_contains "${WORK_DIR}/native-entry-run.out" "native entry ran with alpha"
+pass "native AppImage entry with compiled nut payload"
+
+if command -v meson >/dev/null 2>&1 &&
+   command -v cc >/dev/null 2>&1; then
+  NATIVE_ENTRY_PROJECT_OUT="${WORK_DIR}/native-entry-project"
+  run_sqgipkg \
+    --manifest "${ROOT_DIR}/tools/sqgipkg_tests/native_entry_project/sqgipkg.json" \
+    --output "${NATIVE_ENTRY_PROJECT_OUT}" \
+    --appimagetool "${APPIMAGETOOL}" \
+    --keep-appdir \
+    --smoke-test "project-arg" \
+    >"${WORK_DIR}/native-entry-project-package.out"
+
+  assert_file "${NATIVE_ENTRY_PROJECT_OUT}/NativeEntryProject.AppDir/usr/bin/sq-native-entry"
+  assert_not_file "${NATIVE_ENTRY_PROJECT_OUT}/NativeEntryProject.AppDir/usr/bin/sqgi"
+  assert_file "${NATIVE_ENTRY_PROJECT_OUT}/NativeEntryProject.AppDir/usr/share/sqgi/app/payload.cnut"
+  assert_contains "${WORK_DIR}/native-entry-project-package.out" "native entry project ran"
+  assert_contains "${WORK_DIR}/native-entry-project-package.out" "arg: project-arg"
+  assert_contains "${WORK_DIR}/native-entry-project-package.out" "payload:"
+  pass "native entry test project AppImage"
+else
+  echo "SKIP: native entry test project AppImage (missing meson/cc toolchain)"
+fi
+
+WIN_PROJECT="${WORK_DIR}/win-project"
+WIN_BUILD="${WIN_PROJECT}/win-build"
+WIN_MSYS2="${WIN_PROJECT}/msys64"
+mkdir -p "${WIN_PROJECT}" "${WIN_BUILD}" \
+  "${WIN_MSYS2}/mingw64/bin" \
+  "${WIN_MSYS2}/mingw64/lib/girepository-1.0" \
+  "${WIN_MSYS2}/mingw64/share/glib-2.0/schemas" \
+  "${WIN_MSYS2}/var/lib/pacman/local/mingw-w64-x86_64-glib2-2.80.0-1"
+printf 'fake exe\n' >"${WIN_BUILD}/sqgi.exe"
+printf 'fake dll\n' >"${WIN_BUILD}/libsqgi-0.dll"
+printf 'glib dll\n' >"${WIN_MSYS2}/mingw64/bin/libglib-2.0-0.dll"
+printf 'gio typelib\n' >"${WIN_MSYS2}/mingw64/lib/girepository-1.0/Gio-2.0.typelib"
+printf '<schemalist/>\n' >"${WIN_MSYS2}/mingw64/share/glib-2.0/schemas/org.example.gschema.xml"
+cat >"${WIN_MSYS2}/var/lib/pacman/local/mingw-w64-x86_64-glib2-2.80.0-1/desc" <<EOF
+%NAME%
+mingw-w64-x86_64-glib2
+EOF
+cat >"${WIN_MSYS2}/var/lib/pacman/local/mingw-w64-x86_64-glib2-2.80.0-1/files" <<EOF
+%FILES%
+mingw64/bin/libglib-2.0-0.dll
+mingw64/lib/girepository-1.0/Gio-2.0.typelib
+mingw64/share/glib-2.0/schemas/org.example.gschema.xml
+mingw64/include/glib-2.0/glib.h
+EOF
+cat >"${WIN_PROJECT}/main.nut" <<'EOF'
+local helper = import("helper.nut")
+print(helper.message() + "\n")
+EOF
+cat >"${WIN_PROJECT}/helper.nut" <<'EOF'
+function message() {
+    return "windows helper"
+}
+return { message = message }
+EOF
+mkdir -p "${WIN_PROJECT}/assets"
+printf 'win asset\n' >"${WIN_PROJECT}/assets/data.txt"
+cat >"${WIN_PROJECT}/sqgipkg.json" <<EOF
+{
+  "script": "main.nut",
+  "name": "WinSqurl",
+  "target": "win-dir",
+  "gtk_theme": "SharedTheme",
+  "gtk_icon_theme": "SharedIcons",
+  "gtk_font_name": "Shared Font 9",
+  "gtk_prefer_dark": true,
+  "script_dirs": [
+    "."
+  ],
+  "resources": [
+    "assets"
+  ],
+  "windows": {
+    "build_dir": "win-build",
+    "msys2_root": "msys64",
+    "msys2_prefix": "mingw64",
+    "download_packages": false,
+    "auto_packages": false,
+    "gdk_backend": "win32",
+    "packages": [
+      "mingw-w64-x86_64-glib2"
+    ]
+  }
+}
+EOF
+
+WIN_OUT="${WORK_DIR}/win-out"
+run_sqgipkg \
+  --manifest "${WIN_PROJECT}/sqgipkg.json" \
+  --output "${WIN_OUT}" \
+  >"${WORK_DIR}/win-dir-package.out"
+
+WINDIR="${WIN_OUT}/WinSqurl"
+assert_file "${WINDIR}/bin/sqgi.exe"
+assert_file "${WINDIR}/bin/libsqgi-0.dll"
+assert_file "${WINDIR}/bin/libglib-2.0-0.dll"
+assert_file "${WINDIR}/lib/girepository-1.0/Gio-2.0.typelib"
+assert_file "${WINDIR}/share/glib-2.0/schemas/org.example.gschema.xml"
+assert_file "${WINDIR}/share/sqgi/app/main.cnut"
+assert_file "${WINDIR}/share/sqgi/app/main.nut"
+assert_file "${WINDIR}/share/sqgi/app/helper.cnut"
+assert_file "${WINDIR}/share/sqgi/app/resources/assets/data.txt"
+assert_file "${WINDIR}/etc/gtk-4.0/settings.ini"
+assert_file "${WINDIR}/share/gtk-4.0/settings.ini"
+assert_file "${WINDIR}/WinSqurl.bat"
+assert_contains "${WINDIR}/WinSqurl.bat" "SQGI_APP_SHARE"
+assert_contains "${WINDIR}/WinSqurl.bat" "GI_TYPELIB_PATH"
+assert_contains "${WINDIR}/WinSqurl.bat" "XDG_CONFIG_DIRS"
+assert_contains "${WINDIR}/WinSqurl.bat" "set \"GTK_THEME=SharedTheme\""
+assert_contains "${WINDIR}/WinSqurl.bat" "set \"GDK_BACKEND=win32\""
+assert_contains "${WINDIR}/etc/gtk-4.0/settings.ini" "gtk-theme-name=SharedTheme"
+assert_contains "${WINDIR}/etc/gtk-4.0/settings.ini" "gtk-icon-theme-name=SharedIcons"
+assert_contains "${WINDIR}/etc/gtk-4.0/settings.ini" "gtk-font-name=Shared Font 9"
+assert_contains "${WINDIR}/etc/gtk-4.0/settings.ini" "gtk-application-prefer-dark-theme=true"
+assert_contains "${WORK_DIR}/win-dir-package.out" "Windows dist directory"
+pass "Windows dist directory staging"
+
+WIN_NATIVE_PROJECT="${WORK_DIR}/win-native-project"
+WIN_NATIVE_BUILD="${WIN_NATIVE_PROJECT}/win-build"
+mkdir -p "${WIN_NATIVE_PROJECT}" "${WIN_NATIVE_BUILD}"
+printf 'fake native exe\n' >"${WIN_NATIVE_BUILD}/native-entry.exe"
+cat >"${WIN_NATIVE_PROJECT}/helper.nut" <<'EOF'
+return {
+    message = "windows native helper"
+}
+EOF
+cat >"${WIN_NATIVE_PROJECT}/sqgipkg.json" <<'EOF'
+{
+  "name": "WinNativeEntry",
+  "entry": {
+    "type": "native",
+    "windows": "win-build/native-entry.exe"
+  },
+  "target": "win-dir",
+  "script_dirs": [
+    "."
+  ],
+  "windows": {
+    "download_packages": false,
+    "auto_packages": false
+  }
+}
+EOF
+WIN_NATIVE_OUT="${WORK_DIR}/win-native-out"
+run_sqgipkg \
+  --manifest "${WIN_NATIVE_PROJECT}/sqgipkg.json" \
+  --output "${WIN_NATIVE_OUT}" \
+  >"${WORK_DIR}/win-native-package.out"
+WIN_NATIVE_DIR="${WIN_NATIVE_OUT}/WinNativeEntry"
+assert_file "${WIN_NATIVE_DIR}/bin/native-entry.exe"
+assert_not_file "${WIN_NATIVE_DIR}/bin/sqgi.exe"
+assert_file "${WIN_NATIVE_DIR}/share/sqgi/app/helper.cnut"
+assert_contains "${WIN_NATIVE_DIR}/WinNativeEntry.bat" "\"%HERE%bin\\native-entry.exe\" %*"
+pass "native Windows entry with compiled nut payload"
+
+WIN_NSIS_OUT="${WORK_DIR}/win-nsis"
+run_sqgipkg \
+  --manifest "${WIN_PROJECT}/sqgipkg.json" \
+  --target win-nsis \
+  --output "${WIN_NSIS_OUT}" \
+  --nsis definitely-not-makensis \
+  >"${WORK_DIR}/win-nsis-package.out"
+assert_file "${WIN_NSIS_OUT}/WinSqurl.nsi"
+assert_contains "${WIN_NSIS_OUT}/WinSqurl.nsi" "File /r"
+assert_contains "${WIN_NSIS_OUT}/WinSqurl.nsi" "WinSqurl/*"
+assert_contains "${WIN_NSIS_OUT}/WinSqurl.nsi" "CreateShortcut"
+assert_contains "${WORK_DIR}/win-nsis-package.out" "makensis not found"
+pass "Windows NSIS script generation"
+
+WIN_ALL_OUT="${WORK_DIR}/win-all"
+run_sqgipkg \
+  --manifest "${WIN_PROJECT}/sqgipkg.json" \
+  --target all \
+  --output "${WIN_ALL_OUT}" \
+  --appimagetool "${APPIMAGETOOL}" \
+  --nsis definitely-not-makensis \
+  >"${WORK_DIR}/win-all-package.out"
+assert_file "${WIN_ALL_OUT}-linux/WinSqurl.AppImage"
+assert_file "${WIN_ALL_OUT}-windows/WinSqurl/WinSqurl.bat"
+assert_file "${WIN_ALL_OUT}-windows/WinSqurl.nsi"
+assert_contains "${WORK_DIR}/win-all-package.out" "building all distribution targets"
+pass "all target builds AppImage and Windows NSIS"
+
+WIN_REPO_PROJECT="${WORK_DIR}/win-repo-project"
+WIN_REPO_BUILD="${WIN_REPO_PROJECT}/win-build"
+WIN_REPO="${WIN_REPO_PROJECT}/repo/mingw64"
+WIN_REPO_DB="${WIN_REPO_PROJECT}/repo-db"
+WIN_REPO_PKGS="${WIN_REPO_PROJECT}/repo-pkgs"
+WIN_REPO_SYSROOT="${WIN_REPO_PROJECT}/downloaded-msys64"
+mkdir -p "${WIN_REPO_PROJECT}" "${WIN_REPO_BUILD}" "${WIN_REPO}" \
+  "${WIN_REPO_DB}/mingw-w64-x86_64-fakeglib-1.0-1" \
+  "${WIN_REPO_DB}/mingw-w64-x86_64-fakegtk-1.0-1"
+printf 'fake exe\n' >"${WIN_REPO_BUILD}/sqgi.exe"
+printf 'fake dll\n' >"${WIN_REPO_BUILD}/libsqgi-0.dll"
+cat >"${WIN_REPO_DB}/mingw-w64-x86_64-fakeglib-1.0-1/desc" <<EOF
+%NAME%
+mingw-w64-x86_64-fakeglib
+
+%FILENAME%
+mingw-w64-x86_64-fakeglib-1.0-1-any.pkg.tar
+EOF
+cat >"${WIN_REPO_DB}/mingw-w64-x86_64-fakegtk-1.0-1/desc" <<EOF
+%NAME%
+mingw-w64-x86_64-fakegtk
+
+%FILENAME%
+mingw-w64-x86_64-fakegtk-1.0-1-any.pkg.tar
+
+%DEPENDS%
+mingw-w64-x86_64-fakeglib>=1.0
+EOF
+tar -C "${WIN_REPO_DB}" -cf "${WIN_REPO}/mingw64.db" .
+mkdir -p "${WIN_REPO_PKGS}/glib/mingw64/bin" \
+  "${WIN_REPO_PKGS}/gtk/mingw64/bin" \
+  "${WIN_REPO_PKGS}/gtk/mingw64/share/gtk-4.0"
+printf 'fake glib dll\n' >"${WIN_REPO_PKGS}/glib/mingw64/bin/libfakeglib-0.dll"
+printf 'fake gtk dll\n' >"${WIN_REPO_PKGS}/gtk/mingw64/bin/libfakegtk-0.dll"
+printf '[Settings]\n' >"${WIN_REPO_PKGS}/gtk/mingw64/share/gtk-4.0/settings.ini"
+tar -C "${WIN_REPO_PKGS}/glib" -cf "${WIN_REPO}/mingw-w64-x86_64-fakeglib-1.0-1-any.pkg.tar" mingw64
+tar -C "${WIN_REPO_PKGS}/gtk" -cf "${WIN_REPO}/mingw-w64-x86_64-fakegtk-1.0-1-any.pkg.tar" mingw64
+cat >"${WIN_REPO_PROJECT}/main.nut" <<'EOF'
+print("windows repo resolver\n")
+EOF
+cat >"${WIN_REPO_PROJECT}/sqgipkg.json" <<EOF
+{
+  "script": "main.nut",
+  "name": "WinResolved",
+  "target": "win-dir",
+  "windows": {
+    "build_dir": "win-build",
+    "msys2_root": "downloaded-msys64",
+    "msys2_prefix": "mingw64",
+    "repo_url": "file://${WIN_REPO}",
+    "package_cache": "pkg-cache",
+    "auto_packages": false,
+    "packages": [
+      "mingw-w64-x86_64-fakegtk"
+    ]
+  }
+}
+EOF
+
+WIN_RESOLVED_OUT="${WORK_DIR}/win-resolved"
+run_sqgipkg \
+  --manifest "${WIN_REPO_PROJECT}/sqgipkg.json" \
+  --output "${WIN_RESOLVED_OUT}" \
+  >"${WORK_DIR}/win-resolved-package.out"
+WIN_RESOLVED_DIR="${WIN_RESOLVED_OUT}/WinResolved"
+assert_file "${WIN_REPO_SYSROOT}/var/lib/pacman/local/mingw-w64-x86_64-fakeglib-1.0-1-any/desc"
+assert_file "${WIN_REPO_SYSROOT}/var/lib/pacman/local/mingw-w64-x86_64-fakegtk-1.0-1-any/files"
+assert_file "${WIN_RESOLVED_DIR}/bin/libfakeglib-0.dll"
+assert_file "${WIN_RESOLVED_DIR}/bin/libfakegtk-0.dll"
+assert_file "${WIN_RESOLVED_DIR}/share/gtk-4.0/settings.ini"
+assert_contains "${WORK_DIR}/win-resolved-package.out" "installed MSYS2 package into sysroot: mingw-w64-x86_64-fakeglib"
+pass "Windows MSYS2 package resolver"
+
 if command -v meson >/dev/null 2>&1 &&
    command -v g-ir-scanner >/dev/null 2>&1 &&
    command -v g-ir-compiler >/dev/null 2>&1 &&
@@ -340,5 +710,25 @@ run_appimage "${MANIFEST_DEMO_OUT}/ImageViewer.AppImage" --timeout=1 >"${WORK_DI
 assert_contains "${WORK_DIR}/manifest-image-viewer-run.out" "image_viewer: loaded"
 assert_contains "${WORK_DIR}/manifest-image-viewer-run.out" "resources/assets/blaue_blume_600.jpg"
 pass "manifest AppImage for demo/gtk4/image_viewer.nut"
+
+GTK_THEMES_OUT="${WORK_DIR}/gtk-themes"
+run_sqgipkg \
+  --manifest "${ROOT_DIR}/tools/sqgipkg_tests/gtk_themes/sqgipkg.json" \
+  --output "${GTK_THEMES_OUT}" \
+  --appimagetool "${APPIMAGETOOL}" \
+  --keep-appdir \
+  >"${WORK_DIR}/gtk-themes-package.out"
+
+assert_file "${GTK_THEMES_OUT}/GtkWidgetThemes.AppDir/usr/share/themes/SQGI-Violet-Dark/gtk-4.0/gtk.css"
+assert_contains "${GTK_THEMES_OUT}/GtkWidgetThemes.AppDir/usr/etc/gtk-4.0/settings.ini" "gtk-theme-name=SQGI-Violet-Dark"
+assert_contains "${GTK_THEMES_OUT}/GtkWidgetThemes.AppDir/AppRun" 'APPDIR'
+run_appimage "${GTK_THEMES_OUT}/GtkWidgetThemes.AppImage" --auto >"${WORK_DIR}/gtk-themes-run.out" 2>&1
+assert_contains "${WORK_DIR}/gtk-themes-run.out" "window.close-request"
+assert_contains "${WORK_DIR}/gtk-themes-run.out" "Gtk Application exited with code 0"
+if grep -Fq "Theme parser error" "${WORK_DIR}/gtk-themes-run.out"; then
+  sed -n '1,160p' "${WORK_DIR}/gtk-themes-run.out" >&2
+  fail "gtk_themes emitted GTK theme parser errors"
+fi
+pass "gtk_themes AppImage uses bundled theme and closes cleanly"
 
 echo "sqgipkg tests passed"

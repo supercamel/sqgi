@@ -1,7 +1,8 @@
 {
-  "script": "main.nut",
   "name": "NativeVala",
-  "target": "appimage",
+  "script_dirs": [
+    "."
+  ],
   "native_projects": [
     {
       "dir": "native",
@@ -15,5 +16,30 @@
         "build/SqVala-1.0.typelib"
       ]
     }
-  ]
+  ],
+  "windows": {
+    "msys2_prefix": "mingw64",
+    "packages": [
+      "mingw-w64-x86_64-vala"
+    ],
+    "build": [
+      "cmake -S ../../.. -B build-win -G Ninja ${SQGI_WIN_CMAKE_TOOLCHAIN:+-DCMAKE_TOOLCHAIN_FILE=$SQGI_WIN_CMAKE_TOOLCHAIN} -DCMAKE_BUILD_TYPE=Release",
+      "cmake --build build-win"
+    ],
+    "build_dir": "build-win",
+    "native_projects": [
+      {
+        "dir": "native",
+        "build": [
+          "BUILD_DIR=build-win MESON_CROSS_FILE=\"$SQGI_MESON_CROSS_FILE\" ./build.sh"
+        ],
+        "libraries": [
+          "build-win/libsqvala-1.0.dll"
+        ],
+        "typelibs": [
+          "build-win/SqVala-1.0.typelib"
+        ]
+      }
+    ]
+  }
 }

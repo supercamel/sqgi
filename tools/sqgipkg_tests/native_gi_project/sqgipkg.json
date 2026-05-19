@@ -1,7 +1,8 @@
 {
-  "script": "main.nut",
   "name": "NativeGI",
-  "target": "appimage",
+  "script_dirs": [
+    "."
+  ],
   "native_projects": [
     {
       "dir": "native",
@@ -15,5 +16,27 @@
         "build/SqHello-1.0.typelib"
       ]
     }
-  ]
+  ],
+  "windows": {
+    "msys2_prefix": "ucrt64",
+    "build": [
+      "cmake -S ../../.. -B build-win -G Ninja -DCMAKE_TOOLCHAIN_FILE=\"$SQGI_WIN_CMAKE_TOOLCHAIN\" -DCMAKE_BUILD_TYPE=Release",
+      "cmake --build build-win"
+    ],
+    "build_dir": "build-win",
+    "native_projects": [
+      {
+        "dir": "native",
+        "build": [
+          "BUILD_DIR=build-win MESON_CROSS_FILE=\"$SQGI_MESON_CROSS_FILE\" ./build.sh"
+        ],
+        "libraries": [
+          "build-win/libsqhello-1.0.dll"
+        ],
+        "typelibs": [
+          "build-win/SqHello-1.0.typelib"
+        ]
+      }
+    ]
+  }
 }

@@ -177,15 +177,16 @@ tools/sqgipkg_tests/native_vala_project/
 today is AppImage.
 
 ```sh
-sqgipkg main.nut --name MyApp --target appimage
+sqgipkg
 ```
 
-For real projects, use a manifest:
+From a directory with `main.nut`, that infers the app name from the directory
+and builds an AppImage. Add a manifest only when the defaults are not enough:
 
 ```sh
 sqgipkg --init gtk4
-sqgipkg --manifest sqgipkg.json --doctor
-sqgipkg --manifest sqgipkg.json --smoke-test ""
+sqgipkg --doctor
+sqgipkg --smoke-test ""
 ```
 
 Manifests can include:

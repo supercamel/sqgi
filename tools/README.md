@@ -2,182 +2,335 @@
 
 `sqgipkg` packages SQGI/Squirrel applications for distribution.
 
-The main target today is AppImage. The tool bundles the SQGI runtime, compiles
-your Squirrel scripts to `.cnut` bytecode, stages app resources, writes an
-`AppRun`, and optionally runs diagnostics or a smoke test.
+It takes a Squirrel entry script, any supporting modules/resources/native GObject
+libraries, and the SQGI runtime, then stages a runnable application for Linux or
+Windows. On Linux the primary target is AppImage. On Windows it can create a
+portable directory, an NSIS installer, or just prepare a Windows MSYS2 sysroot for
+cross-build/debug workflows.
 
-It is intentionally not a full Linux dependency solver. For GTK, GStreamer, and
-other plugin-heavy stacks, `sqgipkg` gives you clear manifest hooks and warnings
-instead of guessing what your app needs.
+The design goal is simple: keep the developer-facing manifest small, while
+putting the ugly platform work inside `sqgipkg`.
 
-## Quick Start
+## Highlights
 
-From a project directory with a `main.nut`:
+- Linux AppImage packaging.
+- Windows directory packaging with `win-dir`.
+- Windows NSIS installer generation with `win-nsis`.
+- Windows MSYS2 sysroot bootstrap with `win-sysroot`.
+- Combined Linux + Windows builds with `all`.
+- Squirrel `.nut` script discovery and optional bytecode compilation to `.cnut`.
+- Compatibility `.nut` links/copies so `import("module.nut")` keeps working.
+- Resource staging under `share/sqgi/app/resources`.
+- Exact manual file staging.
+- Native GObject extension builds and staging.
+- Native executable entrypoints for C/C++/Vala apps that do not launch through SQGI.
+- Vala/C/C++ native module support, including `.dll`/`.so` plus `.typelib`.
+- GObject Introspection typelib staging.
+- GStreamer plugin staging.
+- GSettings schema staging and optional schema compilation.
+- GIO module staging and optional module cache generation.
+- gdk-pixbuf loader staging and optional loader cache generation.
+- GTK data/theme/icon staging.
+- GTK theme/settings selection for AppImage and Windows launchers.
+- Windows MSYS2 package downloading, dependency resolution, extraction, and local package database writing.
+- Windows recursive DLL dependency closure using PE imports.
+- Generated CMake and Meson cross files for Ubuntu/MinGW Windows builds.
+- Automatic `PKG_CONFIG_*` isolation for Windows cross-builds.
+- Windows GTK runtime settings/launcher environment support.
+- NSIS installer customization: installer name, install directory, icon, license page, shortcuts, Start Menu folder, execution level, and uninstall registry entry.
+- Doctor mode for manifest/path/portability checks.
+- AppImage smoke tests, including isolated GStreamer plugin tests.
+- Build reports showing exactly what was staged.
+
+## Quick start
+
+From a project directory containing `main.nut`:
 
 ```sh
-build/sqgi tools/sqgipkg main.nut --name MyApp --target appimage
+sqgipkg
 ```
 
-This writes:
+By default this builds:
 
 ```text
-dist/MyApp.AppImage
+dist/<project-name>.AppImage
 ```
 
-For real projects, prefer a manifest:
+During in-tree development you can run the tool through the local SQGI binary:
 
 ```sh
-build/sqgi tools/sqgipkg --init simple
-build/sqgi tools/sqgipkg --manifest sqgipkg.json --doctor
-build/sqgi tools/sqgipkg --manifest sqgipkg.json --smoke-test "--timeout=2"
+build/sqgi tools/sqgipkg
 ```
 
-Run the result:
+Create a starter manifest:
+
+```sh
+sqgipkg --init simple
+```
+
+Check it:
+
+```sh
+sqgipkg --doctor
+```
+
+Build and smoke-test it:
+
+```sh
+sqgipkg --smoke-test "--timeout=2"
+```
+
+Run an AppImage without relying on host FUSE:
 
 ```sh
 APPIMAGE_EXTRACT_AND_RUN=1 dist/MyApp.AppImage
 ```
 
-`APPIMAGE_EXTRACT_AND_RUN=1` is useful during development because it avoids
-requiring FUSE support on the host.
+## Package targets
 
-## What sqgipkg Promises
+### `appimage`
 
-`sqgipkg` is designed to handle the SQGI-owned parts of your app:
+The default target. Stages an AppDir and produces:
 
-- copies the `sqgi` binary and `libsqgi.so`
-- compiles `.nut` scripts to `.cnut` bytecode by default
-- keeps `.nut` compatibility links so existing imports still work
-- stages project resources
-- stages exact manual payload files
-- can run declared native builds and stage their `.so`/`.typelib` outputs
-- stages declared plugin/type data buckets
-- writes AppImage metadata, icon, desktop file, and `AppRun`
-- reports what was bundled
-- can run a post-build smoke test
-
-`sqgipkg` does not automatically discover every GTK/GStreamer/system library
-dependency. If your app needs extra files, declare them in the manifest.
-
-## Starter Manifests
-
-Create a starter manifest:
-
-```sh
-build/sqgi tools/sqgipkg --init simple
-build/sqgi tools/sqgipkg --init gtk4
-build/sqgi tools/sqgipkg --init gtk4-gstreamer
-build/sqgi tools/sqgipkg --init native-gobject
-build/sqgi tools/sqgipkg --init native-vala
+```text
+dist/<name>.AppImage
 ```
 
-The templates are also checked into:
+### `win-dir`
+
+Stages a Windows application directory:
+
+```text
+dist/<name>/
+  <name>.bat
+  bin/sqgi.exe
+  bin/*.dll
+  share/sqgi/app/main.cnut
+  share/sqgi/app/*.nut
+  share/sqgi/app/resources/
+  lib/girepository-1.0/*.typelib
+```
+
+### `win-nsis`
+
+Stages the same Windows directory, writes an NSIS script, and runs `makensis` if
+available:
+
+```text
+dist/<name>/
+dist/<name>.nsi
+dist/<name>-Setup.exe
+```
+
+### `win-sysroot`
+
+Downloads/extracts MSYS2 packages, prepares a Windows sysroot, writes generated
+CMake/Meson cross files, prints the paths, and exits. It does not require a
+script.
+
+```sh
+sqgipkg --target win-sysroot --msys2-prefix mingw64
+```
+
+Typical output layout:
+
+```text
+dist/_msys2-mingw64/
+  mingw64/
+    bin/
+    include/
+    lib/
+    share/
+
+dist/_cross/mingw64/
+  toolchain-mingw64.cmake
+  mingw64.ini
+```
+
+This is useful for testing small C probes, debugging GI/runtime issues, or
+preparing a cache for CI.
+
+### `all`
+
+Builds `appimage`, then `win-nsis`.  To keep platform artifacts from
+overwriting or confusing each other, `all` writes Linux output to
+`<output>-linux` and Windows output to `<output>-windows`. With the default
+output directory, that means `dist-linux` and `dist-windows`.
+
+```sh
+sqgipkg --target all
+```
+
+### Reserved targets
+
+`appdir` and `tarball` are reserved but not implemented.
+
+## Starter manifests
+
+```sh
+sqgipkg --init simple
+sqgipkg --init gtk4
+sqgipkg --init gtk4-gstreamer
+sqgipkg --init native-gobject
+sqgipkg --init native-vala
+```
+
+Templates live in the source tree under `tools/sqgipkg_templates/` and are
+installed under `${datadir}/sqgi/sqgipkg_templates/` for reference.
 
 ```text
 tools/sqgipkg_templates/
 ```
 
-## Basic Manifest
+## Minimal manifest
 
 ```json
 {
-  "script": "main.nut",
-  "name": "MyApp",
-  "target": "appimage",
-  "script_dirs": [
-    "."
-  ],
-  "resources": [
-    "assets"
-  ]
+  "script_dirs": ["."]
 }
 ```
 
-Build it:
+If `script` is omitted and `main.nut` exists beside the manifest, `main.nut` is
+used automatically.
 
-```sh
-build/sqgi tools/sqgipkg --manifest sqgipkg.json
-```
+## Manifest reference
 
-## Script Packaging
+### Top-level fields
 
-By default, scripts are compiled to `.cnut` bytecode.
+#### `entry`
 
-If your manifest has:
+Application entrypoint. If omitted, `sqgipkg` uses SQGI mode and looks for
+`script` or `main.nut`.
+
+SQGI shorthand:
 
 ```json
-{
-  "script": "main.nut",
-  "script_dirs": [
-    "."
-  ]
-}
+"entry": "main.nut"
 ```
 
-the AppDir will contain files like:
-
-```text
-usr/share/sqgi/app/main.cnut
-usr/share/sqgi/app/main.nut -> main.cnut
-usr/share/sqgi/app/module.cnut
-usr/share/sqgi/app/module.nut -> module.cnut
-```
-
-`AppRun` executes `main.cnut` directly. The `.nut` paths are symlinks so code
-that imports a module by its `.nut` path continues to work:
-
-```squirrel
-local module = import("module.nut")
-```
-
-For development/debug source packages, disable compilation:
-
-```sh
-build/sqgi tools/sqgipkg --manifest sqgipkg.json --no-compile-scripts
-```
-
-or:
+Explicit SQGI form:
 
 ```json
-{
-  "compile_scripts": false
+"entry": {
+  "type": "sqgi",
+  "path": "main.nut"
 }
 ```
 
-## Manifest Reference
+Native form for C/C++/Vala apps:
 
-### Core Fields
+```json
+"entry": {
+  "type": "native",
+  "linux": "build/myapp",
+  "windows": "build-win/myapp.exe"
+}
+```
 
-`script`
+Native entries skip bundling/launching `sqgi`. The generated AppImage `AppRun`
+executes the Linux binary directly, and the Windows `.bat` launches the Windows
+`.exe` directly. `scripts`, `script_dirs`, `includes`, resources, native
+libraries, typelibs, GTK data, GStreamer plugins, and Windows MSYS2 packages
+still work, so embedded-SQGI native apps can ship compiled `.cnut` payloads
+beside the native executable.
 
-The entrypoint Squirrel script.
+#### `script`
+
+Entrypoint Squirrel script.
 
 ```json
 "script": "main.nut"
 ```
 
-`name`
+#### `name`
 
-The application name. This is used for the output filename and desktop metadata.
+Application name. Used for output names, launcher names, desktop metadata, and
+installer defaults.
 
 ```json
 "name": "Squrl"
 ```
 
-`target`
+#### `target`
 
-The package target. Currently `appimage` is implemented. `appdir` and `tarball`
-are reserved placeholders.
+Package target.
 
 ```json
 "target": "appimage"
 ```
 
-`script_dirs`
+Implemented values:
 
-Directories to recursively scan for `.nut` scripts. Paths are relative to the
-manifest file. Generated/build directories such as `dist`, `build`, `.git`, and
-`*.AppDir` are skipped.
+```text
+appimage
+win-dir
+win-nsis
+win-sysroot
+all
+```
+
+Reserved values:
+
+```text
+appdir
+tarball
+```
+
+#### `build_dir`
+
+SQGI build directory. On Linux this is where `sqgi` and `libsqgi.so.0` are
+looked up. Default:
+
+```text
+build
+```
+
+Example:
+
+```json
+"build_dir": "../../build"
+```
+
+#### `output`
+
+Output directory. Default:
+
+```text
+dist
+```
+
+Example:
+
+```json
+"output": "dist"
+```
+
+#### `compile_scripts`
+
+Whether `.nut` scripts are compiled to `.cnut` bytecode. Default:
+
+```json
+"compile_scripts": true
+```
+
+Disable it for source/debug packages:
+
+```json
+"compile_scripts": false
+```
+
+Or on the command line:
+
+```sh
+sqgipkg --no-compile-scripts
+```
+
+## Script packaging
+
+### `script_dirs`
+
+Recursively stage `.nut` scripts from directories. Paths are relative to the
+manifest.
 
 ```json
 "script_dirs": [
@@ -186,33 +339,80 @@ manifest file. Generated/build directories such as `dist`, `build`, `.git`, and
 ]
 ```
 
-`scripts`
+Ignored directories include:
 
-Individual script modules to package. Use this when you do not want to include a
-whole directory.
-
-```json
-"scripts": [
-  "src/config.nut",
-  {
-    "path": "src/ui/window.nut",
-    "dest": "ui/window.nut"
-  }
-]
+```text
+.git
+build
+dist
+AppDir
+*.AppDir
 ```
 
-Script destinations are placed under:
+On Linux, scripts go under:
 
 ```text
 usr/share/sqgi/app/
 ```
 
-`resources`
+On Windows, scripts go under:
 
-Project-owned data copied under:
+```text
+share/sqgi/app/
+```
+
+### `scripts`
+
+Stage individual scripts. A string keeps the basename. An object or `PATH=DEST`
+sets a relative destination inside the app script area.
+
+```json
+"scripts": [
+  "src/config.nut",
+  "src/ui/window.nut=ui/window.nut",
+  {
+    "path": "src/http/client.nut",
+    "dest": "http/client.nut"
+  }
+]
+```
+
+### Bytecode compatibility paths
+
+By default, `sqgipkg` writes `.cnut` bytecode and also preserves `.nut` import
+paths.
+
+Linux AppDir example:
+
+```text
+usr/share/sqgi/app/main.cnut
+usr/share/sqgi/app/main.nut -> main.cnut
+usr/share/sqgi/app/module.cnut
+usr/share/sqgi/app/module.nut -> module.cnut
+```
+
+Windows uses copied compatibility files rather than symlinks.
+
+This means code like this keeps working in packaged apps:
+
+```squirrel
+local util = import("util.nut")
+```
+
+## Resources and files
+
+### `resources`
+
+Project-owned runtime resources. Linux destination:
 
 ```text
 usr/share/sqgi/app/resources/
+```
+
+Windows destination:
+
+```text
+share/sqgi/app/resources/
 ```
 
 Example:
@@ -224,33 +424,56 @@ Example:
 ]
 ```
 
-At runtime, `AppRun` exports:
+At runtime:
 
-```sh
-SQGI_APP_RESOURCES="${APPDIR}/usr/share/sqgi/app/resources"
+```squirrel
+local GLib = import("GLib")
+local path = GLib.build_filenamev([
+    GLib.getenv("SQGI_APP_RESOURCES"),
+    "assets",
+    "logo.png"
+])
 ```
 
-`files`
+### `files`
 
-Exact manual file copies. This is the escape hatch for anything that does not
-fit a convenience bucket.
+Exact manual copies. Destinations are relative to the staged app root.
 
 ```json
 "files": [
+  "data/config.json=usr/share/sqgi/app/config.json",
   {
     "path": "data/pipeline.conf",
     "dest": "usr/share/sqgi/app/pipeline.conf"
-  },
-  "themes/custom.css=usr/share/sqgi/app/themes/custom.css"
+  }
 ]
 ```
 
-The destination is always relative to the AppDir root. Absolute destinations and
-`..` path segments are rejected.
+Absolute destinations and `..` path segments are rejected.
 
-`libraries`
+### `includes`
 
-Shared libraries copied under:
+Copy a path into the package, or compile/copy an additional script. If no
+destination is provided, non-script files go into SQGI resources.
+
+```json
+"includes": [
+  "extra/readme.txt",
+  "src/optional_plugin.nut=plugins/optional_plugin.nut"
+]
+```
+
+Command-line equivalent:
+
+```sh
+sqgipkg --include extra/readme.txt
+```
+
+## Native libraries and GI typelibs
+
+### `libraries`
+
+Linux shared libraries copied under:
 
 ```text
 usr/lib/
@@ -264,14 +487,26 @@ Example:
 ]
 ```
 
-At runtime, `AppRun` adds `usr/lib` to `LD_LIBRARY_PATH`, so libraries staged
-here can be loaded by GI, plugins, or your app.
+### `typelibs`
 
-`native_projects`
+GI typelibs copied under:
 
-Native build projects that `sqgipkg` should build before staging files. This is
-the recommended shape for C/C++ GObject or Vala libraries that produce a shared
-library and a GObject Introspection typelib.
+```text
+usr/lib/girepository-1.0/
+```
+
+Example:
+
+```json
+"typelibs": [
+  "native/build/MyApp-1.0.typelib"
+]
+```
+
+### `native_projects`
+
+Build native projects before staging their outputs. This is the usual pattern
+for C/C++/Vala GObject libraries.
 
 ```json
 "native_projects": [
@@ -288,47 +523,67 @@ library and a GObject Introspection typelib.
       "build/MyApp-1.0.typelib"
     ],
     "files": [
-      {
-        "path": "build/extra.dat",
-        "dest": "usr/share/sqgi/app/extra.dat"
-      }
+      "build/extra.dat=usr/share/sqgi/app/extra.dat"
     ]
   }
 ]
 ```
 
-Paths inside a `native_projects` entry are relative to that entry's `dir`.
-Build commands run from that directory.
+Build commands run from `dir`. Paths inside the entry are relative to `dir`.
 
-`libraries` are copied to:
+For a fully native app, pair `native_projects` with `entry.type = "native"`:
 
-```text
-usr/lib/
+```json
+{
+  "name": "MyValaApp",
+  "entry": {
+    "type": "native",
+    "linux": "native/build/my-vala-app",
+    "windows": "native/build-win/my-vala-app.exe"
+  },
+  "script_dirs": [
+    "scripts"
+  ],
+  "native_projects": [
+    {
+      "dir": "native",
+      "build": [
+        "meson setup build --wipe || meson setup build",
+        "meson compile -C build"
+      ]
+    }
+  ],
+  "windows": {
+    "native_projects": [
+      {
+        "dir": "native",
+        "build": [
+          "BUILD_DIR=build-win MESON_CROSS_FILE=\"$SQGI_MESON_CROSS_FILE\" ./build.sh"
+        ]
+      }
+    ]
+  }
+}
 ```
 
-`typelibs` are copied to:
+From Squirrel:
 
-```text
-usr/lib/girepository-1.0/
+```squirrel
+local MyApp = import("MyApp", "1.0")
+print(MyApp.greet("SQGI") + "\n")
 ```
 
-Native project `files` use exact AppDir destinations, just like top-level
-`files`.
+## Convenience payload buckets
 
-### Convenience Payload Buckets
-
-These are shortcuts for common runtime locations:
+These fields stage common GLib/GTK/GStreamer runtime data.
 
 ```json
 {
   "gstreamer_plugins": [
     "/usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstcoreelements.so"
   ],
-  "typelibs": [
-    "/usr/lib/x86_64-linux-gnu/girepository-1.0/Gtk-4.0.typelib"
-  ],
   "gsettings_schemas": [
-    "schemas/org.example.myapp.gschema.xml"
+    "schemas/org.example.app.gschema.xml"
   ],
   "gtk_data": [
     "share"
@@ -342,7 +597,7 @@ These are shortcuts for common runtime locations:
 }
 ```
 
-They stage files into:
+Destination map:
 
 ```text
 gstreamer_plugins  -> usr/lib/gstreamer-1.0
@@ -353,215 +608,88 @@ gio_modules        -> usr/lib/gio/modules
 gdk_pixbuf_loaders -> usr/lib/gdk-pixbuf-2.0/2.10.0/loaders
 ```
 
-When relevant tools are available, `sqgipkg` also tries to generate supporting
-caches:
-
-- `glib-compile-schemas`
-- `gio-querymodules`
-- `gdk-pixbuf-query-loaders`
-
-### Tooling Fields
-
-`build_dir`
-
-Where to find `sqgi` and `libsqgi.so.0`.
-
-```json
-"build_dir": "../../build"
-```
-
-The default is:
+When tools are available, `sqgipkg` also tries to run:
 
 ```text
-build
+glib-compile-schemas
+gio-querymodules
+gdk-pixbuf-query-loaders
 ```
 
-`output`
+## AppImage details
 
-Where to write the AppDir/AppImage.
+`sqgipkg` writes an AppDir with:
 
-```json
-"output": "dist"
+```text
+AppRun
+<name>.desktop
+usr/bin/sqgi
+usr/lib/
+usr/share/sqgi/app/
+usr/share/sqgi/app/resources/
 ```
 
-`appimagetool`
+Then it runs `appimagetool`.
 
-Path to an `appimagetool` executable.
+### AppImage tool fields
+
+#### `appimagetool`
+
+Path to `appimagetool`.
 
 ```json
 "appimagetool": "/opt/appimagetool-x86_64.AppImage"
 ```
 
-If not found, `sqgipkg` downloads the latest continuous `appimagetool` release
-for the current architecture.
+If not found, `sqgipkg` downloads the latest continuous AppImageTool build for
+the host architecture.
 
-`appimagetool_cache`
+#### `appimagetool_cache`
 
-Where downloaded `appimagetool` binaries are cached.
+Download cache directory.
 
 ```json
-"appimagetool_cache": ".cache/sqgipkg"
+"appimagetool_cache": ".cache/sqgipkg/tools"
 ```
 
-`refresh_appimagetool`
+Default:
 
-Force a fresh `appimagetool` download.
+```text
+~/.cache/sqgipkg/tools
+```
+
+#### `refresh_appimagetool`
+
+Force a fresh download.
 
 ```json
 "refresh_appimagetool": true
 ```
 
-`keep_appdir`
+#### `keep_appdir`
 
-Keep the staged AppDir after the AppImage is built.
+Do not delete the staged AppDir after building.
 
 ```json
 "keep_appdir": true
 ```
 
-This is useful for inspecting exactly what was bundled.
-
-## Command-Line Options
-
-Most manifest fields have command-line equivalents:
-
-```sh
-build/sqgi tools/sqgipkg main.nut \
-  --name MyApp \
-  --target appimage \
-  --script-dir . \
-  --resource assets \
-  --file data/config.json=usr/share/sqgi/app/config.json \
-  --keep-appdir
-```
-
-Useful options:
-
-```text
---manifest FILE
---name NAME
---target appimage
---build-dir DIR
---output DIR
---appimagetool PATH
---appimagetool-cache DIR
---refresh-appimagetool
---keep-appdir
---no-compile-scripts
---script SPEC
---script-dir DIR
---file PATH=DEST
---library PATH
---resource PATH
---gstreamer-plugin PATH
---typelib PATH
---gsettings-schema PATH
---gtk-data PATH
---gio-module PATH
---gdk-pixbuf-loader PATH
-```
-
-Run:
-
-```sh
-build/sqgi tools/sqgipkg --help
-```
-
-for the current full list.
-
-## Diagnostics
-
-### Doctor
-
-`--doctor` checks the manifest before building:
-
-```sh
-build/sqgi tools/sqgipkg --manifest sqgipkg.json --doctor
-```
-
-It checks:
-
-- entry script exists
-- scripts compile
-- script directories exist
-- resources/files exist
-- destination paths are valid
-- SQGI build outputs are present
-- `appimagetool` availability
-- simple GTK/GStreamer import hints
-
-For example, a GTK/GStreamer project without bundled plugins may report:
-
-```text
-WARN: GStreamer import detected; package may rely on host GStreamer plugins
-WARN: GTK import detected; package may rely on host GTK assets and typelibs
-```
-
-That is not a build failure. It is a portability hint.
-
-### Build Report
-
-After a successful AppImage build, `sqgipkg` prints a report:
-
-```text
-sqgipkg report
-  appdir: dist/MyApp.AppDir
-  appimage: dist/MyApp.AppImage
-  scripts: 2 compiled, 0 copied, 2 compatibility links
-  resources: 1
-  manual files: 0
-  gstreamer plugins: 0
-  warnings:
-    - GStreamer import detected, but no gstreamer_plugins entries were bundled
-```
-
-The report tells you what was actually staged. It is especially useful when
-building GUI/media apps, where host dependencies can hide missing manifest
-entries.
-
-### Smoke Tests
-
-Run the AppImage immediately after building:
-
-```sh
-build/sqgi tools/sqgipkg --manifest sqgipkg.json --smoke-test "--timeout=2"
-```
-
-For scripts that need arguments:
-
-```sh
-build/sqgi tools/sqgipkg --manifest sqgipkg.json --smoke-test "alpha beta"
-```
-
-For GStreamer apps, test without host GStreamer plugin discovery:
-
-```sh
-build/sqgi tools/sqgipkg \
-  --manifest sqgipkg.json \
-  --smoke-test "--timeout=2" \
-  --smoke-test-isolated
-```
-
-This sets:
-
-```sh
-GST_PLUGIN_SYSTEM_PATH_1_0=
-GST_PLUGIN_SYSTEM_PATH=
-```
-
-If isolated smoke testing fails but normal smoke testing passes, your AppImage
-is probably relying on host GStreamer plugins.
-
-## Runtime Environment
+## Linux runtime environment
 
 `AppRun` exports:
 
-```sh
+```text
 SQGI_APPDIR
 SQGI_APP_SHARE
 SQGI_APP_RESOURCES
 LD_LIBRARY_PATH
 XDG_DATA_DIRS
+XDG_CONFIG_DIRS
+GTK_DATA_PREFIX
+GTK_EXE_PREFIX
+GTK_PATH
+GTK_THEME
+GDK_BACKEND
 GI_TYPELIB_PATH
 GSETTINGS_SCHEMA_DIR
 GIO_EXTRA_MODULES
@@ -571,205 +699,839 @@ GST_PLUGIN_PATH
 GST_REGISTRY
 ```
 
-Typical Squirrel code can locate packaged resources like this:
+This lets SQGI, GIRepository, GSettings, GIO modules, gdk-pixbuf, and GStreamer
+find bundled app files.
 
-```squirrel
-local GLib = import("GLib")
-local image = GLib.build_filenamev([
-    GLib.getenv("SQGI_APP_RESOURCES"),
-    "assets",
-    "logo.png"
-])
-```
+## GTK theme/settings support
 
-Or packaged modules:
-
-```squirrel
-local mod = import("my_module.nut")
-```
-
-When importing `.nut` files, SQGI checks the requested path first, then checks
-inside `SQGI_APP_SHARE`. The `.nut` module path works even in bytecode packages
-because it points to a `.cnut` symlink.
-
-## Native GI Libraries
-
-SQGI can import any library that provides a GObject Introspection typelib. For
-application-specific native code, the usual pieces are:
-
-1. A shared library, for example `libmyapp-1.0.so`.
-2. A `.gir` file generated by `g-ir-scanner`.
-3. A `.typelib` generated by `g-ir-compiler`.
-4. A manifest that stages the `.so` and `.typelib`.
-
-You can build those pieces with Meson, CMake, Make, Vala, or any project-local
-script. `sqgipkg` only needs to know how to run the build and which outputs to
-copy.
-
-Example manifest:
+GTK themes and icon themes are data files plus runtime settings. Bundle the
+files with `files`, `includes`, or `gtk_data`, then select them with top-level
+manifest fields:
 
 ```json
 {
+  "gtk_theme": "Adwaita",
+  "gtk_icon_theme": "Adwaita",
+  "gtk_font_name": "Cantarell 11",
+  "gtk_prefer_dark": true,
+  "gdk_backend": "x11"
+}
+```
+
+For AppImage builds, `sqgipkg` writes:
+
+```text
+usr/etc/gtk-4.0/settings.ini
+usr/etc/gtk-3.0/settings.ini
+usr/share/gtk-4.0/settings.ini
+usr/share/gtk-3.0/settings.ini
+```
+
+`AppRun` exports the matching GTK discovery variables so GTK can find and select
+the bundled theme.
+
+Example with a manually bundled theme:
+
+```json
+{
+  "name": "ThemeDemo",
+  "gtk_theme": "MyTheme",
+  "gtk_icon_theme": "Adwaita",
+  "files": [
+    {
+      "path": "themes/MyTheme",
+      "dest": "usr/share/themes/MyTheme"
+    }
+  ]
+}
+```
+
+## Windows packaging overview
+
+Windows packaging has three separable jobs:
+
+1. Build or locate a Windows `sqgi.exe` runtime.
+2. Stage app scripts/resources/native modules.
+3. Stage MSYS2 runtime packages and recursively resolve DLL imports.
+
+`sqgipkg` supports both native MSYS2 builds and Linux-hosted MinGW cross-builds.
+
+### Recommended CRT/package rule
+
+For the current Ubuntu stock MinGW cross compiler:
+
+```text
+x86_64-w64-mingw32-gcc/g++ -> MSYS2 mingw64 packages
+```
+
+For native MSYS2 UCRT64 builds:
+
+```text
+MSYS2 UCRT64 gcc/clang -> MSYS2 ucrt64 packages
+```
+
+Do not mix compiler CRT families and dependency package families.
+
+### Basic Windows manifest
+
+```json
+{
+  "name": "NativeVala",
+  "script_dirs": ["."],
+  "windows": {
+    "msys2_prefix": "mingw64",
+    "packages": [
+      "mingw-w64-x86_64-vala"
+    ],
+    "build": [
+      "cmake -E rm -rf build-win",
+      "cmake -S ../../.. -B build-win -G Ninja -DCMAKE_TOOLCHAIN_FILE=\"$SQGI_WIN_CMAKE_TOOLCHAIN\" -DCMAKE_BUILD_TYPE=Release",
+      "cmake --build build-win"
+    ],
+    "build_dir": "build-win",
+    "native_projects": [
+      {
+        "dir": "native",
+        "build": [
+          "BUILD_DIR=build-win MESON_CROSS_FILE=\"$SQGI_MESON_CROSS_FILE\" ./build.sh"
+        ],
+        "libraries": [
+          "build-win/libsqvala-1.0.dll"
+        ],
+        "typelibs": [
+          "build-win/SqVala-1.0.typelib"
+        ]
+      }
+    ]
+  }
+}
+```
+
+With the generated cross files and `PKG_CONFIG_*` environment, the manifest can
+stay focused on intent instead of carrying sysroot boilerplate.
+
+## Windows manifest reference
+
+All Windows-specific fields live under `windows`.
+
+### `windows.build`
+
+Commands run before staging. Use this to build Windows SQGI or your app runtime.
+Commands run from the manifest directory.
+
+```json
+"build": [
+  "cmake -S ../../.. -B build-win -G Ninja -DCMAKE_TOOLCHAIN_FILE=\"$SQGI_WIN_CMAKE_TOOLCHAIN\" -DCMAKE_BUILD_TYPE=Release",
+  "cmake --build build-win"
+]
+```
+
+### `windows.build_dir`
+
+Directory containing `sqgi.exe` and SQGI DLLs.
+
+```json
+"build_dir": "build-win"
+```
+
+For script-only apps using a prebuilt SDK, this can point at that SDK/build
+directory and `windows.build` can be empty.
+
+### `windows.msys2_prefix`
+
+MSYS2 environment prefix.
+
+Common values:
+
+```text
+mingw64
+ucrt64
+clang64
+clangarm64
+mingw32
+```
+
+Default:
+
+```json
+"msys2_prefix": "mingw64"
+```
+
+Package name prefixes are inferred from this value:
+
+```text
+mingw64    -> mingw-w64-x86_64-
+ucrt64     -> mingw-w64-ucrt-x86_64-
+clang64    -> mingw-w64-clang-x86_64-
+clangarm64 -> mingw-w64-clang-aarch64-
+mingw32    -> mingw-w64-i686-
+```
+
+### `windows.msys2_root`
+
+MSYS2 root/sysroot directory. If omitted, `sqgipkg` creates a target-specific
+sysroot under `dist`, for example:
+
+```text
+dist/_msys2-mingw64
+```
+
+### `windows.repo_url`
+
+MSYS2 repository URL. If omitted:
+
+```text
+https://repo.msys2.org/mingw/<msys2_prefix>
+```
+
+### `windows.package_cache`
+
+MSYS2 repository/package archive cache. Default:
+
+```text
+~/.cache/sqgipkg/msys2
+```
+
+### `windows.download_packages`
+
+Download and extract missing MSYS2 packages. Default:
+
+```json
+"download_packages": true
+```
+
+Disable for an already-prepared sysroot:
+
+```json
+"download_packages": false
+```
+
+CLI:
+
+```sh
+--no-msys2-download
+```
+
+### `windows.refresh_packages`
+
+Refresh cached repo DBs and package archives.
+
+```json
+"refresh_packages": true
+```
+
+CLI:
+
+```sh
+--refresh-msys2-packages
+```
+
+### `windows.auto_packages`
+
+Add inferred base packages automatically. Default:
+
+```json
+"auto_packages": true
+```
+
+The base set includes GLib, GObject Introspection, GI runtime, libffi, and Cairo.
+GTK/GStreamer packages are inferred when imports are detected in scripts.
+
+Disable exact-control mode:
+
+```json
+"auto_packages": false
+```
+
+CLI:
+
+```sh
+--no-windows-auto-packages
+```
+
+### `windows.packages`
+
+Additional MSYS2 packages to install/stage.
+
+```json
+"packages": [
+  "mingw-w64-x86_64-gtk4",
+  "mingw-w64-x86_64-gstreamer",
+  "mingw-w64-x86_64-gst-plugins-good"
+]
+```
+
+When downloading is enabled, `sqgipkg` fetches the repository database,
+recursively resolves package dependencies from that repository, downloads
+archives, extracts them into `msys2_root`, and records local metadata under:
+
+```text
+var/lib/pacman/local/
+```
+
+### `windows.libraries`
+
+Windows DLLs copied into:
+
+```text
+bin/
+```
+
+```json
+"libraries": [
+  "native/build-win/libmyapp-1.0.dll"
+]
+```
+
+### `windows.typelibs`
+
+Windows typelibs copied into:
+
+```text
+lib/girepository-1.0/
+```
+
+```json
+"typelibs": [
+  "native/build-win/MyApp-1.0.typelib"
+]
+```
+
+### `windows.files`
+
+Exact manual copies for Windows staging.
+
+```json
+"files": [
+  "windows/readme.txt=share/sqgi/app/readme.txt"
+]
+```
+
+### `windows.native_projects`
+
+Windows-specific native builds. This keeps Linux `.so` builds and Windows `.dll`
+builds separate.
+
+```json
+"native_projects": [
+  {
+    "dir": "native",
+    "build": [
+      "BUILD_DIR=build-win MESON_CROSS_FILE=\"$SQGI_MESON_CROSS_FILE\" ./build.sh"
+    ],
+    "libraries": [
+      "build-win/libmyapp-1.0.dll"
+    ],
+    "typelibs": [
+      "build-win/MyApp-1.0.typelib"
+    ]
+  }
+]
+```
+
+## Windows cross-build support
+
+On non-Windows hosts, `sqgipkg` prepares a clean cross-build environment for
+Windows targets.
+
+It generates or resolves:
+
+```text
+SQGI_WIN_CMAKE_TOOLCHAIN
+SQGI_MESON_CROSS_FILE
+```
+
+and exports:
+
+```text
+PKG_CONFIG_PATH=
+PKG_CONFIG_SYSROOT_DIR=<absolute MSYS2 sysroot>
+PKG_CONFIG_LIBDIR=<prefix>/lib/pkgconfig:<prefix>/share/pkgconfig
+```
+
+This prevents host `/usr/include` and host `pkg-config` paths from leaking into
+MinGW builds.
+
+### `windows.cmake_toolchain` / `--win-cmake-toolchain`
+
+Use a specific CMake toolchain file, or let `sqgipkg` generate one.
+
+### `windows.meson_cross_file` / `--win-meson-cross-file`
+
+Use a specific Meson cross file, or let `sqgipkg` generate one.
+
+## Windows DLL dependency resolution
+
+After staging the Windows app, `sqgipkg` scans every bundled `.exe` and `.dll`
+using MinGW `objdump`, parses imported DLL names, skips known Windows system
+DLLs, copies missing DLLs from the MSYS2 sysroot, then scans the copied DLLs as
+well.
+
+This means declaring `gtk4`, `cairo`, `gstreamer`, or a native Vala DLL usually
+pulls the transitive DLL closure into `bin/` without hand-copying files.
+
+If a DLL cannot be found in the sysroot, it is reported as a warning.
+
+## Windows launcher environment
+
+The generated `<name>.bat` sets a runtime environment before launching SQGI:
+
+```bat
+SQGI_APPDIR
+SQGI_APP_SHARE
+SQGI_APP_RESOURCES
+PATH
+GI_TYPELIB_PATH
+GST_PLUGIN_PATH
+GIO_EXTRA_MODULES
+GDK_PIXBUF_MODULEDIR
+```
+
+With GTK support enabled/configured, the launcher also sets GTK discovery values
+such as:
+
+```bat
+XDG_DATA_DIRS
+XDG_CONFIG_DIRS
+GTK_DATA_PREFIX
+GTK_EXE_PREFIX
+GTK_PATH
+GTK_THEME
+GDK_BACKEND
+```
+
+The launcher executes:
+
+```bat
+%HERE%\bin\sqgi.exe %HERE%\share\sqgi\app\main.cnut %*
+```
+
+or the source `.nut` entry if script compilation is disabled.
+
+## Windows GTK theme/settings support
+
+Windows packaging uses the top-level GTK settings by default. If the Windows
+bundle needs different values, override them under `windows`:
+
+```json
+"windows": {
+  "gtk_theme": "Adwaita",
+  "gtk_icon_theme": "Adwaita",
+  "gtk_font_name": "Segoe UI 10",
+  "gtk_prefer_dark": true,
+  "gdk_backend": "win32"
+}
+```
+
+`sqgipkg` writes GTK settings files into bundled config/data locations and sets
+the launcher environment so GTK can find bundled themes, icons, settings, and
+backends.
+
+Typical settings files:
+
+```text
+etc/gtk-4.0/settings.ini
+etc/gtk-3.0/settings.ini
+share/gtk-4.0/settings.ini
+share/gtk-3.0/settings.ini
+```
+
+`gtk_prefer_dark` maps to:
+
+```ini
+gtk-application-prefer-dark-theme=true
+```
+
+Use `windows.packages` or `windows.auto_packages` to ensure the relevant GTK,
+icon, and theme packages are present in the MSYS2 sysroot.
+
+## NSIS installer support
+
+Set the NSIS executable with:
+
+```json
+"windows": {
+  "nsis": "makensis"
+}
+```
+
+or:
+
+```sh
+--nsis /path/to/makensis
+```
+
+If `makensis` is not found, `sqgipkg` still writes the `.nsi` file and tells you
+how to build it later.
+
+### `windows.nsis_options`
+
+Installer customization lives here:
+
+```json
+"windows": {
+  "nsis_options": {
+    "installer_name": "NativeVala-Setup.exe",
+    "install_dir": "$LOCALAPPDATA\\NativeVala",
+    "request_execution_level": "user",
+    "license": "LICENSE.txt",
+    "icon": "assets/app.ico",
+    "desktop_shortcut": true,
+    "start_menu_shortcut": true,
+    "start_menu_folder": "NativeVala",
+    "uninstall_registry": true
+  }
+}
+```
+
+Supported options:
+
+| Field | Purpose |
+|---|---|
+| `installer_name` | Output installer filename. |
+| `install_dir` | Default install directory. |
+| `request_execution_level` | NSIS execution level, usually `user` or `admin`. |
+| `license` | License file shown during install. |
+| `icon` | Installer/shortcut icon file, typically `.ico`. |
+| `desktop_shortcut` | Create a desktop shortcut. |
+| `start_menu_shortcut` | Create Start Menu shortcuts. |
+| `start_menu_folder` | Start Menu folder name. |
+| `uninstall_registry` | Write HKCU uninstall registry metadata. |
+
+Matching CLI flags:
+
+```text
+--nsis-installer-name NAME
+--nsis-install-dir DIR
+--nsis-request-execution-level LEVEL
+--nsis-license FILE
+--nsis-icon FILE
+--nsis-no-desktop-shortcut
+--nsis-no-start-menu-shortcut
+--nsis-start-menu-folder NAME
+```
+
+## Native extensions on Windows
+
+The working Windows native extension shape is:
+
+1. Build a `.dll` with the same CRT/package family as the rest of the bundle.
+2. Generate `.gir` and `.typelib`.
+3. Stage the `.dll` under `bin/`.
+4. Stage the `.typelib` under `lib/girepository-1.0/`.
+5. Let recursive DLL resolution copy transitive dependencies.
+
+A Vala package normally needs the Vala package in the MSYS2 sysroot:
+
+```json
+"windows": {
+  "packages": [
+    "mingw-w64-x86_64-vala"
+  ]
+}
+```
+
+For Ubuntu cross-builds, use `mingw64` unless you also have a matching UCRT
+compiler/toolchain.
+
+## Diagnostics
+
+### `--doctor`
+
+Checks manifest and build assumptions before packaging.
+
+```sh
+sqgipkg --manifest sqgipkg.json --doctor
+```
+
+It checks:
+
+- entry script existence
+- script compilation
+- script directory existence
+- resource/file existence
+- destination path validity
+- native project paths
+- SQGI build output presence
+- AppImage tool availability
+- GTK/GStreamer import hints
+
+### Build report
+
+After staging, `sqgipkg` prints a report:
+
+```text
+sqgipkg report
+  appdir: dist/MyApp.AppDir
+  appimage: dist/MyApp.AppImage
+  scripts: 2 compiled, 0 copied, 2 compatibility links
+  resources: 1
+  manual files: 0
+  includes: 0
+  native projects: 1
+  shared libraries: 1
+  gstreamer plugins: 0
+  typelibs: 1
+  gtk data: 0
+  gsettings schemas: 0
+  gio modules: 0
+  gdk-pixbuf loaders: 0
+  warnings:
+    - GStreamer import detected, but no gstreamer_plugins entries were bundled
+```
+
+### Smoke tests
+
+Run the built AppImage immediately:
+
+```sh
+sqgipkg --smoke-test "--timeout=2"
+```
+
+For GStreamer apps, isolate plugin discovery:
+
+```sh
+sqgipkg --smoke-test "--timeout=2" --smoke-test-isolated
+```
+
+This clears:
+
+```text
+GST_PLUGIN_SYSTEM_PATH_1_0
+GST_PLUGIN_SYSTEM_PATH
+```
+
+If the isolated smoke test fails but a normal test passes, the app is probably
+using host GStreamer plugins.
+
+## Command-line reference
+
+Core options:
+
+```text
+--manifest FILE
+--name NAME
+--target TARGET
+--build-dir DIR
+--output DIR
+--init TEMPLATE
+--doctor
+--keep-appdir
+--no-compile-scripts
+```
+
+Script/resource options:
+
+```text
+--script SPEC
+--script-dir DIR
+--file PATH=DEST
+--include SPEC
+--resource PATH
+--library PATH
+--typelib PATH
+--gstreamer-plugin PATH
+--gsettings-schema PATH
+--gtk-data PATH
+--gio-module PATH
+--gdk-pixbuf-loader PATH
+```
+
+AppImage options:
+
+```text
+--appimagetool PATH
+--appimagetool-cache DIR
+--refresh-appimagetool
+--smoke-test ARGS
+--smoke-test-isolated
+```
+
+Windows/MSYS2 options:
+
+```text
+--msys2-root DIR
+--msys2-prefix PREFIX
+--windows-package PACKAGE
+--msys2-repo-url URL
+--msys2-package-cache DIR
+--refresh-msys2-packages
+--no-msys2-download
+--no-windows-auto-packages
+--win-cmake-toolchain FILE
+--win-meson-cross-file FILE
+```
+
+NSIS options:
+
+```text
+--nsis PATH
+--nsis-installer-name NAME
+--nsis-install-dir DIR
+--nsis-request-execution-level LEVEL
+--nsis-license FILE
+--nsis-icon FILE
+--nsis-no-desktop-shortcut
+--nsis-no-start-menu-shortcut
+--nsis-start-menu-folder NAME
+```
+
+Run the installed help for the exact current list:
+
+```sh
+sqgipkg --help
+```
+
+## Complete example: Linux AppImage
+
+```json
+{
+  "name": "VideoApp",
   "script": "main.nut",
-  "name": "NativeGI",
   "target": "appimage",
+  "script_dirs": ["."],
+  "resources": ["assets"],
+  "gstreamer_plugins": [
+    "/usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstcoreelements.so"
+  ],
   "native_projects": [
     {
       "dir": "native",
-      "build": [
-        "./build.sh"
-      ],
-      "libraries": [
-        "build/libsqhello-1.0.so"
-      ],
-      "typelibs": [
-        "build/SqHello-1.0.typelib"
-      ]
+      "build": ["./build.sh"],
+      "libraries": ["build/libvideoapp-1.0.so"],
+      "typelibs": ["build/VideoApp-1.0.typelib"]
     }
   ]
 }
 ```
 
-Then from Squirrel:
-
-```squirrel
-local SqHello = import("SqHello", "1.0")
-print(SqHello.greet("SQGI") + "\n")
-```
-
-At runtime, `AppRun` sets both:
+Build:
 
 ```sh
-LD_LIBRARY_PATH="${APPDIR}/usr/lib..."
-GI_TYPELIB_PATH="${APPDIR}/usr/lib/girepository-1.0..."
+sqgipkg --manifest sqgipkg.json --smoke-test "--analyse --timeout=2"
 ```
 
-so GI can find the typelib and the dynamic linker can find the shared library.
-
-For working examples, see:
-
-```text
-tools/sqgipkg_tests/native_gi_project/
-tools/sqgipkg_tests/native_vala_project/
-```
-
-The same packaging shape works for Vala if your Vala build emits a shared
-library and a typelib. A typical Vala-oriented `native_projects` entry still
-looks the same from `sqgipkg`'s point of view: run the build, copy the `.so`,
-copy the `.typelib`.
-
-## GTK And GStreamer Apps
-
-GTK and GStreamer are plugin/data-heavy. A simple AppImage can run on your
-machine while still relying on host files.
-
-That is acceptable for many early builds, but for broader distribution you
-should:
-
-1. Run `--doctor`.
-2. Run a normal smoke test.
-3. Run `--smoke-test-isolated` for GStreamer apps.
-4. Inspect the report.
-5. Add explicit `files`, `gstreamer_plugins`, `typelibs`, or `gtk_data` entries
-   when portability gaps appear.
-
-Example:
+## Complete example: Ubuntu cross-build to Windows NSIS
 
 ```json
 {
+  "name": "NativeVala",
   "script": "main.nut",
-  "name": "VideoApp",
-  "target": "appimage",
-  "script_dirs": [
-    "."
-  ],
-  "resources": [
-    "assets"
-  ],
-  "gstreamer_plugins": [
-    "/usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstcoreelements.so",
-    "/usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstvideotestsrc.so"
-  ],
-  "files": [
-    {
-      "path": "data/pipeline.conf",
-      "dest": "usr/share/sqgi/app/pipeline.conf"
+  "target": "win-nsis",
+  "script_dirs": ["."],
+  "resources": ["assets"],
+  "windows": {
+    "msys2_prefix": "mingw64",
+    "packages": [
+      "mingw-w64-x86_64-vala",
+      "mingw-w64-x86_64-gtk4"
+    ],
+    "build": [
+      "cmake -E rm -rf build-win",
+      "cmake -S ../../.. -B build-win -G Ninja -DCMAKE_TOOLCHAIN_FILE=\"$SQGI_WIN_CMAKE_TOOLCHAIN\" -DCMAKE_BUILD_TYPE=Release",
+      "cmake --build build-win"
+    ],
+    "build_dir": "build-win",
+    "gtk_theme": "Adwaita",
+    "gtk_icon_theme": "Adwaita",
+    "gtk_font_name": "Segoe UI 10",
+    "gtk_prefer_dark": false,
+    "gdk_backend": "win32",
+    "native_projects": [
+      {
+        "dir": "native",
+        "build": [
+          "BUILD_DIR=build-win MESON_CROSS_FILE=\"$SQGI_MESON_CROSS_FILE\" ./build.sh"
+        ],
+        "libraries": ["build-win/libsqvala-1.0.dll"],
+        "typelibs": ["build-win/SqVala-1.0.typelib"]
+      }
+    ],
+    "nsis_options": {
+      "installer_name": "NativeVala-Setup.exe",
+      "install_dir": "$LOCALAPPDATA\\NativeVala",
+      "request_execution_level": "user",
+      "icon": "assets/app.ico",
+      "desktop_shortcut": true,
+      "start_menu_shortcut": true,
+      "start_menu_folder": "NativeVala",
+      "uninstall_registry": true
     }
-  ]
+  }
 }
 ```
 
-Avoid bundling entire system directories unless you have checked the size and
-license implications. Prefer the smallest set of files that your app actually
-needs.
-
-## AppImage Notes
-
-`sqgipkg` downloads `appimagetool` automatically when it cannot find one. You
-can control this with:
+Build:
 
 ```sh
---appimagetool /path/to/appimagetool
---appimagetool-cache .cache/sqgipkg
---refresh-appimagetool
+sqgipkg --manifest sqgipkg.json
 ```
 
-`appimagetool` may print AppStream metadata warnings. Those are useful polish
-warnings, not necessarily build failures.
+## GTK and GStreamer portability notes
 
-## Example Project
+GTK and GStreamer are plugin/data-heavy. A package can work on your development
+machine while still depending on host files.
 
-The GTK/GStreamer packaging test project lives at:
+Recommended workflow:
 
-```text
-tools/sqgipkg_tests/gtk_gst_overlay_project/
-```
+1. Run `--doctor`.
+2. Build with `--keep-appdir` while debugging.
+3. Run smoke tests.
+4. For GStreamer, run `--smoke-test-isolated`.
+5. Inspect the build report.
+6. Add explicit plugins, typelibs, GTK data, GSettings schemas, GIO modules, or
+   gdk-pixbuf loaders as needed.
 
-Try:
-
-```sh
-build/sqgi tools/sqgipkg \
-  --manifest tools/sqgipkg_tests/gtk_gst_overlay_project/sqgipkg.json \
-  --doctor
-
-OUT_DIR=/tmp/sqgipkg-gtk-smoke \
-tools/sqgipkg_tests/gtk_gst_overlay_project/dist.sh \
-  --keep-appdir \
-  --smoke-test "--analyse --timeout=2"
-```
+Avoid bundling entire system directories unless you have checked size and
+license implications. Prefer the smallest runtime set your app actually needs.
 
 ## Testing sqgipkg
 
-The test suite builds real AppImages:
+The test suite builds real packages:
 
 ```sh
 bash tools/sqgipkg_tests/run_tests.sh build/sqgi
 ```
 
-It exercises:
+It covers:
 
 - help output
 - manifest initialization
-- real AppImage builds
+- AppImage builds
 - compiled `.cnut` scripts
+- source script packaging
 - module imports
 - manual files
 - resources
 - convenience payload buckets
-- native GI shared libraries
+- native GI libraries
+- native Vala projects
 - doctor mode
 - smoke tests
+- Windows sysroot preparation
+- Windows directory/NSIS staging paths
 
-## Current Limitations
+## Current limitations
 
-- `appimage` is implemented.
-- `appdir` and `tarball` are reserved but not implemented yet.
-- Dependency discovery is manual.
-- Native shared libraries are supported when your build emits explicit `.so`
-  and `.typelib` outputs.
-- GTK/GStreamer portability depends on declared files/plugins and testing.
-- Bytecode protects source text from casual inspection, but it should not be
-  treated as strong code secrecy.
+- Implemented targets: `appimage`, `win-dir`, `win-nsis`, `win-sysroot`, `all`.
+- Reserved targets: `appdir`, `tarball`.
+- Linux dependency discovery is intentionally not a full distro dependency solver.
+- Windows package downloading resolves normal dependencies from one MSYS2 repo; virtual `provides` and cross-repo resolution are limited.
+- Native modules must declare explicit library and typelib outputs.
+- GTK/GStreamer portability still depends on declared runtime data and testing.
+- Bytecode is useful for packaging and casual source hiding, but it is not strong code secrecy.
+- Ubuntu stock MinGW cross-builds should use `mingw64`; UCRT64 is a good future/native MSYS2 target, but only with a matching UCRT toolchain.
 
-The goal is a small, predictable packaging tool that makes the common path easy
-and tells you the truth when your app needs more runtime files.
+## Philosophy
+
+`sqgipkg` is not trying to be Flatpak, pacman, apt, or a universal Linux
+dependency solver.
+
+It is a small, predictable packaging tool for SQGI apps. It handles the runtime,
+scripts, resources, GI typelibs, native extension outputs, Windows sysroots,
+DLL closure, launchers, and installers. When your app needs extra GTK,
+GStreamer, or platform files, it gives you explicit manifest hooks and reports
+what it did.
+
+The common path should be one command. The complicated parts should be visible,
+repeatable, and owned by the tool instead of copied into every project manifest.

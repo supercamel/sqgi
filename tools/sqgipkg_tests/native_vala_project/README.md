@@ -18,10 +18,48 @@ expected async error path.
 Build and run:
 
 ```sh
+cd tools/sqgipkg_tests/native_vala_project
+sqgipkg --smoke-test ""
+```
+
+Build the AppImage, the Windows NSIS installer, or both:
+
+```sh
+sqgipkg --target appimage --smoke-test ""
+sqgipkg --target win-nsis
+sqgipkg --target all --smoke-test ""
+```
+
+When working from an uninstalled checkout, run from the repository root:
+
+```sh
 build/sqgi tools/sqgipkg \
   --manifest tools/sqgipkg_tests/native_vala_project/sqgipkg.json \
+  --target appimage \
   --smoke-test ""
 ```
+
+Build a Windows NSIS installer from Ubuntu with MinGW cross files:
+
+```sh
+SQGI_WIN_CMAKE_TOOLCHAIN=/path/to/mingw-toolchain.cmake \
+SQGI_MESON_CROSS_FILE=/path/to/mingw64.ini \
+build/sqgi tools/sqgipkg \
+  --manifest tools/sqgipkg_tests/native_vala_project/sqgipkg.json \
+  --target win-nsis
+```
+
+Build the same target from an MSYS2 MinGW shell:
+
+```sh
+sqgipkg --target win-nsis
+```
+
+The manifest keeps native build outputs explicit, because `sqgipkg` needs to
+know which Vala-built `.so`/`.dll` and `.typelib` files to stage. The generic
+SQGI runtime MSYS2 packages are inferred automatically for Windows targets.
+When `makensis` is available, `win-nsis` writes `dist/NativeVala-Setup.exe`;
+otherwise it leaves `dist/NativeVala.nsi` beside the staged Windows directory.
 
 Most SQGI async code should use plain `await`. That works for SQGI tasks, GIO
 async APIs, and Vala async methods that expose callback/user-data finish pairs:

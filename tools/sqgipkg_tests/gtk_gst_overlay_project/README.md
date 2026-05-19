@@ -23,19 +23,30 @@ Or from this directory:
 Build an AppImage:
 
 ```sh
-tools/sqgipkg_tests/gtk_gst_overlay_project/dist.sh --refresh-appimagetool
+cd tools/sqgipkg_tests/gtk_gst_overlay_project
+sqgipkg --refresh-appimagetool
+```
+
+When working from an uninstalled checkout, run from the repository root:
+
+```sh
+build/sqgi tools/sqgipkg \
+  --manifest tools/sqgipkg_tests/gtk_gst_overlay_project/sqgipkg.json \
+  --refresh-appimagetool
 ```
 
 Check the manifest without building:
 
 ```sh
-build/sqgi tools/sqgipkg --manifest tools/sqgipkg_tests/gtk_gst_overlay_project/sqgipkg.json --doctor
+cd tools/sqgipkg_tests/gtk_gst_overlay_project
+sqgipkg --doctor
 ```
 
 Build and run a short smoke test:
 
 ```sh
-tools/sqgipkg_tests/gtk_gst_overlay_project/dist.sh --smoke-test "--analyse --timeout=2"
+cd tools/sqgipkg_tests/gtk_gst_overlay_project
+sqgipkg --smoke-test "--analyse --timeout=2"
 ```
 
 Run the AppImage:
@@ -50,8 +61,20 @@ scripts to `.cnut` bytecode and leaves `.nut` compatibility links in place, so
 existing `import(... "ball_state.nut")` paths still work without shipping the
 original source text.
 
-Depending on the target machine, a fully portable GStreamer bundle may also
-need plugin directories or other runtime assets. Add those manually to
+Build a Windows staging directory:
+
+```sh
+cd tools/sqgipkg_tests/gtk_gst_overlay_project
+SQGI_WIN_CMAKE_TOOLCHAIN=/path/to/mingw-toolchain.cmake \
+sqgipkg --target win-dir
+```
+
+The Windows manifest keeps only the project-specific addition,
+`mingw-w64-x86_64-gst-plugin-gtk`. `sqgipkg` infers the base SQGI, GTK, and
+GStreamer MSYS2 packages from imports.
+
+Depending on the target machine, a fully portable Linux GStreamer bundle may
+also need plugin directories or other runtime assets. Add those manually to
 `sqgipkg.json` with either a convenience bucket or exact `files` entries, for
 example:
 

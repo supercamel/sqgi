@@ -8,7 +8,30 @@
 
 #include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <ffi.h>
+
+
+static gboolean sqgi_trace_gi_import_enabled(void)
+{
+    const char *value = getenv("SQGI_TRACE_GI_IMPORT");
+    return value && value[0] != '\0' && strcmp(value, "0") != 0;
+}
+
+static const char *sqgi_safe_str(const char *value)
+{
+    return value ? value : "<null>";
+}
+
+static void sqgi_trace_gi_import(const char *namespace_name, gint index,
+                                 GIInfoType type, const char *name)
+{
+    if (!sqgi_trace_gi_import_enabled()) return;
+    fprintf(stderr, "[sqgi] wrapping ns=%s i=%d type=%d name=%s\n",
+            sqgi_safe_str(namespace_name), (int)index, (int)type,
+            sqgi_safe_str(name));
+    fflush(stderr);
+}
 
 typedef struct {
     HSQUIRRELVM v;
@@ -1451,8 +1474,29 @@ SQRESULT sqgi_gi_load_namespace(HSQUIRRELVM v, const char *namespace_name,
     gint n = g_irepository_get_n_infos(repo, namespace_name);
     for (gint i = 0; i < n; i++) {
         GIBaseInfo *info = g_irepository_get_info(repo, namespace_name, i);
+        if (!info) {
+            if (sqgi_trace_gi_import_enabled()) {
+                fprintf(stderr, "[sqgi] skipping null GI info ns=%s i=%d\n",
+                        sqgi_safe_str(namespace_name), (int)i);
+                fflush(stderr);
+            }
+            continue;
+        }
+
         GIInfoType type = g_base_info_get_type(info);
         const char *name = g_base_info_get_name(info);
+
+        sqgi_trace_gi_import(namespace_name, i, type, name);
+
+        if (!name || name[0] == '\0') {
+            if (sqgi_trace_gi_import_enabled()) {
+                fprintf(stderr, "[sqgi] skipping unnamed GI info ns=%s i=%d type=%d\n",
+                        sqgi_safe_str(namespace_name), (int)i, (int)type);
+                fflush(stderr);
+            }
+            g_base_info_unref(info);
+            continue;
+        }
 
         switch (type) {
         case GI_INFO_TYPE_FUNCTION:
@@ -1462,12 +1506,28 @@ SQRESULT sqgi_gi_load_namespace(HSQUIRRELVM v, const char *namespace_name,
             break;
 
         case GI_INFO_TYPE_OBJECT:
+            if (sqgi_trace_gi_import_enabled()) {
+                const char *type_name =
+                    g_registered_type_info_get_type_name((GIRegisteredTypeInfo *)info);
+                fprintf(stderr, "[sqgi] build object class ns=%s name=%s gtype=%s\n",
+                        sqgi_safe_str(namespace_name), sqgi_safe_str(name),
+                        sqgi_safe_str(type_name));
+                fflush(stderr);
+            }
             sq_pushstring(v, name, -1);
             sqgi_gi_object_build_class(v, (GIObjectInfo *)info);
             sq_rawset(v, -3);
             break;
 
         case GI_INFO_TYPE_INTERFACE:
+            if (sqgi_trace_gi_import_enabled()) {
+                const char *type_name =
+                    g_registered_type_info_get_type_name((GIRegisteredTypeInfo *)info);
+                fprintf(stderr, "[sqgi] build interface class ns=%s name=%s gtype=%s\n",
+                        sqgi_safe_str(namespace_name), sqgi_safe_str(name),
+                        sqgi_safe_str(type_name));
+                fflush(stderr);
+            }
             sq_pushstring(v, name, -1);
             sqgi_gi_object_build_interface_class(v, (GIInterfaceInfo *)info);
             sq_rawset(v, -3);
@@ -1497,16 +1557,14 @@ SQRESULT sqgi_gi_load_namespace(HSQUIRRELVM v, const char *namespace_name,
         }
 
         case GI_INFO_TYPE_STRUCT:
-        case GI_INFO_TYPE_UNION:
             sq_pushstring(v, name, -1);
             /* Foreign records (e.g. cairo_t, cairo_surface_t) have no
              * GI-marshallable layout; build the class through their native
              * binding when one is registered. */
-            if (type == GI_INFO_TYPE_STRUCT &&
-                g_struct_info_is_foreign((GIStructInfo *)info)) {
+            if (g_struct_info_is_foreign((GIStructInfo *)info)) {
                 char fkey[256];
                 snprintf(fkey, sizeof(fkey), "%s.%s",
-                         g_base_info_get_namespace(info), name);
+                         sqgi_safe_str(g_base_info_get_namespace(info)), name);
                 if (SQ_SUCCEEDED(sqgi_gi_object_lookup_class(v, fkey))) {
                     sq_rawset(v, -3);
                     break;
@@ -1514,6 +1572,19 @@ SQRESULT sqgi_gi_load_namespace(HSQUIRRELVM v, const char *namespace_name,
             }
             sqgi_gi_object_build_struct_class(v, (GIStructInfo *)info);
             sq_rawset(v, -3);
+            break;
+
+        case GI_INFO_TYPE_UNION:
+            /* Do not feed GIUnionInfo into the struct builder. Some GLib
+             * records, notably GLib.Mutex on Windows/MSYS2, are exposed as
+             * unions. Treating them as GIStructInfo corrupts the GI access
+             * path and can crash during import. Proper union wrapping can be
+             * added later; for now, skip these low-level C ABI records. */
+            if (sqgi_trace_gi_import_enabled()) {
+                fprintf(stderr, "[sqgi] skipping union ns=%s name=%s\n",
+                        sqgi_safe_str(namespace_name), sqgi_safe_str(name));
+                fflush(stderr);
+            }
             break;
 
         default:

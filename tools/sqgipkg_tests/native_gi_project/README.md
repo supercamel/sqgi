@@ -14,7 +14,27 @@ print(SqHello.greet("SQGI") + "\n")
 Build and run:
 
 ```sh
+cd tools/sqgipkg_tests/native_gi_project
+sqgipkg --smoke-test ""
+```
+
+When working from an uninstalled checkout, run from the repository root:
+
+```sh
 build/sqgi tools/sqgipkg \
   --manifest tools/sqgipkg_tests/native_gi_project/sqgipkg.json \
   --smoke-test ""
 ```
+
+Build a Windows staging directory:
+
+```sh
+cd tools/sqgipkg_tests/native_gi_project
+SQGI_WIN_CMAKE_TOOLCHAIN=/path/to/mingw-toolchain.cmake \
+SQGI_MESON_CROSS_FILE=/path/to/mingw64.ini \
+sqgipkg --target win-dir
+```
+
+The manifest keeps native build outputs explicit, because `sqgipkg` needs to
+know which `.so`/`.dll` and `.typelib` files to stage. The generic SQGI runtime
+MSYS2 packages are inferred automatically for Windows targets.
