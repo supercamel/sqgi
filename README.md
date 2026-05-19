@@ -24,7 +24,8 @@ to the native platform.
 - **Native extensions**: call your own C/C++/Vala libraries through `.so`
   + `.typelib` files.
 - **Portable packaging**: `sqgipkg` bundles scripts, resources, typelibs,
-  plugins, native libraries, and AppImages for distribution.
+  plugins, native libraries, AppImages, Windows directories, and NSIS
+  installers.
 - **AI-friendly workflows**: coherent APIs and a compact runtime make SQGI
   practical for modern AI-assisted development workflows.
 
@@ -85,10 +86,12 @@ This installs:
 - `libsqgi.so`
 - public headers under `include/sqgi/`
 - `sqgi.pc` for `pkg-config`
+- sqgipkg starter templates under `share/sqgi/sqgipkg_templates/`
 
 ## What You Can Build
 
-SQGI is useful anywhere you want native Linux capabilities with scripting speed:
+SQGI is useful anywhere you want native desktop and system capabilities with
+scripting speed:
 
 - GTK 4 apps and internal tools
 - Gio filesystem/network/process utilities
@@ -96,7 +99,7 @@ SQGI is useful anywhere you want native Linux capabilities with scripting speed:
 - libsoup HTTP clients and local services
 - image processing pipelines with GdkPixbuf
 - scriptable native apps that expose their own C API
-- small AppImage-distributed desktop utilities
+- small AppImage or Windows installer distributed desktop utilities
 
 ## Import Native Libraries
 
@@ -173,21 +176,34 @@ tools/sqgipkg_tests/native_vala_project/
 
 ## Package Apps
 
-`sqgipkg` packages SQGI projects for distribution. The main implemented target
-today is AppImage.
+`sqgipkg` packages SQGI projects for distribution. From a directory containing
+`main.nut`, the default command discovers project scripts, compiles `.nut` files
+to `.cnut` bytecode, bundles resources, stages the SQGI runtime, and builds a
+Linux AppImage:
 
 ```sh
 sqgipkg
 ```
 
-From a directory with `main.nut`, that infers the app name from the directory
-and builds an AppImage. Add a manifest only when the defaults are not enough:
+Add a manifest only when the defaults are not enough:
 
 ```sh
 sqgipkg --init gtk4
 sqgipkg --doctor
 sqgipkg --smoke-test ""
 ```
+
+Useful targets:
+
+```sh
+sqgipkg --target appimage
+sqgipkg --target win-dir
+sqgipkg --target win-nsis
+sqgipkg --target all
+```
+
+`--target all` writes Linux output to `dist-linux/` and Windows output to
+`dist-windows/`, so platform artifacts do not overwrite each other.
 
 Manifests can include:
 
@@ -197,6 +213,11 @@ Manifests can include:
 - GObject Introspection typelibs
 - GStreamer plugins
 - GTK/GSettings/Gio/GdkPixbuf data and modules
+- GTK theme/settings selection
+- Windows MSYS2 packages, DLL closure, and NSIS installer options
+
+For native C/C++/Vala apps, `sqgipkg` can also package a native executable
+entrypoint directly while still bundling SQGI payload scripts and resources.
 
 See [tools/README.md](tools/README.md) for the full packaging guide.
 
@@ -240,10 +261,11 @@ cmake --build build-asan -j"$(nproc)"
 | Look up SQGI runtime APIs | [docs/api/README.md](docs/api/README.md) |
 | Follow library-specific recipes | [docs/recipes/](docs/recipes/) |
 | Browse runnable examples | [demo/](demo/) |
-| Package an app | [tools/README.md](tools/README.md) |
+| Package Linux/Windows apps | [tools/README.md](tools/README.md) |
 
 The demos cover GLib, Gio, libsoup, GStreamer, GdkPixbuf, GTK 4, AppImage
-packaging, and native GI extension projects.
+packaging, Windows staging, GTK theme packaging, native executable entries, and
+native GI extension projects.
 
 ## Under The Hood
 
