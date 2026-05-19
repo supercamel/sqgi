@@ -127,8 +127,7 @@ usr/share/sqgi/app/module.nut -> module.cnut
 that imports a module by its `.nut` path continues to work:
 
 ```squirrel
-local GLib = import("GLib")
-local module = import(GLib.build_filenamev([GLib.getenv("SQGI_APP_SHARE"), "module.nut"]))
+local module = import("module.nut")
 ```
 
 For development/debug source packages, disable compilation:
@@ -586,15 +585,12 @@ local image = GLib.build_filenamev([
 Or packaged modules:
 
 ```squirrel
-local GLib = import("GLib")
-local mod = import(GLib.build_filenamev([
-    GLib.getenv("SQGI_APP_SHARE"),
-    "my_module.nut"
-]))
+local mod = import("my_module.nut")
 ```
 
-The `.nut` module path works even in bytecode packages because it points to a
-`.cnut` symlink.
+When importing `.nut` files, SQGI checks the requested path first, then checks
+inside `SQGI_APP_SHARE`. The `.nut` module path works even in bytecode packages
+because it points to a `.cnut` symlink.
 
 ## Native GI Libraries
 

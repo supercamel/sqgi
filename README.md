@@ -1,308 +1,273 @@
-# SQGI — script the entire GObject world from Squirrel
+# SQGI
 
-> **One import away from GTK, GIO, GStreamer, libsoup, GdkPixbuf, WebKit, and
-> hundreds of other libraries.** SQGI is a tiny embeddable Squirrel runtime
-> bolted onto GLib + GObject-Introspection. No bindings to generate, no FFI
-> to write — if a library ships a `.typelib`, you can call it.
+**A lightweight Squirrel scripting runtime for native Linux applications.**
 
-```squirrel
-local Gtk = import("Gtk")        // GTK 4
-local Soup = import("Soup")      // libsoup 3
-local Gst  = import("Gst")       // GStreamer 1
-local Pb   = import("GdkPixbuf") // GdkPixbuf
-// ...you get the idea.
-```
+SQGI gives you a familiar, embeddable scripting language with direct access to
+the GObject ecosystem: GTK, Gio, GStreamer, libsoup, GdkPixbuf, WebKit, and any
+other library that ships GObject Introspection metadata. Write small scripts,
+build real desktop/media/network tools, call native libraries, extend your app
+with C/C++/Vala code, and package the result for distribution.
 
----
+The goal is simple: keep the scripting experience pleasant, while staying close
+to the native platform.
 
-## Why?
+- **Familiar scripting**: Squirrel syntax, closures, classes, exceptions, and
+  `async` / `await`.
+- **Small runtime**: a compact C runtime built on Squirrel, GLib, GIRepository,
+  and libffi.
+- **Native libraries**: import GObject Introspection namespaces directly with
+  `import("Gtk", "4.0")`, `import("Gio")`, `import("Gst")`, and friends.
+- **Native extensions**: call your own C/C++/Vala GObject libraries through
+  `.so` + `.typelib` files.
+- **Distribution story**: `sqgipkg` packages scripts, resources, native
+  libraries, typelibs, and AppImages.
 
-GObject-Introspection is one of the best-kept secrets in Linux desktop dev:
-every major C library on a modern Linux system ships machine-readable type
-metadata (`.gir` + `.typelib`) that lets *any* language with a GI binding
-call into it. Python, JavaScript and Vala have used this for years.
-**Squirrel hadn't, until now.**
-
-SQGI is what you get if you take a small, fast, embeddable scripting
-language (Squirrel — used in Counter-Strike, MaNGOS, IO games, embedded
-shells), and wire it directly into the GLib type system with libffi. You
-end up with:
-
-- **Native-feeling glue** — `gio.File.new_for_path("…").load_contents(null)`
-  just works.
-- **A real async runtime** — `async function … await foo.bar_async(…)` on top of
-  the GLib main loop, with Promise/Task semantics that match JavaScript
-  (`Task.cancel()`, `sqgi.all`, `sqgi.race`, unhandled-rejection reporter).
-- **Full signal interop** — `widget.connect("clicked", fn)`, including
-  cross-thread emits (e.g. GStreamer streaming-thread signals) marshalled
-  back onto the VM's main context automatically.
-- **GObject subclassing from a script** — `sqgi.register_class({...})`
-  registers a brand-new `GType` whose vfuncs are Squirrel closures. Use it
-  to plug a Squirrel handler into any C API that calls back through a
-  virtual function.
-
-It's small (~10kLoC of C), MIT-licensed, has no runtime dependencies
-beyond GLib / libffi / Squirrel, and embeds into existing C apps with a
-single `pkg-config --cflags --libs sqgi`.
-
-## What's in the box
-
-| Area                 | What you get                                                                                                  |
-|----------------------|---------------------------------------------------------------------------------------------------------------|
-| Calling C libraries  | Every introspected GIRepository function, including out-args, byte arrays, GBytes, GError                     |
-| Constructing objects | `Klass.new(…)` plus `sqgi.new_object(Klass, {prop=value, …})` for property-bag construction                   |
-| Properties           | `obj.foo`, `obj.foo = bar`, `obj.get_property("foo")`, `obj.set_property("foo", obj_value)`                   |
-| Signals              | `obj.connect("name", fn)`, `obj.emit("name", args…)`, cross-thread-safe via the VM's main context             |
-| GValue / GVariant    | Full bidirectional marshalling, including typed accessors and recursive container marshalling                 |
-| Async / await        | `async function`, `await`, `Task`, `Task.cancel()`, `sqgi.all`, `sqgi.race`, JS-style unhandled-rejection log |
-| GIO async helpers    | Every `_async`/`_finish` pair auto-becomes an awaitable; cancellation flows into the underlying `GCancellable`|
-| Subclassing          | `sqgi.register_class` with `overrides = {vfunc = closure, …}` + `sqgi.chain_up()` to call the parent          |
-| Cairo                | Native bridge: cairo Context / Surface / Pattern arrive as first-class instances in signal handlers and draw funcs |
-| JSON                 | `sqgi.json.parse` / `stringify` (compact + pretty), `_tojson` hook for classes                                |
-| Errors               | `sqgi.GError` instances with `.domain` / `.code` / `.message`, throwable & catchable                          |
-
-## 60-second tour
-
-### Hello, GObject world
+## A Tiny Demo
 
 ```squirrel
+#!/usr/bin/env sqgi
+
+local GLib = import("GLib")
 local Gio = import("Gio")
 
-local f = Gio.File.new_for_path("/etc/os-release")
-local ok, contents, _, _ = f.load_contents(null)
-print(contents)
-```
+local loop = GLib.MainLoop.new(null, false)
 
-### Async / await — the GIO way
-
-```squirrel
-local GLib = import("GLib")
-local Gio  = import("Gio")
-
-local main = async function() {
-    local f = Gio.File.new_for_path("/etc/hostname")
-    local r = await f.load_contents_async(null)
-    print("hostname: " + r[0])
+async function main() {
+    local file = Gio.File.new_for_path("/etc/os-release")
+    local result = await file.load_contents_async(null)
+    print(result[0])
+    loop.quit()
 }
-main()
-GLib.MainLoop.new(null, false).run()
+
+main().catch(function(e) {
+    print("error: " + e + "\n")
+    loop.quit()
+})
+
+loop.run()
 ```
 
-Every introspected `*_async`/`*_finish` pair becomes a single awaitable
-call. No `_finish` boilerplate, no callback indentation pyramid.
+That is ordinary Squirrel calling native Gio async APIs. No generated bindings,
+no per-library glue.
 
-### Signals that just work — including from worker threads
+## Quick Start
+
+```sh
+git clone https://github.com/supercamel/sqgi.git
+cd sqgi
+
+sudo apt install cmake build-essential pkg-config \
+  libglib2.0-dev libgirepository1.0-dev libffi-dev libcairo2-dev
+
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j"$(nproc)"
+
+build/sqgi --version
+build/sqgi demo/gio/file_read.nut README.md
+```
+
+Install:
+
+```sh
+sudo cmake --install build --prefix /usr/local
+```
+
+This installs:
+
+- `sqgi`
+- `sqgipkg`
+- `libsqgi.so`
+- public headers under `include/sqgi/`
+- `sqgi.pc` for `pkg-config`
+
+## What You Can Build
+
+SQGI is useful anywhere you want native Linux capabilities with scripting speed:
+
+- GTK 4 apps and internal tools
+- Gio filesystem/network/process utilities
+- GStreamer media tools and visual experiments
+- libsoup HTTP clients and local services
+- image processing pipelines with GdkPixbuf
+- scriptable native apps that expose their own C API
+- small AppImage-distributed desktop utilities
+
+## Import Native Libraries
+
+Any introspected library can be imported by namespace:
 
 ```squirrel
+local Gtk = import("Gtk", "4.0")
+local Gio = import("Gio")
 local Gst = import("Gst")
-Gst.init(null)
-
-local pipe = Gst.parse_launch(
-    "videotestsrc num-buffers=120 ! cairooverlay name=co ! " +
-    "videoconvert ! autovideosink")
-local co = pipe.get_by_name("co")
-
-// GStreamer fires `draw` from the streaming thread — SQGI marshals
-// the call back onto the VM's main context for us, and the cairo
-// Context arrives as a real cairo.Context instance.
-co.connect("draw", function (cr, ts, dur) {
-    cr.set_source_rgba(1, 1, 1, 0.5)
-    cr.arc(120, 80, 30, 0, 6.283)
-    cr.fill()
-})
-
-pipe.set_state(Gst.State.playing)
-```
-
-### Fetch a URL with libsoup
-
-```squirrel
 local Soup = import("Soup")
-local GLib = import("GLib")
-
-local main = async function() {
-    local s   = Soup.Session.new()
-    local msg = Soup.Message.new("GET", "https://example.org/")
-    local body = await s.send_and_read_async(msg, GLib.PRIORITY_DEFAULT, null)
-    print("got " + body.get_size() + " bytes\n")
-}
-main()
-GLib.MainLoop.new(null, false).run()
+local Pixbuf = import("GdkPixbuf")
 ```
 
-### Decode an image and save a thumbnail
+Constructors, methods, properties, signals, out parameters, `GError`, `GValue`,
+`GVariant`, byte arrays, and boxed/object ownership are handled by the runtime.
 
 ```squirrel
-local Pb = import("GdkPixbuf")
+local app = Gtk.Application.new("org.example.demo", 0)
 
-local thumb = Pb.Pixbuf.new_from_file_at_scale("/tmp/big.jpg", 256, 256, true)
-thumb.savev("/tmp/thumb.png", "png", [], [])
-```
-
-### Subclass `Gio.Application` from a script
-
-```squirrel
-local Gio = import("Gio")
-
-local MyApp = sqgi.register_class({
-    name   = "MyApp",
-    parent = Gio.Application,
-    overrides = {
-        activate = function (self) {
-            print("hello from " + self.application_id + "\n")
-        },
-    },
+app.connect("activate", function() {
+    local win = Gtk.ApplicationWindow.new(app)
+    win.title = "SQGI"
+    win.set_default_size(320, 160)
+    win.present()
 })
 
-local app = sqgi.new_object(MyApp, { application_id = "org.example.demo" })
 app.run(0, null)
 ```
 
-That `MyApp` is a real, introspectable `GType`. C code that calls
-`g_application_run` invokes your Squirrel closures through libffi
-trampolines.
+## Async That Feels Like Scripting
 
-### Cancellable tasks, JS-style
+Gio-style `_async` / `_finish` pairs become awaitable methods:
 
 ```squirrel
-local job = sqgi.sleep(5000)
-sqgi.timeout_add(100, function() {
-    job.cancel("user pressed stop")
-    return false
-})
+local Gio = import("Gio")
 
-job.then(function(v) { print("slept " + v + "ms\n") })
-   .catch(function(e) {
-       if (e.__cancelled) print("cancelled: " + e.reason + "\n")
-   })
+async function read_text(path) {
+    local file = Gio.File.new_for_path(path)
+    local result = await file.load_contents_async(null)
+    return result[0]
+}
 ```
 
-## Status
+SQGI also provides `Task`, `Task.cancel()`, `sqgi.sleep`, `sqgi.all`,
+`sqgi.race`, and JS-style `.then()` / `.catch()` chaining.
 
-SQGI is a working technology preview that's accumulated real coverage:
+## Extend With C, C++, Or Vala
 
-- **45 CTest targets** — unit tests for marshalling, signals, async, GVariant,
-  GIRepository binding, subclassing, JSON, stack-balance regressions, plus
-  4 C-side tests for cross-thread signal paths.
-- **16 end-to-end behavioural tests** (`test/run_tests.sh`) exercising GLib,
-  Gio, libsoup, GStreamer, GdkPixbuf, and the application/async runtime.
-- **59 self-contained demos** across `demo/glib/`, `demo/gio/`, `demo/soup/`,
-  `demo/gstreamer/`, `demo/gtk4/`, and `demo/gdkpixbuf/` — including a full
-  libsoup VGet clone, a GStreamer cairo HUD, picture-in-picture compositor,
-  and a hermetic libsoup → PixbufLoader pipeline.
-- **6 cookbook chapters** under [`docs/recipes/`](docs/recipes/): GLib, Gio,
-  libsoup, GStreamer, GdkPixbuf, GTK 4 — recipes with runnable code,
-  pitfalls, and links to every demo.
-- ~81% branch coverage on the C binding sources (`gcovr --filter src/`).
-- **The full .nut test suite runs clean under AddressSanitizer +
-  LeakSanitizer** — see `test/run_tests_asan.sh`. The binding tracks
-  ownership of every transferred GObject, boxed record, GVariant, GBytes,
-  GList/GSList spine, `gchar**` array, and constant-info value, and frees
-  them through the Squirrel GC. Residual leaks are confined to known
-  library-internal caches (libgio's worker-thread pool, GStreamer factory
-  singletons) and are suppressed via `test/lsan.supp`.
+If your native code exposes GObject Introspection metadata, SQGI can call it.
+The usual shape is:
 
-Edge cases on exotic library shapes may still surprise — please file an
-issue if you find one. But every API surface exercised by the demos,
-recipes, and tests above is leak-free end-to-end.
+```text
+native/build/libmyapp-1.0.so
+native/build/MyApp-1.0.typelib
+```
 
-## Build
+Then:
 
-Requirements (Debian/Ubuntu names):
+```squirrel
+local MyApp = import("MyApp", "1.0")
+local worker = MyApp.Worker.new()
+print(worker.do_native_work("hello") + "\n")
+```
+
+This works for hand-written C/C++ GObject libraries and Vala libraries. Vala
+async methods can be awaited directly when exposed through GI.
+
+There are working packaging tests for both styles:
+
+```text
+tools/sqgipkg_tests/native_gi_project/
+tools/sqgipkg_tests/native_vala_project/
+```
+
+## Package Apps
+
+`sqgipkg` packages SQGI projects for distribution. The main implemented target
+today is AppImage.
 
 ```sh
-sudo apt install cmake build-essential libglib2.0-dev libgirepository1.0-dev libffi-dev pkg-config
+sqgipkg main.nut --name MyApp --target appimage
 ```
+
+For real projects, use a manifest:
 
 ```sh
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build -j
-build/sqgi --version
+sqgipkg --init gtk4
+sqgipkg --manifest sqgipkg.json --doctor
+sqgipkg --manifest sqgipkg.json --smoke-test ""
 ```
 
-For debugger-friendly builds, use `-DCMAKE_BUILD_TYPE=Debug`. With Makefile
-generators, leaving `CMAKE_BUILD_TYPE` empty produces an unoptimized binary,
-which is useful for quick local hacking but misleading for benchmarks.
+Manifests can include:
 
-Run the tests:
+- Squirrel scripts compiled to `.cnut`
+- images and project resources
+- native shared libraries
+- GObject Introspection typelibs
+- GStreamer plugins
+- GTK/GSettings/Gio/GdkPixbuf data and modules
 
-```sh
-./test/run_tests.sh           # behavioural .nut suite
-cd build && ctest --output-on-failure   # C unit tests
-```
+See [tools/README.md](tools/README.md) for the full packaging guide.
 
-Run the demos:
+## Embed SQGI
 
-```sh
-./build/sqgi demo/soup/vget.nut https://example.org/file.tar.gz
-./build/sqgi demo/gstreamer/cairo_overlay.nut --analyse --frames=120
-./build/sqgi demo/gdkpixbuf/mosaic.nut
-./build/sqgi demo/gtk4/bouncing_ball.nut
-```
-
-## Install / embed
-
-```sh
-cmake --install build --prefix /usr/local
-```
-
-Installs `libsqgi.so`, the `sqgi` binary, public headers under
-`include/sqgi/`, and `sqgi.pc`. Embedders pull it in with one line:
+SQGI can also be embedded into a native application.
 
 ```sh
 gcc myapp.c $(pkg-config --cflags --libs sqgi)
 ```
 
-### AddressSanitizer build
+The public C entry point is [src/sqgi_vm.h](src/sqgi_vm.h). Installed headers
+are placed under `include/sqgi/`.
+
+## Development
+
+Run the main test suite:
+
+```sh
+./test/run_tests.sh
+```
+
+Run CTest directly:
+
+```sh
+ctest --test-dir build --output-on-failure
+```
+
+AddressSanitizer build:
 
 ```sh
 cmake -S . -B build-asan -DSQGI_ENABLE_ASAN=ON
-cmake --build build-asan -j
+cmake --build build-asan -j"$(nproc)"
 ```
 
-## CLI
+## Examples And Docs
 
-```
-Usage: sqgi [options] [script [args...]]
+| You want to... | Go here |
+|----------------|---------|
+| Learn the language as SQGI uses it | [docs/language/](docs/language/) |
+| Look up SQGI runtime APIs | [docs/api/README.md](docs/api/README.md) |
+| Follow library-specific recipes | [docs/recipes/](docs/recipes/) |
+| Browse runnable examples | [demo/](demo/) |
+| Package an app | [tools/README.md](tools/README.md) |
 
-Options:
-  -e <src>       Evaluate inline Squirrel source and exit
-  -v, --version  Print version and exit
-  -h, --help     Show this message and exit
-```
+The demos cover GLib, Gio, libsoup, GStreamer, GdkPixbuf, GTK 4, AppImage
+packaging, and native GI extension projects.
 
-## Where to go next
+## Under The Hood
 
-| You want to…                                  | Read                                                                      |
-|-----------------------------------------------|---------------------------------------------------------------------------|
-| Learn the language as it ships with SQGI       | [`docs/language/`](docs/language/) — 11 chapters incl. async patterns     |
-| Look up an API surface                         | [`docs/api/README.md`](docs/api/README.md)                                |
-| Read end-to-end recipes for a specific library | [`docs/recipes/`](docs/recipes/) (glib / gio / soup / gstreamer / gdkpixbuf / gtk4) |
-| Browse runnable code                            | [`demo/`](demo/) — 59 small, focused scripts                              |
-| Embed SQGI in a C app                          | `include/sqgi/sqgi_vm.h` + `pkg-config sqgi`                              |
+SQGI is built from a small set of C modules:
 
-## Architecture
-
-```
+```text
 src/
-  main.c             CLI entry point + REPL
-  sqgi_vm.c          VM init, root table, std lib wiring
-  sqgi_gi.c          GIRepository function dispatch + libffi callbacks
-  sqgi_gi_object.c   Object/struct wrappers, property accessors
-  sqgi_marshal.c     GIArgument / GValue / GVariant push/pull
-  sqgi_signal.c      GObject signal connect/emit (with cross-thread dispatch)
-  sqgi_async.c       async/await runtime (Tasks + GLib idle wakers)
-  sqgi_subclass.c    GType registration + vfunc override trampolines
-  sqgi_cairo.c       Native cairo bridge (Context / Surface / Pattern)
-  sqgi_import.c      `import("Module")` for typelibs and .nut files
-  sqgi_json.c        Dependency-free JSON codec
+  main.c             CLI entry point and REPL
+  sqgi_vm.c          VM setup and standard library wiring
+  sqgi_import.c      import("Module") for typelibs and .nut files
+  sqgi_gi.c          GIRepository function dispatch
+  sqgi_gi_object.c   object wrappers, properties, async wrappers
+  sqgi_marshal.c     GIArgument / GValue / GVariant conversion
+  sqgi_signal.c      GObject signals with cross-thread dispatch
+  sqgi_async.c       Task runtime and async/await support
+  sqgi_subclass.c    GType registration and vfunc overrides
+  sqgi_cairo.c       cairo Context / Surface / Pattern bridge
+  sqgi_json.c        dependency-free JSON codec
 ```
 
-Callbacks passed to GI functions are dispatched through libffi-generated
-closures, so any signature exposed by a typelib (GAsyncReadyCallback,
-GFileProgressCallback, GFunc, …) works without per-signature trampolines.
+The runtime uses GObject Introspection metadata plus libffi closures, so it can
+call broad native API surfaces without generating bindings for each library.
+
+## Status
+
+SQGI is a working technology preview. It has broad test coverage across
+marshalling, async, signals, GObject properties, subclassing, GVariant/GValue,
+JSON, Cairo, and real library recipes. The project is still young, so unusual
+GI metadata shapes may expose bugs. Small, focused bug reports are very welcome.
 
 ## License
 
-SQGI is released under the MIT license — see [LICENSE](LICENSE). The
-Squirrel sources under `Squirrel3/` retain their upstream copyright.
+SQGI is released under the MIT license. See [LICENSE](LICENSE). The Squirrel
+sources under `Squirrel3/` retain their upstream copyright.

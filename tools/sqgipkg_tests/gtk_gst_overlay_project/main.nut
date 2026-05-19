@@ -5,18 +5,7 @@ local Gio  = import("Gio")
 local Gtk  = import("Gtk", "4.0")
 local Gst  = import("Gst")
 
-function path_exists(path) {
-    return Gio.File.new_for_path(path).query_exists(null)
-}
-
-function app_share_path(name) {
-    local packaged = GLib.getenv("SQGI_APP_SHARE")
-    if (packaged != null) return GLib.build_filenamev([packaged, name])
-    if (path_exists(name)) return name
-    return GLib.build_filenamev(["tools", "sqgipkg_tests", "gtk_gst_overlay_project", name])
-}
-
-local ball_mod = import(app_share_path("ball_state.nut"))
+local ball_mod = import("ball_state.nut")
 
 Gst.init(null)
 

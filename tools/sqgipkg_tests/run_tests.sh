@@ -64,8 +64,7 @@ APPIMAGETOOL="${APPIMAGETOOL_CACHE}/appimagetool-$(appimagetool_arch).AppImage"
 
 MAIN_SCRIPT="${WORK_DIR}/main.nut"
 cat >"${MAIN_SCRIPT}" <<'EOF'
-local GLib = import("GLib")
-local helper = import(GLib.build_filenamev([GLib.getenv("SQGI_APP_SHARE"), "helper.nut"]))
+local helper = import("helper.nut")
 
 if (vargv.len() != 2) {
     print("expected 2 args, got " + vargv.len() + "\n")
