@@ -50,7 +50,7 @@ public:
             SQ_FREE(_vals, (_allocated * sizeof(T)));
         }
     }
-    void reserve(SQUnsignedInteger newsize) { _realloc(newsize); }
+    void reserve(SQUnsignedInteger newsize) { if(newsize > _allocated) _realloc(newsize); }
     void resize(SQUnsignedInteger newsize, const T& fill = T())
     {
         if(newsize > _allocated)
@@ -92,11 +92,13 @@ public:
     }
     void remove(SQUnsignedInteger idx)
     {
-        _vals[idx].~T();
         if(idx < (_size - 1)) {
-            memmove(&_vals[idx], &_vals[idx+1], sizeof(T) * (_size - idx - 1));
+            for(SQUnsignedInteger i = idx; i < (_size - 1); i++) {
+                _vals[i] = _vals[i + 1];
+            }
         }
         _size--;
+        _vals[_size].~T();
     }
     SQUnsignedInteger capacity() { return _allocated; }
     inline T &back() const { return _vals[_size - 1]; }
@@ -106,8 +108,20 @@ private:
     void _realloc(SQUnsignedInteger newsize)
     {
         newsize = (newsize > 0)?newsize:4;
-        _vals = (T*)SQ_REALLOC(_vals, _allocated * sizeof(T), newsize * sizeof(T));
+        T *newvals = (T*)SQ_MALLOC(newsize * sizeof(T));
+        SQUnsignedInteger ncopy = _size < newsize ? _size : newsize;
+        for(SQUnsignedInteger i = 0; i < ncopy; i++) {
+            new ((void *)&newvals[i]) T(_vals[i]);
+        }
+        for(SQUnsignedInteger i = 0; i < _size; i++) {
+            _vals[i].~T();
+        }
+        if(_allocated) {
+            SQ_FREE(_vals, _allocated * sizeof(T));
+        }
+        _vals = newvals;
         _allocated = newsize;
+        _size = ncopy;
     }
     SQUnsignedInteger _size;
     SQUnsignedInteger _allocated;

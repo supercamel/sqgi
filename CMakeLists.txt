@@ -285,6 +285,7 @@ function(add_sqgi_c_test test_name source_file)
     target_include_directories(${test_name} PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src
         ${CMAKE_CURRENT_SOURCE_DIR}/Squirrel3/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/Squirrel3/squirrel
     )
     add_test(NAME ${test_name} COMMAND ${test_name})
     set_tests_properties(${test_name} PROPERTIES
@@ -298,6 +299,8 @@ add_sqgi_c_test(sqgi_test_c_signal_crossthread test/c/test_signal_crossthread.c)
 add_sqgi_c_test(sqgi_test_c_signal_crossthread_sync test/c/test_signal_crossthread_sync.c)
 add_sqgi_c_test(sqgi_test_c_signal_vm_closing test/c/test_signal_vm_closing.c)
 add_sqgi_c_test(sqgi_test_c_gvalue_branches test/c/test_gvalue_branches.c)
+add_sqgi_c_test(sqgi_test_c_squirrel_core_hardening test/c/test_squirrel_core_hardening.c)
+add_sqgi_c_test(sqgi_test_cpp_sqvector test/cpp/test_sqvector.cpp)
 
 # Cover the -e / dobuffer path (sqgi_vm_dobuffer)
 add_test(

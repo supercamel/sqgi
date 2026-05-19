@@ -276,6 +276,85 @@ SQClosure::~SQClosure()
 }
 
 #define _CHECK_IO(exp)  { if(!exp)return false; }
+
+static SQInteger sq_aux_integer_max()
+{
+    return (SQInteger)(((SQUnsignedInteger)-1) >> 1);
+}
+
+static bool SafeAddSize(SQUnsignedInteger a, SQUnsignedInteger b, SQUnsignedInteger &out)
+{
+    if(a > (SQUnsignedInteger)-1 - b) {
+        return false;
+    }
+    out = a + b;
+    return true;
+}
+
+static bool SafeMulCount(SQInteger count, SQUnsignedInteger elem_size, SQUnsignedInteger &out)
+{
+    if(count < 0) {
+        return false;
+    }
+    SQUnsignedInteger ucount = (SQUnsignedInteger)count;
+    if(elem_size != 0 && ucount > (SQUnsignedInteger)-1 / elem_size) {
+        return false;
+    }
+    out = ucount * elem_size;
+    return true;
+}
+
+static bool AddCountBytes(SQUnsignedInteger &total, SQInteger count, SQUnsignedInteger elem_size)
+{
+    SQUnsignedInteger bytes;
+    if(!SafeMulCount(count, elem_size, bytes)) {
+        return false;
+    }
+    return SafeAddSize(total, bytes, total);
+}
+
+static bool GetSerializedStringBytes(HSQUIRRELVM v, SQInteger len, SQInteger &bytes)
+{
+    const SQUnsignedInteger max_string_bytes = (SQUnsignedInteger)64 * 1024 * 1024;
+    SQUnsignedInteger ubytes;
+    if(!SafeMulCount(len, (SQUnsignedInteger)sizeof(SQChar), ubytes) ||
+        ubytes > (SQUnsignedInteger)sq_aux_integer_max() ||
+        ubytes > max_string_bytes) {
+        v->Raise_Error(_SC("invalid or corrupted closure stream"));
+        return false;
+    }
+    bytes = (SQInteger)ubytes;
+    return true;
+}
+
+static bool ValidateFunctionProtoCounts(HSQUIRRELVM v,
+    SQInteger ninstructions, SQInteger nliterals, SQInteger nparameters,
+    SQInteger nfunctions, SQInteger noutervalues, SQInteger nlineinfos,
+    SQInteger nlocalvarinfos, SQInteger ndefaultparams)
+{
+    const SQUnsignedInteger max_proto_bytes = (SQUnsignedInteger)256 * 1024 * 1024;
+    SQUnsignedInteger total = (SQUnsignedInteger)sizeof(SQFunctionProto);
+
+    if(ninstructions <= 0) {
+        v->Raise_Error(_SC("invalid or corrupted closure stream"));
+        return false;
+    }
+
+    if(!AddCountBytes(total, ninstructions - 1, (SQUnsignedInteger)sizeof(SQInstruction)) ||
+        !AddCountBytes(total, nliterals, (SQUnsignedInteger)sizeof(SQObjectPtr)) ||
+        !AddCountBytes(total, nparameters, (SQUnsignedInteger)sizeof(SQObjectPtr)) ||
+        !AddCountBytes(total, nfunctions, (SQUnsignedInteger)sizeof(SQObjectPtr)) ||
+        !AddCountBytes(total, noutervalues, (SQUnsignedInteger)sizeof(SQOuterVar)) ||
+        !AddCountBytes(total, nlineinfos, (SQUnsignedInteger)sizeof(SQLineInfo)) ||
+        !AddCountBytes(total, nlocalvarinfos, (SQUnsignedInteger)sizeof(SQLocalVarInfo)) ||
+        !AddCountBytes(total, ndefaultparams, (SQUnsignedInteger)sizeof(SQInteger)) ||
+        total > max_proto_bytes) {
+        v->Raise_Error(_SC("invalid or corrupted closure stream"));
+        return false;
+    }
+    return true;
+}
+
 bool SafeWrite(HSQUIRRELVM v,SQWRITEFUNC write,SQUserPointer up,SQUserPointer dest,SQInteger size)
 {
     if(write(up,dest,size) != size) {
@@ -287,6 +366,10 @@ bool SafeWrite(HSQUIRRELVM v,SQWRITEFUNC write,SQUserPointer up,SQUserPointer de
 
 bool SafeRead(HSQUIRRELVM v,SQREADFUNC read,SQUserPointer up,SQUserPointer dest,SQInteger size)
 {
+    if(size < 0) {
+        v->Raise_Error(_SC("invalid or corrupted closure stream"));
+        return false;
+    }
     if(size && read(up,dest,size) != size) {
         v->Raise_Error(_SC("io error, read function failure, the origin stream could be corrupted/trucated"));
         return false;
@@ -341,8 +424,10 @@ bool ReadObject(HSQUIRRELVM v,SQUserPointer up,SQREADFUNC read,SQObjectPtr &o)
     switch(t){
     case OT_STRING:{
         SQInteger len;
+        SQInteger bytes;
         _CHECK_IO(SafeRead(v,read,up,&len,sizeof(SQInteger)));
-        _CHECK_IO(SafeRead(v,read,up,_ss(v)->GetScratchPad(sq_rsl(len)),sq_rsl(len)));
+        _CHECK_IO(GetSerializedStringBytes(v, len, bytes));
+        _CHECK_IO(SafeRead(v,read,up,_ss(v)->GetScratchPad(bytes),bytes));
         o=SQString::Create(_ss(v),_ss(v)->GetScratchPad(-1),len);
                    }
         break;
@@ -489,9 +574,15 @@ bool SQFunctionProto::Load(SQVM *v,SQUserPointer up,SQREADFUNC read,SQObjectPtr 
     _CHECK_IO(SafeRead(v,read,up, &ninstructions, sizeof(ninstructions)));
     _CHECK_IO(SafeRead(v,read,up, &nfunctions, sizeof(nfunctions)));
 
+    _CHECK_IO(ValidateFunctionProtoCounts(v,ninstructions,nliterals,nparameters,
+            nfunctions,noutervalues,nlineinfos,nlocalvarinfos,ndefaultparams));
 
     SQFunctionProto *f = SQFunctionProto::Create(_opt_ss(v),ninstructions,nliterals,nparameters,
             nfunctions,noutervalues,nlineinfos,nlocalvarinfos,ndefaultparams);
+    if(!f) {
+        v->Raise_Error(_SC("out of memory"));
+        return false;
+    }
     SQObjectPtr proto = f; //gets a ref in case of failure
     f->_sourcename = sourcename;
     f->_name = name;
@@ -539,7 +630,7 @@ bool SQFunctionProto::Load(SQVM *v,SQUserPointer up,SQREADFUNC read,SQObjectPtr 
 
     _CHECK_IO(CheckTag(v,read,up,SQ_CLOSURESTREAM_PART));
     for(i = 0; i < nfunctions; i++){
-        _CHECK_IO(_funcproto(o)->Load(v, up, read, o));
+        _CHECK_IO(SQFunctionProto::Load(v, up, read, o));
         f->_functions[i] = o;
     }
     _CHECK_IO(SafeRead(v,read,up, &f->_stacksize, sizeof(f->_stacksize)));

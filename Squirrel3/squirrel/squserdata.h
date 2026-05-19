@@ -12,7 +12,15 @@ struct SQUserData : SQDelegable
     }
     static SQUserData* Create(SQSharedState *ss, SQInteger size)
     {
-        SQUserData* ud = (SQUserData*)SQ_MALLOC(sq_aligning(sizeof(SQUserData))+size);
+        SQUnsignedInteger header_size = (SQUnsignedInteger)sq_aligning(sizeof(SQUserData));
+        SQUnsignedInteger max_size = (SQUnsignedInteger)-1;
+        if(size < 0 || (SQUnsignedInteger)size > max_size - header_size) {
+            return NULL;
+        }
+        SQUserData* ud = (SQUserData*)SQ_MALLOC(header_size + (SQUnsignedInteger)size);
+        if(!ud) {
+            return NULL;
+        }
         new (ud) SQUserData(ss);
         ud->_size = size;
         ud->_typetag = 0;

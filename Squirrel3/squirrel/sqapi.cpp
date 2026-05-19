@@ -13,6 +13,11 @@
 #include "sqfuncstate.h"
 #include "sqclass.h"
 
+static SQInteger sq_aux_integer_max()
+{
+    return (SQInteger)(((SQUnsignedInteger)-1) >> 1);
+}
+
 static bool sq_aux_gettypedarg(HSQUIRRELVM v,SQInteger idx,SQObjectType type,SQObjectPtr **o)
 {
     *o = &stack_get(v,idx);
@@ -265,7 +270,17 @@ void sq_pushthread(HSQUIRRELVM v, HSQUIRRELVM thread)
 
 SQUserPointer sq_newuserdata(HSQUIRRELVM v,SQUnsignedInteger size)
 {
-    SQUserData *ud = SQUserData::Create(_ss(v), size + SQ_ALIGNMENT);
+    SQInteger max_size = sq_aux_integer_max();
+    if(size > (SQUnsignedInteger)max_size ||
+        (SQUnsignedInteger)max_size - size < SQ_ALIGNMENT) {
+        v->Raise_Error(_SC("userdata size too large"));
+        return NULL;
+    }
+    SQUserData *ud = SQUserData::Create(_ss(v), (SQInteger)(size + SQ_ALIGNMENT));
+    if(!ud) {
+        v->Raise_Error(_SC("out of memory"));
+        return NULL;
+    }
     v->Push(ud);
     return (SQUserPointer)sq_aligning(ud + 1);
 }

@@ -584,7 +584,9 @@ const SQRegFunction SQSharedState::_table_default_delegate_funcz[]={
 
 static SQInteger array_append(HSQUIRRELVM v)
 {
-    return SQ_SUCCEEDED(sq_arrayappend(v,-2)) ? 1 : SQ_ERROR;
+    _array(stack_get(v,1))->Append(v->GetUp(-1));
+    v->Pop();
+    return 1;
 }
 
 static SQInteger array_extend(HSQUIRRELVM v)

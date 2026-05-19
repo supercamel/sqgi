@@ -74,6 +74,9 @@ public:
         SQFunctionProto *f;
         //I compact the whole class and members in a single memory allocation
         f = (SQFunctionProto *)sq_vm_malloc(_FUNC_SIZE(ninstructions,nliterals,nparameters,nfunctions,noutervalues,nlineinfos,nlocalvarinfos,ndefaultparams));
+        if(!f) {
+            return NULL;
+        }
         new (f) SQFunctionProto(ss);
         f->_ninstructions = ninstructions;
         f->_literals = (SQObjectPtr*)&f->_instructions[ninstructions];
