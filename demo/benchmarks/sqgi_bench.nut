@@ -34,6 +34,23 @@ function bench_numeric(n) {
     emit("numeric", n, start, x)
 }
 
+function numeric_kernel(n) {
+    local x = 0
+    for (local i = 0; i < n; i++) {
+        x = (x + (i % 997) * 31 + 7) % 1000000007
+    }
+    return x
+}
+
+function bench_numeric_kernel(n) {
+    for (local i = 0; i < 1000; i++) {
+        numeric_kernel(0)
+    }
+    local start = now_us()
+    local x = numeric_kernel(n)
+    emit("numeric-kernel", n, start, x)
+}
+
 function bench_empty_loop(n) {
     local start = now_us()
     local x = 0
@@ -97,7 +114,7 @@ function bench_string(n) {
     local s = ""
     for (local i = 0; i < n; i++) {
         s += "sqgi:"
-        s += (i % 100).tostring()
+        s += i % 100
         s += ";"
     }
     emit("string", n, start, s.len())
@@ -114,6 +131,7 @@ function bench_glib_clock(n) {
 
 bench_empty_loop(2000000 * scale)
 bench_numeric(1000000 * scale)
+bench_numeric_kernel(1000000 * scale)
 bench_function_call(500000 * scale)
 bench_array(300000 * scale)
 bench_table(250000 * scale)

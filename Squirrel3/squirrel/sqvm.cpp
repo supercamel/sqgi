@@ -22,6 +22,8 @@
 #define TARGET _stack._vals[_stackbase+arg0]
 #define STK(a) _stack._vals[_stackbase+(a)]
 
+extern bool sq_nativeclosure_is_array_append(SQNativeClosure *nclosure);
+
 bool SQVM::BW_OP(SQUnsignedInteger op,SQObjectPtr &trg,const SQObjectPtr &o1,const SQObjectPtr &o2)
 {
     SQInteger res;
@@ -102,6 +104,9 @@ bool SQVM::ARITH_OP(SQUnsignedInteger op,SQObjectPtr &trg,const SQObjectPtr &o1,
             break;
         default:
             if(op == '+' && (tmask & _RT_STRING)){
+                if(&trg == &o1 && sq_type(o1) == OT_STRING && StringAppendInPlace(trg, o2)) {
+                    return true;
+                }
                 if(!StringCat(o1, o2, trg)) return false;
             }
             else if(!ArithMetaMethod(op,o1,o2,trg)) {
@@ -208,6 +213,20 @@ bool SQVM::NEG_OP(SQObjectPtr &trg,const SQObjectPtr &o)
 }
 
 #define _RET_SUCCEED(exp) { result = (exp); return true; }
+static SQInteger sq_string_compare(const SQString *a, const SQString *b)
+{
+    SQInteger minlen = a->_len < b->_len ? a->_len : b->_len;
+    for(SQInteger i = 0; i < minlen; i++) {
+        if(a->_val[i] != b->_val[i]) {
+            return a->_val[i] < b->_val[i] ? -1 : 1;
+        }
+    }
+    if(a->_len == b->_len) {
+        return 0;
+    }
+    return a->_len < b->_len ? -1 : 1;
+}
+
 bool SQVM::ObjCmp(const SQObjectPtr &o1,const SQObjectPtr &o2,SQInteger &result)
 {
     SQObjectType t1 = sq_type(o1), t2 = sq_type(o2);
@@ -216,7 +235,7 @@ bool SQVM::ObjCmp(const SQObjectPtr &o1,const SQObjectPtr &o2,SQInteger &result)
         SQObjectPtr res;
         switch(t1){
         case OT_STRING:
-            _RET_SUCCEED(scstrcmp(_stringval(o1),_stringval(o2)));
+            _RET_SUCCEED(sq_string_compare(_string(o1), _string(o2)));
         case OT_INTEGER:
             _RET_SUCCEED((_integer(o1)<_integer(o2))?-1:1);
         case OT_FLOAT:
@@ -337,6 +356,63 @@ bool SQVM::StringCat(const SQObjectPtr &str,const SQObjectPtr &obj,SQObjectPtr &
     memcpy(s, _stringval(a), sq_rsl(l));
     memcpy(s + l, _stringval(b), sq_rsl(ol));
     dest = SQString::Create(_ss(this), _spval, l + ol);
+    return true;
+}
+
+bool SQVM::StringAppendInPlace(SQObjectPtr &str, const SQObjectPtr &obj)
+{
+    if(sq_type(str) != OT_STRING) {
+        return false;
+    }
+
+    SQChar numbuf[NUMBER_MAX_CHAR + 1];
+    const SQChar *suffix = NULL;
+    SQInteger suffixlen = 0;
+    SQObjectPtr suffixobj;
+
+    switch(sq_type(obj)) {
+        case OT_STRING:
+            if(_string(str) == _string(obj)) {
+                return false;
+            }
+            suffix = _stringval(obj);
+            suffixlen = _string(obj)->_len;
+            break;
+        case OT_INTEGER:
+            scsprintf(numbuf, NUMBER_MAX_CHAR + 1, _PRINT_INT_FMT, _integer(obj));
+            suffix = numbuf;
+            suffixlen = (SQInteger)scstrlen(numbuf);
+            break;
+        case OT_FLOAT:
+            scsprintf(numbuf, NUMBER_MAX_CHAR + 1, _SC("%g"), _float(obj));
+            suffix = numbuf;
+            suffixlen = (SQInteger)scstrlen(numbuf);
+            break;
+        case OT_BOOL:
+            suffix = _integer(obj) ? _SC("true") : _SC("false");
+            suffixlen = _integer(obj) ? 4 : 5;
+            break;
+        case OT_NULL:
+            suffix = _SC("null");
+            suffixlen = 4;
+            break;
+        default:
+            if(!ToString(obj, suffixobj)) {
+                return false;
+            }
+            if(sq_type(suffixobj) != OT_STRING || _string(str) == _string(suffixobj)) {
+                return false;
+            }
+            suffix = _stringval(suffixobj);
+            suffixlen = _string(suffixobj)->_len;
+            break;
+    }
+
+    SQString *grown = _ss(this)->_stringtable->Append(_string(str), suffix, suffixlen);
+    if(!grown) {
+        return false;
+    }
+    str._unVal.pString = grown;
     return true;
 }
 
@@ -666,6 +742,11 @@ bool SQVM::IsEqual(const SQObjectPtr &o1,const SQObjectPtr &o2,bool &res)
 		if (t1 == OT_FLOAT) {
 			res = (_float(o1) == _float(o2));
 		}
+        else if(t1 == OT_STRING) {
+            res = _rawval(o1) == _rawval(o2) ||
+                (_string(o1)->_len == _string(o2)->_len &&
+                !memcmp(_stringval(o1), _stringval(o2), sq_rsl(_string(o1)->_len)));
+        }
 		else {
 			res = (_rawval(o1) == _rawval(o2));
 		}
@@ -781,6 +862,18 @@ exception_restore:
                     SQObjectPtr clo = STK(arg1);
                     switch (sq_type(clo)) {
                     case OT_CLOSURE:
+#ifdef SQ_ENABLE_JIT
+                        {
+                            SQObjectPtr jitres;
+                            if(sqjit_try_execute_closure(this, _closure(clo),
+                                &_stack._vals[_stackbase + arg2], arg3, jitres)) {
+                                if(sarg0 != -1) {
+                                    TARGET = jitres;
+                                }
+                                continue;
+                            }
+                        }
+#endif
                         _GUARD(StartCall(_closure(clo), sarg0, arg3, _stackbase+arg2, false));
 #ifdef SQ_ENABLE_JIT
                         sqjit_on_function_enter(this, _closure(ci->_closure)->_function);
@@ -797,6 +890,16 @@ exception_restore:
 #endif
                         continue;
                     case OT_NATIVECLOSURE: {
+                        if(arg3 == 2 && sq_nativeclosure_is_array_append(_nativeclosure(clo))) {
+                            SQObjectPtr &self = STK(arg2);
+                            if(sq_type(self) == OT_ARRAY) {
+                                _array(self)->Append(STK(arg2 + 1));
+                                if(sarg0 != -1) {
+                                    TARGET = self;
+                                }
+                                continue;
+                            }
+                        }
                         bool suspend;
 						bool tailcall;
                         _GUARD(CallNative(_nativeclosure(clo), arg3, _stackbase+arg2, clo, (SQInt32)sarg0, suspend, tailcall));
@@ -863,6 +966,18 @@ exception_restore:
             case _OP_PREPCALLK: {
                     SQObjectPtr &key = _i_.op == _OP_PREPCALLK?(ci->_literals)[arg1]:STK(arg1);
                     SQObjectPtr &o = STK(arg2);
+                    if(_i_.op == _OP_PREPCALLK && sq_type(o) == OT_ARRAY && sq_type(key) == OT_STRING) {
+                        if(scstrcmp(_stringval(key), _SC("push")) == 0) {
+                            STK(arg3) = o;
+                            TARGET = _sharedstate->_array_push_closure;
+                            continue;
+                        }
+                        if(scstrcmp(_stringval(key), _SC("append")) == 0) {
+                            STK(arg3) = o;
+                            TARGET = _sharedstate->_array_append_closure;
+                            continue;
+                        }
+                    }
                     if (!Get(o, key, temp_reg,0,arg2)) {
                         SQ_THROW();
                     }
@@ -930,10 +1045,37 @@ exception_restore:
             case _OP_JMP: ci->_ip += (sarg1); continue;
             //case _OP_JNZ: if(!IsFalse(STK(arg0))) ci->_ip+=(sarg1); continue;
             case _OP_JCMP:
+#ifdef SQ_ENABLE_JIT
+                {
+                    SQFunctionProto *jitfunc = _closure(ci->_closure)->_function;
+                    SQInteger jit_ip = (SQInteger)((ci->_ip - jitfunc->_instructions) - 1);
+                    SQJitProto *jit = jitfunc->_jit;
+                    if((!jit || (jit->_loop_entry && jit->_loop_header_ip == jit_ip) ||
+                        (!jit->_loop_entry && (jit->_loop_fail_count == 0 ||
+                            jit->_loop_header_ip != jit_ip))) &&
+                        sqjit_try_execute_current_loop(this, jit_ip)) {
+                        continue;
+                    }
+                }
+#endif
                 _GUARD(CMP_OP((CmpOP)arg3,STK(arg2),STK(arg0),temp_reg));
                 if(IsFalse(temp_reg)) ci->_ip+=(sarg1);
                 continue;
-            case _OP_JZ: if(IsFalse(STK(arg0))) ci->_ip+=(sarg1); continue;
+            case _OP_JZ:
+#ifdef SQ_ENABLE_JIT
+                {
+                    SQFunctionProto *jitfunc = _closure(ci->_closure)->_function;
+                    SQInteger jit_ip = (SQInteger)((ci->_ip - jitfunc->_instructions) - 1);
+                    SQJitProto *jit = jitfunc->_jit;
+                    if((!jit || (jit->_loop_entry && jit->_loop_header_ip == jit_ip) ||
+                        (!jit->_loop_entry && (jit->_loop_fail_count == 0 ||
+                            jit->_loop_header_ip != jit_ip))) &&
+                        sqjit_try_execute_current_loop(this, jit_ip)) {
+                        continue;
+                    }
+                }
+#endif
+                if(IsFalse(STK(arg0))) ci->_ip+=(sarg1); continue;
             case _OP_GETOUTER: {
                 SQClosure *cur_cls = _closure(ci->_closure);
                 SQOuter *otr = _outer(cur_cls->_outervalues[arg1]);
@@ -1306,7 +1448,7 @@ bool SQVM::Get(const SQObjectPtr &self, const SQObjectPtr &key, SQObjectPtr &des
             SQInteger len = _string(self)->_len;
             if (n < 0) { n += len; }
             if (n >= 0 && n < len) {
-                dest = SQInteger(_stringval(self)[n]);
+                dest = SQInteger((unsigned char)_stringval(self)[n]);
                 return true;
             }
             if ((getflags & GET_FLAG_DO_NOT_RAISE_ERROR) == 0) Raise_IdxError(key);

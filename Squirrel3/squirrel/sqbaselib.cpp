@@ -589,6 +589,11 @@ static SQInteger array_append(HSQUIRRELVM v)
     return 1;
 }
 
+bool sq_nativeclosure_is_array_append(SQNativeClosure *nclosure)
+{
+    return nclosure && nclosure->_function == array_append;
+}
+
 static SQInteger array_extend(HSQUIRRELVM v)
 {
     _array(stack_get(v,1))->Extend(_array(stack_get(v,2)));

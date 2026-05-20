@@ -144,6 +144,10 @@ void SQSharedState::Init()
     _consts = SQTable::Create(this,0);
     _table_default_delegate = CreateDefaultDelegate(this,_table_default_delegate_funcz);
     _array_default_delegate = CreateDefaultDelegate(this,_array_default_delegate_funcz);
+    _array_append_closure.Null();
+    _array_push_closure.Null();
+    _table(_array_default_delegate)->Get(SQObjectPtr(SQString::Create(this,_SC("append"))), _array_append_closure);
+    _table(_array_default_delegate)->Get(SQObjectPtr(SQString::Create(this,_SC("push"))), _array_push_closure);
     _string_default_delegate = CreateDefaultDelegate(this,_string_default_delegate_funcz);
     _number_default_delegate = CreateDefaultDelegate(this,_number_default_delegate_funcz);
     _closure_default_delegate = CreateDefaultDelegate(this,_closure_default_delegate_funcz);
@@ -172,6 +176,8 @@ SQSharedState::~SQSharedState()
     _root_vm.Null();
     _table_default_delegate.Null();
     _array_default_delegate.Null();
+    _array_append_closure.Null();
+    _array_push_closure.Null();
     _string_default_delegate.Null();
     _number_default_delegate.Null();
     _closure_default_delegate.Null();
@@ -253,6 +259,8 @@ void SQSharedState::RunMark(SQVM* SQ_UNUSED_ARG(vm),SQCollectable **tchain)
     MarkObject(_metamethodsmap,tchain);
     MarkObject(_table_default_delegate,tchain);
     MarkObject(_array_default_delegate,tchain);
+    MarkObject(_array_append_closure,tchain);
+    MarkObject(_array_push_closure,tchain);
     MarkObject(_string_default_delegate,tchain);
     MarkObject(_number_default_delegate,tchain);
     MarkObject(_generator_default_delegate,tchain);
@@ -595,7 +603,10 @@ SQString *SQStringTable::Add(const SQChar *news,SQInteger len)
     memcpy(t->_val,news,sq_rsl(len));
     t->_val[len] = _SC('\0');
     t->_len = len;
+    t->_alloclen = len;
     t->_hash = newhash;
+    t->_hashvalid = true;
+    t->_instringtable = true;
     t->_next = _strings[h];
     _strings[h] = t;
     _slotused++;
@@ -622,11 +633,85 @@ void SQStringTable::Resize(SQInteger size)
     SQ_FREE(oldtable,oldsize*sizeof(SQString*));
 }
 
+SQString *SQStringTable::Append(SQString *bs, const SQChar *suffix, SQInteger len)
+{
+    if(len < 0) {
+        len = (SQInteger)scstrlen(suffix);
+    }
+    if(len == 0) {
+        return bs;
+    }
+    if(!bs || bs->_uiRef != 1 || bs->_weakref != NULL) {
+        return NULL;
+    }
+
+    if(bs->_instringtable) {
+        SQString *s;
+        SQString *prev = NULL;
+        SQHash h = bs->Hash()&(_numofslots - 1);
+        for(s = _strings[h]; s; s = s->_next) {
+            if(s == bs) {
+                if(prev) {
+                    prev->_next = s->_next;
+                }
+                else {
+                    _strings[h] = s->_next;
+                }
+                _slotused--;
+                bs->_instringtable = false;
+                bs->_next = NULL;
+                break;
+            }
+            prev = s;
+        }
+        if(!s) {
+            return NULL;
+        }
+    }
+
+    SQInteger oldlen = bs->_len;
+    SQInteger newlen = oldlen + len;
+    SQInteger alloclen = bs->_alloclen;
+    if(newlen > alloclen) {
+        SQInteger newalloclen = newlen + (newlen >> 1) + 8;
+        SQString *rs = (SQString *)SQ_REALLOC(bs,
+            sizeof(SQString) + sq_rsl(alloclen),
+            sizeof(SQString) + sq_rsl(newalloclen));
+        if(!rs) {
+            if(!bs->_instringtable) {
+                SQHash h = bs->Hash()&(_numofslots - 1);
+                bs->_next = _strings[h];
+                _strings[h] = bs;
+                bs->_instringtable = true;
+                _slotused++;
+            }
+            return NULL;
+        }
+        bs = rs;
+        bs->_alloclen = newalloclen;
+        bs->_instringtable = false;
+    }
+
+    memcpy(&bs->_val[oldlen], suffix, sq_rsl(len));
+    bs->_len = newlen;
+    bs->_val[newlen] = _SC('\0');
+    bs->_hashvalid = false;
+    bs->_instringtable = false;
+    bs->_next = NULL;
+    return bs;
+}
+
 void SQStringTable::Remove(SQString *bs)
 {
+    if(!bs->_instringtable) {
+        SQInteger slen = bs->_alloclen;
+        bs->~SQString();
+        SQ_FREE(bs,sizeof(SQString) + sq_rsl(slen));
+        return;
+    }
     SQString *s;
     SQString *prev=NULL;
-    SQHash h = bs->_hash&(_numofslots - 1);
+    SQHash h = bs->Hash()&(_numofslots - 1);
 
     for (s = _strings[h]; s; ){
         if(s == bs){
@@ -635,7 +720,7 @@ void SQStringTable::Remove(SQString *bs)
             else
                 _strings[h] = s->_next;
             _slotused--;
-            SQInteger slen = s->_len;
+            SQInteger slen = s->_alloclen;
             s->~SQString();
             SQ_FREE(s,sizeof(SQString) + sq_rsl(slen));
             return;

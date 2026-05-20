@@ -27,6 +27,22 @@ function benchNumeric(n) {
   emit("numeric", n, started, x);
 }
 
+function numericKernel(n) {
+  let x = 0;
+  for (let i = 0; i < n; i++) {
+    x = (x + (i % 997) * 31 + 7) % 1000000007;
+  }
+  return x;
+}
+
+function benchNumericKernel(n) {
+  for (let i = 0; i < 1000; i++) {
+    numericKernel(0);
+  }
+  const started = nowUs();
+  emit("numeric-kernel", n, started, numericKernel(n));
+}
+
 function benchEmptyLoop(n) {
   const started = nowUs();
   let x = 0;
@@ -106,6 +122,7 @@ function benchGlibClock(n) {
 
 benchEmptyLoop(2000000 * scale);
 benchNumeric(1000000 * scale);
+benchNumericKernel(1000000 * scale);
 benchFunctionCall(500000 * scale);
 benchArray(300000 * scale);
 benchTable(250000 * scale);

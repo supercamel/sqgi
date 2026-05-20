@@ -15,7 +15,7 @@
 inline SQHash HashObj(const SQObject &key)
 {
     switch(sq_type(key)) {
-        case OT_STRING:     return _string(key)->_hash;
+        case OT_STRING:     return _string(key)->Hash();
         case OT_FLOAT:      return (SQHash)((SQInteger)_float(key));
         case OT_BOOL: case OT_INTEGER:  return (SQHash)((SQInteger)_integer(key));
         default:            return hashptr(key._unVal.pRefCounted);
@@ -70,6 +70,11 @@ public:
             if(_rawval(n->key) == _rawval(key) && sq_type(n->key) == sq_type(key)){
                 return n;
             }
+            if(sq_type(n->key) == OT_STRING && sq_type(key) == OT_STRING &&
+                _string(n->key)->_len == _string(key)->_len &&
+                !memcmp(_stringval(n->key), _stringval(key), sq_rsl(_string(key)->_len))) {
+                return n;
+            }
         }while((n = n->next));
         return NULL;
     }
@@ -80,7 +85,8 @@ public:
         _HashNode *n = &_nodes[hash & (_numofnodes - 1)];
         _HashNode *res = NULL;
         do{
-            if(sq_type(n->key) == OT_STRING && (scstrcmp(_stringval(n->key),key) == 0)){
+            if(sq_type(n->key) == OT_STRING && _string(n->key)->_len == keylen &&
+                !memcmp(_stringval(n->key), key, sq_rsl(keylen))) {
                 res = n;
                 break;
             }

@@ -17,6 +17,9 @@ runtime  benchmark  iterations  ms  checksum
 ## Workloads
 
 - `numeric`: integer arithmetic in a tight loop.
+- `numeric-kernel`: the same arithmetic isolated in a warmed leaf function, so
+  runtimes with hot-function compilation can optimize the body without timing
+  benchmark formatting.
 - `empty-loop`: loop dispatch with a tiny side effect.
 - `function-call`: tiny function call overhead.
 - `array`: append values, then read them back in reverse.

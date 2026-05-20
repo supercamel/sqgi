@@ -20,10 +20,21 @@ public:
     static SQString *Create(SQSharedState *ss, const SQChar *, SQInteger len = -1 );
     SQInteger Next(const SQObjectPtr &refpos, SQObjectPtr &outkey, SQObjectPtr &outval);
     void Release();
+    SQHash Hash()
+    {
+        if(!_hashvalid) {
+            _hash = ::_hashstr(_val, _len);
+            _hashvalid = true;
+        }
+        return _hash;
+    }
     SQSharedState *_sharedstate;
     SQString *_next; //chain for the string table
     SQInteger _len;
+    SQInteger _alloclen;
     SQHash _hash;
+    bool _hashvalid;
+    bool _instringtable;
     SQChar _val[1];
 };
 

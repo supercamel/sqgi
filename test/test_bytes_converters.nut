@@ -46,6 +46,10 @@ check(s4[0] == 0,           "0x100 -> 0x00 (low 8 bits)")
 check(s4[1] == 0xff,        "0x1ff -> 0xff")
 check(s4[2] == 0xff,        "-1   -> 0xff")
 
+local sum4 = 0
+foreach (b in s4) sum4 += b
+check(sum4 == 510,          "string byte iteration uses unsigned bytes")
+
 // ── 5. Bad inputs ────────────────────────────────────────────────────────
 local threw = false
 try { sqgi.bytes_to_array(42) } catch (e) { threw = true }

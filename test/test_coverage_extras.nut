@@ -124,6 +124,38 @@ for (local i = 0; i < 80; i++) zeros += "0"
 local big = sqgi.json.parse("1" + zeros)
 check(typeof big == "float", "long literal promotes to float, got: " + typeof big)
 
+// Repeated in-place string appends should preserve normal string semantics.
+local built = ""
+for (local i = 0; i < 256; i++) {
+    built += "x"
+    built += i % 10
+}
+check(built.len() == 512, "string append len: " + built.len())
+check(built.slice(0, 4) == "x0x1", "string append prefix: " + built.slice(0, 4))
+check(built.slice(-4) == "x4x5", "string append suffix: " + built.slice(-4))
+local built2 = ""
+for (local i = 0; i < 256; i++) {
+    built2 += "x"
+    built2 += i % 10
+}
+check(built == built2, "grown string equality")
+check(!(built < built2) && !(built > built2), "grown string comparison equality")
+local lookup_key = ""
+lookup_key += "x0"
+lookup_key += "x1"
+local lookup_key2 = "x0x1"
+local table_with_grown_key = {}
+table_with_grown_key[lookup_key] <- "ok"
+check(table_with_grown_key[lookup_key2] == "ok", "grown string key lookup by literal")
+check(table_with_grown_key.rawin(lookup_key2), "grown string rawin lookup by literal")
+local mixed = ""
+mixed += null
+mixed += ":"
+mixed += true
+mixed += ":"
+mixed += 1.5
+check(mixed == "null:true:1.5", "mixed direct string append: " + mixed)
+
 // Float formatting: integer-valued floats get .0
 local intf = sqgi.json.stringify(3.0)
 check(intf == "3.0" || intf == "3", "float 3.0 stringify: " + intf)

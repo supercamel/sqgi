@@ -1,8 +1,11 @@
 // Math-heavy regression test for the optional Squirrel bytecode JIT.
 //
-// This intentionally avoids GI calls and focuses on bytecode that a JIT should
-// eventually optimize: local integer arithmetic, float arithmetic, array
-// indexing, branches, loops, and small function calls.
+// The measured work focuses on bytecode that a JIT should eventually optimize:
+// local integer arithmetic, float arithmetic, array indexing, branches, loops,
+// and small function calls. GLib is used only as a wall-clock timer around those
+// workloads.
+
+local GLib = import("GLib")
 
 function check(cond, msg) { if (!cond) throw "[FAIL] " + msg }
 
@@ -15,9 +18,18 @@ function absf(x) {
 }
 
 function approx(actual, expected, epsilon, label) {
-    if (absf(actual - expected) > epsilon) {
+    if (!(actual == actual) || absf(actual - expected) > epsilon) {
         throw format("[FAIL] %s got %.9f expected %.9f", label, actual, expected)
     }
+}
+
+function timed(label, iterations, fn) {
+    local start_us = GLib.get_monotonic_time()
+    local value = fn()
+    local elapsed_ms = (GLib.get_monotonic_time() - start_us).tofloat() / 1000.0
+    print(format("jit-math\t%s\t%d\t%.3f\t%s\n",
+        label, iterations, elapsed_ms, value.tostring()))
+    return value
 }
 
 function make_matrix(seed) {
@@ -113,6 +125,26 @@ function geometry_checksum(iterations) {
     return total
 }
 
+function float_loop_checksum(iterations) {
+    local x = 1.25
+    local y = -2.5
+    local z = 0.75
+
+    for (local i = 0; i < iterations; i++) {
+        local t = x * 0.03125 + y * -0.0625 + z * 0.125
+        if (t > x * 0.25) {
+            x = t - y * 0.015625
+        }
+        else {
+            x = t + z * 0.03125
+        }
+        y = y * 0.875 + x * 0.0625
+        z = z * 0.9375 - x * 0.03125 + y * 0.015625
+    }
+
+    return x + y * 3.0 + z * 7.0
+}
+
 function mixed_branch_checksum(iterations) {
     local x = 0
     local y = 1
@@ -133,12 +165,23 @@ function mixed_branch_checksum(iterations) {
     return (x * 31 + y * 17) % CHECK_MOD
 }
 
-local matrix = matrix_checksum(140)
-local geometry = geometry_checksum(12000)
-local branchy = mixed_branch_checksum(20000)
+local matrix_iterations = 1400
+local geometry_iterations = 120000
+local float_loop_iterations = 200000
+local branch_iterations = 500000
 
-check(matrix == -207833281, "matrix checksum " + matrix)
-approx(geometry, 253.261078, 0.001, "geometry checksum")
-check(branchy == 767946796, "branch checksum " + branchy)
+local matrix = timed("matrix", matrix_iterations,
+    function() { return matrix_checksum(matrix_iterations) })
+local geometry = timed("geometry", geometry_iterations,
+    function() { return geometry_checksum(geometry_iterations) })
+local float_loop = timed("float-loop", float_loop_iterations,
+    function() { return float_loop_checksum(float_loop_iterations) })
+local branchy = timed("branch", branch_iterations,
+    function() { return mixed_branch_checksum(branch_iterations) })
+
+check(matrix == -819393019, "matrix checksum " + matrix)
+approx(geometry, 2531.650146, 0.01, "geometry checksum")
+approx(float_loop, 0.0, 0.000001, "float loop checksum")
+check(branchy == 484197849, "branch checksum " + branchy)
 
 print("test_jit_math.nut passed\n")

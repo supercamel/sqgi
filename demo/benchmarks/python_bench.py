@@ -16,6 +16,20 @@ def bench_numeric(n):
     emit("numeric", n, started, x)
 
 
+def numeric_kernel(n):
+    x = 0
+    for i in range(n):
+        x = (x + (i % 997) * 31 + 7) % 1_000_000_007
+    return x
+
+
+def bench_numeric_kernel(n):
+    for _ in range(1000):
+        numeric_kernel(0)
+    started = time.perf_counter_ns()
+    emit("numeric-kernel", n, started, numeric_kernel(n))
+
+
 def bench_empty_loop(n):
     started = time.perf_counter_ns()
     x = 0
@@ -92,6 +106,7 @@ def main():
 
     bench_empty_loop(2_000_000 * scale)
     bench_numeric(1_000_000 * scale)
+    bench_numeric_kernel(1_000_000 * scale)
     bench_function_call(500_000 * scale)
     bench_array(300_000 * scale)
     bench_table(250_000 * scale)

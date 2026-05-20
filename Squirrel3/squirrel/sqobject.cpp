@@ -54,7 +54,14 @@ SQString *SQString::Create(SQSharedState *ss,const SQChar *s,SQInteger len)
 
 void SQString::Release()
 {
-    REMOVE_STRING(_sharedstate,this);
+    if(_instringtable) {
+        REMOVE_STRING(_sharedstate,this);
+    }
+    else {
+        SQInteger slen = _alloclen;
+        this->~SQString();
+        SQ_FREE(this,sizeof(SQString) + sq_rsl(slen));
+    }
 }
 
 SQInteger SQString::Next(const SQObjectPtr &refpos, SQObjectPtr &outkey, SQObjectPtr &outval)
@@ -62,7 +69,7 @@ SQInteger SQString::Next(const SQObjectPtr &refpos, SQObjectPtr &outkey, SQObjec
     SQInteger idx = (SQInteger)TranslateIndex(refpos);
     while(idx < _len){
         outkey = (SQInteger)idx;
-        outval = (SQInteger)((SQUnsignedInteger)_val[idx]);
+        outval = (SQInteger)((SQUnsignedInteger)(unsigned char)_val[idx]);
         //return idx for the next iteration
         return ++idx;
     }

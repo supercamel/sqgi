@@ -14,6 +14,7 @@ struct SQStringTable
     SQStringTable(SQSharedState*ss);
     ~SQStringTable();
     SQString *Add(const SQChar *,SQInteger len);
+    SQString *Append(SQString *,const SQChar *,SQInteger len);
     void Remove(SQString *);
 private:
     void Resize(SQInteger size);
@@ -86,6 +87,8 @@ public:
     SQObjectPtr _table_default_delegate;
     static const SQRegFunction _table_default_delegate_funcz[];
     SQObjectPtr _array_default_delegate;
+    SQObjectPtr _array_append_closure;
+    SQObjectPtr _array_push_closure;
     static const SQRegFunction _array_default_delegate_funcz[];
     SQObjectPtr _string_default_delegate;
     static const SQRegFunction _string_default_delegate_funcz[];
