@@ -253,6 +253,14 @@ add_sqgi_nut_test(sqgi_test_subclass_vfuncs             test_subclass_vfuncs.nut
 add_sqgi_nut_test(sqgi_test_gi_multi_out                test_gi_multi_out.nut)
 add_sqgi_nut_test(sqgi_test_bytes_converters            test_bytes_converters.nut)
 add_sqgi_nut_test(sqgi_test_cairo                       test_cairo.nut)
+add_sqgi_nut_test(sqgi_test_jit_math                    test_jit_math.nut)
+add_sqgi_nut_test(sqgi_test_jit_math_runtime            test_jit_math.nut)
+set_tests_properties(sqgi_test_jit_math sqgi_test_jit_math_runtime PROPERTIES
+    LABELS "jit;math"
+)
+set_tests_properties(sqgi_test_jit_math_runtime PROPERTIES
+    ENVIRONMENT "${SQGI_TEST_ENV};SQGI_JIT=1;SQGI_JIT_THRESHOLD=1;SQGI_JIT_TRACE=0"
+)
 
 # Cover error/exit-code paths in main.c
 add_test(
