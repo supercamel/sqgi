@@ -648,6 +648,58 @@ assert_file "${WIN_RESOLVED_DIR}/share/gtk-4.0/settings.ini"
 assert_contains "${WORK_DIR}/win-resolved-package.out" "installed MSYS2 package into sysroot: mingw-w64-x86_64-fakeglib"
 pass "Windows MSYS2 package resolver"
 
+if command -v git >/dev/null 2>&1; then
+  GIT_BRANCH_PROJECT="${WORK_DIR}/git-branch-project"
+  GIT_BRANCH_SRC="${WORK_DIR}/git-branch-src"
+  GIT_BRANCH_BARE="${WORK_DIR}/git-branch-repo.git"
+  mkdir -p "${GIT_BRANCH_PROJECT}" "${GIT_BRANCH_SRC}"
+  git -C "${GIT_BRANCH_SRC}" init -q
+  git -C "${GIT_BRANCH_SRC}" checkout -q -B master
+  printf 'native dependency\n' >"${GIT_BRANCH_SRC}/README.md"
+  git -C "${GIT_BRANCH_SRC}" add README.md
+  git -C "${GIT_BRANCH_SRC}" \
+    -c user.name='sqgipkg test' \
+    -c user.email='sqgipkg@example.invalid' \
+    commit -q -m 'initial'
+  git clone -q --bare "${GIT_BRANCH_SRC}" "${GIT_BRANCH_BARE}"
+  cat >"${GIT_BRANCH_PROJECT}/sqgipkg.json" <<EOF
+{
+  "name": "GitBranchFallback",
+  "windows": {
+    "msys2_root": "${WIN_MSYS2}",
+    "msys2_prefix": "mingw64",
+    "download_packages": false,
+    "auto_packages": false,
+    "packages": [],
+    "native_dependencies": [
+      {
+        "name": "fallback",
+        "repo": "file://${GIT_BRANCH_BARE}",
+        "dir": ".sqgipkg/native/fallback",
+        "branch": "main",
+        "update": false,
+        "build": [],
+        "install": [],
+        "stage": false
+      }
+    ]
+  }
+}
+EOF
+  run_sqgipkg \
+    --manifest "${GIT_BRANCH_PROJECT}/sqgipkg.json" \
+    --target win-sysroot \
+    --output "${WORK_DIR}/git-branch-out" \
+    >"${WORK_DIR}/git-branch-package.out"
+  assert_file "${GIT_BRANCH_PROJECT}/.sqgipkg/native/fallback/README.md"
+  assert_contains "${WORK_DIR}/git-branch-package.out" "requested branch 'main' was not found; using remote default branch 'master'"
+  [[ "$(git -C "${GIT_BRANCH_PROJECT}/.sqgipkg/native/fallback" branch --show-current)" == "master" ]] ||
+    fail "expected native dependency fallback checkout to use master"
+  pass "Git native dependency branch fallback"
+else
+  echo "SKIP: Git native dependency branch fallback (missing git)"
+fi
+
 if command -v meson >/dev/null 2>&1 &&
    command -v g-ir-scanner >/dev/null 2>&1 &&
    command -v g-ir-compiler >/dev/null 2>&1 &&

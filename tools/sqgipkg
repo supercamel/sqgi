@@ -340,6 +340,23 @@ Examples:
         if (status != 0) this.fail(description + " failed")
     }
 
+    function run_shell_status(command) {
+        return system(command)
+    }
+
+    function run_shell_output(command) {
+        local tmp = GLib.build_filenamev([GLib.get_tmp_dir(), "sqgipkg-output-" + GLib.get_monotonic_time()])
+        local status = system(command + " > " + this.shell_quote(tmp) + " 2>/dev/null")
+        if (status != 0 || !this.path_exists(tmp)) {
+            if (this.path_exists(tmp)) remove(tmp)
+            return null
+        }
+
+        local text = this.read_file(tmp)
+        remove(tmp)
+        return text
+    }
+
     function run_shell_in_dir(command, dir, description) {
         local status = system("cd " + this.shell_quote(dir) + " && " + command)
         if (status != 0) this.fail(description + " failed")
@@ -1666,13 +1683,15 @@ Examples:
 
         local dir = project.dir
         local git_dir = GLib.build_filenamev([dir, ".git"])
+        local branch = project.branch
 
         if (!this.path_exists(dir)) {
+            branch = this.resolve_git_branch(project, label, null, true)
             this.mkdir_p(this.dirname(dir))
             local clone_cmd = "git clone "
             if (project.shallow) clone_cmd += "--depth 1 "
-            if (project.branch != null && project.branch != "")
-                clone_cmd += "--branch " + this.shell_quote(project.branch) + " "
+            if (branch != null && branch != "")
+                clone_cmd += "--branch " + this.shell_quote(branch) + " "
             clone_cmd += this.shell_quote(project.repo) + " " + this.shell_quote(dir)
             this.info(label + " clone_cmd: " + project.repo)
             this.run_shell(clone_cmd, label + " clone")
@@ -1681,24 +1700,101 @@ Examples:
         } else if (project.update) {
             this.info(label + " git fetch")
             this.run_shell("git -C " + this.shell_quote(dir) + " fetch --all --tags --prune", label + " git fetch")
-            if (project.branch != null && project.branch != "") {
-                this.info(label + " git checkout branch: " + project.branch)
-                this.run_shell("git -C " + this.shell_quote(dir) + " checkout " + this.shell_quote(project.branch), label + " git checkout")
+            branch = this.resolve_git_branch(project, label, dir, true)
+            if (branch != null && branch != "") {
+                this.info(label + " git checkout branch: " + branch)
+                this.run_shell("git -C " + this.shell_quote(dir) + " checkout " + this.shell_quote(branch), label + " git checkout")
                 this.run_shell("git -C " + this.shell_quote(dir) + " pull --ff-only", label + " git pull")
             }
+        } else {
+            branch = this.resolve_git_branch(project, label, dir, false)
         }
 
         if (project.ref != null && project.ref != "") {
             this.info(label + " git checkout ref: " + project.ref)
             this.run_shell("git -C " + this.shell_quote(dir) + " checkout " + this.shell_quote(project.ref), label + " git checkout ref")
-        } else if (project.branch != null && project.branch != "") {
-            this.run_shell("git -C " + this.shell_quote(dir) + " checkout " + this.shell_quote(project.branch), label + " git checkout branch")
+        } else if (branch != null && branch != "") {
+            this.run_shell("git -C " + this.shell_quote(dir) + " checkout " + this.shell_quote(branch), label + " git checkout branch")
         }
 
         if (project.submodules) {
             this.info(label + " git submodules")
             this.run_shell("git -C " + this.shell_quote(dir) + " submodule update --init --recursive", label + " git submodules")
         }
+    }
+
+    function resolve_git_branch(project, label, dir, allow_remote_lookup) {
+        if (project.branch == null || project.branch == "") return project.branch
+        if (dir != null && this.path_exists(GLib.build_filenamev([dir, ".git"]))) {
+            if (this.git_local_has_branch(dir, project.branch)) return project.branch
+
+            local local_default_branch = this.git_local_default_branch(dir)
+            if (local_default_branch != null && local_default_branch != "") {
+                this.info(label + " requested branch '" + project.branch + "' was not found; using checkout default branch '" + local_default_branch + "'")
+                project.branch = local_default_branch
+                return local_default_branch
+            }
+
+            if (!allow_remote_lookup)
+                this.fail(label + " requested branch '" + project.branch + "' was not found in local checkout " + dir)
+        }
+
+        if (!allow_remote_lookup) return project.branch
+        if (this.git_remote_has_branch(project.repo, project.branch)) return project.branch
+
+        local default_branch = this.git_remote_default_branch(project.repo)
+        if (default_branch != null && default_branch != "") {
+            this.info(label + " requested branch '" + project.branch + "' was not found; using remote default branch '" + default_branch + "'")
+            project.branch = default_branch
+            return default_branch
+        }
+
+        this.fail(label + " requested branch '" + project.branch + "' was not found in " + project.repo)
+    }
+
+    function git_local_has_branch(dir, branch) {
+        if (dir == null || dir == "" || branch == null || branch == "") return false
+        local prefix = "git -C " + this.shell_quote(dir) + " rev-parse --verify --quiet "
+        local quoted_branch = this.shell_quote(branch)
+        if (this.run_shell_status(prefix + "refs/heads/" + quoted_branch + " >/dev/null 2>&1") == 0)
+            return true
+        return this.run_shell_status(prefix + "refs/remotes/origin/" + quoted_branch + " >/dev/null 2>&1") == 0
+    }
+
+    function git_local_default_branch(dir) {
+        if (dir == null || dir == "") return null
+
+        local output = this.run_shell_output("git -C " + this.shell_quote(dir) + " symbolic-ref --short refs/remotes/origin/HEAD")
+        if (output == null) return null
+
+        local lines = this.split_lines(output)
+        if (lines.len() == 0) return null
+
+        local branch = lines[0]
+        if (this.starts_with(branch, "origin/"))
+            branch = branch.slice("origin/".len())
+        return branch
+    }
+
+    function git_remote_has_branch(repo, branch) {
+        if (repo == null || repo == "" || branch == null || branch == "") return false
+        return this.run_shell_status("git ls-remote --exit-code --heads " +
+            this.shell_quote(repo) + " " + this.shell_quote(branch) + " >/dev/null 2>&1") == 0
+    }
+
+    function git_remote_default_branch(repo) {
+        if (repo == null || repo == "") return null
+
+        local output = this.run_shell_output("git ls-remote --symref " + this.shell_quote(repo) + " HEAD")
+        if (output == null) return null
+
+        foreach (line in this.split_lines(output)) {
+            local prefix = "ref: refs/heads/"
+            local suffix = "\tHEAD"
+            if (this.starts_with(line, prefix) && this.ends_with(line, suffix))
+                return line.slice(prefix.len(), line.len() - suffix.len())
+        }
+        return null
     }
 
     function run_windows_native_project_commands(opts, project, label) {
