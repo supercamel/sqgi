@@ -13,6 +13,9 @@
 #include "squserdata.h"
 #include "sqarray.h"
 #include "sqclass.h"
+#ifdef SQ_ENABLE_JIT
+#include "jit/sqjit.h"
+#endif
 #include <iostream>
 
 #define TOP() (_stack._vals[_top-1])
@@ -714,6 +717,9 @@ bool SQVM::Execute(SQObjectPtr &closure, SQInteger nargs, SQInteger stackbase,SQ
                 return true;
             }
             ci->_root = SQTrue;
+#ifdef SQ_ENABLE_JIT
+            sqjit_on_function_enter(this, _closure(ci->_closure)->_function);
+#endif
                       }
             break;
         case ET_RESUME_GENERATOR: _generator(closure)->Resume(this, outres); ci->_root = SQTrue; traps += ci->_etraps; break;

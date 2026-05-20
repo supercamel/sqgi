@@ -482,6 +482,9 @@ SQFunctionProto::SQFunctionProto(SQSharedState *ss)
 {
     _stacksize=0;
     _bgenerator=false;
+#ifdef SQ_ENABLE_JIT
+    _jit = NULL;
+#endif
     INIT_CHAIN();ADD_TO_CHAIN(&_ss(this)->_gc_chain,this);
 }
 

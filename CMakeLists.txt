@@ -17,6 +17,15 @@ if(SQGI_ENABLE_ASAN)
     add_link_options(-fsanitize=address,undefined)
 endif()
 
+# ── Optional Squirrel bytecode JIT ────────────────────────────────────────────
+#
+# The JIT is experimental and defaults off. When disabled, no JIT sources are
+# compiled and the interpreter remains the only execution engine.
+option(SQ_ENABLE_JIT "Build experimental Squirrel bytecode JIT support" OFF)
+if(SQ_ENABLE_JIT)
+    message(STATUS "SQGI: experimental Squirrel bytecode JIT enabled")
+endif()
+
 # ── Bundled Squirrel3 ─────────────────────────────────────────────────────────
 set(DISABLE_STATIC ON CACHE BOOL "" FORCE)
 set(SQ_DISABLE_INSTALLER ON CACHE BOOL "" FORCE)
@@ -105,6 +114,11 @@ set(SQUIRREL3_SRC
     Squirrel3/sqstdlib/sqstdstring.cpp
     Squirrel3/sqstdlib/sqstdsystem.cpp
 )
+if(SQ_ENABLE_JIT)
+    list(APPEND SQUIRREL3_SRC
+        Squirrel3/squirrel/jit/sqjit.cpp
+    )
+endif()
 
 # ── SQGI core objects ─────────────────────────────────────────────────────────
 #
@@ -124,7 +138,11 @@ target_include_directories(sqgi-core
     PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/src
         ${CMAKE_CURRENT_SOURCE_DIR}/Squirrel3/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/Squirrel3/squirrel
 )
+if(SQ_ENABLE_JIT)
+    target_compile_definitions(sqgi-core PRIVATE SQ_ENABLE_JIT)
+endif()
 target_link_libraries(sqgi-core PUBLIC ${SQGI_DEPS})
 
 # ── libsqgi shared library ────────────────────────────────────────────────────

@@ -4,6 +4,10 @@
 
 #include "sqopcodes.h"
 
+#ifdef SQ_ENABLE_JIT
+#include "jit/sqjit.h"
+#endif
+
 enum SQOuterType {
     otLOCAL = 0,
     otOUTER = 1
@@ -103,6 +107,9 @@ public:
         return f;
     }
     void Release(){
+#ifdef SQ_ENABLE_JIT
+        sqjit_release_proto(this);
+#endif
         _DESTRUCT_VECTOR(SQObjectPtr,_nliterals,_literals);
         _DESTRUCT_VECTOR(SQObjectPtr,_nparameters,_parameters);
         _DESTRUCT_VECTOR(SQObjectPtr,_nfunctions,_functions);
@@ -149,6 +156,10 @@ public:
 
     SQInteger _ndefaultparams;
     SQInteger *_defaultparams;
+
+#ifdef SQ_ENABLE_JIT
+    SQJitProto *_jit;
+#endif
 
     SQInteger _ninstructions;
     SQInstruction _instructions[1];
