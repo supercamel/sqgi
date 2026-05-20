@@ -268,7 +268,7 @@ set_tests_properties(sqgi_test_jit_fastpath_runtime PROPERTIES
 )
 if(SQ_ENABLE_JIT)
     set_tests_properties(sqgi_test_jit_fastpath_runtime PROPERTIES
-        PASS_REGULAR_EXPRESSION "\\[sqjit\\] executed baseline proto 'numeric_kernel'"
+        PASS_REGULAR_EXPRESSION "\\[sqjit\\] executed baseline proto 'array_set_kernel'"
     )
 endif()
 

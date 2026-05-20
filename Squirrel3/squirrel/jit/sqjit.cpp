@@ -3,7 +3,9 @@
 #include "sqfuncproto.h"
 #include "sqstring.h"
 #include "sqvm.h"
+#include "sqarray.h"
 #include "sqclosure.h"
+#include "sqtable.h"
 #include "sqjit.h"
 #include <limits.h>
 #include <math.h>
@@ -15,6 +17,7 @@ static SQInteger sqjit_threshold = 1000;
 
 struct SQJitBaseline {
     SQInteger _ninstructions;
+    bool _trace_executed;
 };
 
 static bool sqjit_is_truthy_env(const char *value)
@@ -79,10 +82,18 @@ static bool sqjit_is_supported_opcode(const SQInstruction &inst)
         case _OP_LOADINT:
         case _OP_LOADFLOAT:
         case _OP_DLOAD:
+        case _OP_PREPCALL:
+        case _OP_PREPCALLK:
+        case _OP_GETK:
         case _OP_MOVE:
+        case _OP_GET:
+        case _OP_SET:
+        case _OP_EQ:
+        case _OP_NE:
         case _OP_LOADNULLS:
         case _OP_LOADBOOL:
         case _OP_DMOVE:
+        case _OP_CALL:
         case _OP_ADD:
         case _OP_SUB:
         case _OP_MUL:
@@ -90,6 +101,8 @@ static bool sqjit_is_supported_opcode(const SQInstruction &inst)
         case _OP_MOD:
         case _OP_INCL:
         case _OP_PINCL:
+        case _OP_NEWOBJ:
+        case _OP_APPENDARRAY:
         case _OP_NEG:
         case _OP_NOT:
         case _OP_CMP:
@@ -110,6 +123,7 @@ static bool sqjit_is_scalar_literal(const SQObjectPtr &obj)
         case OT_INTEGER:
         case OT_FLOAT:
         case OT_BOOL:
+        case OT_STRING:
             return true;
         default:
             return false;
@@ -147,6 +161,13 @@ static bool sqjit_analyze_proto(SQFunctionProto *proto)
             }
             return false;
         }
+        if(inst.op == _OP_NEWOBJ && inst._arg3 == NOT_CLASS) {
+            if(sqjit_trace_enabled) {
+                scprintf(_SC("[sqjit] proto '%s' is not baseline eligible: class creation at %d\n"),
+                    sqjit_proto_name(proto), (SQInt32)n);
+            }
+            return false;
+        }
     }
     return true;
 }
@@ -169,6 +190,7 @@ static bool sqjit_compile_proto(SQFunctionProto *proto, SQJitProto *jit)
     }
 
     baseline->_ninstructions = proto->_ninstructions;
+    baseline->_trace_executed = false;
     jit->_entry = baseline;
     jit->_eligibility = SQ_JIT_BASELINE_CANDIDATE;
     jit->_version++;
@@ -176,16 +198,6 @@ static bool sqjit_compile_proto(SQFunctionProto *proto, SQJitProto *jit)
     if(sqjit_trace_enabled) {
         scprintf(_SC("[sqjit] compiled baseline proto '%s' (%d bytecode ops)\n"),
             sqjit_proto_name(proto), (SQInt32)proto->_ninstructions);
-    }
-    return true;
-}
-
-static bool sqjit_guard_numeric_parameters(SQVM *v, SQFunctionProto *proto)
-{
-    for(SQInteger n = 1; n < proto->_nparameters; n++) {
-        if(!sq_isnumeric(v->_stack._vals[v->_stackbase + n])) {
-            return false;
-        }
     }
     return true;
 }
@@ -245,8 +257,7 @@ static bool sqjit_arith(SQVM *v, SQUnsignedInteger op, SQObjectPtr &trg, const S
         }
     }
 
-    v->Raise_Error(_SC("JIT numeric guard failed for arithmetic op"));
-    return false;
+    return v->ARITH_OP(op, trg, o1, o2);
 }
 
 static bool sqjit_cmp(SQVM *v, CmpOP op, const SQObjectPtr &o1, const SQObjectPtr &o2, SQObjectPtr &res)
@@ -266,8 +277,7 @@ static bool sqjit_cmp(SQVM *v, CmpOP op, const SQObjectPtr &o1, const SQObjectPt
         r = (f1 == f2) ? 0 : (f1 < f2 ? -1 : 1);
     }
     else {
-        v->Raise_Error(_SC("JIT numeric guard failed for compare op"));
-        return false;
+        return v->CMP_OP(op, o1, o2, res);
     }
 
     switch(op) {
@@ -333,15 +343,12 @@ SQJitExecResult sqjit_try_execute_current(SQVM *v, SQObjectPtr &outres)
         return SQ_JIT_EXEC_NOT_EXECUTED;
     }
 
-    if(!sqjit_guard_numeric_parameters(v, proto)) {
-        return SQ_JIT_EXEC_NOT_EXECUTED;
-    }
-
     SQInteger ip = 0;
     SQObjectPtr *stack = &v->_stack._vals[v->_stackbase];
 
 #define JIT_TARGET stack[inst._arg0]
 #define JIT_STK(a) stack[(a)]
+#define JIT_SARG0 ((SQInteger)((signed char)inst._arg0))
 #define JIT_SARG1 ((SQInteger)((SQInt32)inst._arg1))
 #define JIT_SARG3 ((SQInteger)((signed char)inst._arg3))
 
@@ -374,9 +381,64 @@ SQJitExecResult sqjit_try_execute_current(SQVM *v, SQObjectPtr &outres)
                 JIT_TARGET = proto->_literals[inst._arg1];
                 JIT_STK(inst._arg2) = proto->_literals[inst._arg3];
                 continue;
+            case _OP_PREPCALL:
+            case _OP_PREPCALLK: {
+                SQObjectPtr &key = inst.op == _OP_PREPCALLK ? proto->_literals[inst._arg1] : JIT_STK(inst._arg1);
+                SQObjectPtr &self = JIT_STK(inst._arg2);
+                if(!v->Get(self, key, v->temp_reg, 0, inst._arg2)) {
+                    return SQ_JIT_EXEC_ERROR;
+                }
+                JIT_STK(inst._arg3) = self;
+                _Swap(JIT_TARGET, v->temp_reg);
+                continue;
+            }
+            case _OP_GETK:
+                if(!v->Get(JIT_STK(inst._arg2), proto->_literals[inst._arg1], v->temp_reg, 0, inst._arg2)) {
+                    return SQ_JIT_EXEC_ERROR;
+                }
+                _Swap(JIT_TARGET, v->temp_reg);
+                continue;
             case _OP_MOVE:
                 JIT_TARGET = JIT_STK(inst._arg1);
                 continue;
+            case _OP_GET:
+                if(sq_type(JIT_STK(inst._arg1)) == OT_ARRAY && sq_isnumeric(JIT_STK(inst._arg2))) {
+                    if(!_array(JIT_STK(inst._arg1))->Get(tointeger(JIT_STK(inst._arg2)), JIT_TARGET)) {
+                        v->Raise_IdxError(JIT_STK(inst._arg2));
+                        return SQ_JIT_EXEC_ERROR;
+                    }
+                }
+                else if(!v->Get(JIT_STK(inst._arg1), JIT_STK(inst._arg2), v->temp_reg, 0, inst._arg1)) {
+                    return SQ_JIT_EXEC_ERROR;
+                }
+                else {
+                    _Swap(JIT_TARGET, v->temp_reg);
+                }
+                continue;
+            case _OP_SET:
+                if(sq_type(JIT_STK(inst._arg1)) == OT_ARRAY && sq_isnumeric(JIT_STK(inst._arg2))) {
+                    if(!_array(JIT_STK(inst._arg1))->Set(tointeger(JIT_STK(inst._arg2)), JIT_STK(inst._arg3))) {
+                        v->Raise_IdxError(JIT_STK(inst._arg2));
+                        return SQ_JIT_EXEC_ERROR;
+                    }
+                }
+                else if(!v->Set(JIT_STK(inst._arg1), JIT_STK(inst._arg2), JIT_STK(inst._arg3), inst._arg1)) {
+                    return SQ_JIT_EXEC_ERROR;
+                }
+                if(inst._arg0 != 0xFF) {
+                    JIT_TARGET = JIT_STK(inst._arg3);
+                }
+                continue;
+            case _OP_EQ:
+            case _OP_NE: {
+                bool res;
+                SQObjectPtr &rhs = inst._arg3 != 0 ? proto->_literals[inst._arg1] : JIT_STK(inst._arg1);
+                if(!SQVM::IsEqual(JIT_STK(inst._arg2), rhs, res)) {
+                    return SQ_JIT_EXEC_ERROR;
+                }
+                JIT_TARGET = (inst.op == _OP_EQ ? res : !res) ? true : false;
+                continue;
+            }
             case _OP_LOADNULLS:
                 for(SQInteger n = 0; n < inst._arg1; n++) {
                     JIT_STK(inst._arg0 + n).Null();
@@ -389,6 +451,39 @@ SQJitExecResult sqjit_try_execute_current(SQVM *v, SQObjectPtr &outres)
                 JIT_STK(inst._arg0) = JIT_STK(inst._arg1);
                 JIT_STK(inst._arg2) = JIT_STK(inst._arg3);
                 continue;
+            case _OP_CALL: {
+                SQObjectPtr clo = JIT_STK(inst._arg1);
+                if(sq_type(clo) == OT_CLOSURE) {
+                    SQFunctionProto *callee = _closure(clo)->_function;
+                    if(callee->_jit && callee->_jit->_entry && !callee->_bgenerator) {
+                        if(!v->StartCall(_closure(clo), JIT_SARG0, inst._arg3, v->_stackbase + inst._arg2, false)) {
+                            return SQ_JIT_EXEC_ERROR;
+                        }
+                        switch(sqjit_try_execute_current(v, outres)) {
+                            case SQ_JIT_EXEC_FRAME_RETURNED:
+                                stack = &v->_stack._vals[v->_stackbase];
+                                continue;
+                            case SQ_JIT_EXEC_ROOT_RETURNED:
+                                return SQ_JIT_EXEC_ROOT_RETURNED;
+                            case SQ_JIT_EXEC_ERROR:
+                                return SQ_JIT_EXEC_ERROR;
+                            case SQ_JIT_EXEC_NOT_EXECUTED:
+                                v->Raise_Error(_SC("internal JIT call target did not execute"));
+                                return SQ_JIT_EXEC_ERROR;
+                        }
+                    }
+                }
+
+                SQObjectPtr callres;
+                if(!v->Call(clo, inst._arg3, v->_stackbase + inst._arg2, callres, SQFalse)) {
+                    return SQ_JIT_EXEC_ERROR;
+                }
+                stack = &v->_stack._vals[v->_stackbase];
+                if(JIT_SARG0 != -1) {
+                    JIT_TARGET = callres;
+                }
+                continue;
+            }
             case _OP_ADD:
                 if(!sqjit_arith(v, '+', JIT_TARGET, JIT_STK(inst._arg2), JIT_STK(inst._arg1))) return SQ_JIT_EXEC_ERROR;
                 continue;
@@ -413,6 +508,50 @@ SQJitExecResult sqjit_try_execute_current(SQVM *v, SQObjectPtr &outres)
                 SQObjectPtr incr(JIT_SARG3);
                 JIT_TARGET = JIT_STK(inst._arg1);
                 if(!sqjit_arith(v, '+', JIT_STK(inst._arg1), JIT_STK(inst._arg1), incr)) return SQ_JIT_EXEC_ERROR;
+                continue;
+            }
+            case _OP_NEWOBJ:
+                switch(inst._arg3) {
+                    case NOT_TABLE:
+                        JIT_TARGET = SQTable::Create(v->_sharedstate, inst._arg1);
+                        continue;
+                    case NOT_ARRAY:
+                        JIT_TARGET = SQArray::Create(v->_sharedstate, 0);
+                        _array(JIT_TARGET)->Reserve(inst._arg1);
+                        continue;
+                    default:
+                        return SQ_JIT_EXEC_NOT_EXECUTED;
+                }
+            case _OP_APPENDARRAY: {
+                SQObject val;
+                val._unVal.raw = 0;
+                switch(inst._arg2) {
+                    case AAT_STACK:
+                        val = JIT_STK(inst._arg1);
+                        break;
+                    case AAT_LITERAL:
+                        val = proto->_literals[inst._arg1];
+                        break;
+                    case AAT_INT:
+                        val._type = OT_INTEGER;
+#ifndef _SQ64
+                        val._unVal.nInteger = (SQInteger)inst._arg1;
+#else
+                        val._unVal.nInteger = (SQInteger)((SQInt32)inst._arg1);
+#endif
+                        break;
+                    case AAT_FLOAT:
+                        val._type = OT_FLOAT;
+                        val._unVal.fFloat = *((const SQFloat *)&inst._arg1);
+                        break;
+                    case AAT_BOOL:
+                        val._type = OT_BOOL;
+                        val._unVal.nInteger = inst._arg1;
+                        break;
+                    default:
+                        return SQ_JIT_EXEC_NOT_EXECUTED;
+                }
+                _array(JIT_STK(inst._arg0))->Append(val);
                 continue;
             }
             case _OP_NEG:
@@ -450,12 +589,14 @@ SQJitExecResult sqjit_try_execute_current(SQVM *v, SQObjectPtr &outres)
             case _OP_RETURN:
                 if(v->Return(inst._arg0, inst._arg1, v->temp_reg)) {
                     _Swap(outres, v->temp_reg);
-                    if(sqjit_trace_enabled) {
+                    if(sqjit_trace_enabled && !baseline->_trace_executed) {
+                        baseline->_trace_executed = true;
                         scprintf(_SC("[sqjit] executed baseline proto '%s' as root\n"), sqjit_proto_name(proto));
                     }
                     return SQ_JIT_EXEC_ROOT_RETURNED;
                 }
-                if(sqjit_trace_enabled) {
+                if(sqjit_trace_enabled && !baseline->_trace_executed) {
+                    baseline->_trace_executed = true;
                     scprintf(_SC("[sqjit] executed baseline proto '%s'\n"), sqjit_proto_name(proto));
                 }
                 return SQ_JIT_EXEC_FRAME_RETURNED;
@@ -466,6 +607,7 @@ SQJitExecResult sqjit_try_execute_current(SQVM *v, SQObjectPtr &outres)
 
 #undef JIT_TARGET
 #undef JIT_STK
+#undef JIT_SARG0
 #undef JIT_SARG1
 #undef JIT_SARG3
 }

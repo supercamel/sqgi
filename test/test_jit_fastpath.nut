@@ -66,10 +66,33 @@ function float_geometry_kernel(n) {
     return x + y * 3.0 + z * 7.0
 }
 
+function square_kernel(x) {
+    return x * x
+}
+
+function array_call_kernel(n) {
+    local values = [1, 2, 3, 4]
+    local sum = 0
+    for (local i = 0; i < n; i++) {
+        sum = sum + square_kernel(values[i % 4])
+    }
+    return sum
+}
+
+function array_set_kernel(n) {
+    local values = [0, 0, 0, 0]
+    for (local i = 0; i < n; i++) {
+        values[i % 4] = values[i % 4] + i
+    }
+    return values[0] * 3 + values[1] * 5 + values[2] * 7 + values[3] * 11
+}
+
 check(inc_kernel(41) == 42, "inc kernel")
 check(empty_loop_kernel(10000) == 9999, "empty loop kernel")
 check(numeric_kernel(10000) == 154000345, "numeric kernel")
 check(branch_kernel(20000) == 1004999480001, "branch kernel")
 approx(float_geometry_kernel(1000), 25716.453125, 0.01, "float geometry kernel")
+check(array_call_kernel(1000) == 7500, "array call kernel")
+check(array_set_kernel(100) == 32500, "array set kernel")
 
 print("test_jit_fastpath.nut passed\n")
