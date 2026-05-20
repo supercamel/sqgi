@@ -1286,6 +1286,15 @@ This prevents host `/usr/include` and host `pkg-config` paths from leaking into
 MinGW builds, and gives native dependency builds stable paths for Meson/CMake
 install steps.
 
+For Meson projects that generate GObject Introspection data, the generated
+cross file also pins `g-ir-scanner` and `g-ir-compiler` to build-host tools.
+That avoids the common Linux cross-build failure where Meson discovers the
+MSYS2 `g-ir-scanner.exe` from the Windows sysroot and then tries to execute it
+directly on Linux. When Wine is available, `sqgipkg` also writes a small
+`exe_wrapper` plus scanner/ldd wrappers so `g-ir-scanner` can run the temporary
+MinGW introspection binary while keeping the Windows DLL search path pointed at
+the staged MSYS2 prefix.
+
 ### `windows.cmake_toolchain` / `--win-cmake-toolchain`
 
 Use a specific CMake toolchain file, or let `sqgipkg` generate one.

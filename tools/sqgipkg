@@ -11,7 +11,7 @@ class SqgiPkg {
         this.raw_args = args
         this.app = Gio.Application.new(
             "org.sqgi.sqgipkg",
-            Gio.ApplicationFlags.handles_command_line
+            Gio.ApplicationFlags.handles_command_line + Gio.ApplicationFlags.non_unique
         )
 
         this.app.add_main_option("name", 'n', 0, GLib.OptionArg.string,
@@ -2179,6 +2179,18 @@ Examples:
         return GLib.build_filenamev([this.windows_cross_dir(opts), "mingw64.ini"])
     }
 
+    function windows_exe_wrapper_path(opts) {
+        return GLib.build_filenamev([this.windows_cross_dir(opts), "wine-wrapper.sh"])
+    }
+
+    function windows_gir_scanner_wrapper_path(opts) {
+        return GLib.build_filenamev([this.windows_cross_dir(opts), "g-ir-scanner-wrapper.sh"])
+    }
+
+    function windows_gir_ldd_wrapper_path(opts) {
+        return GLib.build_filenamev([this.windows_cross_dir(opts), "g-ir-ldd-wrapper.sh"])
+    }
+
     function write_windows_cmake_toolchain(opts, path) {
         local prefix_dir = this.windows_sysroot_prefix_dir(opts)
         this.mkdir_p(this.dirname(path))
@@ -2208,8 +2220,109 @@ Examples:
             "set(PKG_CONFIG_EXECUTABLE pkg-config CACHE FILEPATH \"pkg-config\")\n")
     }
 
+    function write_windows_exe_wrapper(opts) {
+        local wine = this.executable_path("wine")
+        if (wine == null) wine = this.executable_path("wine64")
+        if (wine == null) return null
+
+        local path = this.windows_exe_wrapper_path(opts)
+        local prefix_bin = GLib.build_filenamev([this.windows_sysroot_prefix_dir(opts), "bin"])
+        this.mkdir_p(this.dirname(path))
+        this.write_file(path,
+            "#!/bin/sh\n" +
+            "WINEPATH_PREFIX=" + this.shell_quote(prefix_bin) + "\n" +
+            "if [ -n \"${PATH:-}\" ]; then\n" +
+            "  SQGIPKG_PATH_AS_WINEPATH=$(printf '%s' \"${PATH}\" | tr ':' ';')\n" +
+            "  WINEPATH_PREFIX=\"${WINEPATH_PREFIX};${SQGIPKG_PATH_AS_WINEPATH}\"\n" +
+            "fi\n" +
+            "if [ -n \"${WINEPATH:-}\" ]; then\n" +
+            "  export WINEPATH=\"${WINEPATH_PREFIX};${WINEPATH}\"\n" +
+            "else\n" +
+            "  export WINEPATH=\"${WINEPATH_PREFIX}\"\n" +
+            "fi\n" +
+            "export PATH=" + this.shell_quote(prefix_bin) + ":${PATH:-}\n" +
+            "exec " + this.shell_quote(wine) + " \"$@\"\n")
+        this.chmod_exec(path)
+        return path
+    }
+
+    function write_windows_gir_ldd_wrapper(opts) {
+        local objdump = this.executable_path("x86_64-w64-mingw32-objdump")
+        if (objdump == null) objdump = "x86_64-w64-mingw32-objdump"
+
+        local path = this.windows_gir_ldd_wrapper_path(opts)
+        local prefix_dir = this.windows_sysroot_prefix_dir(opts)
+        this.mkdir_p(this.dirname(path))
+        this.write_file(path,
+            "#!/bin/sh\n" +
+            "binary=\"$1\"\n" +
+            "if [ -z \"$binary\" ] || [ ! -r \"$binary\" ]; then\n" +
+            "  exit 1\n" +
+            "fi\n" +
+            "prefix_dir=" + this.shell_quote(prefix_dir) + "\n" +
+            "binary_dir=$(dirname \"$binary\")\n" +
+            this.shell_quote(objdump) + " -p \"$binary\" 2>/dev/null | sed -n 's/^[[:space:]]*DLL Name: //p' | while IFS= read -r dll; do\n" +
+            "  resolved=\"\"\n" +
+            "  for dir in \"$binary_dir\" \"$PWD\" \"$PWD/.libs\" \"$PWD/..\" \"$prefix_dir/bin\" \"$prefix_dir/lib\"; do\n" +
+            "    if [ -f \"$dir/$dll\" ]; then\n" +
+            "      resolved=\"$dir/$dll\"\n" +
+            "      break\n" +
+            "    fi\n" +
+            "  done\n" +
+            "  if [ -z \"$resolved\" ]; then\n" +
+            "    resolved=\"$dll\"\n" +
+            "  fi\n" +
+            "  printf '\\t%s => %s (0x00000000)\\n' \"$dll\" \"$resolved\"\n" +
+            "done\n")
+        this.chmod_exec(path)
+        return path
+    }
+
+    function write_windows_gir_scanner_wrapper(opts, exe_wrapper, ldd_wrapper) {
+        local scanner = this.executable_path("g-ir-scanner")
+        if (scanner == null) return null
+
+        local path = this.windows_gir_scanner_wrapper_path(opts)
+        local prefix_dir = this.windows_sysroot_prefix_dir(opts)
+        local typelib_dir = GLib.build_filenamev([prefix_dir, "lib", "girepository-1.0"])
+        this.mkdir_p(this.dirname(path))
+
+        local command = "exec " + this.shell_quote(scanner)
+        if (exe_wrapper != null) {
+            command += " --use-binary-wrapper=" + this.shell_quote(exe_wrapper)
+            command += " --use-ldd-wrapper=" + this.shell_quote(ldd_wrapper)
+            command += " --lib-dirs-envvar=PATH"
+        }
+        command += " \"$@\"\n"
+
+        this.write_file(path,
+            "#!/bin/sh\n" +
+            "export PATH=" + this.shell_quote(GLib.build_filenamev([prefix_dir, "bin"])) + ":${PATH:-}\n" +
+            "if [ -d " + this.shell_quote(typelib_dir) + " ]; then\n" +
+            "  if [ -n \"${GI_TYPELIB_PATH:-}\" ]; then\n" +
+            "    export GI_TYPELIB_PATH=" + this.shell_quote(typelib_dir) + ":${GI_TYPELIB_PATH}\n" +
+            "  else\n" +
+            "    export GI_TYPELIB_PATH=" + this.shell_quote(typelib_dir) + "\n" +
+            "  fi\n" +
+            "fi\n" +
+            command)
+        this.chmod_exec(path)
+        return path
+    }
+
     function write_windows_meson_cross_file(opts, path) {
         local prefix_dir = this.windows_sysroot_prefix_dir(opts)
+        local exe_wrapper = this.write_windows_exe_wrapper(opts)
+        local ldd_wrapper = (exe_wrapper != null) ? this.write_windows_gir_ldd_wrapper(opts) : null
+        local gir_scanner = this.write_windows_gir_scanner_wrapper(opts, exe_wrapper, ldd_wrapper)
+        local gir_compiler = this.executable_path("g-ir-compiler")
+        local binary_overrides = ""
+        if (gir_scanner != null)
+            binary_overrides += "g-ir-scanner = '" + gir_scanner + "'\n"
+        if (gir_compiler != null)
+            binary_overrides += "g-ir-compiler = '" + gir_compiler + "'\n"
+        if (exe_wrapper != null)
+            binary_overrides += "exe_wrapper = '" + exe_wrapper + "'\n"
         this.mkdir_p(this.dirname(path))
         this.write_file(path,
             "[binaries]\n" +
@@ -2218,7 +2331,8 @@ Examples:
             "ar = 'x86_64-w64-mingw32-ar'\n" +
             "strip = 'x86_64-w64-mingw32-strip'\n" +
             "windres = 'x86_64-w64-mingw32-windres'\n" +
-            "pkgconfig = 'pkg-config'\n" +
+            "pkg-config = 'pkg-config'\n" +
+            binary_overrides +
             "\n" +
             "[properties]\n" +
             "sys_root = '" + opts.windows.msys2_root + "'\n" +

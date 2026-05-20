@@ -507,6 +507,25 @@ assert_contains "${WINDIR}/etc/gtk-4.0/settings.ini" "gtk-icon-theme-name=Shared
 assert_contains "${WINDIR}/etc/gtk-4.0/settings.ini" "gtk-font-name=Shared Font 9"
 assert_contains "${WINDIR}/etc/gtk-4.0/settings.ini" "gtk-application-prefer-dark-theme=true"
 assert_contains "${WORK_DIR}/win-dir-package.out" "Windows dist directory"
+CROSS_FILE="${WIN_OUT}/_cross/mingw64/mingw64.ini"
+assert_file "${CROSS_FILE}"
+assert_contains "${CROSS_FILE}" "pkg-config = 'pkg-config'"
+if command -v g-ir-scanner >/dev/null 2>&1; then
+  assert_file "${WIN_OUT}/_cross/mingw64/g-ir-scanner-wrapper.sh"
+  assert_contains "${CROSS_FILE}" "g-ir-scanner = '${WIN_OUT}/_cross/mingw64/g-ir-scanner-wrapper.sh'"
+  assert_contains "${WIN_OUT}/_cross/mingw64/g-ir-scanner-wrapper.sh" "exec '$(command -v g-ir-scanner)'"
+fi
+if command -v g-ir-compiler >/dev/null 2>&1; then
+  assert_contains "${CROSS_FILE}" "g-ir-compiler = '$(command -v g-ir-compiler)'"
+fi
+if { command -v wine >/dev/null 2>&1 || command -v wine64 >/dev/null 2>&1; } &&
+   command -v g-ir-scanner >/dev/null 2>&1; then
+  assert_file "${WIN_OUT}/_cross/mingw64/wine-wrapper.sh"
+  assert_file "${WIN_OUT}/_cross/mingw64/g-ir-ldd-wrapper.sh"
+  assert_contains "${CROSS_FILE}" "exe_wrapper = '${WIN_OUT}/_cross/mingw64/wine-wrapper.sh'"
+  assert_contains "${WIN_OUT}/_cross/mingw64/g-ir-scanner-wrapper.sh" "--use-binary-wrapper='${WIN_OUT}/_cross/mingw64/wine-wrapper.sh'"
+  assert_contains "${WIN_OUT}/_cross/mingw64/g-ir-scanner-wrapper.sh" "--use-ldd-wrapper='${WIN_OUT}/_cross/mingw64/g-ir-ldd-wrapper.sh'"
+fi
 pass "Windows dist directory staging"
 
 WIN_NATIVE_PROJECT="${WORK_DIR}/win-native-project"
