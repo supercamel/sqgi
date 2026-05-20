@@ -257,7 +257,16 @@ add_sqgi_nut_test(sqgi_test_jit_math                    test_jit_math.nut)
 add_sqgi_nut_test(sqgi_test_jit_math_runtime            test_jit_math.nut)
 add_sqgi_nut_test(sqgi_test_jit_fastpath                test_jit_fastpath.nut)
 add_sqgi_nut_test(sqgi_test_jit_fastpath_runtime        test_jit_fastpath.nut)
-set_tests_properties(sqgi_test_jit_math sqgi_test_jit_math_runtime sqgi_test_jit_fastpath sqgi_test_jit_fastpath_runtime PROPERTIES
+set(JIT_TESTS
+    sqgi_test_jit_math
+    sqgi_test_jit_math_runtime
+    sqgi_test_jit_fastpath
+    sqgi_test_jit_fastpath_runtime)
+if(SQ_ENABLE_JIT AND UNIX AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|amd64)$")
+    add_sqgi_nut_test(sqgi_test_jit_native_runtime      test_jit_fastpath.nut)
+    list(APPEND JIT_TESTS sqgi_test_jit_native_runtime)
+endif()
+set_tests_properties(${JIT_TESTS} PROPERTIES
     LABELS "jit;math"
 )
 set_tests_properties(sqgi_test_jit_math_runtime PROPERTIES
@@ -269,6 +278,12 @@ set_tests_properties(sqgi_test_jit_fastpath_runtime PROPERTIES
 if(SQ_ENABLE_JIT)
     set_tests_properties(sqgi_test_jit_fastpath_runtime PROPERTIES
         PASS_REGULAR_EXPRESSION "\\[sqjit\\] executed baseline proto 'array_set_kernel'"
+    )
+endif()
+if(SQ_ENABLE_JIT AND UNIX AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|amd64)$")
+    set_tests_properties(sqgi_test_jit_native_runtime PROPERTIES
+        ENVIRONMENT "${SQGI_TEST_ENV};SQGI_JIT=1;SQGI_JIT_THRESHOLD=1;SQGI_JIT_TRACE=1"
+        PASS_REGULAR_EXPRESSION "\\[sqjit\\] executed native proto 'square_kernel'"
     )
 endif()
 

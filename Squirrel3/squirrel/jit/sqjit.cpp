@@ -9,15 +9,29 @@
 #include "sqjit.h"
 #include <limits.h>
 #include <math.h>
+#include <stdint.h>
+#include <string.h>
+#if defined(__x86_64__) && !defined(_WIN32)
+#include <sys/mman.h>
+#include <unistd.h>
+#define SQJIT_HAS_X64_NATIVE 1
+#else
+#define SQJIT_HAS_X64_NATIVE 0
+#endif
 
 static bool sqjit_env_checked = false;
 static bool sqjit_env_enabled = false;
 static bool sqjit_trace_enabled = false;
 static SQInteger sqjit_threshold = 1000;
 
+typedef SQInteger (*SQJitNativeUnaryIntFn)(SQInteger);
+
 struct SQJitBaseline {
     SQInteger _ninstructions;
     bool _trace_executed;
+    void *_native_entry;
+    SQInteger _native_size;
+    bool _native_trace_executed;
 };
 
 static bool sqjit_is_truthy_env(const char *value)
@@ -172,6 +186,315 @@ static bool sqjit_analyze_proto(SQFunctionProto *proto)
     return true;
 }
 
+#if SQJIT_HAS_X64_NATIVE
+enum SQJitNativeExprKind {
+    SQ_JIT_NATIVE_INVALID = 0,
+    SQ_JIT_NATIVE_PARAM1,
+    SQ_JIT_NATIVE_CONST,
+    SQ_JIT_NATIVE_ADD_CONST,
+    SQ_JIT_NATIVE_SUB_CONST,
+    SQ_JIT_NATIVE_CONST_SUB,
+    SQ_JIT_NATIVE_MUL_CONST,
+    SQ_JIT_NATIVE_SQUARE
+};
+
+struct SQJitNativeExpr {
+    SQJitNativeExprKind kind;
+    SQInteger value;
+};
+
+struct SQJitNativeCodeBuffer {
+    unsigned char bytes[64];
+    SQInteger size;
+};
+
+static SQJitNativeExpr sqjit_native_invalid()
+{
+    SQJitNativeExpr expr;
+    expr.kind = SQ_JIT_NATIVE_INVALID;
+    expr.value = 0;
+    return expr;
+}
+
+static SQJitNativeExpr sqjit_native_expr(SQJitNativeExprKind kind, SQInteger value)
+{
+    SQJitNativeExpr expr;
+    expr.kind = kind;
+    expr.value = value;
+    return expr;
+}
+
+static bool sqjit_native_is_int32(SQInteger value)
+{
+    return value >= (SQInteger)INT_MIN && value <= (SQInteger)INT_MAX;
+}
+
+static bool sqjit_native_emit_u8(SQJitNativeCodeBuffer *buf, unsigned char value)
+{
+    if(buf->size >= (SQInteger)sizeof(buf->bytes)) {
+        return false;
+    }
+    buf->bytes[buf->size++] = value;
+    return true;
+}
+
+static bool sqjit_native_emit_i32(SQJitNativeCodeBuffer *buf, SQInteger value)
+{
+    if(!sqjit_native_is_int32(value) || buf->size + 4 > (SQInteger)sizeof(buf->bytes)) {
+        return false;
+    }
+    SQInt32 v = (SQInt32)value;
+    memcpy(&buf->bytes[buf->size], &v, sizeof(v));
+    buf->size += 4;
+    return true;
+}
+
+static bool sqjit_native_emit_i64(SQJitNativeCodeBuffer *buf, SQInteger value)
+{
+    if(buf->size + 8 > (SQInteger)sizeof(buf->bytes)) {
+        return false;
+    }
+    SQInteger v = value;
+    memcpy(&buf->bytes[buf->size], &v, sizeof(v));
+    buf->size += 8;
+    return true;
+}
+
+static bool sqjit_native_emit_mov_rax_rdi(SQJitNativeCodeBuffer *buf)
+{
+    return sqjit_native_emit_u8(buf, 0x48) &&
+        sqjit_native_emit_u8(buf, 0x89) &&
+        sqjit_native_emit_u8(buf, 0xF8);
+}
+
+static bool sqjit_native_emit_mov_rax_imm64(SQJitNativeCodeBuffer *buf, SQInteger value)
+{
+    return sqjit_native_emit_u8(buf, 0x48) &&
+        sqjit_native_emit_u8(buf, 0xB8) &&
+        sqjit_native_emit_i64(buf, value);
+}
+
+static bool sqjit_native_emit_ret(SQJitNativeCodeBuffer *buf)
+{
+    return sqjit_native_emit_u8(buf, 0xC3);
+}
+
+static bool sqjit_native_build_expr(SQOpcode op, const SQJitNativeExpr &left, const SQJitNativeExpr &right, SQJitNativeExpr *out)
+{
+    if(left.kind == SQ_JIT_NATIVE_INVALID || right.kind == SQ_JIT_NATIVE_INVALID) {
+        return false;
+    }
+
+    if(op == _OP_ADD) {
+        if(left.kind == SQ_JIT_NATIVE_PARAM1 && right.kind == SQ_JIT_NATIVE_CONST) {
+            *out = sqjit_native_expr(SQ_JIT_NATIVE_ADD_CONST, right.value);
+            return true;
+        }
+        if(left.kind == SQ_JIT_NATIVE_CONST && right.kind == SQ_JIT_NATIVE_PARAM1) {
+            *out = sqjit_native_expr(SQ_JIT_NATIVE_ADD_CONST, left.value);
+            return true;
+        }
+        if(left.kind == SQ_JIT_NATIVE_CONST && right.kind == SQ_JIT_NATIVE_CONST) {
+            *out = sqjit_native_expr(SQ_JIT_NATIVE_CONST, left.value + right.value);
+            return true;
+        }
+    }
+    else if(op == _OP_SUB) {
+        if(left.kind == SQ_JIT_NATIVE_PARAM1 && right.kind == SQ_JIT_NATIVE_CONST) {
+            *out = sqjit_native_expr(SQ_JIT_NATIVE_SUB_CONST, right.value);
+            return true;
+        }
+        if(left.kind == SQ_JIT_NATIVE_CONST && right.kind == SQ_JIT_NATIVE_PARAM1) {
+            *out = sqjit_native_expr(SQ_JIT_NATIVE_CONST_SUB, left.value);
+            return true;
+        }
+        if(left.kind == SQ_JIT_NATIVE_CONST && right.kind == SQ_JIT_NATIVE_CONST) {
+            *out = sqjit_native_expr(SQ_JIT_NATIVE_CONST, left.value - right.value);
+            return true;
+        }
+    }
+    else if(op == _OP_MUL) {
+        if(left.kind == SQ_JIT_NATIVE_PARAM1 && right.kind == SQ_JIT_NATIVE_PARAM1) {
+            *out = sqjit_native_expr(SQ_JIT_NATIVE_SQUARE, 0);
+            return true;
+        }
+        if(left.kind == SQ_JIT_NATIVE_PARAM1 && right.kind == SQ_JIT_NATIVE_CONST) {
+            *out = sqjit_native_expr(SQ_JIT_NATIVE_MUL_CONST, right.value);
+            return true;
+        }
+        if(left.kind == SQ_JIT_NATIVE_CONST && right.kind == SQ_JIT_NATIVE_PARAM1) {
+            *out = sqjit_native_expr(SQ_JIT_NATIVE_MUL_CONST, left.value);
+            return true;
+        }
+        if(left.kind == SQ_JIT_NATIVE_CONST && right.kind == SQ_JIT_NATIVE_CONST) {
+            *out = sqjit_native_expr(SQ_JIT_NATIVE_CONST, left.value * right.value);
+            return true;
+        }
+    }
+
+    return false;
+}
+
+static bool sqjit_native_compile_expr(SQJitNativeExpr expr, SQJitNativeCodeBuffer *buf)
+{
+    buf->size = 0;
+
+    switch(expr.kind) {
+        case SQ_JIT_NATIVE_PARAM1:
+            if(!sqjit_native_emit_mov_rax_rdi(buf)) return false;
+            break;
+        case SQ_JIT_NATIVE_CONST:
+            if(!sqjit_native_emit_mov_rax_imm64(buf, expr.value)) return false;
+            break;
+        case SQ_JIT_NATIVE_ADD_CONST:
+            if(!sqjit_native_is_int32(expr.value)) return false;
+            if(!sqjit_native_emit_mov_rax_rdi(buf)) return false;
+            if(expr.value != 0) {
+                if(!sqjit_native_emit_u8(buf, 0x48) || !sqjit_native_emit_u8(buf, 0x05) ||
+                    !sqjit_native_emit_i32(buf, expr.value)) return false;
+            }
+            break;
+        case SQ_JIT_NATIVE_SUB_CONST:
+            if(!sqjit_native_is_int32(expr.value)) return false;
+            if(!sqjit_native_emit_mov_rax_rdi(buf)) return false;
+            if(expr.value != 0) {
+                if(!sqjit_native_emit_u8(buf, 0x48) || !sqjit_native_emit_u8(buf, 0x2D) ||
+                    !sqjit_native_emit_i32(buf, expr.value)) return false;
+            }
+            break;
+        case SQ_JIT_NATIVE_CONST_SUB:
+            if(!sqjit_native_emit_mov_rax_imm64(buf, expr.value)) return false;
+            if(!sqjit_native_emit_u8(buf, 0x48) || !sqjit_native_emit_u8(buf, 0x29) ||
+                !sqjit_native_emit_u8(buf, 0xF8)) return false; // sub %rdi, %rax
+            break;
+        case SQ_JIT_NATIVE_MUL_CONST:
+            if(!sqjit_native_is_int32(expr.value)) return false;
+            if(!sqjit_native_emit_mov_rax_rdi(buf)) return false;
+            if(!sqjit_native_emit_u8(buf, 0x48) || !sqjit_native_emit_u8(buf, 0x69) ||
+                !sqjit_native_emit_u8(buf, 0xC0) || !sqjit_native_emit_i32(buf, expr.value)) return false;
+            break;
+        case SQ_JIT_NATIVE_SQUARE:
+            if(!sqjit_native_emit_mov_rax_rdi(buf)) return false;
+            if(!sqjit_native_emit_u8(buf, 0x48) || !sqjit_native_emit_u8(buf, 0x0F) ||
+                !sqjit_native_emit_u8(buf, 0xAF) || !sqjit_native_emit_u8(buf, 0xC7)) return false; // imul %rdi, %rax
+            break;
+        default:
+            return false;
+    }
+
+    return sqjit_native_emit_ret(buf);
+}
+
+static void *sqjit_native_alloc(const unsigned char *code, SQInteger size, SQInteger *mapped_size)
+{
+    long page_size = sysconf(_SC_PAGESIZE);
+    if(page_size <= 0) {
+        page_size = 4096;
+    }
+
+    SQInteger alloc_size = ((size + page_size - 1) / page_size) * page_size;
+    void *mem = mmap(NULL, alloc_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if(mem == MAP_FAILED) {
+        return NULL;
+    }
+
+    memcpy(mem, code, size);
+    __builtin___clear_cache((char *)mem, (char *)mem + size);
+    if(mprotect(mem, alloc_size, PROT_READ | PROT_EXEC) != 0) {
+        munmap(mem, alloc_size);
+        return NULL;
+    }
+
+    *mapped_size = alloc_size;
+    return mem;
+}
+
+static void sqjit_native_free(void *entry, SQInteger size)
+{
+    if(entry && size > 0) {
+        munmap(entry, size);
+    }
+}
+
+static bool sqjit_try_compile_native_unary_int(SQFunctionProto *proto, SQJitBaseline *baseline)
+{
+    if(!proto || proto->_nparameters != 2 || proto->_varparams || proto->_ndefaultparams != 0 ||
+        proto->_stacksize > MAX_FUNC_STACKSIZE) {
+        return false;
+    }
+
+    SQJitNativeExpr exprs[MAX_FUNC_STACKSIZE];
+    for(SQInteger n = 0; n < MAX_FUNC_STACKSIZE; n++) {
+        exprs[n] = sqjit_native_invalid();
+    }
+    exprs[1] = sqjit_native_expr(SQ_JIT_NATIVE_PARAM1, 0);
+
+    for(SQInteger ip = 0; ip < proto->_ninstructions; ip++) {
+        const SQInstruction &inst = proto->_instructions[ip];
+        switch(inst.op) {
+            case _OP_LINE:
+                break;
+            case _OP_LOADINT:
+#ifndef _SQ64
+                exprs[inst._arg0] = sqjit_native_expr(SQ_JIT_NATIVE_CONST, (SQInteger)inst._arg1);
+#else
+                exprs[inst._arg0] = sqjit_native_expr(SQ_JIT_NATIVE_CONST, (SQInteger)((SQInt32)inst._arg1));
+#endif
+                break;
+            case _OP_LOAD:
+                if(sq_type(proto->_literals[inst._arg1]) != OT_INTEGER) {
+                    return false;
+                }
+                exprs[inst._arg0] = sqjit_native_expr(SQ_JIT_NATIVE_CONST, _integer(proto->_literals[inst._arg1]));
+                break;
+            case _OP_MOVE:
+                exprs[inst._arg0] = exprs[inst._arg1];
+                break;
+            case _OP_ADD:
+            case _OP_SUB:
+            case _OP_MUL: {
+                SQJitNativeExpr out = sqjit_native_invalid();
+                if(!sqjit_native_build_expr((SQOpcode)inst.op, exprs[inst._arg2], exprs[inst._arg1], &out)) {
+                    return false;
+                }
+                exprs[inst._arg0] = out;
+                break;
+            }
+            case _OP_RETURN: {
+                if(inst._arg0 == 0xFF) {
+                    return false;
+                }
+                SQJitNativeCodeBuffer buf;
+                if(!sqjit_native_compile_expr(exprs[inst._arg1], &buf)) {
+                    return false;
+                }
+                SQInteger mapped_size = 0;
+                void *entry = sqjit_native_alloc(buf.bytes, buf.size, &mapped_size);
+                if(!entry) {
+                    return false;
+                }
+                baseline->_native_entry = entry;
+                baseline->_native_size = mapped_size;
+                return true;
+            }
+            default:
+                return false;
+        }
+    }
+
+    return false;
+}
+#else
+static void sqjit_native_free(void *SQ_UNUSED_ARG(entry), SQInteger SQ_UNUSED_ARG(size))
+{
+}
+
+static bool sqjit_try_compile_native_unary_int(SQFunctionProto *SQ_UNUSED_ARG(proto), SQJitBaseline *SQ_UNUSED_ARG(baseline))
+{
+    return false;
+}
+#endif
+
 static bool sqjit_compile_proto(SQFunctionProto *proto, SQJitProto *jit)
 {
     if(jit->_entry || jit->_eligibility == SQ_JIT_NEVER) {
@@ -191,6 +514,10 @@ static bool sqjit_compile_proto(SQFunctionProto *proto, SQJitProto *jit)
 
     baseline->_ninstructions = proto->_ninstructions;
     baseline->_trace_executed = false;
+    baseline->_native_entry = NULL;
+    baseline->_native_size = 0;
+    baseline->_native_trace_executed = false;
+    bool native_compiled = sqjit_try_compile_native_unary_int(proto, baseline);
     jit->_entry = baseline;
     jit->_eligibility = SQ_JIT_BASELINE_CANDIDATE;
     jit->_version++;
@@ -198,6 +525,9 @@ static bool sqjit_compile_proto(SQFunctionProto *proto, SQJitProto *jit)
     if(sqjit_trace_enabled) {
         scprintf(_SC("[sqjit] compiled baseline proto '%s' (%d bytecode ops)\n"),
             sqjit_proto_name(proto), (SQInt32)proto->_ninstructions);
+        if(native_compiled) {
+            scprintf(_SC("[sqjit] compiled native proto '%s'\n"), sqjit_proto_name(proto));
+        }
     }
     return true;
 }
@@ -345,6 +675,24 @@ SQJitExecResult sqjit_try_execute_current(SQVM *v, SQObjectPtr &outres)
 
     SQInteger ip = 0;
     SQObjectPtr *stack = &v->_stack._vals[v->_stackbase];
+
+    if(baseline->_native_entry && proto->_nparameters == 2 && sq_type(stack[1]) == OT_INTEGER) {
+        SQJitNativeUnaryIntFn fn = (SQJitNativeUnaryIntFn)baseline->_native_entry;
+        stack[0] = fn(_integer(stack[1]));
+        if(v->Return(1, 0, v->temp_reg)) {
+            _Swap(outres, v->temp_reg);
+            if(sqjit_trace_enabled && !baseline->_native_trace_executed) {
+                baseline->_native_trace_executed = true;
+                scprintf(_SC("[sqjit] executed native proto '%s' as root\n"), sqjit_proto_name(proto));
+            }
+            return SQ_JIT_EXEC_ROOT_RETURNED;
+        }
+        if(sqjit_trace_enabled && !baseline->_native_trace_executed) {
+            baseline->_native_trace_executed = true;
+            scprintf(_SC("[sqjit] executed native proto '%s'\n"), sqjit_proto_name(proto));
+        }
+        return SQ_JIT_EXEC_FRAME_RETURNED;
+    }
 
 #define JIT_TARGET stack[inst._arg0]
 #define JIT_STK(a) stack[(a)]
@@ -618,7 +966,11 @@ void sqjit_release_proto(SQFunctionProto *proto)
         return;
     }
     if(proto->_jit->_entry) {
-        sq_vm_free(proto->_jit->_entry, sizeof(SQJitBaseline));
+        SQJitBaseline *baseline = (SQJitBaseline *)proto->_jit->_entry;
+        sqjit_native_free(baseline->_native_entry, baseline->_native_size);
+        baseline->_native_entry = NULL;
+        baseline->_native_size = 0;
+        sq_vm_free(baseline, sizeof(SQJitBaseline));
         proto->_jit->_entry = NULL;
     }
     sq_vm_free(proto->_jit, sizeof(SQJitProto));
