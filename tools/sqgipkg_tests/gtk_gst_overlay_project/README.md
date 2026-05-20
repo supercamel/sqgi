@@ -20,7 +20,7 @@ Or from this directory:
 ../../../build/sqgi main.nut --timeout=5
 ```
 
-Build an AppImage:
+Build the default Linux AppImage:
 
 ```sh
 cd tools/sqgipkg_tests/gtk_gst_overlay_project
@@ -55,6 +55,10 @@ Run the AppImage:
 APPIMAGE_EXTRACT_AND_RUN=1 tools/sqgipkg_tests/gtk_gst_overlay_project/dist/GtkGstOverlay.AppImage --timeout=5
 ```
 
+If you build every supported target with `sqgipkg --target all`, the Linux
+AppImage is written under `dist-linux/` and the Windows packaging output is
+written under `dist-windows/`.
+
 The manifest uses `script_dirs` so all project `.nut` scripts are discovered
 and packaged without listing every module. By default `sqgipkg` compiles those
 scripts to `.cnut` bytecode and leaves `.nut` compatibility links in place, so
@@ -65,13 +69,15 @@ Build a Windows staging directory:
 
 ```sh
 cd tools/sqgipkg_tests/gtk_gst_overlay_project
-SQGI_WIN_CMAKE_TOOLCHAIN=/path/to/mingw-toolchain.cmake \
 sqgipkg --target win-dir
 ```
 
-The Windows manifest keeps only the project-specific addition,
-`mingw-w64-x86_64-gst-plugin-gtk`. `sqgipkg` infers the base SQGI, GTK, and
-GStreamer MSYS2 packages from imports.
+On non-Windows hosts, `sqgipkg` prepares the target-local MSYS2 sysroot and
+generated CMake/Meson cross files automatically. The manifest is intentionally
+small; `sqgipkg` infers the base SQGI, GTK, and GStreamer MSYS2 packages from
+imports. If a Windows package must guarantee embedded `gtk4paintablesink`
+instead of using the demo's GTK fallback renderer, add
+`mingw-w64-x86_64-gst-plugin-gtk` to `windows.packages`.
 
 Depending on the target machine, a fully portable Linux GStreamer bundle may
 also need plugin directories or other runtime assets. Add those manually to

@@ -30,11 +30,14 @@ Build a Windows staging directory:
 
 ```sh
 cd tools/sqgipkg_tests/native_gi_project
-SQGI_WIN_CMAKE_TOOLCHAIN=/path/to/mingw-toolchain.cmake \
-SQGI_MESON_CROSS_FILE=/path/to/mingw64.ini \
 sqgipkg --target win-dir
 ```
 
 The manifest keeps native build outputs explicit, because `sqgipkg` needs to
 know which `.so`/`.dll` and `.typelib` files to stage. The generic SQGI runtime
 MSYS2 packages are inferred automatically for Windows targets.
+
+On non-Windows hosts, `sqgipkg` prepares the MSYS2 sysroot and generated
+CMake/Meson cross files automatically. This manifest currently selects the
+`ucrt64` MSYS2 prefix, so Ubuntu cross-build hosts need a matching UCRT MinGW
+toolchain available; native MSYS2 UCRT64 shells can use the manifest as-is.

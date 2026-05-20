@@ -39,15 +39,17 @@ build/sqgi tools/sqgipkg \
   --smoke-test ""
 ```
 
-Build a Windows NSIS installer from Ubuntu with MinGW cross files:
+Build a Windows NSIS installer from Ubuntu:
 
 ```sh
-SQGI_WIN_CMAKE_TOOLCHAIN=/path/to/mingw-toolchain.cmake \
-SQGI_MESON_CROSS_FILE=/path/to/mingw64.ini \
 build/sqgi tools/sqgipkg \
   --manifest tools/sqgipkg_tests/native_vala_project/sqgipkg.json \
   --target win-nsis
 ```
+
+On non-Windows hosts, `sqgipkg` prepares the MSYS2 sysroot and generated
+CMake/Meson cross files automatically. The generated paths are exported to the
+native build as `SQGI_WIN_CMAKE_TOOLCHAIN` and `SQGI_MESON_CROSS_FILE`.
 
 Build the same target from an MSYS2 MinGW shell:
 
@@ -60,6 +62,8 @@ know which Vala-built `.so`/`.dll` and `.typelib` files to stage. The generic
 SQGI runtime MSYS2 packages are inferred automatically for Windows targets.
 When `makensis` is available, `win-nsis` writes `dist/NativeVala-Setup.exe`;
 otherwise it leaves `dist/NativeVala.nsi` beside the staged Windows directory.
+For `--target all`, the same Windows outputs are written under `dist-windows/`
+and the Linux AppImage is written under `dist-linux/`.
 
 Most SQGI async code should use plain `await`. That works for SQGI tasks, GIO
 async APIs, and Vala async methods that expose callback/user-data finish pairs:
