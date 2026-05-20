@@ -255,12 +255,22 @@ add_sqgi_nut_test(sqgi_test_bytes_converters            test_bytes_converters.nu
 add_sqgi_nut_test(sqgi_test_cairo                       test_cairo.nut)
 add_sqgi_nut_test(sqgi_test_jit_math                    test_jit_math.nut)
 add_sqgi_nut_test(sqgi_test_jit_math_runtime            test_jit_math.nut)
-set_tests_properties(sqgi_test_jit_math sqgi_test_jit_math_runtime PROPERTIES
+add_sqgi_nut_test(sqgi_test_jit_fastpath                test_jit_fastpath.nut)
+add_sqgi_nut_test(sqgi_test_jit_fastpath_runtime        test_jit_fastpath.nut)
+set_tests_properties(sqgi_test_jit_math sqgi_test_jit_math_runtime sqgi_test_jit_fastpath sqgi_test_jit_fastpath_runtime PROPERTIES
     LABELS "jit;math"
 )
 set_tests_properties(sqgi_test_jit_math_runtime PROPERTIES
     ENVIRONMENT "${SQGI_TEST_ENV};SQGI_JIT=1;SQGI_JIT_THRESHOLD=1;SQGI_JIT_TRACE=0"
 )
+set_tests_properties(sqgi_test_jit_fastpath_runtime PROPERTIES
+    ENVIRONMENT "${SQGI_TEST_ENV};SQGI_JIT=1;SQGI_JIT_THRESHOLD=1;SQGI_JIT_TRACE=1"
+)
+if(SQ_ENABLE_JIT)
+    set_tests_properties(sqgi_test_jit_fastpath_runtime PROPERTIES
+        PASS_REGULAR_EXPRESSION "\\[sqjit\\] executed baseline proto 'numeric_kernel'"
+    )
+endif()
 
 # Cover error/exit-code paths in main.c
 add_test(

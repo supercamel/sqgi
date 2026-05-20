@@ -719,6 +719,16 @@ bool SQVM::Execute(SQObjectPtr &closure, SQInteger nargs, SQInteger stackbase,SQ
             ci->_root = SQTrue;
 #ifdef SQ_ENABLE_JIT
             sqjit_on_function_enter(this, _closure(ci->_closure)->_function);
+            switch(sqjit_try_execute_current(this, outres)) {
+                case SQ_JIT_EXEC_ROOT_RETURNED:
+                    return true;
+                case SQ_JIT_EXEC_FRAME_RETURNED:
+                    return false;
+                case SQ_JIT_EXEC_ERROR:
+                    SQ_THROW();
+                case SQ_JIT_EXEC_NOT_EXECUTED:
+                    break;
+            }
 #endif
                       }
             break;
@@ -772,6 +782,19 @@ exception_restore:
                     switch (sq_type(clo)) {
                     case OT_CLOSURE:
                         _GUARD(StartCall(_closure(clo), sarg0, arg3, _stackbase+arg2, false));
+#ifdef SQ_ENABLE_JIT
+                        sqjit_on_function_enter(this, _closure(ci->_closure)->_function);
+                        switch(sqjit_try_execute_current(this, outres)) {
+                            case SQ_JIT_EXEC_ROOT_RETURNED:
+                                return true;
+                            case SQ_JIT_EXEC_FRAME_RETURNED:
+                                continue;
+                            case SQ_JIT_EXEC_ERROR:
+                                SQ_THROW();
+                            case SQ_JIT_EXEC_NOT_EXECUTED:
+                                break;
+                        }
+#endif
                         continue;
                     case OT_NATIVECLOSURE: {
                         bool suspend;
