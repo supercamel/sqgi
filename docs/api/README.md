@@ -54,6 +54,8 @@ import("path/to/script.nut")
 ```
 
 Load a GObject Introspection namespace, or execute another Squirrel script.
+Relative `.nut` paths are resolved next to the module doing the import first,
+then through the current working directory / packaged app script root fallback.
 
 **Arguments**
 

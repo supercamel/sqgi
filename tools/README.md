@@ -18,7 +18,7 @@ putting the ugly platform work inside `sqgipkg`.
 - Windows NSIS installer generation with `win-nsis`.
 - Windows MSYS2 sysroot bootstrap with `win-sysroot`.
 - Combined Linux + Windows builds with `all`.
-- Squirrel `.nut` script discovery and optional bytecode compilation to `.cnut`.
+- Squirrel `.nut` script discovery, recursive local import staging, and optional bytecode compilation to `.cnut`.
 - Compatibility `.nut` links/copies so `import("module.nut")` keeps working.
 - Resource staging under `share/sqgi/app/resources`.
 - Exact manual file staging.
@@ -329,6 +329,18 @@ sqgipkg --no-compile-scripts
 ```
 
 ## Script packaging
+
+At runtime, `import("module.nut")` resolves relative to the importing module
+first, then falls back to the app script root/current lookup. `sqgipkg` follows
+literal local `.nut` imports recursively using the same rule. For example,
+packaging `main.nut` also stages `lib/telemetry.nut` when the source contains:
+
+```squirrel
+local T = import("lib/telemetry.nut")
+```
+
+Use `script_dirs` for scripts that are loaded dynamically or are not reachable
+through literal local imports.
 
 ### `script_dirs`
 
@@ -998,7 +1010,9 @@ Directory containing `sqgi.exe` and SQGI DLLs.
 ```
 
 For script-only apps using a prebuilt SDK, this can point at that SDK/build
-directory and `windows.build` can be empty.
+directory and `windows.build` can be empty. If `sqgi.exe` is not present there
+or on `PATH`, `win-dir`/`win-nsis` fails instead of falling back to the host
+Linux `sqgi` executable.
 
 ### `windows.msys2_prefix`
 

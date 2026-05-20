@@ -469,6 +469,40 @@ static void sqgi_gi_free_in_arg_allocs(GICallableInfo *callable, GIArgument *in_
     }
 }
 
+static void sqgi_gi_ref_transfer_full_object_inputs(GICallableInfo *callable,
+                                                    GIArgument *in_args,
+                                                    const gint *arg_to_in,
+                                                    gint n_args)
+{
+    for (gint i = 0; i < n_args; i++) {
+        if (arg_to_in[i] < 0) continue;
+
+        GIArgInfo  *ai = g_callable_info_get_arg(callable, i);
+        GIDirection dir = g_arg_info_get_direction(ai);
+        GITransfer transfer = g_arg_info_get_ownership_transfer(ai);
+        GITypeInfo *ti = g_arg_info_get_type(ai);
+
+        if ((dir == GI_DIRECTION_IN || dir == GI_DIRECTION_INOUT) &&
+            transfer == GI_TRANSFER_EVERYTHING &&
+            g_type_info_get_tag(ti) == GI_TYPE_TAG_INTERFACE &&
+            in_args[arg_to_in[i]].v_pointer) {
+            GIBaseInfo *iface = g_type_info_get_interface(ti);
+            GIInfoType itype = g_base_info_get_type(iface);
+            if ((itype == GI_INFO_TYPE_OBJECT || itype == GI_INFO_TYPE_INTERFACE) &&
+                G_IS_OBJECT(in_args[arg_to_in[i]].v_pointer)) {
+                /* The callee consumes this ref. The Squirrel wrapper keeps
+                 * owning its original ref, so temporary objects passed to
+                 * transfer-full constructors remain valid for the callee. */
+                g_object_ref(in_args[arg_to_in[i]].v_pointer);
+            }
+            g_base_info_unref(iface);
+        }
+
+        g_base_info_unref(ti);
+        g_base_info_unref(ai);
+    }
+}
+
 /* Push a single OUT arg `i` onto the Squirrel stack, applying the
  * uint8[]→string special case if `ati` is a byte array whose length-arg has
  * a known value in `out_storage`. Falls back to sqgi_push_gi_argument for
@@ -1030,6 +1064,8 @@ static SQInteger gi_function_call(HSQUIRRELVM v)
             if (pos >= 0) in_args[pos].v_pointer = (gpointer)sqgi_callback_destroy_notify;
         }
     }
+
+    sqgi_gi_ref_transfer_full_object_inputs(callable, in_args, arg_to_in, n_args);
 
     /* Invoke */
     GError *error = NULL;

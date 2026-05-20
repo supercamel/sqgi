@@ -1,3 +1,4 @@
+#include "sqgi_import.h"
 #include "sqgi_vm.h"
 
 #include <stdio.h>
@@ -146,7 +147,15 @@ int main(int argc, char *argv[])
         callargs++;
     }
 
+    if (!sqgi_import_push_file(v, filename)) {
+        fprintf(stderr, "sqgi: out of memory\n");
+        sq_pop(v, callargs + 2);
+        sqgi_vm_free(v);
+        return 1;
+    }
+
     res = sq_call(v, callargs, SQTrue, SQTrue);
+    sqgi_import_pop_file(v);
     int exitcode = 0;
     if (SQ_SUCCEEDED(res)) {
         SQInteger ret = 0;

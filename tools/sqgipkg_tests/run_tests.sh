@@ -26,7 +26,7 @@ pass() {
 }
 
 run_sqgipkg() {
-  "${SQGI_BIN}" "${SQGIPKG}" "$@"
+  "${SQGI_BIN}" "${SQGIPKG}" --build-dir "${BUILD_DIR}" "$@"
 }
 
 run_appimage() {
@@ -245,6 +245,50 @@ run_appimage "${APPIMAGE}" alpha beta >"${WORK_DIR}/appimage.out"
 assert_contains "${WORK_DIR}/appimage.out" "sqgipkg packaged app ran"
 pass "real custom AppImage execution"
 
+IMPLICIT_PROJECT="${WORK_DIR}/implicit-imports"
+mkdir -p "${IMPLICIT_PROJECT}/lib/more"
+cat >"${IMPLICIT_PROJECT}/main.nut" <<'EOF'
+local helper = import("lib/helper.nut")
+print(helper.message() + "\n")
+EOF
+cat >"${IMPLICIT_PROJECT}/lib/helper.nut" <<'EOF'
+local deep = import("more/deep.nut")
+
+function message() {
+    return "implicit " + deep.message()
+}
+
+return {
+    message = message
+}
+EOF
+cat >"${IMPLICIT_PROJECT}/lib/more/deep.nut" <<'EOF'
+function message() {
+    return "imports worked"
+}
+
+return {
+    message = message
+}
+EOF
+IMPLICIT_OUT="${WORK_DIR}/implicit-out"
+run_sqgipkg "${IMPLICIT_PROJECT}/main.nut" \
+  --name ImplicitImports \
+  --target appimage \
+  --output "${IMPLICIT_OUT}" \
+  --appimagetool "${APPIMAGETOOL}" \
+  --keep-appdir \
+  >"${WORK_DIR}/implicit-package.out"
+IMPLICIT_APPDIR="${IMPLICIT_OUT}/ImplicitImports.AppDir"
+assert_file "${IMPLICIT_APPDIR}/usr/share/sqgi/app/main.cnut"
+assert_file "${IMPLICIT_APPDIR}/usr/share/sqgi/app/lib/helper.cnut"
+assert_file "${IMPLICIT_APPDIR}/usr/share/sqgi/app/lib/helper.nut"
+assert_file "${IMPLICIT_APPDIR}/usr/share/sqgi/app/lib/more/deep.cnut"
+assert_file "${IMPLICIT_APPDIR}/usr/share/sqgi/app/lib/more/deep.nut"
+run_appimage "${IMPLICIT_OUT}/ImplicitImports.AppImage" >"${WORK_DIR}/implicit-run.out"
+assert_contains "${WORK_DIR}/implicit-run.out" "implicit imports worked"
+pass "implicit local script imports are packaged recursively"
+
 DEFAULT_PROJECT="${WORK_DIR}/default-project"
 mkdir -p "${DEFAULT_PROJECT}"
 cat >"${DEFAULT_PROJECT}/main.nut" <<'EOF'
@@ -263,6 +307,7 @@ pass "default project packaging"
 
 PATH="${BUILD_DIR}:${PATH}" LD_LIBRARY_PATH="${BUILD_DIR}${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}" \
   "${SQGIPKG}" "${ROOT_DIR}/demo/glib/paths_env.nut" \
+    --build-dir "${BUILD_DIR}" \
     --name DemoPathsDirect \
     --target appimage \
     --output "${WORK_DIR}/direct" \
@@ -527,6 +572,33 @@ if { command -v wine >/dev/null 2>&1 || command -v wine64 >/dev/null 2>&1; } &&
   assert_contains "${WIN_OUT}/_cross/mingw64/g-ir-scanner-wrapper.sh" "--use-ldd-wrapper='${WIN_OUT}/_cross/mingw64/g-ir-ldd-wrapper.sh'"
 fi
 pass "Windows dist directory staging"
+
+WIN_MISSING_PROJECT="${WORK_DIR}/win-missing-runtime"
+mkdir -p "${WIN_MISSING_PROJECT}"
+cat >"${WIN_MISSING_PROJECT}/main.nut" <<'EOF'
+print("missing runtime\n")
+EOF
+cat >"${WIN_MISSING_PROJECT}/sqgipkg.json" <<'EOF'
+{
+  "script": "main.nut",
+  "name": "WinMissingRuntime",
+  "target": "win-dir",
+  "windows": {
+    "build_dir": "win-build",
+    "download_packages": false,
+    "auto_packages": false
+  }
+}
+EOF
+if PATH="/usr/bin:/bin" run_sqgipkg \
+  --manifest "${WIN_MISSING_PROJECT}/sqgipkg.json" \
+  --output "${WORK_DIR}/win-missing-out" \
+  >"${WORK_DIR}/win-missing-package.out" 2>&1; then
+  fail "Windows package without sqgi.exe unexpectedly succeeded"
+fi
+assert_contains "${WORK_DIR}/win-missing-package.out" "Windows sqgi.exe not found"
+assert_contains "${WORK_DIR}/win-missing-package.out" "no windows.build command is configured"
+pass "Windows sqgi.exe is required for script entry packages"
 
 WIN_NATIVE_PROJECT="${WORK_DIR}/win-native-project"
 WIN_NATIVE_BUILD="${WIN_NATIVE_PROJECT}/win-build"

@@ -32,4 +32,13 @@ local beta = buf.get_iter_at_offset(6)
 check(beta.get_offset() == 6, "iter_at_offset")
 check(buf.get_text(beta, end, false) == "beta", "iter_at_offset text")
 
+function make_selection_with_temporary_model() {
+    return Gtk.NoSelection.new(Gtk.StringList.new(["one", "two"]))
+}
+
+local selection = make_selection_with_temporary_model()
+check(selection.get_n_items() == 2, "selection with transfer-full temporary model")
+selection = null
+::collectgarbage()
+
 print("[OK] test_gtk_textbuffer passed\n")

@@ -1440,6 +1440,159 @@ Examples:
         return this.basename(src_abs)
     }
 
+    function is_space_char(ch) {
+        return ch == " " || ch == "\t" || ch == "\n" || ch == "\r"
+    }
+
+    function is_identifier_char(ch) {
+        if (ch == "_") return true
+        local c = ch[0]
+        return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
+    }
+
+    function import_literal_at(text, pos) {
+        if (pos + 6 > text.len() || text.slice(pos, pos + 6) != "import") return null
+        if (pos > 0 && this.is_identifier_char(text.slice(pos - 1, pos))) return null
+
+        local j = pos + 6
+        if (j < text.len() && this.is_identifier_char(text.slice(j, j + 1))) return null
+        while (j < text.len() && this.is_space_char(text.slice(j, j + 1))) j++
+        if (j >= text.len() || text.slice(j, j + 1) != "(") return null
+        j++
+        while (j < text.len() && this.is_space_char(text.slice(j, j + 1))) j++
+        if (j >= text.len()) return null
+
+        local quote = text.slice(j, j + 1)
+        if (quote != "\"" && quote != "'") return null
+        j++
+
+        local value = ""
+        local escaped = false
+        while (j < text.len()) {
+            local ch = text.slice(j, j + 1)
+            if (escaped) {
+                value += ch
+                escaped = false
+                j++
+                continue
+            }
+            if (ch == "\\") {
+                escaped = true
+                j++
+                continue
+            }
+            if (ch == quote)
+                return { value = value, next = j + 1 }
+            value += ch
+            j++
+        }
+
+        return null
+    }
+
+    function script_import_literals(src_abs) {
+        local out = []
+        if (!this.ends_with(src_abs, ".nut")) return out
+
+        local text = this.read_file(src_abs)
+        local i = 0
+        local mode = "code"
+        local quote = ""
+
+        while (i < text.len()) {
+            local ch = text.slice(i, i + 1)
+            local next = (i + 1 < text.len()) ? text.slice(i + 1, i + 2) : ""
+
+            if (mode == "line-comment") {
+                if (ch == "\n") mode = "code"
+                i++
+                continue
+            }
+
+            if (mode == "block-comment") {
+                if (ch == "*" && next == "/") {
+                    mode = "code"
+                    i += 2
+                } else {
+                    i++
+                }
+                continue
+            }
+
+            if (mode == "string") {
+                if (ch == "\\") {
+                    i += 2
+                    continue
+                }
+                if (ch == quote) mode = "code"
+                i++
+                continue
+            }
+
+            if (ch == "/" && next == "/") {
+                mode = "line-comment"
+                i += 2
+                continue
+            }
+            if (ch == "/" && next == "*") {
+                mode = "block-comment"
+                i += 2
+                continue
+            }
+            if (ch == "\"" || ch == "'") {
+                mode = "string"
+                quote = ch
+                i++
+                continue
+            }
+
+            local parsed = this.import_literal_at(text, i)
+            if (parsed != null) {
+                if (!this.array_contains(out, parsed.value)) out.push(parsed.value)
+                i = parsed.next
+                continue
+            }
+
+            i++
+        }
+
+        return out
+    }
+
+    function normalize_script_import_path(path) {
+        while (this.starts_with(path, "./")) path = path.slice(2)
+        return path
+    }
+
+    function is_local_script_import(path) {
+        if (!this.ends_with(path, ".nut")) return false
+        if (path.find("://") != null) return false
+        if (GLib.path_is_absolute(path) || this.is_windows_drive_path(path)) return false
+        return true
+    }
+
+    function script_source_for_import(src_abs, import_path, source_root = null) {
+        local path = this.normalize_script_import_path(import_path)
+        local sibling = GLib.build_filenamev([this.dirname(src_abs), path])
+        if (this.path_exists(sibling)) return sibling
+
+        if (source_root != null) {
+            local rooted = GLib.build_filenamev([source_root, path])
+            if (this.path_exists(rooted)) return rooted
+        }
+
+        return sibling
+    }
+
+    function script_dest_for_import(parent_dest_rel, import_path, dest_root_rel = null) {
+        local path = this.normalize_script_import_path(import_path)
+        if (dest_root_rel != null) return GLib.build_filenamev([dest_root_rel, path])
+
+        local parent_dir = this.dirname(parent_dest_rel)
+        if (parent_dir == "" || parent_dir == ".") return path
+        return GLib.build_filenamev([parent_dir, path])
+    }
+
     function scan_script_imports(opts, src_abs) {
         if (!this.ends_with(src_abs, ".nut")) return
         if (this.file_contains(src_abs, "import(\"Gtk") || this.file_contains(src_abs, "import('Gtk"))
@@ -1448,20 +1601,42 @@ Examples:
             opts.report.used_gst = true
     }
 
+    function scan_script_import_tree(opts, src, visited, source_root = null) {
+        local src_abs = this.abs_path(src)
+        if (this.table_get(visited, src_abs, false)) return
+        visited[src_abs] <- true
+
+        this.scan_script_imports(opts, src_abs)
+        foreach (import_path in this.script_import_literals(src_abs)) {
+            if (!this.is_local_script_import(import_path)) continue
+
+            local dep_src = this.script_source_for_import(src_abs, import_path, source_root)
+            if (this.path_exists(dep_src))
+                this.scan_script_import_tree(opts, dep_src, visited, source_root)
+        }
+    }
+
     function scan_project_imports(opts) {
-        if (opts.script != "") this.scan_script_imports(opts, this.abs_path(opts.script))
+        local visited = {}
+
+        if (opts.script != "") {
+            local script_abs = this.abs_path(opts.script)
+            this.scan_script_import_tree(opts, script_abs, visited, this.dirname(script_abs))
+        }
 
         foreach (spec in opts.scripts) {
             local parts = this.split_once(spec, "=")
-            this.scan_script_imports(opts, this.abs_path(parts[0]))
+            local src_abs = this.abs_path(parts[0])
+            this.scan_script_import_tree(opts, src_abs, visited, this.dirname(src_abs))
         }
 
         local main_script_abs = opts.script == "" ? "" : this.abs_path(opts.script)
         foreach (dir in opts.script_dirs) {
+            local dir_abs = this.abs_path(dir)
             foreach (src in this.list_nut_files(dir)) {
                 local src_abs = this.abs_path(src)
                 if (src_abs != main_script_abs)
-                    this.scan_script_imports(opts, src_abs)
+                    this.scan_script_import_tree(opts, src_abs, visited, dir_abs)
             }
         }
     }
@@ -1541,7 +1716,28 @@ Examples:
         this.report_inc(opts, "script_links")
     }
 
-    function stage_script_file(opts, appdir, src, dest_rel, description, staged) {
+    function stage_script_imports(opts, appdir, src_abs, dest_rel, staged, source_root = null, dest_root_rel = null) {
+        foreach (import_path in this.script_import_literals(src_abs)) {
+            if (!this.is_local_script_import(import_path)) continue
+
+            local path = this.normalize_script_import_path(import_path)
+            local dep_src = GLib.build_filenamev([this.dirname(src_abs), path])
+            local dep_dest = this.script_dest_for_import(dest_rel, import_path)
+            if (!this.path_exists(dep_src) && source_root != null) {
+                local rooted = GLib.build_filenamev([source_root, path])
+                if (this.path_exists(rooted)) {
+                    dep_src = rooted
+                    dep_dest = this.script_dest_for_import(dest_rel, import_path, dest_root_rel)
+                }
+            }
+            if (!this.path_exists(dep_src))
+                this.fail("imported script not found: " + import_path + " from " + src_abs)
+
+            this.stage_script_file(opts, appdir, dep_src, dep_dest, "imported script", staged, source_root, dest_root_rel)
+        }
+    }
+
+    function stage_script_file(opts, appdir, src, dest_rel, description, staged, source_root = null, dest_root_rel = null) {
         local src_abs = this.abs_path(src)
         if (!this.path_exists(src_abs)) this.fail(description + " not found: " + src)
         this.scan_script_imports(opts, src_abs)
@@ -1553,6 +1749,7 @@ Examples:
         if (!opts.compile_scripts) {
             this.copy_into_appdir(src_abs, appdir, dest_rel, description)
             this.report_inc(opts, "scripts_copied")
+            this.stage_script_imports(opts, appdir, src_abs, dest_rel, staged, source_root, dest_root_rel)
             return dest_rel
         }
 
@@ -1562,6 +1759,7 @@ Examples:
         this.compile_script_to(src_abs, cnut_abs)
         this.report_inc(opts, "scripts_compiled")
         this.link_script_compat(opts, appdir, dest_rel, cnut_dest_rel)
+        this.stage_script_imports(opts, appdir, src_abs, dest_rel, staged, source_root, dest_root_rel)
         return cnut_dest_rel
     }
 
@@ -1584,15 +1782,20 @@ Examples:
         this.report_inc(opts, "includes")
     }
 
+    function app_script_root_rel(opts) {
+        return this.starts_with(opts.target, "win-")
+            ? GLib.build_filenamev(["share", "sqgi", "app"])
+            : GLib.build_filenamev(["usr", "share", "sqgi", "app"])
+    }
+
     function add_script_spec(opts, appdir, spec, staged) {
         local parts = this.split_once(spec, "=")
         local src = parts[0]
         local dest = parts[1]
         if (dest == null) dest = this.script_dest_for_source(src)
-        dest = this.starts_with(opts.target, "win-")
-            ? GLib.build_filenamev(["share", "sqgi", "app", dest])
-            : GLib.build_filenamev(["usr", "share", "sqgi", "app", dest])
-        this.stage_script_file(opts, appdir, src, dest, "script", staged)
+        local app_root = this.app_script_root_rel(opts)
+        dest = GLib.build_filenamev([app_root, dest])
+        this.stage_script_file(opts, appdir, src, dest, "script", staged, this.dirname(this.abs_path(src)), app_root)
     }
 
     function list_nut_files(dir) {
@@ -1619,10 +1822,9 @@ Examples:
             if (src_abs == main_script_abs) continue
 
             local dest = this.script_dest_for_source(src_abs, dir)
-            dest = this.starts_with(opts.target, "win-")
-                ? GLib.build_filenamev(["share", "sqgi", "app", dest])
-                : GLib.build_filenamev(["usr", "share", "sqgi", "app", dest])
-            this.stage_script_file(opts, appdir, src_abs, dest, "script directory entry", staged)
+            local app_root = this.app_script_root_rel(opts)
+            dest = GLib.build_filenamev([app_root, dest])
+            this.stage_script_file(opts, appdir, src_abs, dest, "script directory entry", staged, this.abs_path(dir), app_root)
         }
     }
 
@@ -2475,11 +2677,15 @@ Examples:
         local copy_build_dlls = true
         if (!this.path_exists(sqgi_exe)) {
             local installed_sqgi = this.executable_path("sqgi.exe")
-            if (installed_sqgi == null)
-                installed_sqgi = this.executable_path("sqgi")
-            if (installed_sqgi == null)
-                this.fail("Windows sqgi.exe not found at " + sqgi_exe +
-                    " or in PATH; set windows.build_dir/windows.build or install sqgi")
+            if (installed_sqgi == null) {
+                if (opts.windows.build.len() == 0) {
+                    this.fail("Windows sqgi.exe not found at " + sqgi_exe +
+                        ", no windows.build command is configured, and sqgi.exe is not in PATH; " +
+                        "set windows.build/windows.build_dir or provide a Windows sqgi.exe")
+                }
+                this.fail("Windows build completed but sqgi.exe was not found at " + sqgi_exe +
+                    " or in PATH; check windows.build_dir/windows.build output")
+            }
             sqgi_exe = installed_sqgi
             copy_build_dlls = false
         }
@@ -3031,13 +3237,16 @@ Examples:
         if (opts.script != "") {
             main_script_abs = this.abs_path(opts.script)
             if (!this.path_exists(main_script_abs)) this.fail("script not found: " + opts.script)
+            local app_root = this.app_script_root_rel(opts)
             entry_rel = this.stage_script_file(
                 opts,
                 appdir,
                 main_script_abs,
-                GLib.build_filenamev(["usr", "share", "sqgi", "app", "main.nut"]),
+                GLib.build_filenamev([app_root, "main.nut"]),
                 "main script",
-                staged_scripts
+                staged_scripts,
+                this.dirname(main_script_abs),
+                app_root
             )
         }
 
@@ -3057,13 +3266,16 @@ Examples:
         if (opts.script != "") {
             main_script_abs = this.abs_path(opts.script)
             if (!this.path_exists(main_script_abs)) this.fail("script not found: " + opts.script)
+            local app_root = this.app_script_root_rel(opts)
             entry_rel = this.stage_script_file(
                 opts,
                 windir,
                 main_script_abs,
-                GLib.build_filenamev(["share", "sqgi", "app", "main.nut"]),
+                GLib.build_filenamev([app_root, "main.nut"]),
                 "main script",
-                staged_scripts
+                staged_scripts,
+                this.dirname(main_script_abs),
+                app_root
             )
         }
 
