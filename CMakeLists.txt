@@ -22,8 +22,20 @@ endif()
 # The JIT is experimental and defaults off. When disabled, no JIT sources are
 # compiled and the interpreter remains the only execution engine.
 option(SQ_ENABLE_JIT "Build experimental Squirrel bytecode JIT support" OFF)
+set(SQGI_HAS_NATIVE_JIT OFF)
+if(SQ_ENABLE_JIT AND UNIX AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|amd64)$")
+    set(SQGI_HAS_NATIVE_JIT ON)
+elseif(SQ_ENABLE_JIT AND CMAKE_SYSTEM_NAME STREQUAL "Linux" AND
+    CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64|ARM64)$")
+    set(SQGI_HAS_NATIVE_JIT ON)
+endif()
 if(SQ_ENABLE_JIT)
     message(STATUS "SQGI: experimental Squirrel bytecode JIT enabled")
+    if(SQGI_HAS_NATIVE_JIT)
+        message(STATUS "SQGI: native Squirrel JIT backend enabled for ${CMAKE_SYSTEM_PROCESSOR}")
+    else()
+        message(STATUS "SQGI: no native Squirrel JIT backend for ${CMAKE_SYSTEM_PROCESSOR}; using interpreter fallback")
+    endif()
 endif()
 
 # ── Bundled Squirrel3 ─────────────────────────────────────────────────────────
@@ -118,6 +130,11 @@ if(SQ_ENABLE_JIT)
     list(APPEND SQUIRREL3_SRC
         Squirrel3/squirrel/jit/sqjit.cpp
     )
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64|ARM64)$")
+        list(APPEND SQUIRREL3_SRC
+            Squirrel3/squirrel/jit/sqjit_backend_aarch64.cpp
+        )
+    endif()
 endif()
 
 # ── SQGI core objects ─────────────────────────────────────────────────────────
@@ -266,7 +283,7 @@ set(JIT_TESTS
     sqgi_test_jit_fastpath_runtime
     sqgi_test_jit_correctness
     sqgi_test_jit_correctness_runtime)
-if(SQ_ENABLE_JIT AND UNIX AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|amd64)$")
+if(SQGI_HAS_NATIVE_JIT)
     add_sqgi_nut_test(sqgi_test_jit_native_runtime      test_jit_fastpath.nut)
     list(APPEND JIT_TESTS sqgi_test_jit_native_runtime)
 endif()
@@ -282,12 +299,12 @@ set_tests_properties(sqgi_test_jit_fastpath_runtime PROPERTIES
 set_tests_properties(sqgi_test_jit_correctness_runtime PROPERTIES
     ENVIRONMENT "${SQGI_TEST_ENV};SQGI_JIT=1;SQGI_JIT_THRESHOLD=1;SQGI_JIT_TRACE=0"
 )
-if(SQ_ENABLE_JIT)
+if(SQGI_HAS_NATIVE_JIT)
     set_tests_properties(sqgi_test_jit_fastpath_runtime PROPERTIES
         PASS_REGULAR_EXPRESSION "\\[sqjit\\] executed native proto 'numeric_variant_kernel'"
     )
 endif()
-if(SQ_ENABLE_JIT AND UNIX AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|amd64)$")
+if(SQGI_HAS_NATIVE_JIT)
     set_tests_properties(sqgi_test_jit_native_runtime PROPERTIES
         ENVIRONMENT "${SQGI_TEST_ENV};SQGI_JIT=1;SQGI_JIT_THRESHOLD=1;SQGI_JIT_TRACE=1"
         PASS_REGULAR_EXPRESSION "\\[sqjit\\] executed native proto 'numeric_variant_kernel'"

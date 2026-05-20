@@ -864,13 +864,17 @@ exception_restore:
                     case OT_CLOSURE:
 #ifdef SQ_ENABLE_JIT
                         {
-                            SQObjectPtr jitres;
-                            if(sqjit_try_execute_closure(this, _closure(clo),
-                                &_stack._vals[_stackbase + arg2], arg3, jitres)) {
-                                if(sarg0 != -1) {
-                                    TARGET = jitres;
+                            SQClosure *jitclosure = _closure(clo);
+                            SQFunctionProto *jitproto = jitclosure->_function;
+                            if(jitproto && jitproto->_jit && jitproto->_jit->_entry) {
+                                SQObjectPtr jitres;
+                                if(sqjit_try_execute_closure(this, jitclosure,
+                                    &_stack._vals[_stackbase + arg2], arg3, jitres)) {
+                                    if(sarg0 != -1) {
+                                        TARGET = jitres;
+                                    }
+                                    continue;
                                 }
-                                continue;
                             }
                         }
 #endif

@@ -7,6 +7,7 @@
 #include "sqtable.h"
 #include "sqclosure.h"
 #include "sqjit.h"
+#include "sqjit_backend.h"
 #include <limits.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -27,30 +28,21 @@
 #define SQJIT_ABI_WIN64 0
 #endif
 #define SQJIT_HAS_X64_NATIVE 1
+#define SQJIT_HAS_EXTERNAL_NATIVE 0
+#elif defined(__aarch64__) && defined(__linux__)
+#define SQJIT_ABI_WIN64 0
+#define SQJIT_HAS_X64_NATIVE 0
+#define SQJIT_HAS_EXTERNAL_NATIVE 1
 #else
 #define SQJIT_ABI_WIN64 0
 #define SQJIT_HAS_X64_NATIVE 0
+#define SQJIT_HAS_EXTERNAL_NATIVE 0
 #endif
 
 static bool sqjit_env_checked = false;
 static bool sqjit_env_enabled = false;
 static bool sqjit_trace_enabled = false;
 static SQInteger sqjit_threshold = 1000;
-
-enum SQJitNativeStatus {
-    SQ_JIT_NATIVE_GUARD_FAILED = 0,
-    SQ_JIT_NATIVE_RETURNED = 1
-};
-
-typedef SQInteger (*SQJitNativeObjectFn)(SQObjectPtr *, SQObjectPtr *, SQClosure *);
-typedef SQInteger (*SQJitNativeLoopFn)(SQObjectPtr *, SQInteger *, SQClosure *);
-
-struct SQJitNative {
-    SQInteger _ninstructions;
-    void *_native_entry;
-    SQInteger _native_size;
-    bool _native_trace_executed;
-};
 
 static bool sqjit_is_truthy_env(const char *value)
 {
@@ -1651,7 +1643,7 @@ static bool sqjit_native_install_raw(void **entry_out, SQInteger *mapped_size_ou
     return true;
 }
 
-static void sqjit_native_free(void *entry, SQInteger size)
+void sqjit_backend_native_free(void *entry, SQInteger size)
 {
     if(entry && size > 0) {
 #if SQJIT_ABI_WIN64
@@ -1772,7 +1764,7 @@ static bool sqjit_next_consumes_load_as_immediate(SQFunctionProto *proto, SQInte
     }
 }
 
-static bool sqjit_try_compile_native_int_bytecode(SQFunctionProto *proto, SQObjectPtr *entry_stack,
+bool sqjit_backend_compile_proto(SQFunctionProto *proto, SQObjectPtr *entry_stack,
     SQClosure *closure, SQJitNative *native)
 {
     if(!proto || !entry_stack || proto->_nparameters < 1 || proto->_varparams || proto->_ndefaultparams != 0 ||
@@ -3094,7 +3086,7 @@ static bool sqjit_try_compile_native_int_bytecode(SQFunctionProto *proto, SQObje
     return sqjit_native_install(native, &buf);
 }
 
-static bool sqjit_loop_find_region(SQFunctionProto *proto, SQInteger header_ip,
+bool sqjit_backend_loop_find_region(SQFunctionProto *proto, SQInteger header_ip,
     SQInteger *start_ip, SQInteger *end_ip, SQInteger *exit_ip)
 {
     if(!proto || header_ip < 0 || header_ip >= proto->_ninstructions) {
@@ -3225,10 +3217,13 @@ static bool sqjit_loop_instruction_writes_slot(const SQInstruction &inst, SQInte
         case _OP_NE:
         case _OP_GET:
         case _OP_GETK:
-        case _OP_PREPCALL:
-        case _OP_PREPCALLK:
         case _OP_CMP:
             return inst._arg0 == slot;
+        case _OP_PREPCALL:
+        case _OP_PREPCALLK:
+            return inst._arg0 == slot || inst._arg3 == slot;
+        case _OP_CALL:
+            return inst._arg0 != 0xFF && inst._arg0 == slot;
         case _OP_DLOAD:
         case _OP_DMOVE:
             return inst._arg0 == slot || inst._arg2 == slot;
@@ -3263,7 +3258,7 @@ static bool sqjit_loop_slot_is_live_out(SQFunctionProto *proto, SQInteger exit_i
     return false;
 }
 
-static bool sqjit_try_compile_native_int_loop(SQFunctionProto *proto, SQObjectPtr *entry_stack,
+bool sqjit_backend_compile_loop(SQFunctionProto *proto, SQObjectPtr *entry_stack,
     SQClosure *closure, SQInteger start_ip, SQInteger header_ip, SQInteger end_ip, SQInteger exit_ip,
     SQJitProto *jit)
 {
@@ -4492,25 +4487,25 @@ static bool sqjit_try_compile_native_int_loop(SQFunctionProto *proto, SQObjectPt
     return sqjit_native_install_raw(&jit->_loop_entry, &jit->_loop_native_size, &buf);
 }
 
-#else
-static void sqjit_native_free(void *SQ_UNUSED_ARG(entry), SQInteger SQ_UNUSED_ARG(size))
+#elif !SQJIT_HAS_EXTERNAL_NATIVE
+void sqjit_backend_native_free(void *SQ_UNUSED_ARG(entry), SQInteger SQ_UNUSED_ARG(size))
 {
 }
 
-static bool sqjit_try_compile_native_int_bytecode(SQFunctionProto *SQ_UNUSED_ARG(proto),
+bool sqjit_backend_compile_proto(SQFunctionProto *SQ_UNUSED_ARG(proto),
     SQObjectPtr *SQ_UNUSED_ARG(entry_stack), SQClosure *SQ_UNUSED_ARG(closure),
     SQJitNative *SQ_UNUSED_ARG(native))
 {
     return false;
 }
 
-static bool sqjit_loop_find_region(SQFunctionProto *SQ_UNUSED_ARG(proto), SQInteger SQ_UNUSED_ARG(header_ip),
+bool sqjit_backend_loop_find_region(SQFunctionProto *SQ_UNUSED_ARG(proto), SQInteger SQ_UNUSED_ARG(header_ip),
     SQInteger *SQ_UNUSED_ARG(start_ip), SQInteger *SQ_UNUSED_ARG(end_ip), SQInteger *SQ_UNUSED_ARG(exit_ip))
 {
     return false;
 }
 
-static bool sqjit_try_compile_native_int_loop(SQFunctionProto *SQ_UNUSED_ARG(proto),
+bool sqjit_backend_compile_loop(SQFunctionProto *SQ_UNUSED_ARG(proto),
     SQObjectPtr *SQ_UNUSED_ARG(entry_stack), SQClosure *SQ_UNUSED_ARG(closure),
     SQInteger SQ_UNUSED_ARG(start_ip), SQInteger SQ_UNUSED_ARG(header_ip),
     SQInteger SQ_UNUSED_ARG(end_ip), SQInteger SQ_UNUSED_ARG(exit_ip), SQJitProto *SQ_UNUSED_ARG(jit))
@@ -4537,7 +4532,7 @@ static bool sqjit_compile_proto(SQFunctionProto *proto, SQObjectPtr *entry_stack
     native->_native_size = 0;
     native->_native_trace_executed = false;
 
-    if(!sqjit_try_compile_native_int_bytecode(proto, entry_stack, closure, native)) {
+    if(!sqjit_backend_compile_proto(proto, entry_stack, closure, native)) {
         sq_vm_free(native, sizeof(SQJitNative));
         jit->_fail_count++;
         jit->_eligibility = SQ_JIT_NEVER;
@@ -4629,6 +4624,11 @@ bool sqjit_try_execute_closure(SQVM *v, SQClosure *closure, SQObjectPtr *stack, 
 bool sqjit_try_execute_current_loop(SQVM *v, SQInteger header_ip)
 {
     sqjit_read_env_once();
+#if !SQJIT_HAS_X64_NATIVE && !SQJIT_HAS_EXTERNAL_NATIVE
+    (void)v;
+    (void)header_ip;
+    return false;
+#else
     if(!sqjit_env_enabled || !v || !v->ci || v->_debughook) {
         return false;
     }
@@ -4658,7 +4658,7 @@ bool sqjit_try_execute_current_loop(SQVM *v, SQInteger header_ip)
         }
     }
 
-    if(!sqjit_loop_find_region(proto, header_ip, &start_ip, &end_ip, &exit_ip)) {
+    if(!sqjit_backend_loop_find_region(proto, header_ip, &start_ip, &end_ip, &exit_ip)) {
         jit = sqjit_ensure_proto(proto);
         if(jit) {
             sqjit_loop_reject_header(jit, header_ip);
@@ -4684,7 +4684,7 @@ bool sqjit_try_execute_current_loop(SQVM *v, SQInteger header_ip)
             scprintf(_SC("[sqjit] hot loop in proto '%s' reached JIT threshold at ip %d\n"),
                 sqjit_proto_name(proto), (SQInt32)header_ip);
         }
-        if(!sqjit_try_compile_native_int_loop(proto, &v->_stack._vals[v->_stackbase], closure,
+        if(!sqjit_backend_compile_loop(proto, &v->_stack._vals[v->_stackbase], closure,
             start_ip, header_ip, end_ip, exit_ip, jit)) {
             jit->_loop_fail_count++;
             jit->_loop_header_ip = header_ip;
@@ -4723,6 +4723,7 @@ execute_loop:
             sqjit_proto_name(proto), (SQInt32)header_ip);
     }
     return true;
+#endif
 }
 
 SQJitExecResult sqjit_try_execute_current(SQVM *v, SQObjectPtr &outres)
@@ -4775,13 +4776,13 @@ void sqjit_release_proto(SQFunctionProto *proto)
         return;
     }
     if(proto->_jit->_loop_entry) {
-        sqjit_native_free(proto->_jit->_loop_entry, proto->_jit->_loop_native_size);
+        sqjit_backend_native_free(proto->_jit->_loop_entry, proto->_jit->_loop_native_size);
         proto->_jit->_loop_entry = NULL;
         proto->_jit->_loop_native_size = 0;
     }
     if(proto->_jit->_entry) {
         SQJitNative *native = (SQJitNative *)proto->_jit->_entry;
-        sqjit_native_free(native->_native_entry, native->_native_size);
+        sqjit_backend_native_free(native->_native_entry, native->_native_size);
         native->_native_entry = NULL;
         native->_native_size = 0;
         sq_vm_free(native, sizeof(SQJitNative));
