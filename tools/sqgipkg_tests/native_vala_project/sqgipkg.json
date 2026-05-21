@@ -20,15 +20,37 @@
     },
     "arches": [
       {
-        "arch": "x86_64"
+        "arch": "x86_64",
+        "build_dir": "build-x86_64",
+        "inherit_native_projects": false,
+        "build": [
+          "cmake -E rm -rf \"$SQGI_LINUX_BUILD_DIR\"",
+          "cmake -S \"$SQGI_SOURCE_DIR\" -B \"$SQGI_LINUX_BUILD_DIR\" -G Ninja ${SQGI_LINUX_CMAKE_TOOLCHAIN:+-DCMAKE_TOOLCHAIN_FILE=\"$SQGI_LINUX_CMAKE_TOOLCHAIN\"} -DCMAKE_BUILD_TYPE=Release -DSQ_ENABLE_JIT=ON",
+          "cmake --build \"$SQGI_LINUX_BUILD_DIR\""
+        ],
+        "native_projects": [
+          {
+            "dir": "native",
+            "build": [
+              "BUILD_DIR=build-x86_64 MESON_CROSS_FILE=\"$SQGI_LINUX_MESON_CROSS_FILE\" ./build.sh"
+            ],
+            "libraries": [
+              "build-x86_64/libsqvala-1.0.so"
+            ],
+            "typelibs": [
+              "build-x86_64/SqVala-1.0.typelib"
+            ]
+          }
+        ]
       },
       {
         "arch": "aarch64",
         "build_dir": "build-aarch64",
         "inherit_native_projects": false,
         "build": [
-          "cmake -S ../../.. -B build-aarch64 -G Ninja -DCMAKE_TOOLCHAIN_FILE=\"$SQGI_LINUX_CMAKE_TOOLCHAIN\" -DCMAKE_BUILD_TYPE=Release -DSQ_ENABLE_JIT=ON",
-          "cmake --build build-aarch64"
+          "cmake -E rm -rf \"$SQGI_LINUX_BUILD_DIR\"",
+          "cmake -S \"$SQGI_SOURCE_DIR\" -B \"$SQGI_LINUX_BUILD_DIR\" -G Ninja ${SQGI_LINUX_CMAKE_TOOLCHAIN:+-DCMAKE_TOOLCHAIN_FILE=\"$SQGI_LINUX_CMAKE_TOOLCHAIN\"} -DCMAKE_BUILD_TYPE=Release -DSQ_ENABLE_JIT=ON",
+          "cmake --build \"$SQGI_LINUX_BUILD_DIR\""
         ],
         "native_projects": [
           {
@@ -53,8 +75,9 @@
       "mingw-w64-x86_64-vala"
     ],
     "build": [
-      "cmake -S ../../.. -B build-win -G Ninja -DCMAKE_TOOLCHAIN_FILE=\"$SQGI_WIN_CMAKE_TOOLCHAIN\" -DCMAKE_BUILD_TYPE=Release -DSQ_ENABLE_JIT=ON",
-      "cmake --build build-win"
+      "cmake -E rm -rf \"$SQGI_WINDOWS_BUILD_DIR\"",
+      "cmake -S \"$SQGI_SOURCE_DIR\" -B \"$SQGI_WINDOWS_BUILD_DIR\" -G Ninja -DCMAKE_TOOLCHAIN_FILE=\"$SQGI_WIN_CMAKE_TOOLCHAIN\" -DCMAKE_BUILD_TYPE=Release -DSQ_ENABLE_JIT=ON",
+      "cmake --build \"$SQGI_WINDOWS_BUILD_DIR\""
     ],
     "build_dir": "build-win",
     "native_projects": [

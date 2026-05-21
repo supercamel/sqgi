@@ -37,11 +37,12 @@ sqgipkg --target all --smoke-test ""
 - `dist-windows/NativeVala-Setup.exe` when `makensis` is available
 
 The manifest enables `linux.deb.download`, so Linux targets use private Debian
-sysroots under their output directories instead of relying on GLib/GIO
-development packages installed into the host OS. The aarch64 AppImage path
-still needs an aarch64 cross compiler such as `aarch64-linux-gnu-gcc` and
-`aarch64-linux-gnu-g++`. The Debian backend also needs apt package indexes for
-each target Debian architecture it downloads, for example `amd64` and `arm64`.
+sysroots in the per-user `~/.cache/sqgipkg/linux-sysroots/` cache instead of
+relying on GLib/GIO development packages installed into the host OS. Cross
+AppImage paths still need the matching cross compiler, such as
+`x86_64-linux-gnu-gcc`/`g++` on arm64 hosts or `aarch64-linux-gnu-gcc`/`g++` on
+x86_64 hosts. The Debian backend downloads Ubuntu package indexes for each
+target Debian architecture it resolves, for example `amd64` and `arm64`.
 
 For Linux cross entries, `sqgipkg` generates the CMake toolchain and Meson cross
 file under the target output directory and exports

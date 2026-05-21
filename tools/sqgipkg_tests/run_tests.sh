@@ -73,9 +73,74 @@ appimagetool_arch() {
   esac
 }
 
+deb_arch_for_appimage_arch() {
+  case "$1" in
+    x86_64) echo "amd64" ;;
+    aarch64) echo "arm64" ;;
+    i386|i686) echo "i386" ;;
+    *) echo "$1" ;;
+  esac
+}
+
+linux_triplet_for_appimage_arch() {
+  case "$1" in
+    x86_64) echo "x86_64-linux-gnu" ;;
+    aarch64) echo "aarch64-linux-gnu" ;;
+    i386|i686) echo "i386-linux-gnu" ;;
+    *) echo "$1-linux-gnu" ;;
+  esac
+}
+
+elf_arch() {
+  local path="$1"
+  readelf -h "$path" 2>/dev/null | awk '
+    /Machine:/ {
+      if ($0 ~ /AArch64/) { print "aarch64"; exit }
+      if ($0 ~ /X86-64/) { print "x86_64"; exit }
+      if ($0 ~ /80386/) { print "i386"; exit }
+    }' || true
+}
+
+assert_elf_arch() {
+  local path="$1"
+  local expected="$2"
+  if ! command -v readelf >/dev/null 2>&1; then
+    echo "SKIP: ELF arch assertion for ${path} (missing readelf)"
+    return
+  fi
+  local actual
+  actual="$(elf_arch "$path")"
+  [[ -n "${actual}" ]] || fail "could not determine ELF architecture: $path"
+  [[ "${actual}" == "${expected}" ]] ||
+    fail "ELF architecture mismatch for $path: expected ${expected}, got ${actual}"
+}
+
+assert_appdir_elf_arches() {
+  local appdir="$1"
+  local expected="$2"
+  if ! command -v readelf >/dev/null 2>&1; then
+    echo "SKIP: AppDir ELF arch assertion for ${appdir} (missing readelf)"
+    return
+  fi
+  local checked=0
+  while IFS= read -r -d '' path; do
+    local actual
+    actual="$(elf_arch "$path")"
+    if [[ -z "${actual}" ]]; then
+      continue
+    fi
+    checked=$((checked + 1))
+    [[ "${actual}" == "${expected}" ]] ||
+      fail "staged ELF architecture mismatch for $path: expected ${expected}, got ${actual}"
+  done < <(find "${appdir}/usr/bin" "${appdir}/usr/lib" -type f -print0 2>/dev/null || true)
+  [[ "${checked}" -gt 0 ]] || fail "no ELF files inspected in ${appdir}"
+}
+
 APPIMAGETOOL_CACHE="${WORK_DIR}/tool-cache"
 APPIMAGETOOL="${APPIMAGETOOL_CACHE}/appimagetool-$(appimagetool_arch).AppImage"
 HOST_APPIMAGE_ARCH="$(appimagetool_arch)"
+HOST_DEB_ARCH="$(deb_arch_for_appimage_arch "${HOST_APPIMAGE_ARCH}")"
+HOST_LINUX_TRIPLET="$(linux_triplet_for_appimage_arch "${HOST_APPIMAGE_ARCH}")"
 
 MAIN_SCRIPT="${WORK_DIR}/main.nut"
 cat >"${MAIN_SCRIPT}" <<'EOF'
@@ -112,6 +177,8 @@ printf 'stat target\n' >"${WORK_DIR}/stat-target.txt"
 assert_contains "${WORK_DIR}/modules.out" "sqgipkg module tests passed"
 pass "module-level sqgipkg tests"
 
+export SQGI_SOURCE_DIR="${ROOT_DIR}"
+
 HELP_OUT="${WORK_DIR}/help.out"
 run_sqgipkg --help >"${HELP_OUT}"
 assert_contains "${HELP_OUT}" "Usage:"
@@ -121,6 +188,8 @@ assert_contains "${HELP_OUT}" "Application Options:"
 assert_contains "${HELP_OUT}" "--help-gapplication"
 assert_contains "${HELP_OUT}" "--resource=PATH"
 assert_contains "${HELP_OUT}" "--refresh-appimagetool"
+assert_contains "${HELP_OUT}" "--sqgi-source=DIR"
+assert_contains "${HELP_OUT}" "--sqgi-source-repo=URL"
 assert_contains "${HELP_OUT}" "--appimage-arch=ARCH"
 assert_contains "${HELP_OUT}" "--linux-arch=ARCH"
 assert_contains "${HELP_OUT}" "--linux-deb-package=PACKAGE"
@@ -128,6 +197,7 @@ assert_contains "${HELP_OUT}" "--linux-package=PACKAGE"
 assert_contains "${HELP_OUT}" "--linux-deb-download"
 assert_contains "${HELP_OUT}" "--linux-deb-package-cache=DIR"
 assert_contains "${HELP_OUT}" "--no-linux-deb-download"
+assert_contains "${HELP_OUT}" "linux-sysroot"
 assert_contains "${HELP_OUT}" "--script-dir=DIR"
 assert_contains "${HELP_OUT}" "--no-compile-scripts"
 assert_contains "${HELP_OUT}" "--file=SPEC"
@@ -196,6 +266,8 @@ APPIMAGE="${OUT_DIR}/Squrl.AppImage"
 assert_executable "${APPIMAGETOOL}"
 assert_executable "${APPDIR}/AppRun"
 assert_executable "${APPIMAGE}"
+assert_elf_arch "${APPIMAGE}" "${HOST_APPIMAGE_ARCH}"
+assert_appdir_elf_arches "${APPDIR}" "${HOST_APPIMAGE_ARCH}"
 assert_file "${APPDIR}/usr/share/sqgi/app/main.nut"
 assert_file "${APPDIR}/usr/share/sqgi/app/main.cnut"
 assert_file "${APPDIR}/usr/share/sqgi/app/helper.nut"
@@ -255,6 +327,8 @@ THEME_OUT="${WORK_DIR}/theme-out"
     >"${WORK_DIR}/theme-package.out"
 )
 THEME_APPDIR="${THEME_OUT}/ThemeProject.AppDir"
+assert_elf_arch "${THEME_OUT}/ThemeProject.AppImage" "${HOST_APPIMAGE_ARCH}"
+assert_appdir_elf_arches "${THEME_APPDIR}" "${HOST_APPIMAGE_ARCH}"
 assert_file "${THEME_APPDIR}/usr/share/themes/TestTheme/index.theme"
 assert_file "${THEME_APPDIR}/usr/etc/gtk-4.0/settings.ini"
 assert_file "${THEME_APPDIR}/usr/etc/gtk-3.0/settings.ini"
@@ -306,6 +380,8 @@ run_sqgipkg "${IMPLICIT_PROJECT}/main.nut" \
   --keep-appdir \
   >"${WORK_DIR}/implicit-package.out"
 IMPLICIT_APPDIR="${IMPLICIT_OUT}/ImplicitImports.AppDir"
+assert_elf_arch "${IMPLICIT_OUT}/ImplicitImports.AppImage" "${HOST_APPIMAGE_ARCH}"
+assert_appdir_elf_arches "${IMPLICIT_APPDIR}" "${HOST_APPIMAGE_ARCH}"
 assert_file "${IMPLICIT_APPDIR}/usr/share/sqgi/app/main.cnut"
 assert_file "${IMPLICIT_APPDIR}/usr/share/sqgi/app/lib/helper.cnut"
 assert_file "${IMPLICIT_APPDIR}/usr/share/sqgi/app/lib/helper.nut"
@@ -327,6 +403,7 @@ EOF
     >"${WORK_DIR}/default-project-package.out"
 )
 assert_file "${DEFAULT_PROJECT}/dist/default-project.AppImage"
+assert_elf_arch "${DEFAULT_PROJECT}/dist/default-project.AppImage" "${HOST_APPIMAGE_ARCH}"
 run_appimage "${DEFAULT_PROJECT}/dist/default-project.AppImage" >"${WORK_DIR}/default-project-run.out"
 assert_contains "${WORK_DIR}/default-project-run.out" "default project packaged"
 pass "default project packaging"
@@ -341,6 +418,7 @@ PATH="${BUILD_DIR}:${PATH}" LD_LIBRARY_PATH="${BUILD_DIR}${LD_LIBRARY_PATH:+:${L
     --keep-appdir \
     >"${WORK_DIR}/direct.out"
 assert_executable "${WORK_DIR}/direct/DemoPathsDirect.AppImage"
+assert_elf_arch "${WORK_DIR}/direct/DemoPathsDirect.AppImage" "${HOST_APPIMAGE_ARCH}"
 pass "direct shebang execution with real appimagetool"
 
 DEMO_PATHS_OUT="${WORK_DIR}/demo-paths"
@@ -353,6 +431,7 @@ run_sqgipkg "${ROOT_DIR}/demo/glib/paths_env.nut" \
   >"${WORK_DIR}/demo-paths-package.out"
 
 run_appimage "${DEMO_PATHS_OUT}/DemoPaths.AppImage" >"${WORK_DIR}/demo-paths-run.out"
+assert_elf_arch "${DEMO_PATHS_OUT}/DemoPaths.AppImage" "${HOST_APPIMAGE_ARCH}"
 assert_contains "${WORK_DIR}/demo-paths-run.out" "== well-known directories =="
 assert_contains "${WORK_DIR}/demo-paths-run.out" "== PATH lookup =="
 pass "real AppImage for demo/glib/paths_env.nut"
@@ -367,6 +446,7 @@ run_sqgipkg "${ROOT_DIR}/demo/gio/stat.nut" \
   >"${WORK_DIR}/demo-stat-package.out"
 
 run_appimage "${DEMO_STAT_OUT}/DemoStat.AppImage" "${WORK_DIR}/stat-target.txt" >"${WORK_DIR}/demo-stat-run.out"
+assert_elf_arch "${DEMO_STAT_OUT}/DemoStat.AppImage" "${HOST_APPIMAGE_ARCH}"
 assert_contains "${WORK_DIR}/demo-stat-run.out" "path: ${WORK_DIR}/stat-target.txt"
 assert_contains "${WORK_DIR}/demo-stat-run.out" "standard::name"
 pass "real AppImage for demo/gio/stat.nut"
@@ -404,6 +484,32 @@ assert_contains "${WORK_DIR}/manifest-files-doctor.out" "Doctor: OK"
 assert_contains "${WORK_DIR}/manifest-files-doctor.out" "OK: compiles entry script"
 pass "manifest doctor"
 
+LINT_PROJECT="${WORK_DIR}/manifest-lint"
+mkdir -p "${LINT_PROJECT}"
+cat >"${LINT_PROJECT}/main.nut" <<'EOF'
+print("manifest lint\n")
+EOF
+cat >"${LINT_PROJECT}/sqgipkg.json" <<'EOF'
+{
+  "script": "main.nut",
+  "name": "ManifestLint",
+  "linux": {
+    "arches": [
+      "x86_64",
+      "x86_64"
+    ]
+  }
+}
+EOF
+if run_sqgipkg \
+  --manifest "${LINT_PROJECT}/sqgipkg.json" \
+  --doctor \
+  >"${WORK_DIR}/manifest-lint-doctor.out" 2>&1; then
+  fail "duplicate linux.arches doctor unexpectedly succeeded"
+fi
+assert_contains "${WORK_DIR}/manifest-lint-doctor.out" "duplicate linux.arches target: x86_64"
+pass "manifest doctor catches duplicate Linux arch entries"
+
 MANIFEST_FILES_OUT="${WORK_DIR}/manifest-files"
 run_sqgipkg \
   --manifest "${MANIFEST_APP_DIR}/sqgipkg.json" \
@@ -414,6 +520,8 @@ run_sqgipkg \
 
 assert_file "${MANIFEST_FILES_OUT}/ManifestFiles.AppDir/usr/share/sqgi/app/main.cnut"
 assert_file "${MANIFEST_FILES_OUT}/ManifestFiles.AppDir/usr/share/sqgi/app/manual/payload.txt"
+assert_elf_arch "${MANIFEST_FILES_OUT}/ManifestFiles.AppImage" "${HOST_APPIMAGE_ARCH}"
+assert_appdir_elf_arches "${MANIFEST_FILES_OUT}/ManifestFiles.AppDir" "${HOST_APPIMAGE_ARCH}"
 run_appimage "${MANIFEST_FILES_OUT}/ManifestFiles.AppImage" >"${WORK_DIR}/manifest-files-run.out"
 assert_contains "${WORK_DIR}/manifest-files-run.out" "manual payload: manifest file works"
 pass "manifest files payload"
@@ -422,22 +530,22 @@ LINUX_PKG_PROJECT="${WORK_DIR}/linux-pkg-project"
 LINUX_PKG_ROOT="${WORK_DIR}/linux-pkg-root"
 LINUX_PKG_BIN="${WORK_DIR}/linux-pkg-bin"
 mkdir -p "${LINUX_PKG_PROJECT}" \
-  "${LINUX_PKG_ROOT}/usr/lib/x86_64-linux-gnu" \
+  "${LINUX_PKG_ROOT}/usr/lib/${HOST_LINUX_TRIPLET}" \
   "${LINUX_PKG_ROOT}/usr/share/fakepkg" \
   "${LINUX_PKG_ROOT}/usr/include" \
   "${LINUX_PKG_BIN}"
 cat >"${LINUX_PKG_PROJECT}/main.nut" <<'EOF'
 print("linux package staging\n")
 EOF
-printf 'fake shared library\n' >"${LINUX_PKG_ROOT}/usr/lib/x86_64-linux-gnu/libfakepkg.so.1"
+printf 'fake shared library\n' >"${LINUX_PKG_ROOT}/usr/lib/${HOST_LINUX_TRIPLET}/libfakepkg.so.1"
 printf 'fake data\n' >"${LINUX_PKG_ROOT}/usr/share/fakepkg/data.txt"
 printf 'not runtime\n' >"${LINUX_PKG_ROOT}/usr/include/fakepkg.h"
 cat >"${LINUX_PKG_BIN}/dpkg-query" <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
-if [[ "\${1:-}" == "-L" && "\${2:-}" == "fakepkg:amd64" ]]; then
+if [[ "\${1:-}" == "-L" && "\${2:-}" == "fakepkg:${HOST_DEB_ARCH}" ]]; then
   printf '%s\n' \\
-    "/usr/lib/x86_64-linux-gnu/libfakepkg.so.1" \\
+    "/usr/lib/${HOST_LINUX_TRIPLET}/libfakepkg.so.1" \\
     "/usr/share/fakepkg/data.txt" \\
     "/usr/include/fakepkg.h"
   exit 0
@@ -459,23 +567,50 @@ PATH="${LINUX_PKG_BIN}:${PATH}" run_sqgipkg \
 assert_file "${LINUX_PKG_OUT}/LinuxPkg.AppDir/usr/lib/libfakepkg.so.1"
 assert_file "${LINUX_PKG_OUT}/LinuxPkg.AppDir/usr/share/fakepkg/data.txt"
 assert_not_file "${LINUX_PKG_OUT}/LinuxPkg.AppDir/usr/include/fakepkg.h"
-assert_contains "${WORK_DIR}/linux-pkg-package.out" "copied 2 file(s) from fakepkg:amd64"
+assert_elf_arch "${LINUX_PKG_OUT}/LinuxPkg.AppImage" "${HOST_APPIMAGE_ARCH}"
+assert_appdir_elf_arches "${LINUX_PKG_OUT}/LinuxPkg.AppDir" "${HOST_APPIMAGE_ARCH}"
+assert_contains "${WORK_DIR}/linux-pkg-package.out" "copied 2 file(s) from fakepkg:${HOST_DEB_ARCH}"
 pass "Linux Debian package runtime staging"
 
-if [[ "${HOST_APPIMAGE_ARCH}" != "aarch64" ]]; then
-  CROSS_MISSING_PROJECT="${WORK_DIR}/cross-missing-project"
-  mkdir -p "${CROSS_MISSING_PROJECT}/empty-root" "${CROSS_MISSING_PROJECT}/build-aarch64"
-  cat >"${CROSS_MISSING_PROJECT}/main.nut" <<'EOF'
+CROSS_APPIMAGE_ARCH="aarch64"
+if [[ "${HOST_APPIMAGE_ARCH}" == "aarch64" ]]; then
+  CROSS_APPIMAGE_ARCH="x86_64"
+fi
+CROSS_DEB_ARCH="$(deb_arch_for_appimage_arch "${CROSS_APPIMAGE_ARCH}")"
+LINUX_SYSROOT_TARGET_ROOT="${WORK_DIR}/linux-sysroot-explicit"
+LINUX_SYSROOT_OUT="${WORK_DIR}/linux-sysroot-out"
+mkdir -p "${LINUX_SYSROOT_TARGET_ROOT}"
+run_sqgipkg \
+  --target linux-sysroot \
+  --name LinuxSysrootProbe \
+  --appimage-arch "${CROSS_APPIMAGE_ARCH}" \
+  --linux-sysroot "${LINUX_SYSROOT_TARGET_ROOT}" \
+  --output "${LINUX_SYSROOT_OUT}" \
+  >"${WORK_DIR}/linux-sysroot.out"
+assert_file "${LINUX_SYSROOT_OUT}/_cross/${CROSS_APPIMAGE_ARCH}/toolchain-${CROSS_APPIMAGE_ARCH}.cmake"
+assert_file "${LINUX_SYSROOT_OUT}/_cross/${CROSS_APPIMAGE_ARCH}/${CROSS_APPIMAGE_ARCH}.ini"
+assert_contains "${WORK_DIR}/linux-sysroot.out" "Linux sysroot ready"
+assert_contains "${WORK_DIR}/linux-sysroot.out" "target arch: ${CROSS_APPIMAGE_ARCH}"
+assert_contains "${WORK_DIR}/linux-sysroot.out" "Debian arch: ${CROSS_DEB_ARCH}"
+assert_contains "${WORK_DIR}/linux-sysroot.out" "target triplet: $(linux_triplet_for_appimage_arch "${CROSS_APPIMAGE_ARCH}")"
+assert_contains "${WORK_DIR}/linux-sysroot.out" "sysroot: ${LINUX_SYSROOT_TARGET_ROOT}"
+assert_contains "${WORK_DIR}/linux-sysroot.out" "SQGI_LINUX_SYSROOT=${LINUX_SYSROOT_TARGET_ROOT}"
+assert_contains "${LINUX_SYSROOT_OUT}/_cross/${CROSS_APPIMAGE_ARCH}/toolchain-${CROSS_APPIMAGE_ARCH}.cmake" "$(linux_triplet_for_appimage_arch "${CROSS_APPIMAGE_ARCH}")-gcc"
+pass "Linux sysroot target writes cross build files"
+
+CROSS_MISSING_PROJECT="${WORK_DIR}/cross-missing-project"
+mkdir -p "${CROSS_MISSING_PROJECT}/empty-root" "${CROSS_MISSING_PROJECT}/build-${CROSS_APPIMAGE_ARCH}"
+cat >"${CROSS_MISSING_PROJECT}/main.nut" <<'EOF'
 local Gtk = import("Gtk", "4.0")
 local Gst = import("Gst")
 print("cross preflight should stop before build\n")
 EOF
-  cat >"${CROSS_MISSING_PROJECT}/sqgipkg.json" <<'EOF'
+cat >"${CROSS_MISSING_PROJECT}/sqgipkg.json" <<EOF
 {
   "script": "main.nut",
   "name": "CrossMissing",
-  "appimage_arch": "aarch64",
-  "build_dir": "build-aarch64",
+  "appimage_arch": "${CROSS_APPIMAGE_ARCH}",
+  "build_dir": "build-${CROSS_APPIMAGE_ARCH}",
   "linux": {
     "sysroot": "empty-root",
     "build": [
@@ -484,30 +619,34 @@ EOF
   }
 }
 EOF
-  set +e
-  run_sqgipkg \
-    --manifest "${CROSS_MISSING_PROJECT}/sqgipkg.json" \
-    --target appimage \
-    >"${WORK_DIR}/cross-missing-package.out" 2>&1
-  CROSS_MISSING_STATUS=$?
-  set -e
-  [[ ${CROSS_MISSING_STATUS} -ne 0 ]] || fail "expected missing aarch64 build requirements to fail"
-  assert_contains "${WORK_DIR}/cross-missing-package.out" "missing Linux aarch64 build requirements"
-  assert_contains "${WORK_DIR}/cross-missing-package.out" "PKG_CONFIG_LIBDIR"
-  assert_contains "${WORK_DIR}/cross-missing-package.out" "glib-2.0"
-  assert_contains "${WORK_DIR}/cross-missing-package.out" "gtk4"
-  assert_contains "${WORK_DIR}/cross-missing-package.out" "gstreamer-1.0"
-  assert_contains "${WORK_DIR}/cross-missing-package.out" "libglib2.0-dev:arm64"
-  assert_contains "${WORK_DIR}/cross-missing-package.out" "libgtk-4-dev:arm64"
-  assert_not_contains "${WORK_DIR}/cross-missing-package.out" "should-not-run"
-  if grep -Fq "Apt cannot currently see" "${WORK_DIR}/cross-missing-package.out"; then
+set +e
+run_sqgipkg \
+  --manifest "${CROSS_MISSING_PROJECT}/sqgipkg.json" \
+  --target appimage \
+  --output "${WORK_DIR}/cross-missing-out" \
+  >"${WORK_DIR}/cross-missing-package.out" 2>&1
+CROSS_MISSING_STATUS=$?
+set -e
+[[ ${CROSS_MISSING_STATUS} -ne 0 ]] || fail "expected missing ${CROSS_APPIMAGE_ARCH} build requirements to fail"
+assert_contains "${WORK_DIR}/cross-missing-package.out" "missing Linux ${CROSS_APPIMAGE_ARCH} build requirements"
+assert_contains "${WORK_DIR}/cross-missing-package.out" "PKG_CONFIG_SYSROOT_DIR"
+assert_contains "${WORK_DIR}/cross-missing-package.out" "PKG_CONFIG_LIBDIR"
+assert_contains "${WORK_DIR}/cross-missing-package.out" "glib-2.0"
+assert_contains "${WORK_DIR}/cross-missing-package.out" "gtk4"
+assert_contains "${WORK_DIR}/cross-missing-package.out" "gstreamer-1.0"
+assert_contains "${WORK_DIR}/cross-missing-package.out" "libglib2.0-dev:${CROSS_DEB_ARCH}"
+assert_contains "${WORK_DIR}/cross-missing-package.out" "libgtk-4-dev:${CROSS_DEB_ARCH}"
+assert_not_contains "${WORK_DIR}/cross-missing-package.out" "should-not-run"
+if grep -Fq "Apt cannot currently see" "${WORK_DIR}/cross-missing-package.out"; then
+  if [[ "${CROSS_DEB_ARCH}" == "arm64" ]]; then
     assert_contains "${WORK_DIR}/cross-missing-package.out" "ports.ubuntu.com"
     assert_contains "${WORK_DIR}/cross-missing-package.out" "ubuntu-arm64.sources"
+  elif [[ "${CROSS_DEB_ARCH}" == "amd64" ]]; then
+    assert_contains "${WORK_DIR}/cross-missing-package.out" "archive.ubuntu.com"
+    assert_contains "${WORK_DIR}/cross-missing-package.out" "ubuntu-amd64.sources"
   fi
-  pass "Linux cross build preflight reports missing target packages"
-else
-  echo "SKIP: Linux cross build preflight missing-package test on aarch64 host"
 fi
+pass "Linux cross build preflight reports missing target packages"
 
 NATIVE_ENTRY_PROJECT="${WORK_DIR}/native-entry-project"
 mkdir -p "${NATIVE_ENTRY_PROJECT}/build-native"
@@ -567,6 +706,8 @@ if command -v meson >/dev/null 2>&1 &&
   assert_file "${NATIVE_ENTRY_PROJECT_OUT}/NativeEntryProject.AppDir/usr/bin/sq-native-entry"
   assert_not_file "${NATIVE_ENTRY_PROJECT_OUT}/NativeEntryProject.AppDir/usr/bin/sqgi"
   assert_file "${NATIVE_ENTRY_PROJECT_OUT}/NativeEntryProject.AppDir/usr/share/sqgi/app/payload.cnut"
+  assert_elf_arch "${NATIVE_ENTRY_PROJECT_OUT}/NativeEntryProject.AppImage" "${HOST_APPIMAGE_ARCH}"
+  assert_appdir_elf_arches "${NATIVE_ENTRY_PROJECT_OUT}/NativeEntryProject.AppDir" "${HOST_APPIMAGE_ARCH}"
   assert_contains "${WORK_DIR}/native-entry-project-package.out" "native entry project ran"
   assert_contains "${WORK_DIR}/native-entry-project-package.out" "arg: project-arg"
   assert_contains "${WORK_DIR}/native-entry-project-package.out" "payload:"
@@ -630,11 +771,7 @@ cat >"${WIN_PROJECT}/sqgipkg.json" <<EOF
     "copy_dependencies": false,
     "arches": [
       {
-        "arch": "x86_64",
-        "build_dir": "${BUILD_DIR}"
-      },
-      {
-        "arch": "arm64",
+        "arch": "${HOST_APPIMAGE_ARCH}",
         "build_dir": "${BUILD_DIR}"
       }
     ]
@@ -790,14 +927,12 @@ run_sqgipkg \
   --appimagetool "${APPIMAGETOOL}" \
   --nsis definitely-not-makensis \
   >"${WORK_DIR}/win-all-package.out"
-assert_file "${WIN_ALL_OUT}-linux-x86_64/WinSqurl.AppImage"
-assert_file "${WIN_ALL_OUT}-linux-aarch64/WinSqurl.AppImage"
+assert_file "${WIN_ALL_OUT}-linux-${HOST_APPIMAGE_ARCH}/WinSqurl.AppImage"
 assert_file "${WIN_ALL_OUT}-windows/WinSqurl/WinSqurl.bat"
 assert_file "${WIN_ALL_OUT}-windows/WinSqurl.nsi"
 assert_contains "${WORK_DIR}/win-all-package.out" "building all distribution targets"
-assert_contains "${WORK_DIR}/win-all-package.out" "appimage arch: x86_64"
-assert_contains "${WORK_DIR}/win-all-package.out" "appimage arch: aarch64"
-pass "all target builds x86_64/aarch64 AppImages and Windows NSIS"
+assert_contains "${WORK_DIR}/win-all-package.out" "appimage arch: ${HOST_APPIMAGE_ARCH}"
+pass "all target builds native AppImage and Windows NSIS"
 
 WIN_REPO_PROJECT="${WORK_DIR}/win-repo-project"
 WIN_REPO_BUILD="${WIN_REPO_PROJECT}/win-build"
@@ -939,6 +1074,8 @@ if command -v meson >/dev/null 2>&1 &&
 
   assert_file "${NATIVE_OUT}/NativeGI.AppDir/usr/lib/libsqhello-1.0.so"
   assert_file "${NATIVE_OUT}/NativeGI.AppDir/usr/lib/girepository-1.0/SqHello-1.0.typelib"
+  assert_elf_arch "${NATIVE_OUT}/NativeGI.AppImage" "${HOST_APPIMAGE_ARCH}"
+  assert_appdir_elf_arches "${NATIVE_OUT}/NativeGI.AppDir" "${HOST_APPIMAGE_ARCH}"
   assert_contains "${WORK_DIR}/native-gi-package.out" "native projects: 1"
   assert_contains "${WORK_DIR}/native-gi-package.out" "shared libraries:"
   assert_contains "${WORK_DIR}/native-gi-package.out" "recursively resolved Linux ELF"
@@ -958,12 +1095,15 @@ if command -v meson >/dev/null 2>&1 &&
     --manifest "${ROOT_DIR}/tools/sqgipkg_tests/native_vala_project/sqgipkg.json" \
     --output "${NATIVE_VALA_OUT}" \
     --appimagetool "${APPIMAGETOOL}" \
+    --no-linux-deb-download \
     --keep-appdir \
     --smoke-test "" \
     >"${WORK_DIR}/native-vala-package.out"
 
   assert_file "${NATIVE_VALA_OUT}/NativeVala.AppDir/usr/lib/libsqvala-1.0.so"
   assert_file "${NATIVE_VALA_OUT}/NativeVala.AppDir/usr/lib/girepository-1.0/SqVala-1.0.typelib"
+  assert_elf_arch "${NATIVE_VALA_OUT}/NativeVala.AppImage" "${HOST_APPIMAGE_ARCH}"
+  assert_appdir_elf_arches "${NATIVE_VALA_OUT}/NativeVala.AppDir" "${HOST_APPIMAGE_ARCH}"
   assert_contains "${WORK_DIR}/native-vala-package.out" "native projects: 1"
   assert_contains "${WORK_DIR}/native-vala-package.out" "shared libraries:"
   assert_contains "${WORK_DIR}/native-vala-package.out" "recursively resolved Linux ELF"
@@ -984,6 +1124,8 @@ run_sqgipkg \
   >"${WORK_DIR}/manifest-image-viewer-package.out"
 
 assert_file "${MANIFEST_DEMO_OUT}/ImageViewer.AppDir/usr/share/sqgi/app/resources/assets/blaue_blume_600.jpg"
+assert_elf_arch "${MANIFEST_DEMO_OUT}/ImageViewer.AppImage" "${HOST_APPIMAGE_ARCH}"
+assert_appdir_elf_arches "${MANIFEST_DEMO_OUT}/ImageViewer.AppDir" "${HOST_APPIMAGE_ARCH}"
 run_appimage "${MANIFEST_DEMO_OUT}/ImageViewer.AppImage" --timeout=1 >"${WORK_DIR}/manifest-image-viewer-run.out"
 assert_contains "${WORK_DIR}/manifest-image-viewer-run.out" "image_viewer: loaded"
 assert_contains "${WORK_DIR}/manifest-image-viewer-run.out" "resources/assets/blaue_blume_600.jpg"
@@ -998,6 +1140,8 @@ run_sqgipkg \
   >"${WORK_DIR}/gtk-themes-package.out"
 
 assert_file "${GTK_THEMES_OUT}/GtkWidgetThemes.AppDir/usr/share/themes/SQGI-Violet-Dark/gtk-4.0/gtk.css"
+assert_elf_arch "${GTK_THEMES_OUT}/GtkWidgetThemes.AppImage" "${HOST_APPIMAGE_ARCH}"
+assert_appdir_elf_arches "${GTK_THEMES_OUT}/GtkWidgetThemes.AppDir" "${HOST_APPIMAGE_ARCH}"
 assert_contains "${GTK_THEMES_OUT}/GtkWidgetThemes.AppDir/usr/etc/gtk-4.0/settings.ini" "gtk-theme-name=SQGI-Violet-Dark"
 assert_contains "${GTK_THEMES_OUT}/GtkWidgetThemes.AppDir/AppRun" 'APPDIR'
 run_appimage "${GTK_THEMES_OUT}/GtkWidgetThemes.AppImage" --auto >"${WORK_DIR}/gtk-themes-run.out" 2>&1

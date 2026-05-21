@@ -43,3 +43,8 @@ sqgipkg --target win-dir
 `sqgipkg` will prepare the MSYS2 sysroot/cross files when Windows packages are
 declared. This example has no external runtime packages, so it only needs the
 MinGW compiler and generated Meson cross file.
+
+The Linux manifest also has x86_64 and aarch64 arch entries. On a cross-arch
+host, `sqgipkg` builds the native executable in an arch-specific Meson build
+directory and can run the AppDir smoke test through QEMU user-mode when
+`qemu-user-binfmt` is installed.

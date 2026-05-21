@@ -14,10 +14,10 @@ Run from the repository root:
 build/sqgi tools/sqgipkg_tests/gtk_gst_overlay_project/main.nut --timeout=5
 ```
 
-Or from this directory:
+Or from this directory, using Git to find the checkout root:
 
 ```sh
-../../../build/sqgi main.nut --timeout=5
+"$(git rev-parse --show-toplevel)/build/sqgi" main.nut --timeout=5
 ```
 
 Build the default Linux AppImage:
@@ -59,16 +59,21 @@ If you build every supported target with `sqgipkg --target all`, the Linux
 AppImages are written under `dist-linux-x86_64/` and `dist-linux-aarch64/`,
 and the Windows packaging output is written under `dist-windows/`.
 
-The aarch64 entry uses sqgipkg's generated Linux CMake toolchain path via
-`SQGI_LINUX_CMAKE_TOOLCHAIN`, so the manifest does not need a checked-in
-cross-file. Each Linux arch entry enables `deb.download` and lists its Debian
+Each Linux arch entry uses sqgipkg's generated Linux CMake toolchain path via
+`SQGI_LINUX_CMAKE_TOOLCHAIN` when the target is not the host architecture, so
+the manifest does not need checked-in cross files and works from either arm64 or
+x86_64 hosts. Each Linux arch entry enables `deb.download` and lists its Debian
 runtime packages, so both x86_64 and aarch64 builds populate private sysroots
 in the per-user `~/.cache/sqgipkg/linux-sysroots/` cache instead of requiring
 GTK/GStreamer target packages to be installed on the host or re-extracted for
-every project. The host still needs any compiler toolchain required to build
-that target, such as `aarch64-linux-gnu-gcc` and `aarch64-linux-gnu-g++` for the
-aarch64 entry. The Debian backend also needs apt package indexes for each target
-Debian architecture it downloads, for example `amd64` and `arm64`.
+every project. The host still needs any compiler toolchain required to build a
+non-native target, such as `x86_64-linux-gnu-gcc`/`g++` from an arm64 host or
+`aarch64-linux-gnu-gcc`/`g++` from an x86_64 host.
+
+When `--smoke-test` is used for a non-native Linux arch, sqgipkg runs the
+staged AppDir through QEMU user-mode/binfmt with the matching private sysroot.
+Install `qemu-user-binfmt` to smoke-test x86_64 outputs on arm64 hosts or
+aarch64 outputs on x86_64 hosts.
 
 The manifest relies on sqgipkg's import scanner, so `main.nut` and its
 project-local `ball_state.nut` import are packaged without listing every module.

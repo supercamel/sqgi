@@ -18,7 +18,7 @@ settings files, and exports `GTK_THEME` from the generated `.bat` launcher.
 Run the demo directly from this directory:
 
 ```sh
-../../../build/sqgi main.nut --auto
+"$(git rev-parse --show-toplevel)/build/sqgi" main.nut --auto
 ```
 
 Build and smoke-test the Linux AppImage:
@@ -42,6 +42,8 @@ sqgipkg --target all --smoke-test "--auto"
 ```
 
 With the default AppImage target, outputs are written under `dist/`. With
-`--target all`, this manifest has no Linux architecture matrix, so the Linux
-AppImage is written under `dist-linux/` and Windows outputs are written under
-`dist-windows/`.
+`--target all`, the Linux AppImages are written under `dist-linux-x86_64/` and
+`dist-linux-aarch64/`, and Windows outputs are written under `dist-windows/`.
+Each Linux arch entry enables private Debian sysroot downloads, so arm64 and
+x86_64 hosts can build the opposite Linux target without installing target GTK
+packages into the host apt database.

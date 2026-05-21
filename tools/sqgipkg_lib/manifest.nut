@@ -39,6 +39,7 @@ class SqgiPkgManifest extends Base.SqgiPkgOptions {
         local output_dir = this.table_get(manifest, "output")
         local appimagetool = this.table_get(manifest, "appimagetool")
         local appimagetool_cache = this.table_get(manifest, "appimagetool_cache")
+        local sqgi_source = this.table_get(manifest, "sqgi_source")
         local refresh_appimagetool = this.table_get(manifest, "refresh_appimagetool")
         local appimage_arch = this.table_get(manifest, "appimage_arch")
         local keep_appdir = this.table_get(manifest, "keep_appdir")
@@ -61,6 +62,7 @@ class SqgiPkgManifest extends Base.SqgiPkgOptions {
         if (opts.appimagetool == "appimagetool" && appimagetool != null) opts.appimagetool = this.manifest_path(base_dir, appimagetool)
         if (opts.appimagetool_cache == this.default_appimagetool_cache_dir() && appimagetool_cache != null)
             opts.appimagetool_cache = this.manifest_path(base_dir, appimagetool_cache)
+        if (sqgi_source != null) this.apply_sqgi_source_manifest(opts, base_dir, sqgi_source)
         if (!opts.refresh_appimagetool && refresh_appimagetool != null) opts.refresh_appimagetool = refresh_appimagetool
         if (opts.appimage_arch == "" && appimage_arch != null) opts.appimage_arch = appimage_arch
         if (!opts.keep_appdir && keep_appdir != null) opts.keep_appdir = keep_appdir
@@ -88,6 +90,41 @@ class SqgiPkgManifest extends Base.SqgiPkgOptions {
         if (linux != null) this.apply_linux_manifest(opts, base_dir, linux)
         this.append_values(opts.linux.arches, this.manifest_linux_arches(base_dir, linux_arches))
         if (windows != null) this.apply_windows_manifest(opts, base_dir, windows)
+    }
+
+    function apply_sqgi_source_manifest(opts, base_dir, value) {
+        if (typeof(value) == "string") {
+            opts.sqgi_source.dir = this.manifest_path(base_dir, value)
+            return
+        }
+
+        if (typeof(value) != "table") this.fail("manifest sqgi_source entry must be a string or object")
+
+        local dir = this.table_get(value, "dir")
+        if (dir == null) dir = this.table_get(value, "path")
+        local repo = this.table_get(value, "repo")
+        if (repo == null) repo = this.table_get(value, "git")
+        local branch = this.table_get(value, "branch")
+        local tag = this.table_get(value, "tag")
+        local ref = this.table_get(value, "ref")
+        local commit = this.table_get(value, "commit")
+        local cache = this.table_get(value, "cache")
+        if (cache == null) cache = this.table_get(value, "cache_dir")
+        local update = this.table_get(value, "update")
+        local shallow = this.table_get(value, "shallow")
+        local submodules = this.table_get(value, "submodules")
+
+        if (ref == null && tag != null) ref = tag
+        if (ref == null && commit != null) ref = commit
+
+        if (dir != null) opts.sqgi_source.dir = this.manifest_path(base_dir, dir)
+        if (repo != null) opts.sqgi_source.repo = repo
+        if (branch != null) opts.sqgi_source.branch = branch
+        if (ref != null) opts.sqgi_source.ref = ref
+        if (cache != null) opts.sqgi_source.cache = this.manifest_path(base_dir, cache)
+        if (update != null) opts.sqgi_source.update = update
+        if (shallow != null) opts.sqgi_source.shallow = shallow
+        if (submodules != null) opts.sqgi_source.submodules = submodules
     }
 
     function apply_linux_manifest(opts, base_dir, linux) {
@@ -126,7 +163,8 @@ class SqgiPkgManifest extends Base.SqgiPkgOptions {
             opts.linux.deb.package_cache = this.manifest_path(base_dir, package_cache)
         if (opts.linux.deb.sysroot_cache == "" && sysroot_cache != null)
             opts.linux.deb.sysroot_cache = this.manifest_path(base_dir, sysroot_cache)
-        if (download_packages != null) opts.linux.deb.download = download_packages
+        if (download_packages != null && opts.linux.deb.download_forced == null)
+            opts.linux.deb.download = download_packages
         if (!opts.linux.deb.refresh && refresh_packages != null)
             opts.linux.deb.refresh = refresh_packages
         if (copy_dependencies != null) opts.linux.copy_dependencies = copy_dependencies
@@ -530,7 +568,7 @@ class SqgiPkgManifest extends Base.SqgiPkgOptions {
     }
 
     function validate_options(opts) {
-        if (opts.target == "win-sysroot") return
+        if (opts.target == "linux-sysroot" || opts.target == "win-sysroot") return
         if (opts.entry_type == "sqgi") {
             if (opts.script == "") this.fail("missing script")
             return

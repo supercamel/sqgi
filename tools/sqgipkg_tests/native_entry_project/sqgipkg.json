@@ -16,6 +16,42 @@
       ]
     }
   ],
+  "linux": {
+    "deb": {
+      "download": true,
+      "packages": [
+        "libc6"
+      ]
+    },
+    "arches": [
+      {
+        "arch": "x86_64",
+        "entry_linux": "native/build-x86_64/sq-native-entry",
+        "inherit_native_projects": false,
+        "native_projects": [
+          {
+            "dir": "native",
+            "build": [
+              "BUILD_DIR=build-x86_64 MESON_CROSS_FILE=\"$SQGI_LINUX_MESON_CROSS_FILE\" ./build.sh"
+            ]
+          }
+        ]
+      },
+      {
+        "arch": "aarch64",
+        "entry_linux": "native/build-aarch64/sq-native-entry",
+        "inherit_native_projects": false,
+        "native_projects": [
+          {
+            "dir": "native",
+            "build": [
+              "BUILD_DIR=build-aarch64 MESON_CROSS_FILE=\"$SQGI_LINUX_MESON_CROSS_FILE\" ./build.sh"
+            ]
+          }
+        ]
+      }
+    ]
+  },
   "windows": {
     "msys2_prefix": "mingw64",
     "build": [],

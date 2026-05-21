@@ -244,8 +244,22 @@ class SqgiPkgWindowsMsys2 extends Base.SqgiPkgWindowsEnv {
     }
 
     function normalize_package_entry(entry) {
-        while (entry.len() > 0 && entry.slice(0, 1) == "/")
-            entry = entry.slice(1)
+        local changed = true
+        while (changed) {
+            changed = false
+            while (entry.len() >= 3 && entry.slice(0, 3) == "/./") {
+                entry = entry.slice(3)
+                changed = true
+            }
+            while (entry.len() > 0 && entry.slice(0, 1) == "/") {
+                entry = entry.slice(1)
+                changed = true
+            }
+            while (entry.len() >= 2 && entry.slice(0, 2) == "./") {
+                entry = entry.slice(2)
+                changed = true
+            }
+        }
         return entry
     }
 
@@ -338,6 +352,7 @@ class SqgiPkgWindowsMsys2 extends Base.SqgiPkgWindowsEnv {
             local src = GLib.build_filenamev([opts.windows.msys2_root, this.normalize_package_entry(entry)])
             if (!this.path_exists(src)) continue
             this.copy_into_appdir(src, windir, dest, "MSYS2 package file")
+            this.report_windows_package_dest(opts, dest)
             copied++
         }
 
@@ -345,6 +360,36 @@ class SqgiPkgWindowsMsys2 extends Base.SqgiPkgWindowsEnv {
             this.report_warn(opts, "MSYS2 package had no selected runtime files: " + package_name)
         else
             this.info("copied " + copied + " runtime file(s) from MSYS2 package " + package_name)
+    }
+
+    function report_windows_package_dest(opts, dest_rel) {
+        dest_rel = this.relative_dest(dest_rel)
+        if (this.starts_with(dest_rel, GLib.build_filenamev(["lib", "gstreamer-1.0"]) + "/")) {
+            if (this.ends_with(dest_rel, ".dll")) this.report_inc(opts, "gstreamer_plugins")
+            return
+        }
+        if (this.starts_with(dest_rel, GLib.build_filenamev(["lib", "girepository-1.0"]) + "/")) {
+            if (this.ends_with(dest_rel, ".typelib")) this.report_inc(opts, "typelibs")
+            return
+        }
+        if (this.starts_with(dest_rel, GLib.build_filenamev(["share", "glib-2.0", "schemas"]) + "/")) {
+            if (this.ends_with(dest_rel, ".xml")) this.report_inc(opts, "gsettings_schemas")
+            return
+        }
+        if (this.starts_with(dest_rel, GLib.build_filenamev(["lib", "gio", "modules"]) + "/")) {
+            if (this.ends_with(dest_rel, ".dll")) this.report_inc(opts, "gio_modules")
+            return
+        }
+        if (this.starts_with(dest_rel, GLib.build_filenamev(["lib", "gdk-pixbuf-2.0"]) + "/")) {
+            if (this.ends_with(dest_rel, ".dll")) this.report_inc(opts, "gdk_pixbuf_loaders")
+            return
+        }
+        if (this.starts_with(dest_rel, GLib.build_filenamev(["share", "themes"]) + "/") ||
+                this.starts_with(dest_rel, GLib.build_filenamev(["share", "icons"]) + "/") ||
+                this.starts_with(dest_rel, GLib.build_filenamev(["share", "gtk-4.0"]) + "/") ||
+                this.starts_with(dest_rel, GLib.build_filenamev(["lib", "gtk-4.0"]) + "/")) {
+            this.report_inc(opts, "gtk_data")
+        }
     }
 
 
@@ -357,13 +402,19 @@ class SqgiPkgWindowsMsys2 extends Base.SqgiPkgWindowsEnv {
 
         local system = [
             "advapi32.dll", "bcrypt.dll", "cfgmgr32.dll", "comctl32.dll",
-            "comdlg32.dll", "crypt32.dll", "dwmapi.dll", "gdi32.dll",
-            "imm32.dll", "iphlpapi.dll", "kernel32.dll", "msvcrt.dll",
-            "ntdll.dll", "ole32.dll", "oleaut32.dll", "rpcrt4.dll",
-            "secur32.dll", "setupapi.dll", "shell32.dll", "shlwapi.dll",
-            "ucrtbase.dll", "urlmon.dll", "user32.dll", "userenv.dll",
-            "usp10.dll", "uuid.dll", "version.dll", "wininet.dll",
-            "winmm.dll", "winspool.drv", "ws2_32.dll", "wtsapi32.dll"
+            "comdlg32.dll", "crypt32.dll", "d3d11.dll", "d3d12.dll",
+            "dcomp.dll", "dbghelp.dll", "dnsapi.dll", "dsound.dll",
+            "dwmapi.dll", "dwrite.dll", "dxgi.dll", "gdi32.dll",
+            "gdiplus.dll", "glu32.dll", "hid.dll", "imm32.dll",
+            "iphlpapi.dll", "kernel32.dll", "msimg32.dll", "msvcrt.dll",
+            "mswsock.dll", "ncrypt.dll", "netapi32.dll", "ntdll.dll",
+            "ole32.dll", "oleaut32.dll", "opengl32.dll", "rpcrt4.dll",
+            "secur32.dll", "setupapi.dll", "shcore.dll", "shell32.dll",
+            "shlwapi.dll", "ucrtbase.dll", "urlmon.dll", "user32.dll",
+            "userenv.dll", "usp10.dll", "uuid.dll", "version.dll",
+            "wininet.dll", "winmm.dll", "winspool.drv", "wldap32.dll",
+            "ws2_32.dll", "wsock32.dll", "wtsapi32.dll",
+            "bcryptprimitives.dll"
         ]
         return this.array_contains(system, n)
     }
@@ -416,6 +467,45 @@ class SqgiPkgWindowsMsys2 extends Base.SqgiPkgWindowsEnv {
                 dlls.push(name)
         }
         return dlls
+    }
+
+    function windows_pe_arch(path) {
+        local tool = this.windows_objdump_tool()
+        local output = this.run_shell_output(this.shell_quote(tool) + " -f " + this.shell_quote(path))
+        if (output == null) return null
+
+        foreach (line in this.split_lines(output)) {
+            if (line.find("pei-x86-64") != null ||
+                    line.find("pe-x86-64") != null ||
+                    line.find("i386:x86-64") != null)
+                return "x86_64"
+            if (line.find("pei-i386") != null ||
+                    line.find("pe-i386") != null ||
+                    line.find("i386") != null)
+                return "i386"
+            if (line.find("pei-aarch64") != null ||
+                    line.find("pe-aarch64") != null ||
+                    line.find("AArch64") != null)
+                return "aarch64"
+        }
+
+        return null
+    }
+
+    function require_windows_pe_arch(path, expected_arch, label) {
+        local actual = this.windows_pe_arch(path)
+        if (actual == null) return
+
+        local expected = this.normalize_appimage_arch(expected_arch)
+        if (actual != expected) {
+            this.fail(label + " has PE architecture " + actual +
+                " but Windows target architecture is " + expected + ": " + path)
+        }
+    }
+
+    function verify_windows_binary_arches(opts, windir) {
+        foreach (path in this.windows_collect_binary_files(windir))
+            this.require_windows_pe_arch(path, "x86_64", "Windows binary")
     }
 
     function windows_collect_binary_files(windir) {

@@ -181,6 +181,7 @@ class SqgiPkgWindowsStaging extends Base.SqgiPkgWindowsMsys2 {
             entry_rel = this.copy_windows_native_entry(opts, windir)
         this.stage_windows_extra_files(opts, windir, staged_scripts)
         this.resolve_windows_dll_dependencies(opts, windir)
+        this.verify_windows_binary_arches(opts, windir)
         this.write_windows_gtk_settings(opts, windir)
         this.write_windows_launcher(opts, windir, package_name, entry_rel)
 

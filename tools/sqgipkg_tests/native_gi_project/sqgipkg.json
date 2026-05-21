@@ -1,8 +1,5 @@
 {
   "name": "NativeGI",
-  "script_dirs": [
-    "."
-  ],
   "native_projects": [
     {
       "dir": "native",
@@ -17,11 +14,67 @@
       ]
     }
   ],
+  "linux": {
+    "deb": {
+      "download": true
+    },
+    "arches": [
+      {
+        "arch": "x86_64",
+        "build_dir": "build-x86_64",
+        "inherit_native_projects": false,
+        "build": [
+          "cmake -E rm -rf \"$SQGI_LINUX_BUILD_DIR\"",
+          "cmake -S \"$SQGI_SOURCE_DIR\" -B \"$SQGI_LINUX_BUILD_DIR\" -G Ninja ${SQGI_LINUX_CMAKE_TOOLCHAIN:+-DCMAKE_TOOLCHAIN_FILE=\"$SQGI_LINUX_CMAKE_TOOLCHAIN\"} -DCMAKE_BUILD_TYPE=Release",
+          "cmake --build \"$SQGI_LINUX_BUILD_DIR\""
+        ],
+        "native_projects": [
+          {
+            "dir": "native",
+            "build": [
+              "BUILD_DIR=build-x86_64 MESON_CROSS_FILE=\"$SQGI_LINUX_MESON_CROSS_FILE\" ./build.sh"
+            ],
+            "libraries": [
+              "build-x86_64/libsqhello-1.0.so"
+            ],
+            "typelibs": [
+              "build-x86_64/SqHello-1.0.typelib"
+            ]
+          }
+        ]
+      },
+      {
+        "arch": "aarch64",
+        "build_dir": "build-aarch64",
+        "inherit_native_projects": false,
+        "build": [
+          "cmake -E rm -rf \"$SQGI_LINUX_BUILD_DIR\"",
+          "cmake -S \"$SQGI_SOURCE_DIR\" -B \"$SQGI_LINUX_BUILD_DIR\" -G Ninja ${SQGI_LINUX_CMAKE_TOOLCHAIN:+-DCMAKE_TOOLCHAIN_FILE=\"$SQGI_LINUX_CMAKE_TOOLCHAIN\"} -DCMAKE_BUILD_TYPE=Release",
+          "cmake --build \"$SQGI_LINUX_BUILD_DIR\""
+        ],
+        "native_projects": [
+          {
+            "dir": "native",
+            "build": [
+              "BUILD_DIR=build-aarch64 MESON_CROSS_FILE=\"$SQGI_LINUX_MESON_CROSS_FILE\" ./build.sh"
+            ],
+            "libraries": [
+              "build-aarch64/libsqhello-1.0.so"
+            ],
+            "typelibs": [
+              "build-aarch64/SqHello-1.0.typelib"
+            ]
+          }
+        ]
+      }
+    ]
+  },
   "windows": {
-    "msys2_prefix": "ucrt64",
+    "msys2_prefix": "mingw64",
     "build": [
-      "cmake -S ../../.. -B build-win -G Ninja -DCMAKE_TOOLCHAIN_FILE=\"$SQGI_WIN_CMAKE_TOOLCHAIN\" -DCMAKE_BUILD_TYPE=Release",
-      "cmake --build build-win"
+      "cmake -E rm -rf \"$SQGI_WINDOWS_BUILD_DIR\"",
+      "cmake -S \"$SQGI_SOURCE_DIR\" -B \"$SQGI_WINDOWS_BUILD_DIR\" -G Ninja -DCMAKE_TOOLCHAIN_FILE=\"$SQGI_WIN_CMAKE_TOOLCHAIN\" -DCMAKE_BUILD_TYPE=Release",
+      "cmake --build \"$SQGI_WINDOWS_BUILD_DIR\""
     ],
     "build_dir": "build-win",
     "native_projects": [

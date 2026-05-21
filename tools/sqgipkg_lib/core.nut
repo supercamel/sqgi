@@ -139,6 +139,21 @@ class SqgiPkgCore {
         return GLib.build_filenamev([GLib.get_user_cache_dir(), "sqgipkg", "tools"])
     }
 
+    function default_sqgi_source_repo() {
+        return "https://github.com/supercamel/sqgi.git"
+    }
+
+    function default_sqgi_source_cache_dir() {
+        return GLib.build_filenamev([GLib.get_user_cache_dir(), "sqgipkg", "sources"])
+    }
+
+    function command_list_contains(commands, needle) {
+        foreach (command in commands) {
+            if (command.find(needle) != null) return true
+        }
+        return false
+    }
+
     function machine_arch() {
         local tmp = GLib.build_filenamev([GLib.get_tmp_dir(), "sqgipkg-uname-" + GLib.get_monotonic_time()])
         local status = system("uname -m > " + this.shell_quote(tmp))
@@ -187,6 +202,33 @@ class SqgiPkgCore {
 
     function linux_arch_display_suffix(arch) {
         return this.normalize_appimage_arch(arch)
+    }
+
+    function elf_appimage_arch(path) {
+        if (!this.executable_available("readelf")) return null
+
+        local output = this.run_shell_output("readelf -h " + this.shell_quote(path))
+        if (output == null) return null
+
+        foreach (line in this.split_lines(output)) {
+            if (line.find("Machine:") == null) continue
+            if (line.find("AArch64") != null) return "aarch64"
+            if (line.find("X86-64") != null) return "x86_64"
+            if (line.find("80386") != null) return "i386"
+        }
+
+        return null
+    }
+
+    function require_elf_appimage_arch(path, expected_arch, label) {
+        local expected = this.normalize_appimage_arch(expected_arch)
+        local actual = this.elf_appimage_arch(path)
+        if (actual == null) return
+
+        if (actual != expected) {
+            this.fail(label + " has ELF architecture " + actual +
+                " but target AppImage architecture is " + expected + ": " + path)
+        }
     }
 
     function appimagetool_download_url() {
@@ -358,6 +400,8 @@ class SqgiPkgCore {
             gdk_pixbuf_loaders = 0,
             used_gtk = false,
             used_gst = false,
+            used_gdk_pixbuf = false,
+            used_soup = false,
             warnings = []
         }
     }

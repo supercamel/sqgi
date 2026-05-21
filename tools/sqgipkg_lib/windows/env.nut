@@ -267,6 +267,8 @@ class SqgiPkgWindowsEnv extends Base.SqgiPkgAppImage {
         if (!this.path_exists(prefix_dir))
             this.fail("Windows MSYS2 sysroot prefix not found: " + prefix_dir)
 
+        this.require_windows_cross_tools(opts)
+
         local toolchain = this.windows_cmake_toolchain_path(opts)
         local cross_file = this.windows_meson_cross_file_path(opts)
         this.write_windows_cmake_toolchain(opts, toolchain)
@@ -292,6 +294,51 @@ class SqgiPkgWindowsEnv extends Base.SqgiPkgAppImage {
         this.info("Windows cross sysroot: " + sysroot + " (" + opts.windows.msys2_prefix + ")")
         this.info("SQGI_WIN_CMAKE_TOOLCHAIN=" + GLib.getenv("SQGI_WIN_CMAKE_TOOLCHAIN"))
         this.info("SQGI_MESON_CROSS_FILE=" + GLib.getenv("SQGI_MESON_CROSS_FILE"))
+    }
+
+    function windows_cross_tool_names(opts) {
+        return [
+            "x86_64-w64-mingw32-gcc",
+            "x86_64-w64-mingw32-g++",
+            "x86_64-w64-mingw32-ar",
+            "x86_64-w64-mingw32-strip",
+            "x86_64-w64-mingw32-windres",
+            "x86_64-w64-mingw32-objdump"
+        ]
+    }
+
+    function windows_cross_tool_package_names(opts) {
+        return [
+            "gcc-mingw-w64-x86-64",
+            "g++-mingw-w64-x86-64",
+            "binutils-mingw-w64-x86-64"
+        ]
+    }
+
+    function require_windows_cross_tools(opts) {
+        if (this.is_windows_shell()) return
+
+        local needs_tools = opts.windows.build.len() > 0 ||
+            opts.windows.native_dependencies.len() > 0 ||
+            opts.windows.native_projects.len() > 0
+        if (!needs_tools) return
+
+        local missing = []
+        foreach (tool in this.windows_cross_tool_names(opts)) {
+            if (!this.executable_available(tool)) missing.push(tool)
+        }
+        if (missing.len() == 0) return
+
+        local message = "missing Windows x64 cross build tools for " +
+            opts.windows.msys2_prefix + "; refusing to run Windows build.\n"
+        message += "Missing tools:\n"
+        foreach (tool in missing)
+            message += "  - " + tool + "\n"
+        message += "\nOn Ubuntu, install the missing host build tools with:\n"
+        message += "  sudo apt install " + this.join_strings(this.windows_cross_tool_package_names(opts), " ") + "\n"
+        message += "The Windows target remains x64; these tools are required on both x86_64 and arm64 Linux hosts.\n"
+
+        this.fail(message)
     }
 
     function is_windows_shell() {
@@ -336,13 +383,13 @@ class SqgiPkgWindowsEnv extends Base.SqgiPkgAppImage {
         }
     }
 
-    function windows_env_prefix(opts) {
+    function windows_env_prefix(opts, include_source = false) {
         if (this.is_windows_shell()) return ""
 
         local sysroot = this.windows_sysroot_root(opts)
         local prefix_dir = this.windows_sysroot_prefix_dir(opts)
 
-        return this.shell_export("PKG_CONFIG_PATH", "") +
+        local env = this.shell_export("PKG_CONFIG_PATH", "") +
             this.shell_export("PKG_CONFIG_SYSROOT_DIR", sysroot) +
             this.shell_export("PKG_CONFIG_LIBDIR", prefix_dir + "/lib/pkgconfig:" + prefix_dir + "/share/pkgconfig") +
             this.shell_export("SQGI_WIN_CMAKE_TOOLCHAIN", GLib.getenv("SQGI_WIN_CMAKE_TOOLCHAIN")) +
@@ -352,10 +399,13 @@ class SqgiPkgWindowsEnv extends Base.SqgiPkgAppImage {
             this.shell_export("SQGI_WINDOWS_PREFIX", "/" + opts.windows.msys2_prefix) +
             this.shell_export("SQGI_WINDOWS_PREFIX_DIR", prefix_dir) +
             this.shell_export("SQGI_WINDOWS_SYSROOT_PREFIX", prefix_dir)
+        if (include_source)
+            env += this.shell_export("SQGI_SOURCE_DIR", this.ensure_sqgi_source(opts))
+        return env
     }
 
     function run_windows_shell_in_dir(opts, command, dir, description) {
-        this.run_shell_in_dir(this.windows_env_prefix(opts) + command, dir, description)
+        this.run_shell_in_dir(this.windows_env_prefix(opts, command.find("SQGI_SOURCE_DIR") != null) + command, dir, description)
     }
 
     function run_windows_build(opts) {
@@ -414,6 +464,7 @@ class SqgiPkgWindowsEnv extends Base.SqgiPkgAppImage {
     function copy_linux_native_entry(opts, appdir) {
         local src = this.abs_path(opts.entry_linux)
         if (!this.path_exists(src)) this.fail("native Linux entry not found: " + opts.entry_linux)
+        this.require_elf_appimage_arch(src, opts.appimage_arch, "native Linux entry")
 
         local name = this.basename(src)
         local dest_rel = GLib.build_filenamev(["usr", "bin", name])

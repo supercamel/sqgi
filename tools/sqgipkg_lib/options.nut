@@ -19,6 +19,16 @@ class SqgiPkgOptions extends Base.SqgiPkgCore {
             appimagetool_cache = this.default_appimagetool_cache_dir(),
             refresh_appimagetool = false,
             appimage_arch = "",
+            sqgi_source = {
+                dir = "",
+                repo = this.default_sqgi_source_repo(),
+                branch = "",
+                ref = "",
+                cache = this.default_sqgi_source_cache_dir(),
+                update = true,
+                shallow = false,
+                submodules = false
+            },
             linux = {
                 arches = [],
                 build = [],
@@ -28,6 +38,7 @@ class SqgiPkgOptions extends Base.SqgiPkgCore {
                     package_cache = "",
                     sysroot_cache = "",
                     download = false,
+                    download_forced = null,
                     refresh = false
                 },
                 library_dirs = [],
@@ -107,6 +118,12 @@ class SqgiPkgOptions extends Base.SqgiPkgCore {
             "--output", "-o",
             "--appimagetool",
             "--appimagetool-cache",
+            "--sqgi-source",
+            "--sqgi-source-dir",
+            "--sqgi-source-repo",
+            "--sqgi-source-branch",
+            "--sqgi-source-ref",
+            "--sqgi-source-cache",
             "--appimage-arch",
             "--linux-arch",
             "--linux-deb-package",
@@ -209,6 +226,18 @@ class SqgiPkgOptions extends Base.SqgiPkgCore {
         if (v != null) opts.appimagetool = v
         v = this.option_value(option_dict, "appimagetool-cache")
         if (v != null) opts.appimagetool_cache = v
+        v = this.option_value(option_dict, "sqgi-source")
+        if (v != null) opts.sqgi_source.dir = v
+        v = this.option_value(option_dict, "sqgi-source-dir")
+        if (v != null) opts.sqgi_source.dir = v
+        v = this.option_value(option_dict, "sqgi-source-repo")
+        if (v != null) opts.sqgi_source.repo = v
+        v = this.option_value(option_dict, "sqgi-source-branch")
+        if (v != null) opts.sqgi_source.branch = v
+        v = this.option_value(option_dict, "sqgi-source-ref")
+        if (v != null) opts.sqgi_source.ref = v
+        v = this.option_value(option_dict, "sqgi-source-cache")
+        if (v != null) opts.sqgi_source.cache = v
         v = this.option_value(option_dict, "appimage-arch")
         if (v != null) opts.appimage_arch = v
         v = this.option_value(option_dict, "linux-sysroot")
@@ -268,12 +297,24 @@ class SqgiPkgOptions extends Base.SqgiPkgCore {
 
         if (this.option_present(option_dict, "refresh-appimagetool")) opts.refresh_appimagetool = true
         if (this.option_present(option_dict, "no-linux-deps")) opts.linux.copy_dependencies = false
-        if (this.option_present(option_dict, "linux-deb-download")) opts.linux.deb.download = true
-        if (this.option_present(option_dict, "linux-download-packages")) opts.linux.deb.download = true
+        if (this.option_present(option_dict, "linux-deb-download")) {
+            opts.linux.deb.download = true
+            opts.linux.deb.download_forced = true
+        }
+        if (this.option_present(option_dict, "linux-download-packages")) {
+            opts.linux.deb.download = true
+            opts.linux.deb.download_forced = true
+        }
         if (this.option_present(option_dict, "refresh-linux-deb-packages")) opts.linux.deb.refresh = true
         if (this.option_present(option_dict, "refresh-linux-packages")) opts.linux.deb.refresh = true
-        if (this.option_present(option_dict, "no-linux-deb-download")) opts.linux.deb.download = false
-        if (this.option_present(option_dict, "no-linux-download")) opts.linux.deb.download = false
+        if (this.option_present(option_dict, "no-linux-deb-download")) {
+            opts.linux.deb.download = false
+            opts.linux.deb.download_forced = false
+        }
+        if (this.option_present(option_dict, "no-linux-download")) {
+            opts.linux.deb.download = false
+            opts.linux.deb.download_forced = false
+        }
         if (this.option_present(option_dict, "keep-appdir")) opts.keep_appdir = true
         if (this.option_present(option_dict, "doctor")) opts.doctor = true
         if (this.option_present(option_dict, "smoke-test-isolated")) opts.smoke_test_isolated = true

@@ -40,10 +40,11 @@ class SqgiPkgAppImage extends Base.SqgiPkgLinuxDeps {
     }
 
     function finalize_report(opts) {
-        if (opts.report.used_gst && opts.gstreamer_plugins.len() == 0) {
+        if (opts.report.used_gst && opts.gstreamer_plugins.len() == 0 && opts.report.gstreamer_plugins == 0) {
             this.report_warn(opts, "GStreamer import detected, but no gstreamer_plugins entries were bundled")
         }
-        if (opts.report.used_gtk && opts.gtk_data.len() == 0 && opts.typelibs.len() == 0) {
+        if (opts.report.used_gtk && opts.gtk_data.len() == 0 && opts.typelibs.len() == 0 &&
+                opts.report.gtk_data == 0 && opts.report.typelibs == 0) {
             this.report_warn(opts, "GTK import detected; this AppImage may rely on host GTK assets and typelibs")
         }
     }
@@ -86,15 +87,165 @@ class SqgiPkgAppImage extends Base.SqgiPkgLinuxDeps {
         return prefix + this.shell_quote(appimage) + (args == null || args.len() == 0 ? "" : " " + args)
     }
 
-    function run_smoke_test(opts, appimage) {
-        if (opts.smoke_test_args == null && !opts.smoke_test_isolated) return
-        if (this.normalize_appimage_arch(this.machine_arch()) != opts.appimage_arch) {
-            this.info("smoke test skipped for " + opts.appimage_arch + " AppImage on " + this.machine_arch() + " host")
-            return
+    function qemu_user_arch_name(arch) {
+        arch = this.normalize_appimage_arch(arch)
+        if (arch == "aarch64") return "aarch64"
+        if (arch == "x86_64") return "x86_64"
+        if (arch == "i386" || arch == "i686") return "i386"
+        return arch
+    }
+
+    function qemu_user_binary_name(arch) {
+        return "qemu-" + this.qemu_user_arch_name(arch)
+    }
+
+    function qemu_user_available(arch) {
+        local name = this.qemu_user_binary_name(arch)
+        return this.executable_available(name) || this.executable_available(name + "-static")
+    }
+
+    function qemu_binfmt_enabled(arch) {
+        local path = GLib.build_filenamev([
+            "/proc", "sys", "fs", "binfmt_misc",
+            this.qemu_user_binary_name(arch)
+        ])
+        return this.file_contains(path, "enabled")
+    }
+
+    function path_list_existing(paths) {
+        local out = []
+        foreach (path in paths) {
+            if (path != "" && this.path_exists(path))
+                out.push(path)
+        }
+        return this.join_strings(out, ":")
+    }
+
+    function linux_sysroot_library_path(opts) {
+        local sysroot = this.linux_current_sysroot(opts)
+        local triplet = this.linux_current_triplet(opts)
+        return this.path_list_existing([
+            GLib.build_filenamev([sysroot, "lib", triplet]),
+            GLib.build_filenamev([sysroot, "usr", "lib", triplet]),
+            GLib.build_filenamev([sysroot, "usr", "lib64"]),
+            GLib.build_filenamev([sysroot, "lib64"]),
+            GLib.build_filenamev([sysroot, "usr", "lib"]),
+            GLib.build_filenamev([sysroot, "lib"])
+        ])
+    }
+
+    function linux_sysroot_typelib_path(opts) {
+        local sysroot = this.linux_current_sysroot(opts)
+        local triplet = this.linux_current_triplet(opts)
+        return this.path_list_existing([
+            GLib.build_filenamev([sysroot, "usr", "lib", triplet, "girepository-1.0"]),
+            GLib.build_filenamev([sysroot, "usr", "lib", "girepository-1.0"])
+        ])
+    }
+
+    function linux_sysroot_gstreamer_path(opts) {
+        local sysroot = this.linux_current_sysroot(opts)
+        local triplet = this.linux_current_triplet(opts)
+        return this.path_list_existing([
+            GLib.build_filenamev([sysroot, "usr", "lib", triplet, "gstreamer-1.0"]),
+            GLib.build_filenamev([sysroot, "usr", "lib", "gstreamer-1.0"])
+        ])
+    }
+
+    function linux_sysroot_data_path(opts) {
+        local sysroot = this.linux_current_sysroot(opts)
+        return this.path_list_existing([
+            GLib.build_filenamev([sysroot, "usr", "share"])
+        ])
+    }
+
+    function linux_sysroot_config_path(opts) {
+        local sysroot = this.linux_current_sysroot(opts)
+        return this.path_list_existing([
+            GLib.build_filenamev([sysroot, "etc", "xdg"])
+        ])
+    }
+
+    function cross_smoke_test_command(opts, appdir, args, isolated) {
+        local sysroot = this.linux_current_sysroot(opts)
+        local app_run = GLib.build_filenamev([appdir, "AppRun"])
+        local cache_dir = GLib.build_filenamev([GLib.get_tmp_dir(),
+            "sqgipkg-qemu-smoke-" + this.qemu_user_arch_name(opts.appimage_arch)])
+
+        local command =
+            this.shell_export("QEMU_LD_PREFIX", sysroot) +
+            this.shell_export("XDG_CACHE_HOME", cache_dir)
+
+        local library_path = this.linux_sysroot_library_path(opts)
+        if (library_path != "")
+            command += this.shell_export("LD_LIBRARY_PATH", library_path)
+
+        local typelib_path = this.linux_sysroot_typelib_path(opts)
+        if (typelib_path != "")
+            command += this.shell_export("GI_TYPELIB_PATH", typelib_path)
+
+        local data_path = this.linux_sysroot_data_path(opts)
+        if (data_path != "")
+            command += this.shell_export("XDG_DATA_DIRS", data_path)
+
+        local config_path = this.linux_sysroot_config_path(opts)
+        if (config_path != "")
+            command += this.shell_export("XDG_CONFIG_DIRS", config_path)
+
+        local gst_path = this.linux_sysroot_gstreamer_path(opts)
+        if (isolated) {
+            command += this.shell_export("GST_PLUGIN_PATH", "") +
+                this.shell_export("GST_PLUGIN_SYSTEM_PATH_1_0", "") +
+                this.shell_export("GST_PLUGIN_SYSTEM_PATH", "")
+        } else if (gst_path != "") {
+            command += this.shell_export("GST_PLUGIN_PATH", gst_path) +
+                this.shell_export("GST_PLUGIN_SYSTEM_PATH", gst_path)
         }
 
-        this.info(opts.smoke_test_isolated ? "running isolated smoke test" : "running smoke test")
-        local status = system(this.smoke_test_command(appimage, opts.smoke_test_args, opts.smoke_test_isolated))
+        command += this.shell_export("GST_REGISTRY_FORK", "no")
+        return command + this.shell_quote(app_run) +
+            (args == null || args.len() == 0 ? "" : " " + args)
+    }
+
+    function cross_smoke_skip_reason(opts, appdir) {
+        local sysroot = this.linux_current_sysroot(opts)
+        if (sysroot == "" || !this.path_exists(sysroot))
+            return "no Linux target sysroot is available"
+
+        local app_run = GLib.build_filenamev([appdir, "AppRun"])
+        if (!this.path_exists(app_run))
+            return "AppDir AppRun is missing"
+
+        if (!this.qemu_user_available(opts.appimage_arch))
+            return this.qemu_user_binary_name(opts.appimage_arch) + " is not installed"
+
+        if (!this.qemu_binfmt_enabled(opts.appimage_arch))
+            return this.qemu_user_binary_name(opts.appimage_arch) + " binfmt registration is not enabled"
+
+        return null
+    }
+
+    function run_smoke_test(opts, appdir, appimage) {
+        if (opts.smoke_test_args == null && !opts.smoke_test_isolated) return
+
+        local command = null
+        if (this.normalize_appimage_arch(this.machine_arch()) == opts.appimage_arch) {
+            command = this.smoke_test_command(appimage, opts.smoke_test_args, opts.smoke_test_isolated)
+            this.info(opts.smoke_test_isolated ? "running isolated smoke test" : "running smoke test")
+        } else {
+            local reason = this.cross_smoke_skip_reason(opts, appdir)
+            if (reason != null) {
+                this.info("cross-arch smoke test skipped for " + opts.appimage_arch +
+                    " AppImage on " + this.machine_arch() + " host: " + reason)
+                return
+            }
+            command = this.cross_smoke_test_command(opts, appdir, opts.smoke_test_args, opts.smoke_test_isolated)
+            this.info(opts.smoke_test_isolated
+                ? ("running isolated cross-arch smoke test through " + this.qemu_user_binary_name(opts.appimage_arch))
+                : ("running cross-arch smoke test through " + this.qemu_user_binary_name(opts.appimage_arch)))
+        }
+
+        local status = system(command)
         if (status != 0) this.fail("smoke test failed")
         this.info("smoke test passed")
     }

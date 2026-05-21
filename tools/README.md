@@ -14,6 +14,7 @@ putting the ugly platform work inside `sqgipkg`.
 ## Highlights
 
 - Linux AppImage packaging.
+- Linux Debian/sysroot preparation with `linux-sysroot`.
 - Windows directory packaging with `win-dir`.
 - Windows NSIS installer generation with `win-nsis`.
 - Windows MSYS2 sysroot bootstrap with `win-sysroot`.
@@ -42,7 +43,8 @@ putting the ugly platform work inside `sqgipkg`.
 - Windows GTK runtime settings/launcher environment support.
 - NSIS installer customization: installer name, install directory, icon, license page, shortcuts, Start Menu folder, execution level, and uninstall registry entry.
 - Doctor mode for manifest/path/portability checks.
-- AppImage smoke tests, including isolated GStreamer plugin tests.
+- AppImage smoke tests, including isolated GStreamer plugin tests and QEMU-backed
+  cross-architecture Linux smoke tests when a target sysroot is available.
 - Build reports showing exactly what was staged.
 
 ## Quick start
@@ -103,6 +105,28 @@ By default, the AppImage is tagged for the build host architecture. To package
 an arm64/aarch64 AppImage, pass `--appimage-arch aarch64` or set
 `"appimage_arch": "aarch64"` in the manifest, and point `build_dir` at an
 arm64 SQGI build.
+
+### `linux-sysroot`
+
+Downloads/extracts configured Debian/Ubuntu packages into the Linux sysroot,
+writes generated CMake/Meson cross files for cross targets, prints the paths,
+and exits. It does not require a script.
+
+```sh
+sqgipkg --target linux-sysroot --appimage-arch x86_64 --linux-deb-download
+```
+
+Typical output layout for a cross target:
+
+```text
+dist/_cross/x86_64/
+  toolchain-x86_64.cmake
+  x86_64.ini
+
+~/.cache/sqgipkg/linux-sysroots/<distro>-<release>-<deb-arch>/
+  usr/
+  var/lib/sqgipkg/deb/
+```
 
 ### `win-dir`
 
@@ -275,6 +299,7 @@ Implemented values:
 
 ```text
 appimage
+linux-sysroot
 win-dir
 win-nsis
 win-sysroot
@@ -291,7 +316,7 @@ tarball
 #### `build_dir`
 
 SQGI build directory. On Linux this is where `sqgi` and `libsqgi.so.0` are
-looked up. Default:
+looked up when you are packaging against an already-built SQGI runtime. Default:
 
 ```text
 build
@@ -302,6 +327,36 @@ Example:
 ```json
 "build_dir": "../../build"
 ```
+
+#### `sqgi_source`
+
+SQGI source checkout used by build commands. When a build command references
+`$SQGI_SOURCE_DIR`, `sqgipkg` exports it before running the command. Resolution
+order is:
+
+1. `sqgi_source.dir` or `--sqgi-source`.
+2. `SQGI_SOURCE_DIR` from the environment.
+3. A cached Git checkout cloned from `sqgi_source.repo`.
+
+Default repo/cache:
+
+```text
+https://github.com/supercamel/sqgi.git
+~/.cache/sqgipkg/sources/
+```
+
+Example:
+
+```json
+"sqgi_source": {
+  "repo": "https://github.com/supercamel/sqgi.git",
+  "branch": "master"
+}
+```
+
+You can pin a release or commit with `ref`, `tag`, or `commit`. This is useful
+for installed `sqgipkg` workflows where the application project is not nested
+inside the SQGI source checkout.
 
 #### `output`
 
@@ -934,25 +989,27 @@ one manifest:
 
 `arch` accepts `x86_64`, `aarch64`, and the common aliases `amd64`, `x64`, and
 `arm64`. `sqgipkg` maps these to Debian package arches when staging packages
-from Ubuntu multiarch installs: `x86_64` becomes `amd64`, and `aarch64` becomes
+from Debian/Ubuntu packages: `x86_64` becomes `amd64`, and `aarch64` becomes
 `arm64`.
 
 For isolated Linux builds, the least invasive setup is a private sysroot. The
 Debian/Ubuntu backend is explicit: when `linux.deb.download` or an arch entry
-`deb.download` is enabled, `sqgipkg` uses `apt-cache`, `apt-get download`, and
-`dpkg-deb` to resolve and extract target packages into
+`deb.download` is enabled, `sqgipkg` downloads Ubuntu `Packages` indexes into
+its own cache, downloads `.deb` archives directly from the matching repository,
+and uses `dpkg-deb` to extract target packages into
 `~/.cache/sqgipkg/linux-sysroots/<distro>-<release>-<deb-arch>/` by default
 unless `linux.sysroot` or an arch `sysroot` is set. This keeps the sysroot
-isolated from the host while still letting runs and projects reuse the same
-extracted packages. `.deb` archives are cached separately under
-`~/.cache/sqgipkg/linux-debs/<deb-arch>/`.
+isolated from the host and does not require `dpkg --add-architecture` or target
+runtime/dev packages installed into the host root. `.deb` archives are cached
+separately under `~/.cache/sqgipkg/linux-debs/<deb-arch>/`, and repository
+indexes are cached under `~/.cache/sqgipkg/linux-repo-indexes/`.
 
 This works for native and cross target architectures, so an x86_64 package can
 use an x86_64 sysroot instead of the host `/usr`, and an aarch64 package can use
 an aarch64 sysroot from the same manifest. The generated CMake/Meson files then
 point pkg-config at that sysroot for cross builds. `sqgipkg` records the archive
 basename for each installed sysroot package and re-extracts it if the apt
-metadata points at a different package archive later.
+repository metadata points at a different package archive later.
 
 Set `linux.deb.sysroot_cache`, an arch entry `deb.sysroot_cache`, or
 `--linux-deb-sysroot-cache DIR` to move the reusable extracted sysroots somewhere
@@ -969,25 +1026,11 @@ The host still needs the cross compiler tools:
 sudo apt install gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
 ```
 
-The apt package indexes must include the target architecture. On amd64 Ubuntu
-hosts, keep the normal `archive.ubuntu.com` and `security.ubuntu.com` sources
-limited to host architectures such as `amd64` and `i386`, then add a separate
-arm64 source from `ports.ubuntu.com`:
-
-```text
-Types: deb
-URIs: http://ports.ubuntu.com/ubuntu-ports/
-Suites: noble noble-updates noble-backports noble-security
-Components: main restricted universe multiverse
-Architectures: arm64
-Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
-```
-
-Then run `sudo apt update`. You should not need `dpkg --add-architecture arm64`
-or `apt install libgtk-4-dev:arm64` for the sysroot workflow.
-
-The older host-multiarch Debian workflow still works when Debian downloading is
-disabled and the arch entry points at `/`:
+Avoid adding target runtime architectures to host apt unless you truly want a
+host multiarch setup. The older host-multiarch Debian workflow still works when
+Debian downloading is disabled and the arch entry points at `/`, but it gives
+the host package resolver permission to mix target packages into system
+transactions:
 
 ```sh
 sudo dpkg --add-architecture arm64
@@ -1048,6 +1091,7 @@ SQGI_LINUX_BUILD_DIR
 SQGI_LINUX_SYSROOT
 SQGI_LINUX_CMAKE_TOOLCHAIN
 SQGI_LINUX_MESON_CROSS_FILE
+SQGI_SOURCE_DIR              # only when a command references it
 ```
 
 For cross-architecture Linux entries, `sqgipkg` writes generated CMake and
@@ -1217,7 +1261,7 @@ Do not mix compiler CRT families and dependency package families.
     ],
     "build": [
       "cmake -E rm -rf \"$SQGI_WINDOWS_BUILD_DIR\"",
-      "cmake -S ../../.. -B \"$SQGI_WINDOWS_BUILD_DIR\" -G Ninja -DCMAKE_TOOLCHAIN_FILE=\"$SQGI_WIN_CMAKE_TOOLCHAIN\" -DCMAKE_BUILD_TYPE=Release",
+      "cmake -S \"$SQGI_SOURCE_DIR\" -B \"$SQGI_WINDOWS_BUILD_DIR\" -G Ninja -DCMAKE_TOOLCHAIN_FILE=\"$SQGI_WIN_CMAKE_TOOLCHAIN\" -DCMAKE_BUILD_TYPE=Release",
       "cmake --build \"$SQGI_WINDOWS_BUILD_DIR\""
     ],
     "build_dir": "build-win",
@@ -1253,7 +1297,7 @@ Commands run from the manifest directory.
 
 ```json
 "build": [
-  "cmake -S ../../.. -B \"$SQGI_WINDOWS_BUILD_DIR\" -G Ninja -DCMAKE_TOOLCHAIN_FILE=\"$SQGI_WIN_CMAKE_TOOLCHAIN\" -DCMAKE_BUILD_TYPE=Release",
+  "cmake -S \"$SQGI_SOURCE_DIR\" -B \"$SQGI_WINDOWS_BUILD_DIR\" -G Ninja -DCMAKE_TOOLCHAIN_FILE=\"$SQGI_WIN_CMAKE_TOOLCHAIN\" -DCMAKE_BUILD_TYPE=Release",
   "cmake --build \"$SQGI_WINDOWS_BUILD_DIR\""
 ]
 ```
@@ -1552,6 +1596,7 @@ SQGI_WINDOWS_BUILD_DIR=<configured Windows build_dir>
 SQGI_WINDOWS_PREFIX=/mingw64                 # or /ucrt64, /clang64, ...
 SQGI_WINDOWS_PREFIX_DIR=<absolute prefix dir>
 SQGI_WINDOWS_SYSROOT_PREFIX=<absolute prefix dir>
+SQGI_SOURCE_DIR=<resolved SQGI source checkout> # only when a command references it
 ```
 
 This prevents host `/usr/include` and host `pkg-config` paths from leaking into
@@ -1986,7 +2031,7 @@ sqgipkg --manifest sqgipkg.json --smoke-test "--analyse --timeout=2"
     ],
     "build": [
       "cmake -E rm -rf \"$SQGI_WINDOWS_BUILD_DIR\"",
-      "cmake -S ../../.. -B \"$SQGI_WINDOWS_BUILD_DIR\" -G Ninja -DCMAKE_TOOLCHAIN_FILE=\"$SQGI_WIN_CMAKE_TOOLCHAIN\" -DCMAKE_BUILD_TYPE=Release",
+      "cmake -S \"$SQGI_SOURCE_DIR\" -B \"$SQGI_WINDOWS_BUILD_DIR\" -G Ninja -DCMAKE_TOOLCHAIN_FILE=\"$SQGI_WIN_CMAKE_TOOLCHAIN\" -DCMAKE_BUILD_TYPE=Release",
       "cmake --build \"$SQGI_WINDOWS_BUILD_DIR\""
     ],
     "build_dir": "build-win",
@@ -2059,6 +2104,12 @@ Recommended workflow:
 Avoid bundling entire system directories unless you have checked size and
 license implications. Prefer the smallest runtime set your app actually needs.
 
+For cross-architecture Linux AppImages, `sqgipkg` runs smoke tests from the
+staged AppDir through QEMU user-mode/binfmt when the target sysroot and matching
+emulator are available, for example `qemu-x86_64` on an arm64 host or
+`qemu-aarch64` on an x86_64 host. Install Ubuntu's `qemu-user-binfmt` package to
+enable the usual binfmt registrations.
+
 ## Testing sqgipkg
 
 `sqgipkg` is implemented as a small launcher plus Squirrel modules. In the
@@ -2102,7 +2153,7 @@ It covers:
 
 ## Current limitations
 
-- Implemented targets: `appimage`, `win-dir`, `win-nsis`, `win-sysroot`, `all`.
+- Implemented targets: `appimage`, `linux-sysroot`, `win-dir`, `win-nsis`, `win-sysroot`, `all`.
 - Reserved targets: `appdir`, `tarball`.
 - Linux dependency discovery is intentionally not a full distro dependency solver.
 - Windows package downloading resolves normal dependencies from one MSYS2 repo; virtual `provides` and cross-repo resolution are limited.

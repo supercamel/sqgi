@@ -18,7 +18,7 @@ class SqgiPkg extends Base.SqgiPkgBuild {
         this.app.add_main_option("manifest", 'm', 0, GLib.OptionArg.string,
             "Distribution manifest JSON file", "FILE")
         this.app.add_main_option("target", 't', 0, GLib.OptionArg.string,
-            "Package target: appimage, win-dir, win-nsis, win-sysroot, all, appdir, tarball", "TARGET")
+            "Package target: appimage, linux-sysroot, win-dir, win-nsis, win-sysroot, all, appdir, tarball", "TARGET")
         this.app.add_main_option("build-dir", 0, 0, GLib.OptionArg.string,
             "SQGI build directory", "DIR")
         this.app.add_main_option("output", 'o', 0, GLib.OptionArg.string,
@@ -27,6 +27,18 @@ class SqgiPkg extends Base.SqgiPkgBuild {
             "appimagetool executable", "PATH")
         this.app.add_main_option("appimagetool-cache", 0, 0, GLib.OptionArg.string,
             "Directory used for downloaded appimagetool", "DIR")
+        this.app.add_main_option("sqgi-source", 0, 0, GLib.OptionArg.string,
+            "SQGI source checkout directory used by build commands", "DIR")
+        this.app.add_main_option("sqgi-source-dir", 0, 0, GLib.OptionArg.string,
+            "Alias for --sqgi-source", "DIR")
+        this.app.add_main_option("sqgi-source-repo", 0, 0, GLib.OptionArg.string,
+            "Git repository used when SQGI sources must be cloned", "URL")
+        this.app.add_main_option("sqgi-source-branch", 0, 0, GLib.OptionArg.string,
+            "SQGI source branch to clone or update", "BRANCH")
+        this.app.add_main_option("sqgi-source-ref", 0, 0, GLib.OptionArg.string,
+            "SQGI source tag, commit, or ref to checkout", "REF")
+        this.app.add_main_option("sqgi-source-cache", 0, 0, GLib.OptionArg.string,
+            "Cache directory for cloned SQGI source checkouts", "DIR")
         this.app.add_main_option("refresh-appimagetool", 0, 0, GLib.OptionArg.none,
             "Download the latest appimagetool before building", null)
         this.app.add_main_option("appimage-arch", 0, 0, GLib.OptionArg.string,
@@ -178,6 +190,8 @@ class SqgiPkg extends Base.SqgiPkgBuild {
                     this.build_windows_dir(opts)
                 } else if (opts.target == "win-nsis") {
                     this.build_windows_nsis(opts)
+                } else if (opts.target == "linux-sysroot") {
+                    this.build_selected_linux_sysroot(opts)
                 } else if (opts.target == "win-sysroot") {
                     this.build_windows_sysroot(opts)
                 } else if (opts.target == "all") {

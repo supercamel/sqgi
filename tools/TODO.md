@@ -12,6 +12,10 @@ AppImage, MSYS2, pkg-config, Debian package metadata, or cross compilation.
 - Avoid host pollution. Do not require users to install target runtime packages
   into the host root just to package an app.
 - Support native and cross builds from one manifest.
+- Treat arm64 Linux hosts as first-class workstations. An arm64 user should be
+  able to build native aarch64 AppImages, cross-build x86_64 Linux AppImages,
+  and cross-build x64 Windows packages with the same manifest shape and
+  diagnostics available on x86_64 hosts.
 - Make Linux and Windows packaging symmetric where possible: generated toolchain
   files, private sysroots, package caches, runtime closure scanning, and clear
   diagnostics.
@@ -30,7 +34,8 @@ AppImage, MSYS2, pkg-config, Debian package metadata, or cross compilation.
 
 - Linux AppImage from SQGI scripts.
 - Linux AppImage from native entrypoints.
-- Linux multi-arch AppImage matrix through `linux.arches`.
+- Linux multi-arch AppImage matrix through `linux.arches`; native aarch64 plus
+  cross-built x86_64 from an arm64 host is a P0 verification target.
 - Debian/Ubuntu package download into isolated Linux sysroots.
 - Windows portable directory through MSYS2 packages.
 - Windows NSIS installer.
@@ -39,49 +44,86 @@ AppImage, MSYS2, pkg-config, Debian package metadata, or cross compilation.
 
 ## P0 Functionality
 
+- [ ] Make the arm64-host experience first-class.
+  - From an arm64 Linux host, `--target all` should produce native aarch64
+    Linux, cross-built x86_64 Linux, and x64 Windows outputs from one manifest.
+  - [x] The x86_64 Linux leg should use an x86_64 Debian sysroot and generated
+    `x86_64-linux-gnu` CMake/Meson files, just as x86_64 hosts use generated
+    `aarch64-linux-gnu` files for arm64.
+  - The Windows leg should keep targeting x64 Windows through the MinGW
+    `mingw64`/`x86_64-w64-mingw32` toolchain, regardless of whether the host is
+    arm64 or x86_64.
+  - Preflight errors on arm64 must name missing host tools such as
+    `x86_64-linux-gnu-gcc`/`g++` and `x86_64-w64-mingw32-gcc`/`g++`, and must
+    not suggest installing target GTK/GStreamer packages into the host root when
+    the Debian/MSYS2 sysroot backends are enabled.
+  - [x] AppImage smoke tests should run for native outputs directly and
+    cross-arch Linux outputs through QEMU user-mode/binfmt when the matching
+    emulator and target sysroot are available.
 - [ ] Finish and verify the GTK/GStreamer overlay `--target all` path.
-  - Expected outputs: x86_64 Linux AppImage, aarch64 Linux AppImage, Windows
-    NSIS installer.
+  - Expected outputs from both x86_64 and arm64 hosts: x86_64 Linux AppImage,
+    aarch64 Linux AppImage, and Windows x64 NSIS installer.
   - Must use reusable Linux sysroots and must not require host target runtime
     packages.
+  - [x] From an arm64 host, prepare the x86_64 GTK/GStreamer Debian sysroot from
+    sqgipkg-owned Ubuntu indexes.
+  - [x] From an arm64 host, cross-build the x86_64 GTK/GStreamer overlay
+    AppImage with generated CMake toolchain/pkg-config sysroot settings.
+  - [x] From an arm64 host, run the x86_64 GTK/GStreamer overlay smoke test
+    through `qemu-x86_64` and the generated amd64 sysroot.
+  - [ ] From an arm64 host, build the native aarch64 GTK/GStreamer overlay
+    AppImage through the same manifest shape.
+  - [ ] From an arm64 host, build the Windows x64 GTK/GStreamer overlay NSIS
+    installer through the same manifest shape.
   - Confirm stale CMake build directories cannot silently reuse the wrong
     compiler.
 - [ ] Make Linux cross builds robust against stale CMake/Meson state.
+  - Cover both host directions: x86_64 host building aarch64, and arm64 host
+    building x86_64.
   - Prefer generated build-dir environment variables in examples.
-  - Add diagnostics when a build dir was configured with a compiler that does
+  - [x] Add diagnostics when a build dir was configured with a compiler that does
     not match `SQGI_LINUX_TRIPLET`.
   - Consider an opt-in `clean_build_dir` field or `--clean-build-dir`.
 - [ ] Harden Debian sysroot dependency resolution.
-  - Keep support for virtual dependencies and provider groups.
-  - Add coverage for alternative dependency chains such as `python3 | qemu-user`.
-  - Add coverage for `:any`, `Architecture: all`, explicit target arch, and
+  - [x] Keep support for virtual dependencies and provider groups.
+  - [x] Add coverage for alternative dependency chains such as `python3 | qemu-user`.
+  - [x] Add coverage for `:any`, `Architecture: all`, explicit target arch, and
     explicit non-target arch dependencies.
-  - Cache `apt-cache depends` results in-memory during a run to reduce repeated
+  - [x] Cache `apt-cache depends` results in-memory during a run to reduce repeated
     resolver work.
+  - [x] Resolve and download target `.deb` packages from sqgipkg-owned Ubuntu
+    repository indexes instead of requiring host apt foreign architectures.
 - [ ] Keep Debian sysroot refresh safe.
-  - Re-extract packages when apt metadata points at a new archive.
-  - Provide a clear way to refresh one sysroot without deleting every cached
+  - [x] Re-extract packages when repository metadata points at a new archive.
+  - [x] Provide a clear way to refresh one sysroot without deleting every cached
     sysroot.
-  - Record enough metadata to debug stale packages: requested package, resolved
-    archive basename, source apt filename, architecture, version, and timestamp.
+  - [x] Record enough metadata to debug stale packages: requested package,
+    resolved package, archive basename, source repository filename, architecture,
+    version, download URL, and timestamp.
 - [ ] Improve Linux pkg-config preflight.
-  - Report transitive missing modules from `pkg-config --print-errors`.
-  - Include the exact `PKG_CONFIG_SYSROOT_DIR` and `PKG_CONFIG_LIBDIR`.
-  - When Debian sysroot download is enabled, recommend fixing apt indexes or
-    sysroot resolution before recommending host multiarch installs.
+  - [x] Report transitive missing modules from `pkg-config --print-errors`.
+  - [x] Include the exact `PKG_CONFIG_SYSROOT_DIR` and `PKG_CONFIG_LIBDIR`.
+  - [x] For the private Debian sysroot backend, avoid host apt multiarch advice
+    and point users at sqgipkg's repository index/sysroot cache instead.
+  - Keep host multiarch fallback messages clear when Debian sysroot downloading
+    is disabled.
 - [ ] Avoid target build-tool bloat where possible.
   - `gobject-introspection-1.0` and related dev packages can pull target Python,
     compilers, qemu, and build-essential into the sysroot.
+  - Current measured GTK/GStreamer dev closure on Ubuntu Noble amd64 is 447
+    packages when following full Debian dependency metadata: about 959 MiB
+    extracted sysroot plus 218 MiB of cached `.deb` archives on this test host.
   - Decide whether sqgipkg should install only metadata/headers for preflight, or
     accept full Debian dependency closure for correctness.
   - Document the tradeoff if full closure remains the policy.
 
 ## P1 Functionality
 
-- [ ] Add a `linux-sysroot` target.
+- [x] Add a `linux-sysroot` target.
   - Similar to `win-sysroot`, prepare the Linux sysroot and generated cross
     files, print paths, and exit.
-  - Useful for cache warming, CI setup, and debugging pkg-config issues.
+  - Useful for cache warming, CI setup, and debugging pkg-config issues before
+    long arm64-host cross builds.
 - [ ] Add cache management commands.
   - Show cache locations and approximate sizes.
   - List Linux sysroot cache entries by distro/release/arch.
@@ -115,8 +157,14 @@ AppImage, MSYS2, pkg-config, Debian package metadata, or cross compilation.
   - Include GI typelibs needed by detected imports when available.
 - [ ] Improve native project integration.
   - Support clean configure/build/install phases without shell boilerplate.
-  - Add standard environment variables for source dir, build dir, install prefix,
+  - [x] Add `SQGI_SOURCE_DIR`, backed by `sqgi_source` / `--sqgi-source` and a
+    cached Git checkout, so examples do not require the app to live inside the
+    SQGI source tree.
+  - Add standard environment variables for build dir, install prefix,
     target arch, and sysroot.
+  - Ensure defaults and examples do not bake in x86_64-host assumptions; arm64
+    hosts cross-building x86_64 should look like the mirror image of x86_64
+    hosts cross-building aarch64.
   - Better distinguish native dependencies installed into a sysroot from native
     project artifacts staged into the app.
 - [ ] Improve Windows/MSYS2 parity.
@@ -124,7 +172,11 @@ AppImage, MSYS2, pkg-config, Debian package metadata, or cross compilation.
   - Better diagnostics for missing DLLs and missing typelibs.
   - Verify generated CMake/Meson cross files across `mingw64`, `ucrt64`, and
     `clang64`.
-  - Add support for Windows architecture selection if needed later.
+  - Verify `mingw64` x64 Windows builds from an arm64 Linux host, including
+    native dependencies that produce GIR/typelib data.
+  - Add support for Windows architecture selection if needed later; for now,
+    first-class arm64 means arm64 as a host and Linux target, while Windows
+    remains x64 by default.
 - [ ] Improve NSIS output quality.
   - Add optional version fields.
   - Add publisher and URL metadata.
@@ -179,9 +231,9 @@ The test suite should have three layers:
   - Shell environment export behavior.
   - Windows package dependency parser.
   - NSIS escaping.
-- [ ] Add fake apt resolver fixtures.
-  - Fixture input from `apt-cache show`.
-  - Fixture input from `apt-cache depends`.
+- [ ] Add fake Debian resolver fixtures.
+  - [x] Fixture input from repository `Packages` stanzas.
+  - [x] Fixture input shaped like `apt-cache depends`.
   - Tests should run without host apt indexes.
   - Include virtual dependencies, alternatives, arch-qualified dependencies,
     epochs in versions, and architecture-all packages.
@@ -197,8 +249,12 @@ The test suite should have three layers:
   - Correct sysroot env passed to pkg-config.
   - Error message differs when `linux.deb.download` is enabled.
 - [ ] Add full GTK/GStreamer overlay verification.
-  - x86_64 AppImage builds.
-  - aarch64 AppImage builds with generated Linux cross files.
+  - Native aarch64 AppImage builds on arm64 hosts.
+  - [x] Cross-built x86_64 AppImage builds on arm64 hosts with generated Linux cross
+    files.
+  - Native x86_64 AppImage builds on x86_64 hosts.
+  - Cross-built aarch64 AppImage builds on x86_64 hosts with generated Linux
+    cross files.
   - Windows NSIS builds with generated MinGW cross files.
   - Outputs are written under target-specific directories.
   - No host target multiarch install is required for Linux runtime/dev packages.
@@ -232,8 +288,10 @@ The test suite should have three layers:
   - Handles case-insensitive DLL names.
   - Reports unresolved DLLs clearly.
 - [ ] Add generated cross-file tests.
-  - Linux CMake toolchain contains target triplet and sysroot.
-  - Linux Meson cross file contains target machine and pkg-config libdir.
+  - Linux CMake toolchain contains target triplet and sysroot for
+    x86_64-from-aarch64 and aarch64-from-x86_64.
+  - Linux Meson cross file contains target machine and pkg-config libdir for
+    x86_64-from-aarch64 and aarch64-from-x86_64.
   - Windows CMake toolchain contains MinGW compiler paths.
   - Windows Meson cross file contains prefix and pkg-config settings.
 - [ ] Add doctor tests.
@@ -241,10 +299,10 @@ The test suite should have three layers:
   - Missing build outputs.
   - Suspicious host paths.
   - AppImage arch/build_dir mismatch.
-  - Missing package indexes for requested Debian arch.
+  - Missing private repository indexes/packages for requested Debian arch.
   - Stale build dir compiler mismatch.
 - [ ] Add docs/example tests.
-  - Every `sqgipkg.json` under tests parses.
+  - [x] Every `sqgipkg.json` under tests parses.
   - Every template parses.
   - README command snippets that are meant to run are smoke-tested where
     practical.
@@ -265,9 +323,12 @@ The test suite should have three layers:
   - Changed apt metadata for an existing package.
   - Cache prune while another run is active should be prevented or safe.
 - [ ] Add CI matrix.
-  - Ubuntu host native x86_64 AppImage.
-  - Ubuntu host aarch64 Linux cross build.
-  - Ubuntu host Windows MinGW build.
+  - Ubuntu x86_64 host native x86_64 AppImage.
+  - Ubuntu x86_64 host aarch64 Linux cross build.
+  - Ubuntu x86_64 host Windows MinGW build.
+  - Ubuntu arm64 host native aarch64 AppImage.
+  - Ubuntu arm64 host x86_64 Linux cross build.
+  - Ubuntu arm64 host Windows x64 MinGW build.
   - Optional Windows host packaging smoke test.
   - Optional Fedora/Arch host test for non-Debian host behavior once supported.
 - [ ] Add release smoke tests.
@@ -287,7 +348,9 @@ The test suite should have three layers:
   - Native project guide.
   - Troubleshooting guide.
 - [ ] Add troubleshooting pages.
-  - Apt cannot see `arm64` packages.
+  - Private Debian repository index download failed.
+  - Host multiarch apt cannot see `arm64`/`amd64` packages when using the
+    fallback host-root workflow.
   - pkg-config finds host modules.
   - AppImage runs on build host but not clean host.
   - GStreamer plugin missing.
@@ -305,17 +368,22 @@ The test suite should have three layers:
   - GTK/GStreamer.
   - Native GObject library.
   - Native executable.
-  - Linux multi-arch plus Windows all-target build.
+  - Linux multi-arch plus Windows all-target build from an arm64 host.
+  - Linux multi-arch plus Windows all-target build from an x86_64 host.
 
 ## Quality Gates Before Calling sqgipkg Stable
 
 - [ ] `sqgipkg --target all` works for at least one GTK app across x86_64 Linux,
-  aarch64 Linux, and Windows from a single manifest.
+  aarch64 Linux, and Windows x64 from a single manifest on both arm64 and
+  x86_64 Linux hosts.
+- [ ] Arm64 host workflows are documented and tested at the same level as x86_64
+  host workflows.
 - [ ] No required workflow asks users to install target GTK/GStreamer packages
   into the host root.
 - [ ] Cold and warm sysroot behavior is tested.
 - [ ] AppImage smoke tests work for native-arch outputs.
-- [ ] Cross-arch outputs skip smoke tests with a clear reason.
+- [x] Cross-arch Linux outputs run smoke tests through QEMU when available and
+  skip with a clear reason when no emulator/sysroot is available.
 - [ ] Windows NSIS output can install and uninstall on a clean Windows machine.
 - [ ] All test manifests and templates are current with the documented manifest
   model.
@@ -332,6 +400,8 @@ The test suite should have three layers:
   parallel target builds once cache locking exists?
 - Should GStreamer plugins be inferred from common pipeline strings, manually
   declared, or both?
+- Should Windows ARM64 become a supported target, or should the near-term
+  Windows promise remain x64 output from either x86_64 or arm64 hosts?
 - Should non-Debian package providers be first-class, or should external sysroot
   generation remain the recommended path for non-Debian hosts?
 - How much reproducibility should sqgipkg own versus delegating to distro package

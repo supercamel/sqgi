@@ -4,6 +4,7 @@
     "arches": [
       {
         "arch": "x86_64",
+        "build_dir": "build-x86_64",
         "deb": {
           "download": true,
           "packages": [
@@ -11,7 +12,12 @@
             "libgstreamer1.0-0",
             "gstreamer1.0-plugins-base"
           ]
-        }
+        },
+        "build": [
+          "cmake -E rm -rf \"$SQGI_LINUX_BUILD_DIR\"",
+          "cmake -S \"$SQGI_SOURCE_DIR\" -B \"$SQGI_LINUX_BUILD_DIR\" -G Ninja ${SQGI_LINUX_CMAKE_TOOLCHAIN:+-DCMAKE_TOOLCHAIN_FILE=\"$SQGI_LINUX_CMAKE_TOOLCHAIN\"} -DCMAKE_BUILD_TYPE=Release",
+          "cmake --build \"$SQGI_LINUX_BUILD_DIR\""
+        ]
       },
       {
         "arch": "aarch64",
@@ -26,7 +32,7 @@
         },
         "build": [
           "cmake -E rm -rf \"$SQGI_LINUX_BUILD_DIR\"",
-          "cmake -S ../../.. -B \"$SQGI_LINUX_BUILD_DIR\" -G Ninja -DCMAKE_TOOLCHAIN_FILE=\"$SQGI_LINUX_CMAKE_TOOLCHAIN\" -DCMAKE_BUILD_TYPE=Release",
+          "cmake -S \"$SQGI_SOURCE_DIR\" -B \"$SQGI_LINUX_BUILD_DIR\" -G Ninja ${SQGI_LINUX_CMAKE_TOOLCHAIN:+-DCMAKE_TOOLCHAIN_FILE=\"$SQGI_LINUX_CMAKE_TOOLCHAIN\"} -DCMAKE_BUILD_TYPE=Release",
           "cmake --build \"$SQGI_LINUX_BUILD_DIR\""
         ]
       }
@@ -35,7 +41,7 @@
   "windows": {
     "build": [
       "cmake -E rm -rf \"$SQGI_WINDOWS_BUILD_DIR\"",
-      "cmake -S ../../.. -B \"$SQGI_WINDOWS_BUILD_DIR\" -G Ninja -DCMAKE_TOOLCHAIN_FILE=\"$SQGI_WIN_CMAKE_TOOLCHAIN\" -DCMAKE_BUILD_TYPE=Release",
+      "cmake -S \"$SQGI_SOURCE_DIR\" -B \"$SQGI_WINDOWS_BUILD_DIR\" -G Ninja -DCMAKE_TOOLCHAIN_FILE=\"$SQGI_WIN_CMAKE_TOOLCHAIN\" -DCMAKE_BUILD_TYPE=Release",
       "cmake --build \"$SQGI_WINDOWS_BUILD_DIR\""
     ],
     "build_dir": "build-win"

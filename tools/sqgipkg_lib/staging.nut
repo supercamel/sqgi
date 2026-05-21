@@ -173,6 +173,64 @@ class SqgiPkgStaging extends Base.SqgiPkgScripts {
         this.report_inc(opts, "typelibs")
     }
 
+    function sqgi_source_checkout_name(opts) {
+        local repo = opts.sqgi_source.repo == "" ? this.default_sqgi_source_repo() : opts.sqgi_source.repo
+        local name = this.sanitize_id(this.git_repo_basename(repo))
+        local suffix = "default"
+        if (opts.sqgi_source.ref != "") suffix = this.sanitize_id(opts.sqgi_source.ref)
+        else if (opts.sqgi_source.branch != "") suffix = this.sanitize_id(opts.sqgi_source.branch)
+        return name + "-" + suffix
+    }
+
+    function sqgi_source_checkout_dir(opts) {
+        if (opts.sqgi_source.dir != "") return this.abs_path(opts.sqgi_source.dir)
+        return GLib.build_filenamev([this.abs_path(opts.sqgi_source.cache), this.sqgi_source_checkout_name(opts)])
+    }
+
+    function validate_sqgi_source_dir(path) {
+        if (!this.path_exists(GLib.build_filenamev([path, "CMakeLists.txt"])))
+            this.fail("SQGI source directory does not look like a SQGI checkout: " + path)
+        return path
+    }
+
+    function ensure_sqgi_source(opts) {
+        local env_dir = GLib.getenv("SQGI_SOURCE_DIR")
+        if (opts.sqgi_source.dir == "" && env_dir != null && env_dir != "")
+            return this.validate_sqgi_source_dir(this.abs_path(env_dir))
+
+        local dir = this.sqgi_source_checkout_dir(opts)
+        if (opts.sqgi_source.dir != "")
+            return this.validate_sqgi_source_dir(dir)
+
+        local repo = opts.sqgi_source.repo == "" ? this.default_sqgi_source_repo() : opts.sqgi_source.repo
+        local branch = opts.sqgi_source.branch
+        if (branch == "" && opts.sqgi_source.ref == "") {
+            branch = this.git_local_default_branch(dir)
+            if (branch == null || branch == "")
+                branch = this.git_remote_default_branch(repo)
+            if (branch == null) branch = ""
+        }
+        local project = {
+            name = "sqgi",
+            dir = dir,
+            repo = repo,
+            branch = branch,
+            ref = opts.sqgi_source.ref,
+            update = opts.sqgi_source.update,
+            shallow = opts.sqgi_source.shallow,
+            submodules = opts.sqgi_source.submodules,
+            build = [],
+            install = [],
+            libraries = [],
+            typelibs = [],
+            files = [],
+            stage = false
+        }
+
+        this.ensure_git_native_project(project, "SQGI source")
+        return this.validate_sqgi_source_dir(dir)
+    }
+
     function stage_native_projects(opts, appdir) {
         foreach (project in opts.native_projects) {
             this.ensure_git_native_project(project, "native project " + project.name)
@@ -180,7 +238,8 @@ class SqgiPkgStaging extends Base.SqgiPkgScripts {
             local dir = project.dir
             if (!this.path_exists(dir)) this.fail("native project directory not found: " + dir)
 
-            local env = this.starts_with(opts.target, "win-") ? "" : this.linux_build_env_prefix(opts)
+            local env = this.starts_with(opts.target, "win-") ? "" :
+                this.linux_build_env_prefix(opts, this.command_list_contains(project.build, "SQGI_SOURCE_DIR"))
             foreach (command in project.build) {
                 this.info("native build: " + command)
                 this.run_shell_in_dir(env + command, dir, "native build")

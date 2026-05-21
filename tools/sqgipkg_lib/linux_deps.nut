@@ -4,6 +4,8 @@ local Base = import("staging.nut")
 
 class SqgiPkgLinuxDeps extends Base.SqgiPkgStaging {
     apt_show_cache = null
+    apt_depends_cache = null
+    repo_index_cache = null
 
     function linux_current_config(opts) {
         return this.table_get(opts, "linux_current", null)
@@ -70,6 +72,48 @@ class SqgiPkgLinuxDeps extends Base.SqgiPkgStaging {
         return GLib.build_filenamev([this.linux_cross_dir(opts), this.linux_current_arch(opts) + ".ini"])
     }
 
+    function qemu_user_arch_name(arch) {
+        arch = this.normalize_appimage_arch(arch)
+        if (arch == "aarch64") return "aarch64"
+        if (arch == "x86_64") return "x86_64"
+        if (arch == "i386" || arch == "i686") return "i386"
+        return arch
+    }
+
+    function qemu_user_binary_name(arch) {
+        return "qemu-" + this.qemu_user_arch_name(arch)
+    }
+
+    function qemu_user_executable(arch) {
+        local name = this.qemu_user_binary_name(arch)
+        local path = this.executable_path(name)
+        if (path != null) return path
+        return this.executable_path(name + "-static")
+    }
+
+    function qemu_user_available(arch) {
+        return this.qemu_user_executable(arch) != null
+    }
+
+    function linux_qemu_wrapper_path(opts) {
+        return GLib.build_filenamev([this.linux_cross_dir(opts), this.qemu_user_binary_name(opts.appimage_arch) + "-wrapper.sh"])
+    }
+
+    function write_linux_qemu_wrapper(opts) {
+        local qemu = this.qemu_user_executable(opts.appimage_arch)
+        if (qemu == null) return ""
+
+        local path = this.linux_qemu_wrapper_path(opts)
+        this.mkdir_p(this.dirname(path))
+        this.write_file(path,
+            "#!/usr/bin/env bash\n" +
+            "set -euo pipefail\n" +
+            "export QEMU_LD_PREFIX=" + this.shell_quote(this.linux_current_sysroot(opts)) + "\n" +
+            "exec " + this.shell_quote(qemu) + " \"$@\"\n")
+        this.chmod_exec(path)
+        return path
+    }
+
     function linux_pkg_config_libdir(opts) {
         local triplet = this.linux_current_triplet(opts)
         local sysroot = this.linux_current_sysroot(opts)
@@ -120,15 +164,30 @@ class SqgiPkgLinuxDeps extends Base.SqgiPkgStaging {
         local triplet = this.linux_current_triplet(opts)
         local sysroot = this.linux_current_sysroot(opts)
         local sysroot_property = sysroot == "" ? "" : ("sys_root = '" + sysroot + "'\n")
+        local c_binary = "'" + triplet + "-gcc'"
+        local cpp_binary = "'" + triplet + "-g++'"
+        if (sysroot != "") {
+            c_binary = "['" + triplet + "-gcc', '--sysroot=" + sysroot + "']"
+            cpp_binary = "['" + triplet + "-g++', '--sysroot=" + sysroot + "']"
+        }
+        local exe_wrapper = ""
+        if (this.linux_current_is_cross(opts)) {
+            local wrapper = this.write_linux_qemu_wrapper(opts)
+            if (wrapper != "") exe_wrapper = "exe_wrapper = '" + wrapper + "'\n"
+        }
+        local gir_compiler = this.executable_path("g-ir-compiler")
+        local gir_compiler_binary = gir_compiler == null ? "" : ("g-ir-compiler = '" + gir_compiler + "'\n")
 
         this.mkdir_p(this.dirname(path))
         this.write_file(path,
             "[binaries]\n" +
-            "c = '" + triplet + "-gcc'\n" +
-            "cpp = '" + triplet + "-g++'\n" +
+            "c = " + c_binary + "\n" +
+            "cpp = " + cpp_binary + "\n" +
             "ar = '" + triplet + "-ar'\n" +
             "strip = '" + triplet + "-strip'\n" +
             "pkg-config = 'pkg-config'\n" +
+            gir_compiler_binary +
+            exe_wrapper +
             "\n" +
             "[properties]\n" +
             sysroot_property +
@@ -158,7 +217,68 @@ class SqgiPkgLinuxDeps extends Base.SqgiPkgStaging {
         this.require_linux_cross_build_requirements(opts)
     }
 
-    function linux_build_env_prefix(opts) {
+    function linux_expected_meson_cpu_values(opts) {
+        local arch = this.linux_current_arch(opts)
+        if (arch == "x86_64") return ["x86_64"]
+        if (arch == "aarch64") return ["aarch64"]
+        if (arch == "i386" || arch == "i686") return ["x86"]
+        return [arch]
+    }
+
+    function linux_meson_machine_mentions_arch(text, opts) {
+        foreach (arch in this.linux_expected_meson_cpu_values(opts)) {
+            if (text.find("\"cpu_family\": \"" + arch + "\"") != null ||
+                    text.find("\"cpu_family\":\"" + arch + "\"") != null ||
+                    text.find("\"cpu\": \"" + arch + "\"") != null ||
+                    text.find("\"cpu\":\"" + arch + "\"") != null)
+                return true
+        }
+        return false
+    }
+
+    function validate_linux_cmake_build_dir_state(opts) {
+        local cache = GLib.build_filenamev([opts.build_dir, "CMakeCache.txt"])
+        if (!this.path_exists(cache)) return
+
+        local triplet = this.linux_current_triplet(opts)
+        foreach (line in this.split_lines(this.read_file(cache))) {
+            if (this.starts_with(line, "CMAKE_C_COMPILER:") &&
+                    line.find(triplet + "-gcc") == null) {
+                this.fail("stale CMake build directory for Linux " + this.linux_current_arch(opts) +
+                    ": " + cache + " uses " + line +
+                    "; remove the build directory or reconfigure with SQGI_LINUX_CMAKE_TOOLCHAIN=" +
+                    this.linux_cmake_toolchain_path(opts))
+            }
+            if (this.starts_with(line, "CMAKE_CXX_COMPILER:") &&
+                    line.find(triplet + "-g++") == null) {
+                this.fail("stale CMake build directory for Linux " + this.linux_current_arch(opts) +
+                    ": " + cache + " uses " + line +
+                    "; remove the build directory or reconfigure with SQGI_LINUX_CMAKE_TOOLCHAIN=" +
+                    this.linux_cmake_toolchain_path(opts))
+            }
+        }
+    }
+
+    function validate_linux_meson_build_dir_state(opts) {
+        local machines = GLib.build_filenamev([opts.build_dir, "meson-info", "intro-machines.json"])
+        if (!this.path_exists(machines)) return
+
+        local text = this.read_file(machines)
+        if (this.linux_meson_machine_mentions_arch(text, opts)) return
+
+        this.fail("stale Meson build directory for Linux " + this.linux_current_arch(opts) +
+            ": " + machines + " does not mention target CPU " + this.linux_current_arch(opts) +
+            "; remove the build directory or reconfigure with SQGI_LINUX_MESON_CROSS_FILE=" +
+            this.linux_meson_cross_file_path(opts))
+    }
+
+    function validate_linux_build_dir_state(opts) {
+        if (!this.linux_current_is_cross(opts)) return
+        this.validate_linux_cmake_build_dir_state(opts)
+        this.validate_linux_meson_build_dir_state(opts)
+    }
+
+    function linux_build_env_prefix(opts, include_source = false) {
         local arch = this.linux_current_arch(opts)
         local deb_arch = this.linux_current_deb_arch(opts)
         local triplet = this.linux_current_triplet(opts)
@@ -181,7 +301,12 @@ class SqgiPkgLinuxDeps extends Base.SqgiPkgStaging {
             env += this.shell_export("PKG_CONFIG_PATH", "") +
                 this.shell_export("PKG_CONFIG_SYSROOT_DIR", sysroot) +
                 this.shell_export("PKG_CONFIG_LIBDIR", this.linux_pkg_config_libdir(opts))
+            if (this.linux_current_is_cross(opts))
+                env += this.shell_export("QEMU_LD_PREFIX", sysroot)
         }
+
+        if (include_source)
+            env += this.shell_export("SQGI_SOURCE_DIR", this.ensure_sqgi_source(opts))
 
         return env
     }
@@ -208,6 +333,12 @@ class SqgiPkgLinuxDeps extends Base.SqgiPkgStaging {
             this.append_unique(out, "gstreamer-base-1.0")
         }
 
+        if (opts.report.used_gdk_pixbuf)
+            this.append_unique(out, "gdk-pixbuf-2.0")
+
+        if (opts.report.used_soup)
+            this.append_unique(out, "libsoup-3.0")
+
         return out
     }
 
@@ -226,7 +357,42 @@ class SqgiPkgLinuxDeps extends Base.SqgiPkgStaging {
             return "libgstreamer1.0-dev"
         if (module == "gstreamer-base-1.0")
             return "libgstreamer-plugins-base1.0-dev"
+        if (module == "gdk-pixbuf-2.0")
+            return "libgdk-pixbuf-2.0-dev"
+        if (module == "libsoup-3.0")
+            return "libsoup-3.0-dev"
         return null
+    }
+
+    function linux_auto_runtime_packages_enabled(opts) {
+        return opts.linux.deb.download || opts.linux.deb.packages.len() > 0
+    }
+
+    function apply_linux_package_defaults(opts) {
+        if (!this.linux_auto_runtime_packages_enabled(opts)) return
+
+        if (opts.report.used_gtk) {
+            this.append_unique(opts.linux.deb.packages, "libgtk-4-1")
+            this.append_unique(opts.linux.deb.packages, "gir1.2-gtk-4.0")
+        }
+
+        if (opts.report.used_gst) {
+            this.append_unique(opts.linux.deb.packages, "libgstreamer1.0-0")
+            this.append_unique(opts.linux.deb.packages, "gir1.2-gstreamer-1.0")
+            this.append_unique(opts.linux.deb.packages, "gir1.2-gst-plugins-base-1.0")
+            this.append_unique(opts.linux.deb.packages, "gstreamer1.0-plugins-base")
+            this.append_unique(opts.linux.deb.packages, "gstreamer1.0-plugins-good")
+        }
+
+        if (opts.report.used_gdk_pixbuf) {
+            this.append_unique(opts.linux.deb.packages, "libgdk-pixbuf-2.0-0")
+            this.append_unique(opts.linux.deb.packages, "gir1.2-gdkpixbuf-2.0")
+        }
+
+        if (opts.report.used_soup) {
+            this.append_unique(opts.linux.deb.packages, "libsoup-3.0-0")
+            this.append_unique(opts.linux.deb.packages, "gir1.2-soup-3.0")
+        }
     }
 
     function linux_tool_package(tool) {
@@ -318,6 +484,21 @@ class SqgiPkgLinuxDeps extends Base.SqgiPkgStaging {
         return output
     }
 
+    function linux_apt_package_depends(package_name) {
+        if (this.apt_depends_cache == null) this.apt_depends_cache = {}
+        if (package_name in this.apt_depends_cache) {
+            local cached = this.apt_depends_cache[package_name]
+            return cached == false ? null : cached
+        }
+
+        local output = this.run_shell_output(
+            "apt-cache depends --no-recommends --no-suggests --no-conflicts --no-breaks --no-replaces --no-enhances " +
+            this.shell_quote(package_name)
+        )
+        this.apt_depends_cache[package_name] <- output == null ? false : output
+        return output
+    }
+
     function linux_apt_package_architecture_from_output(output) {
         if (output == null) return null
         foreach (line in this.split_lines(output)) {
@@ -338,6 +519,430 @@ class SqgiPkgLinuxDeps extends Base.SqgiPkgStaging {
     function linux_apt_package_available(package_name) {
         if (this.linux_apt_package_show(package_name) != null) return true
         return this.linux_apt_arch_all_show(package_name) != null
+    }
+
+    function default_linux_repo_index_cache_dir() {
+        return GLib.build_filenamev([GLib.get_user_cache_dir(), "sqgipkg", "linux-repo-indexes"])
+    }
+
+    function linux_repo_index_cache(opts) {
+        return this.default_linux_repo_index_cache_dir()
+    }
+
+    function linux_deb_repo_targets(opts) {
+        local distro = this.linux_os_release_value("ID")
+        local release = this.linux_os_release_value("VERSION_CODENAME")
+        if (release == "") release = this.linux_os_release_value("UBUNTU_CODENAME")
+        if (release == "") return []
+
+        local arch = this.linux_current_deb_arch(opts)
+        local targets = []
+        local components = ["main", "restricted", "universe", "multiverse"]
+
+        if (distro == "ubuntu") {
+            local archive_base = (arch == "amd64" || arch == "i386")
+                ? "http://archive.ubuntu.com/ubuntu"
+                : "http://ports.ubuntu.com/ubuntu-ports"
+            local security_base = (arch == "amd64" || arch == "i386")
+                ? "http://security.ubuntu.com/ubuntu"
+                : "http://ports.ubuntu.com/ubuntu-ports"
+
+            foreach (suite_entry in [
+                { suite = release + "-updates", uri = archive_base },
+                { suite = release + "-security", uri = security_base },
+                { suite = release, uri = archive_base },
+                { suite = release + "-backports", uri = archive_base }
+            ]) {
+                foreach (component in components) {
+                    targets.push({
+                        uri = suite_entry.uri,
+                        suite = suite_entry.suite,
+                        component = component,
+                        arch = arch
+                    })
+                }
+            }
+        }
+
+        return targets
+    }
+
+    function linux_repo_target_url(target, suffix) {
+        return this.strip_trailing_slashes(target.uri) +
+            "/dists/" + target.suite +
+            "/" + target.component +
+            "/binary-" + target.arch +
+            "/Packages." + suffix
+    }
+
+    function linux_repo_archive_url(target, filename) {
+        return this.strip_trailing_slashes(target.uri) + "/" + filename
+    }
+
+    function linux_repo_cache_name(value) {
+        local out = ""
+        for (local i = 0; i < value.len(); i++) {
+            local ch = value.slice(i, i + 1)
+            local c = ch[0]
+            local ok = (c >= 'a' && c <= 'z') ||
+                (c >= 'A' && c <= 'Z') ||
+                (c >= '0' && c <= '9')
+            out += ok ? ch : "_"
+        }
+        return out
+    }
+
+    function linux_repo_index_path(opts, target) {
+        local name = target.uri + "_" + target.suite + "_" + target.component + "_" + target.arch
+        return GLib.build_filenamev([this.linux_repo_index_cache(opts), this.linux_repo_cache_name(name) + "_Packages"])
+    }
+
+    function linux_repo_index_file(opts, target) {
+        local path = this.linux_repo_index_path(opts, target)
+        if (this.path_exists(path) && !opts.linux.deb.refresh) return path
+
+        this.mkdir_p(this.dirname(path))
+        foreach (format in [
+            { suffix = "xz", tool = "xz" },
+            { suffix = "gz", tool = "gzip" }
+        ]) {
+            if (!this.executable_available(format.tool)) continue
+
+            local compressed = path + "." + format.suffix + ".download"
+            local decompressed = path + ".download"
+            if (this.path_exists(compressed)) remove(compressed)
+            if (this.path_exists(decompressed)) remove(decompressed)
+
+            local url = this.linux_repo_target_url(target, format.suffix)
+            local download_status = system(this.downloader_command(url, compressed) + " >/dev/null 2>&1")
+            if (download_status != 0 || !this.path_exists(compressed)) continue
+
+            local command = format.tool + " -dc " + this.shell_quote(compressed) +
+                " > " + this.shell_quote(decompressed)
+            local unpack_status = system(command)
+            remove(compressed)
+            if (unpack_status != 0 || !this.path_exists(decompressed)) {
+                if (this.path_exists(decompressed)) remove(decompressed)
+                continue
+            }
+
+            if (this.path_exists(path)) remove(path)
+            rename(decompressed, path)
+            return path
+        }
+
+        return null
+    }
+
+    function linux_repo_index_files(opts) {
+        local out = []
+        foreach (target in this.linux_deb_repo_targets(opts)) {
+            local path = this.linux_repo_index_file(opts, target)
+            if (path != null) out.push({ path = path, uri = target.uri })
+        }
+        return out
+    }
+
+    function linux_repo_package_map_path(opts) {
+        return GLib.build_filenamev([
+            this.linux_repo_index_cache(opts),
+            "package-map-" + this.linux_sysroot_cache_key(opts) + ".tsv"
+        ])
+    }
+
+    function linux_repo_package_map(opts, files) {
+        if (files.len() == 0) return null
+        if (this.repo_index_cache == null) this.repo_index_cache = {}
+
+        local cache_key = "package-map:" + this.linux_sysroot_cache_key(opts)
+        if (cache_key in this.repo_index_cache)
+            return this.repo_index_cache[cache_key]
+
+        local path = this.linux_repo_package_map_path(opts)
+        if (!this.path_exists(path) || opts.linux.deb.refresh) {
+            this.mkdir_p(this.dirname(path))
+            local tmp = path + ".download"
+            if (this.path_exists(tmp)) remove(tmp)
+
+            local command = "awk " + this.shell_quote(
+                "BEGIN { RS=\"\"; FS=\"\\n\"; OFS=\"\\t\" }\n" +
+                "function trim(s) { gsub(/^[ \\t]+|[ \\t]+$/, \"\", s); return s }\n" +
+                "function emit(kind, name, arch, path, pkg,    key) { key=kind SUBSEP name SUBSEP arch; if (!(key in seen)) { seen[key]=1; print kind, name, arch, path, pkg } }\n" +
+                "function emit_provides(value,    n, i, item) { n=split(value, items, \",\"); for (i=1; i<=n; i++) { item=trim(items[i]); sub(/[ \\t]*\\(.*/, \"\", item); sub(/:.*/, \"\", item); if (item != \"\") emit(\"provide\", item, a, FILENAME, p) } }\n" +
+                "{ p=\"\"; a=\"\"; prov=\"\"; inprov=0; for (i=1; i<=NF; i++) { line=$i; if (line ~ /^Package: /) { p=substr(line, 10); inprov=0 } else if (line ~ /^Architecture: /) { a=substr(line, 15); inprov=0 } else if (line ~ /^Provides: /) { prov=substr(line, 11); inprov=1 } else if (inprov && line ~ /^[ \\t]/) { prov=prov \" \" trim(line) } else { inprov=0 } } if (p != \"\" && a != \"\") { emit(\"package\", p, a, FILENAME, p); emit_provides(prov) } }"
+            )
+            foreach (info in files)
+                command += " " + this.shell_quote(info.path)
+            command += " > " + this.shell_quote(tmp)
+
+            this.run_shell(command, "building Linux repository package map")
+            if (this.path_exists(path)) remove(path)
+            rename(tmp, path)
+        }
+
+        this.repo_index_cache[cache_key] <- path
+        return path
+    }
+
+    function linux_repo_package_map_table(opts, files) {
+        if (this.repo_index_cache == null) this.repo_index_cache = {}
+
+        local cache_key = "package-map-table:" + this.linux_sysroot_cache_key(opts)
+        if (cache_key in this.repo_index_cache)
+            return this.repo_index_cache[cache_key]
+
+        local map_path = this.linux_repo_package_map(opts, files)
+        if (map_path == null) return null
+
+        local table = {}
+        foreach (line in this.split_lines(this.read_file(map_path))) {
+            local first = this.split_once(line, "\t")
+            if (first[1] == null) continue
+            local second = this.split_once(first[1], "\t")
+            if (second[1] == null) continue
+            local third = this.split_once(second[1], "\t")
+            if (third[1] == null) continue
+            local fourth = this.split_once(third[1], "\t")
+            if (fourth[1] == null) continue
+
+            local key = first[0] + "\t" + second[0] + "\t" + third[0]
+            if (!(key in table))
+                table[key] <- { path = fourth[0], package_name = fourth[1], arch = third[0] }
+        }
+
+        this.repo_index_cache[cache_key] <- table
+        return table
+    }
+
+    function linux_repo_lookup_package_map(opts, files, kind, package_name, arch) {
+        local map_table = this.linux_repo_package_map_table(opts, files)
+        if (map_table == null) return null
+
+        local key = kind + "\t" + package_name + "\t" + arch
+        if (!(key in map_table)) return null
+
+        local match = map_table[key]
+        local uri = ""
+        foreach (info in files) {
+            if (info.path == match.path) {
+                uri = info.uri
+                break
+            }
+        }
+
+        return { path = match.path, uri = uri, package_name = match.package_name, arch = match.arch }
+    }
+
+    function split_lines_keep_empty(value) {
+        local out = []
+        local start = 0
+        for (local i = 0; i <= value.len(); i++) {
+            if (i == value.len() || value.slice(i, i + 1) == "\n") {
+                local line = value.slice(start, i)
+                if (line.len() > 0 && line.slice(line.len() - 1) == "\r")
+                    line = line.slice(0, line.len() - 1)
+                out.push(line)
+                start = i + 1
+            }
+        }
+        return out
+    }
+
+    function linux_deb_stanza_fields(stanza) {
+        local fields = {}
+        local current = null
+        foreach (line in this.split_lines_keep_empty(stanza)) {
+            if (line == "") continue
+            if ((this.starts_with(line, " ") || this.starts_with(line, "\t")) && current != null) {
+                fields[current] = fields[current] + " " + this.trim_space(line)
+                continue
+            }
+
+            local parts = this.split_once(line, ":")
+            if (parts[1] == null) continue
+            current = parts[0]
+            fields[current] <- this.trim_space(parts[1])
+        }
+        return fields
+    }
+
+    function linux_deb_stanza_field(stanza, name) {
+        return this.table_get(this.linux_deb_stanza_fields(stanza), name, "")
+    }
+
+    function linux_repo_find_record_in_files(files, package_name, arch) {
+        if (files.len() == 0) return null
+
+        local command = "awk -v pkg=" + this.shell_quote(package_name) +
+            " -v arch=" + this.shell_quote(arch) + " " +
+            this.shell_quote(
+                "BEGIN { RS=\"\"; FS=\"\\n\" }\n" +
+                "{ p=\"\"; a=\"\"; for (i=1; i<=NF; i++) { if ($i ~ /^Package: /) p=substr($i, 10); else if ($i ~ /^Architecture: /) a=substr($i, 15); } if (p == pkg && a == arch) { print \"SqgiPkg-Index-File: \" FILENAME; print; exit } }"
+            )
+        foreach (info in files)
+            command += " " + this.shell_quote(info.path)
+
+        local output = this.run_shell_output(command)
+        if (output == null || output.len() == 0 || this.split_lines(output).len() == 0)
+            return null
+
+        local lines = this.split_lines(output)
+        local path = ""
+        local stanza = ""
+        foreach (i, line in lines) {
+            if (i == 0 && this.starts_with(line, "SqgiPkg-Index-File: ")) {
+                path = line.slice("SqgiPkg-Index-File: ".len())
+                continue
+            }
+            stanza += line + "\n"
+        }
+
+        local uri = ""
+        foreach (info in files) {
+            if (info.path == path) {
+                uri = info.uri
+                break
+            }
+        }
+
+        return stanza + "SqgiPkg-Repo-URI: " + uri + "\n"
+    }
+
+    function linux_repo_find_provider_record_in_files(files, package_name, arch) {
+        if (files.len() == 0) return null
+
+        local command = "awk -v pkg=" + this.shell_quote(package_name) +
+            " -v arch=" + this.shell_quote(arch) + " " +
+            this.shell_quote(
+                "BEGIN { RS=\"\"; FS=\"\\n\" }\n" +
+                "function trim(s) { gsub(/^[ \\t]+|[ \\t]+$/, \"\", s); return s }\n" +
+                "function provides_pkg(value,    n, i, item) { n=split(value, items, \",\"); for (i=1; i<=n; i++) { item=trim(items[i]); sub(/[ \\t]*\\(.*/, \"\", item); sub(/:.*/, \"\", item); if (item == pkg) return 1 } return 0 }\n" +
+                "{ p=\"\"; a=\"\"; prov=\"\"; inprov=0; for (i=1; i<=NF; i++) { line=$i; if (line ~ /^Package: /) { p=substr(line, 10); inprov=0 } else if (line ~ /^Architecture: /) { a=substr(line, 15); inprov=0 } else if (line ~ /^Provides: /) { prov=substr(line, 11); inprov=1 } else if (inprov && line ~ /^[ \\t]/) { prov=prov \" \" trim(line) } else { inprov=0 } } if (a == arch && provides_pkg(prov)) { print \"SqgiPkg-Index-File: \" FILENAME; print; exit } }"
+            )
+        foreach (info in files)
+            command += " " + this.shell_quote(info.path)
+
+        local output = this.run_shell_output(command)
+        if (output == null || output.len() == 0 || this.split_lines(output).len() == 0)
+            return null
+
+        local lines = this.split_lines(output)
+        local path = ""
+        local stanza = ""
+        foreach (i, line in lines) {
+            if (i == 0 && this.starts_with(line, "SqgiPkg-Index-File: ")) {
+                path = line.slice("SqgiPkg-Index-File: ".len())
+                continue
+            }
+            stanza += line + "\n"
+        }
+
+        local uri = ""
+        foreach (info in files) {
+            if (info.path == path) {
+                uri = info.uri
+                break
+            }
+        }
+
+        return stanza + "SqgiPkg-Repo-URI: " + uri + "\n"
+    }
+
+    function linux_repo_package_show(opts, package_name) {
+        if (this.repo_index_cache == null) this.repo_index_cache = {}
+        local cache_key = "package:" + this.linux_current_deb_arch(opts) + ":" + package_name
+        if (cache_key in this.repo_index_cache) {
+            local cached = this.repo_index_cache[cache_key]
+            return cached == false ? null : cached
+        }
+
+        local parts = this.split_once(package_name, ":")
+        local package_base = parts[0]
+        local arch = parts[1] == null ? this.linux_current_deb_arch(opts) : parts[1]
+        local files = this.linux_repo_index_files(opts)
+
+        local match = this.linux_repo_lookup_package_map(opts, files, "package", package_base, arch)
+        if (match == null) match = this.linux_repo_lookup_package_map(opts, files, "package", package_base, "all")
+        if (match == null) match = this.linux_repo_lookup_package_map(opts, files, "provide", package_base, arch)
+        if (match == null) match = this.linux_repo_lookup_package_map(opts, files, "provide", package_base, "all")
+
+        local record = null
+        if (match != null) {
+            record = this.linux_repo_find_record_in_files([match], match.package_name, match.arch)
+            if (record == null && match.arch != "all")
+                record = this.linux_repo_find_record_in_files([match], match.package_name, "all")
+        }
+
+        this.repo_index_cache[cache_key] <- record == null ? false : record
+        return record
+    }
+
+    function linux_deb_package_show(opts, package_name) {
+        if (opts.linux.deb.download) {
+            local output = this.linux_repo_package_show(opts, package_name)
+            if (output != null) return output
+        }
+
+        local output = this.linux_apt_package_show(package_name)
+        if (output != null) return output
+
+        if (package_name.find(":") != null) {
+            local package_base = this.split_once(package_name, ":")[0]
+            output = this.linux_apt_package_show(package_base)
+            if (this.linux_apt_package_architecture_from_output(output) == "all")
+                return output
+        }
+
+        return null
+    }
+
+    function linux_split_dependency_list(value) {
+        local out = []
+        local item = ""
+        local paren_depth = 0
+        for (local i = 0; i < value.len(); i++) {
+            local ch = value.slice(i, i + 1)
+            if (ch == "(") paren_depth++
+            else if (ch == ")" && paren_depth > 0) paren_depth--
+
+            if (ch == "," && paren_depth == 0) {
+                local trimmed = this.trim_space(item)
+                if (trimmed != "") out.push(trimmed)
+                item = ""
+            } else {
+                item += ch
+            }
+        }
+
+        local trimmed = this.trim_space(item)
+        if (trimmed != "") out.push(trimmed)
+        return out
+    }
+
+    function linux_deb_package_depends_from_stanza(stanza) {
+        local fields = this.linux_deb_stanza_fields(stanza)
+        local out = this.linux_deb_stanza_field(stanza, "Package") + "\n"
+        foreach (field in ["Pre-Depends", "Depends"]) {
+            local value = this.table_get(fields, field, "")
+            if (value == "") continue
+            foreach (dep in this.linux_split_dependency_list(value))
+                out += "  Depends: " + dep + "\n"
+        }
+        return out
+    }
+
+    function linux_deb_package_depends(opts, package_name) {
+        if (opts.linux.deb.download) {
+            local stanza = this.linux_repo_package_show(opts, package_name)
+            if (stanza != null)
+                return this.linux_deb_package_depends_from_stanza(stanza)
+        }
+
+        return this.linux_apt_package_depends(package_name)
+    }
+
+    function linux_deb_package_available(opts, package_name) {
+        return this.linux_deb_package_show(opts, package_name) != null
     }
 
     function default_linux_package_cache_dir() {
@@ -420,7 +1025,7 @@ class SqgiPkgLinuxDeps extends Base.SqgiPkgStaging {
         if (opts.linux.deb.refresh) return false
         if (!this.path_exists(GLib.build_filenamev([dir, "files"]))) return false
 
-        local metadata = this.linux_deb_archive_metadata(package_name)
+        local metadata = this.linux_deb_archive_metadata(opts, package_name)
         if (metadata == null) return false
 
         local archive_path = GLib.build_filenamev([dir, "archive"])
@@ -456,29 +1061,18 @@ class SqgiPkgLinuxDeps extends Base.SqgiPkgStaging {
         return root
     }
 
-    function linux_deb_archive_metadata(package_name) {
-        local download_package = package_name
-        local output = this.linux_apt_package_show(package_name)
-        if (output == null) {
-            output = this.linux_apt_arch_all_show(package_name)
-            if (output != null) download_package = this.split_once(package_name, ":")[0]
-        }
+    function linux_deb_archive_metadata(opts, package_name) {
+        local output = this.linux_deb_package_show(opts, package_name)
         if (output == null) return null
-        local basename = this.linux_deb_archive_basename_from_output(output)
-        if (basename != null) {
-            return {
-                basename = basename,
-                download_package = download_package
-            }
-        }
-        return null
+        return this.linux_deb_archive_metadata_from_output(package_name, output)
     }
 
-    function linux_deb_archive_basename_from_output(output) {
+    function linux_deb_archive_metadata_from_output(requested_package, output) {
         local package_field = ""
         local version = ""
         local architecture = ""
         local filename = ""
+        local repo_uri = ""
 
         foreach (line in this.split_lines(output)) {
             if (this.starts_with(line, "Package: "))
@@ -489,16 +1083,46 @@ class SqgiPkgLinuxDeps extends Base.SqgiPkgStaging {
                 architecture = line.slice("Architecture: ".len())
             else if (this.starts_with(line, "Filename: "))
                 filename = line.slice("Filename: ".len())
+            else if (this.starts_with(line, "SqgiPkg-Repo-URI: "))
+                repo_uri = line.slice("SqgiPkg-Repo-URI: ".len())
         }
 
+        local basename = null
         if (package_field != "" && version != "" && architecture != "")
-            return package_field + "_" + this.replace_char(version, ":", "%3a") + "_" + architecture + ".deb"
+            basename = package_field + "_" + this.replace_char(version, ":", "%3a") + "_" + architecture + ".deb"
+        else if (filename != "")
+            basename = this.basename(filename)
+        if (basename == null) return null
 
-        return filename == "" ? null : this.basename(filename)
+        local download_package = requested_package
+        if (architecture == "all")
+            download_package = this.split_once(requested_package, ":")[0]
+
+        return {
+            requested_package = requested_package,
+            package_name = package_field,
+            version = version,
+            architecture = architecture,
+            filename = filename,
+            repo_uri = repo_uri,
+            basename = basename,
+            download_package = download_package,
+            download_url = repo_uri == "" || filename == "" ? null : (this.strip_trailing_slashes(repo_uri) + "/" + filename)
+        }
+    }
+
+    function linux_deb_archive_basename_from_output(output) {
+        local metadata = this.linux_deb_archive_metadata_from_output("", output)
+        return metadata == null ? null : metadata.basename
+    }
+
+    function linux_deb_archive_url_from_output(output) {
+        local metadata = this.linux_deb_archive_metadata_from_output("", output)
+        return metadata == null ? null : metadata.download_url
     }
 
     function linux_deb_archive_basename(opts, package_name) {
-        local metadata = this.linux_deb_archive_metadata(package_name)
+        local metadata = this.linux_deb_archive_metadata(opts, package_name)
         return metadata == null ? null : metadata.basename
     }
 
@@ -507,7 +1131,7 @@ class SqgiPkgLinuxDeps extends Base.SqgiPkgStaging {
         local cache_dir = GLib.build_filenamev([this.linux_package_cache(opts), arch])
         this.mkdir_p(cache_dir)
 
-        local metadata = this.linux_deb_archive_metadata(package_name)
+        local metadata = this.linux_deb_archive_metadata(opts, package_name)
         if (metadata == null)
             this.fail("cannot find apt metadata for Linux package: " + package_name)
         local basename = metadata.basename
@@ -518,8 +1142,17 @@ class SqgiPkgLinuxDeps extends Base.SqgiPkgStaging {
         if (opts.linux.deb.refresh && this.path_exists(archive)) remove(archive)
         if (!this.path_exists(archive)) {
             this.info("downloading Linux package " + package_name)
-            this.run_shell_in_dir("apt-get download " + this.shell_quote(metadata.download_package), cache_dir,
-                "downloading Linux package " + package_name)
+            if (metadata.download_url != null) {
+                local tmp = archive + ".download"
+                if (this.path_exists(tmp)) remove(tmp)
+                this.run_shell(this.downloader_command(metadata.download_url, tmp),
+                    "downloading Linux package " + package_name)
+                if (this.path_exists(archive)) remove(archive)
+                rename(tmp, archive)
+            } else {
+                this.run_shell_in_dir("apt-get download " + this.shell_quote(metadata.download_package), cache_dir,
+                    "downloading Linux package " + package_name)
+            }
         }
         if (!this.path_exists(archive))
             archive = this.linux_find_cached_deb(cache_dir, package_name, arch, archive)
@@ -586,17 +1219,37 @@ class SqgiPkgLinuxDeps extends Base.SqgiPkgStaging {
         return out
     }
 
-    function write_linux_deb_sysroot_metadata(opts, package_name, file_list, archive_basename) {
+    function write_linux_deb_sysroot_metadata(opts, package_name, file_list, metadata) {
         local dir = this.linux_deb_sysroot_package_metadata(opts, package_name)
         this.mkdir_p(dir)
         local files = ""
         foreach (path in file_list)
             files += path + "\n"
         this.write_file(GLib.build_filenamev([dir, "files"]), files)
-        this.write_file(GLib.build_filenamev([dir, "archive"]), archive_basename + "\n")
+        this.write_file(GLib.build_filenamev([dir, "archive"]), metadata.basename + "\n")
+
+        local details = ""
+        foreach (entry in [
+            ["requested_package", package_name],
+            ["resolved_package", metadata.package_name],
+            ["version", metadata.version],
+            ["architecture", metadata.architecture],
+            ["archive", metadata.basename],
+            ["filename", metadata.filename],
+            ["repo_uri", metadata.repo_uri],
+            ["download_url", metadata.download_url == null ? "" : metadata.download_url],
+            ["extracted_at_unix_usec", "" + GLib.get_real_time()]
+        ]) {
+            details += entry[0] + ": " + entry[1] + "\n"
+        }
+        this.write_file(GLib.build_filenamev([dir, "metadata"]), details)
     }
 
     function extract_linux_deb_to_sysroot(opts, package_name) {
+        local metadata = this.linux_deb_archive_metadata(opts, package_name)
+        if (metadata == null)
+            this.fail("cannot find apt metadata for Linux package: " + package_name)
+
         local archive = this.linux_download_deb(opts, package_name)
         local file_list = this.linux_deb_archive_files(archive)
         local sysroot = this.linux_download_sysroot_root(opts)
@@ -604,7 +1257,7 @@ class SqgiPkgLinuxDeps extends Base.SqgiPkgStaging {
         this.mkdir_p(sysroot)
         this.run_shell("dpkg-deb -x " + this.shell_quote(archive) + " " + this.shell_quote(sysroot),
             "extracting Linux Debian package")
-        this.write_linux_deb_sysroot_metadata(opts, package_name, file_list, this.basename(archive))
+        this.write_linux_deb_sysroot_metadata(opts, package_name, file_list, metadata)
         this.info("installed Linux package into sysroot: " + package_name)
     }
 
@@ -629,6 +1282,49 @@ class SqgiPkgLinuxDeps extends Base.SqgiPkgStaging {
             if (explicit_arch != this.linux_current_deb_arch(opts)) return null
         }
         return this.linux_arch_package(out, this.linux_current_deb_arch(opts))
+    }
+
+    function linux_dependency_alternatives(expr) {
+        local out = []
+        local item = ""
+        for (local i = 0; i < expr.len(); i++) {
+            local ch = expr.slice(i, i + 1)
+            if (ch == "|") {
+                local trimmed = this.trim_space(item)
+                if (trimmed != "") out.push(trimmed)
+                item = ""
+            } else {
+                item += ch
+            }
+        }
+
+        local trimmed = this.trim_space(item)
+        if (trimmed != "") out.push(trimmed)
+        return out
+    }
+
+    function linux_dependency_package_candidates(opts, expr) {
+        local out = []
+        foreach (alternative in this.linux_dependency_alternatives(expr)) {
+            local dep = this.linux_dependency_package_name(opts, alternative)
+            if (dep != null) this.append_unique(out, dep)
+        }
+        return out
+    }
+
+    function linux_select_dependency_package(opts, expr, available, require_available = false) {
+        local fallback = null
+        foreach (dep in this.linux_dependency_package_candidates(opts, expr)) {
+            if (fallback == null) fallback = dep
+            if (this.linux_dependency_package_available(opts, dep, available))
+                return dep
+        }
+        return require_available ? null : fallback
+    }
+
+    function linux_dependency_line_is_alternative(line) {
+        line = this.trim_space(line)
+        return this.starts_with(line, "|")
     }
 
     function linux_dependency_expr(line) {
@@ -661,40 +1357,83 @@ class SqgiPkgLinuxDeps extends Base.SqgiPkgStaging {
         return dep.len() >= 2 && this.starts_with(dep, "<")
     }
 
-    function linux_dependency_package_available(package_name, available) {
+    function linux_dependency_package_available(opts, package_name, available) {
         if (available != null) return this.table_get(available, package_name, false)
-        return this.linux_apt_package_available(package_name)
+        return this.linux_deb_package_available(opts, package_name)
     }
 
     function linux_deb_dependency_packages_from_output(opts, output, available = null) {
         local out = []
         local pending_virtual = false
+        local pending_virtual_ends_alternative_group = false
+        local alternative_group_active = false
+        local alternative_group_satisfied = false
 
         foreach (line in this.split_lines(output)) {
             local trimmed = this.trim_space(line)
             local expr = this.linux_dependency_expr(trimmed)
             if (expr != null) {
-                pending_virtual = false
-                if (this.linux_dependency_is_virtual(expr)) {
-                    pending_virtual = true
+                if (pending_virtual) {
+                    pending_virtual = false
+                    if (pending_virtual_ends_alternative_group) {
+                        alternative_group_active = false
+                        alternative_group_satisfied = false
+                        pending_virtual_ends_alternative_group = false
+                    }
+                }
+
+                local alternative_line = this.linux_dependency_line_is_alternative(trimmed)
+                local final_alternative = alternative_group_active && !alternative_line
+                if (alternative_line && !alternative_group_active) {
+                    alternative_group_active = true
+                    alternative_group_satisfied = false
+                }
+
+                if (alternative_group_satisfied) {
+                    if (final_alternative) {
+                        alternative_group_active = false
+                        alternative_group_satisfied = false
+                    }
                     continue
                 }
 
-                local dep = this.linux_dependency_package_name(opts, expr)
+                if (this.linux_dependency_is_virtual(expr)) {
+                    pending_virtual = true
+                    pending_virtual_ends_alternative_group = final_alternative
+                    continue
+                }
+
+                local dep = this.linux_select_dependency_package(opts, expr, available, alternative_group_active)
                 if (dep != null) this.append_unique(out, dep)
+                if (dep != null && alternative_group_active)
+                    alternative_group_satisfied = true
+                if (final_alternative) {
+                    alternative_group_active = false
+                    alternative_group_satisfied = false
+                }
                 continue
             }
 
             if (this.linux_dependency_ignored_marker(trimmed)) {
                 pending_virtual = false
+                pending_virtual_ends_alternative_group = false
+                alternative_group_active = false
+                alternative_group_satisfied = false
                 continue
             }
 
             if (pending_virtual) {
                 local provider = this.linux_dependency_package_name(opts, trimmed)
-                if (provider != null && this.linux_dependency_package_available(provider, available)) {
+                if (provider != null && this.linux_dependency_package_available(opts, provider, available)) {
                     this.append_unique(out, provider)
+                    if (alternative_group_active)
+                        alternative_group_satisfied = true
                     pending_virtual = false
+                    if (pending_virtual_ends_alternative_group) {
+                        alternative_group_active = false
+                        alternative_group_satisfied = false
+                        pending_virtual_ends_alternative_group = false
+                    }
                 }
             }
         }
@@ -707,14 +1446,13 @@ class SqgiPkgLinuxDeps extends Base.SqgiPkgStaging {
         if (this.table_get(resolved, package_name, false)) return
         if (this.table_get(visiting, package_name, false)) return
 
-        if (!this.linux_apt_package_available(package_name))
-            this.fail("apt cannot see Linux package " + package_name + "; check apt sources for architecture " + this.linux_current_deb_arch(opts))
+        if (!this.linux_deb_package_available(opts, package_name))
+            this.fail("cannot find Linux package " + package_name +
+                " in sqgipkg's configured Debian/Ubuntu package indexes for architecture " +
+                this.linux_current_deb_arch(opts))
 
         visiting[package_name] <- true
-        local output = this.run_shell_output(
-            "apt-cache depends --no-recommends --no-suggests --no-conflicts --no-breaks --no-replaces --no-enhances " +
-            this.shell_quote(package_name)
-        )
+        local output = this.linux_deb_package_depends(opts, package_name)
         if (output != null) {
             foreach (dep in this.linux_deb_dependency_packages_from_output(opts, output))
                 this.resolve_linux_deb_package(opts, dep, resolved, visiting, ordered)
@@ -743,8 +1481,6 @@ class SqgiPkgLinuxDeps extends Base.SqgiPkgStaging {
         local seeds = this.linux_deb_sysroot_seed_packages(opts)
         if (seeds.len() == 0) return
 
-        if (!this.executable_available("apt-cache")) this.fail("Debian package download requires apt-cache")
-        if (!this.executable_available("apt-get")) this.fail("Debian package download requires apt-get")
         if (!this.executable_available("dpkg-deb")) this.fail("Debian package download requires dpkg-deb")
 
         local sysroot = this.linux_download_sysroot_root(opts)
@@ -764,14 +1500,76 @@ class SqgiPkgLinuxDeps extends Base.SqgiPkgStaging {
             if (!this.linux_deb_sysroot_package_installed(opts, package_name))
                 this.extract_linux_deb_to_sysroot(opts, package_name)
         }
+
+        this.ensure_linux_sysroot_compat_links(opts)
     }
 
-    function linux_unavailable_apt_packages(packages) {
+    function ensure_linux_sysroot_compat_links(opts) {
+        local sysroot = this.linux_current_sysroot(opts)
+        if (sysroot == "") return
+
+        local usr_lib64 = GLib.build_filenamev([sysroot, "usr", "lib64"])
+        local lib64 = GLib.build_filenamev([sysroot, "lib64"])
+        if (this.path_exists(usr_lib64) && !this.path_exists(lib64))
+            this.create_linux_sysroot_symlink("usr/lib64", lib64)
+
+        local arch = this.linux_current_arch(opts)
+        if (arch == "aarch64")
+            this.ensure_linux_sysroot_loader_link(opts, "ld-linux-aarch64.so.1")
+        else if (arch == "i386" || arch == "i686")
+            this.ensure_linux_sysroot_loader_link(opts, "ld-linux.so.2")
+
+        this.ensure_linux_sysroot_triplet_file_link(opts, "libc.so.6")
+        if (arch == "x86_64")
+            this.ensure_linux_sysroot_triplet_file_link(opts, "ld-linux-x86-64.so.2")
+        else if (arch == "aarch64")
+            this.ensure_linux_sysroot_triplet_file_link(opts, "ld-linux-aarch64.so.1")
+        else if (arch == "i386" || arch == "i686")
+            this.ensure_linux_sysroot_triplet_file_link(opts, "ld-linux.so.2")
+    }
+
+    function create_linux_sysroot_symlink(target, link) {
+        this.mkdir_p(this.dirname(link))
+        this.run_shell(
+            "ln -s " + this.shell_quote(target) + " " + this.shell_quote(link),
+            "creating Linux sysroot compatibility link"
+        )
+    }
+
+    function ensure_linux_sysroot_loader_link(opts, loader_name) {
+        local sysroot = this.linux_current_sysroot(opts)
+        local link = GLib.build_filenamev([sysroot, "lib", loader_name])
+        if (this.path_exists(link)) return
+
+        local triplet = this.linux_current_triplet(opts)
+        foreach (entry in [
+            { source = GLib.build_filenamev([sysroot, "usr", "lib", loader_name]),
+              target = "../usr/lib/" + loader_name },
+            { source = GLib.build_filenamev([sysroot, "usr", "lib", triplet, loader_name]),
+              target = "../usr/lib/" + triplet + "/" + loader_name }
+        ]) {
+            if (this.path_exists(entry.source)) {
+                this.create_linux_sysroot_symlink(entry.target, link)
+                return
+            }
+        }
+    }
+
+    function ensure_linux_sysroot_triplet_file_link(opts, name) {
+        local sysroot = this.linux_current_sysroot(opts)
+        local triplet = this.linux_current_triplet(opts)
+        local src = GLib.build_filenamev([sysroot, "usr", "lib", triplet, name])
+        local link = GLib.build_filenamev([sysroot, "lib", triplet, name])
+        if (!this.path_exists(src) || this.path_exists(link)) return
+
+        this.create_linux_sysroot_symlink("../../usr/lib/" + triplet + "/" + name, link)
+    }
+
+    function linux_unavailable_apt_packages(opts, packages) {
         local out = []
-        if (!this.executable_available("apt-cache")) return out
 
         foreach (package_name in packages) {
-            if (!this.linux_apt_package_available(package_name))
+            if (!this.linux_deb_package_available(opts, package_name))
                 out.push(package_name)
         }
 
@@ -792,6 +1590,7 @@ class SqgiPkgLinuxDeps extends Base.SqgiPkgStaging {
         local deb_arch = this.linux_current_deb_arch(opts)
         local message = "missing Linux " + arch + " build requirements; refusing to run cross build.\n"
         message += "Target Debian architecture: " + deb_arch + "\n"
+        message += "PKG_CONFIG_SYSROOT_DIR: " + this.linux_current_sysroot(opts) + "\n"
         message += "PKG_CONFIG_LIBDIR: " + this.linux_pkg_config_libdir(opts) + "\n"
 
         if (missing_tools.len() > 0) {
@@ -842,7 +1641,7 @@ class SqgiPkgLinuxDeps extends Base.SqgiPkgStaging {
             if (target_packages.len() > 0) {
                 if (opts.linux.deb.download) {
                     message += "\nThe Debian sysroot backend is enabled, so sqgipkg should fetch target packages into the private sysroot instead of installing them on the host.\n"
-                    message += "Check that apt can see the target package indexes and that the sysroot resolver installed:\n"
+                    message += "Check the private repository index cache and sysroot resolver for:\n"
                     foreach (package_name in target_packages)
                         message += "  - " + package_name + "\n"
                 } else {
@@ -857,24 +1656,40 @@ class SqgiPkgLinuxDeps extends Base.SqgiPkgStaging {
         if (!deb_arch_enabled && !opts.linux.deb.download) {
             message += "\nApt is not configured for " + deb_arch + " packages yet. Run the dpkg --add-architecture and apt update commands above before apt install.\n"
         } else if (unavailable_apt_packages.len() > 0) {
-            message += "\nApt cannot currently see these suggested packages:\n"
+            if (opts.linux.deb.download)
+                message += "\nThe private Debian/Ubuntu repository indexes do not currently contain these suggested packages:\n"
+            else
+                message += "\nApt cannot currently see these suggested packages:\n"
             foreach (package_name in unavailable_apt_packages)
                 message += "  - " + package_name + "\n"
-            if (opts.linux.deb.download)
-                message += "For the private sysroot workflow, make sure apt sources include " + deb_arch + " package indexes, then run `sudo apt update`.\n"
-            else
+            if (opts.linux.deb.download) {
+                message += "For the private sysroot workflow, retry with --refresh-linux-deb-packages to refresh cached repository indexes, or check network access to Ubuntu package repositories.\n"
+                message += "This workflow does not require adding " + deb_arch + " to host apt.\n"
+            } else {
                 message += "If apt says 'Unable to locate package', run `sudo apt update` after adding " + deb_arch + ".\n"
-            message += "If it still fails, check that your Ubuntu sources provide " + deb_arch + " package indexes; third-party sources may need to be limited to amd64.\n"
-            if (deb_arch == "arm64") {
-                message += "\nOn Ubuntu amd64 hosts, arm64 packages normally come from ports.ubuntu.com. Keep your normal archive.ubuntu.com/security.ubuntu.com sources limited to host architectures such as amd64/i386, then add an arm64-only source such as:\n"
-                message += "  /etc/apt/sources.list.d/ubuntu-arm64.sources\n"
-                message += "  Types: deb\n"
-                message += "  URIs: http://ports.ubuntu.com/ubuntu-ports/\n"
-                message += "  Suites: noble noble-updates noble-backports noble-security\n"
-                message += "  Components: main restricted universe multiverse\n"
-                message += "  Architectures: arm64\n"
-                message += "  Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg\n"
-                message += "Then run `sudo apt update` again.\n"
+                local host_deb_arch = this.deb_arch_for_appimage_arch(this.machine_arch())
+                message += "If it still fails, check that your Ubuntu sources provide " + deb_arch + " package indexes; third-party sources may need architecture filters so host and target repos do not conflict.\n"
+                if (deb_arch == "arm64" && host_deb_arch == "amd64") {
+                    message += "\nOn Ubuntu amd64 hosts, arm64 packages normally come from ports.ubuntu.com. Keep your normal archive.ubuntu.com/security.ubuntu.com sources limited to host architectures such as amd64/i386, then add an arm64-only source such as:\n"
+                    message += "  /etc/apt/sources.list.d/ubuntu-arm64.sources\n"
+                    message += "  Types: deb\n"
+                    message += "  URIs: http://ports.ubuntu.com/ubuntu-ports/\n"
+                    message += "  Suites: noble noble-updates noble-backports noble-security\n"
+                    message += "  Components: main restricted universe multiverse\n"
+                    message += "  Architectures: arm64\n"
+                    message += "  Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg\n"
+                    message += "Then run `sudo apt update` again.\n"
+                } else if (deb_arch == "amd64" && host_deb_arch == "arm64") {
+                    message += "\nOn Ubuntu arm64 hosts, amd64 packages normally come from archive.ubuntu.com/security.ubuntu.com while arm64 host packages normally come from ports.ubuntu.com. Keep ports sources limited to arm64, then add an amd64-only source such as:\n"
+                    message += "  /etc/apt/sources.list.d/ubuntu-amd64.sources\n"
+                    message += "  Types: deb\n"
+                    message += "  URIs: http://archive.ubuntu.com/ubuntu/\n"
+                    message += "  Suites: noble noble-updates noble-backports noble-security\n"
+                    message += "  Components: main restricted universe multiverse\n"
+                    message += "  Architectures: amd64\n"
+                    message += "  Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg\n"
+                    message += "Then run `sudo apt update` again.\n"
+                }
             }
         }
 
@@ -947,7 +1762,7 @@ class SqgiPkgLinuxDeps extends Base.SqgiPkgStaging {
 
         if (missing_tools.len() > 0 || missing_modules.len() > 0 || missing_packages.len() > 0) {
             local deb_arch_enabled = this.linux_deb_arch_enabled(deb_arch)
-            local unavailable_apt_packages = this.linux_unavailable_apt_packages(install_packages)
+            local unavailable_apt_packages = this.linux_unavailable_apt_packages(opts, install_packages)
             this.fail(this.linux_cross_requirement_message(opts, missing_tools, missing_modules, missing_pkg_config_deps, pkg_config_errors, missing_packages, install_packages, deb_arch_enabled, unavailable_apt_packages))
         }
     }
@@ -1001,6 +1816,36 @@ class SqgiPkgLinuxDeps extends Base.SqgiPkgStaging {
         )
     }
 
+    function report_linux_package_dest(opts, dest_rel) {
+        dest_rel = this.relative_dest(dest_rel)
+        if (this.starts_with(dest_rel, GLib.build_filenamev(["usr", "lib", "gstreamer-1.0"]) + "/")) {
+            if (this.ends_with(dest_rel, ".so")) this.report_inc(opts, "gstreamer_plugins")
+            return
+        }
+        if (this.starts_with(dest_rel, GLib.build_filenamev(["usr", "lib", "girepository-1.0"]) + "/")) {
+            if (this.ends_with(dest_rel, ".typelib")) this.report_inc(opts, "typelibs")
+            return
+        }
+        if (this.starts_with(dest_rel, GLib.build_filenamev(["usr", "share", "glib-2.0", "schemas"]) + "/")) {
+            if (this.ends_with(dest_rel, ".xml")) this.report_inc(opts, "gsettings_schemas")
+            return
+        }
+        if (this.starts_with(dest_rel, GLib.build_filenamev(["usr", "lib", "gio", "modules"]) + "/")) {
+            if (this.ends_with(dest_rel, ".so")) this.report_inc(opts, "gio_modules")
+            return
+        }
+        if (this.starts_with(dest_rel, GLib.build_filenamev(["usr", "lib", "gdk-pixbuf-2.0"]) + "/")) {
+            if (this.ends_with(dest_rel, ".so")) this.report_inc(opts, "gdk_pixbuf_loaders")
+            return
+        }
+        if (this.starts_with(dest_rel, GLib.build_filenamev(["usr", "share", "themes"]) + "/") ||
+                this.starts_with(dest_rel, GLib.build_filenamev(["usr", "share", "icons"]) + "/") ||
+                this.starts_with(dest_rel, GLib.build_filenamev(["usr", "share", "gtk-4.0"]) + "/") ||
+                this.starts_with(dest_rel, GLib.build_filenamev(["usr", "lib", "gtk-4.0"]) + "/")) {
+            this.report_inc(opts, "gtk_data")
+        }
+    }
+
     function stage_linux_package(opts, appdir, package_name) {
         local package_for_arch = this.linux_package_name_for_arch(opts, package_name)
         local file_list = this.linux_deb_sysroot_package_files(opts, package_for_arch)
@@ -1011,16 +1856,14 @@ class SqgiPkgLinuxDeps extends Base.SqgiPkgStaging {
             file_list = this.split_lines(output)
         }
 
-        local config = this.table_get(opts, "linux_current", null)
-        local sysroot = config == null ? "" : this.table_get(config, "sysroot", "")
-        if (sysroot == "") sysroot = opts.linux.sysroot
+        local sysroot = this.linux_current_sysroot(opts)
         if (sysroot != "") sysroot = this.strip_trailing_slashes(sysroot)
 
         local copied = 0
         foreach (path in file_list) {
             local src = path
             if (!this.path_exists(src) && sysroot != "")
-                src = sysroot + path
+                src = GLib.build_filenamev([sysroot, this.normalize_package_entry(path)])
             if (!this.path_exists(src)) continue
             if (this.run_shell_status("[ -f " + this.shell_quote(src) + " ]") != 0) continue
 
@@ -1028,6 +1871,7 @@ class SqgiPkgLinuxDeps extends Base.SqgiPkgStaging {
             if (dest == null) continue
 
             this.copy_file_to_appdir_dest(src, appdir, dest, "Linux package file")
+            this.report_linux_package_dest(opts, dest)
             copied++
         }
 
@@ -1097,7 +1941,9 @@ class SqgiPkgLinuxDeps extends Base.SqgiPkgStaging {
         foreach (root in roots) {
             foreach (rel in [
                 "/usr/lib/" + triplet,
+                "/usr/lib/" + triplet + "/pulseaudio",
                 "/lib/" + triplet,
+                "/lib/" + triplet + "/pulseaudio",
                 "/usr/" + triplet + "/lib",
                 "/usr/local/lib",
                 "/usr/lib",

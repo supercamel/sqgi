@@ -38,6 +38,7 @@ know which `.so`/`.dll` and `.typelib` files to stage. The generic SQGI runtime
 MSYS2 packages are inferred automatically for Windows targets.
 
 On non-Windows hosts, `sqgipkg` prepares the MSYS2 sysroot and generated
-CMake/Meson cross files automatically. This manifest currently selects the
-`ucrt64` MSYS2 prefix, so Ubuntu cross-build hosts need a matching UCRT MinGW
-toolchain available; native MSYS2 UCRT64 shells can use the manifest as-is.
+CMake/Meson cross files automatically. This manifest uses the `mingw64` MSYS2
+prefix and ships a small Windows GIR template for the test library, so the
+typelib can be compiled during an Ubuntu cross build without requiring Wine to
+run `g-ir-scanner` on a Windows helper executable.

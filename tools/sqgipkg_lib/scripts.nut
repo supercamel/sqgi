@@ -23,6 +23,10 @@ class SqgiPkgScripts extends Base.SqgiPkgManifest {
             libsqgi = this.first_ldd_library(sqgi_bin, "libsqgi")
         }
 
+        this.require_elf_appimage_arch(sqgi_bin, opts.appimage_arch, "sqgi runtime")
+        if (libsqgi != null && this.path_exists(libsqgi))
+            this.require_elf_appimage_arch(libsqgi, opts.appimage_arch, "libsqgi runtime")
+
         this.mkdir_p(GLib.build_filenamev([appdir, "usr", "bin"]))
         this.mkdir_p(GLib.build_filenamev([appdir, "usr", "lib"]))
 
@@ -243,6 +247,10 @@ class SqgiPkgScripts extends Base.SqgiPkgManifest {
             opts.report.used_gtk = true
         if (this.file_contains(src_abs, "import(\"Gst") || this.file_contains(src_abs, "import('Gst"))
             opts.report.used_gst = true
+        if (this.file_contains(src_abs, "import(\"GdkPixbuf") || this.file_contains(src_abs, "import('GdkPixbuf"))
+            opts.report.used_gdk_pixbuf = true
+        if (this.file_contains(src_abs, "import(\"Soup") || this.file_contains(src_abs, "import('Soup"))
+            opts.report.used_soup = true
     }
 
     function scan_script_import_tree(opts, src, visited, source_root = null) {

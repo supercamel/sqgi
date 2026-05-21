@@ -43,6 +43,44 @@ class SqgiPkgDoctor extends Base.SqgiPkgTemplates {
         return errors
     }
 
+    function doctor_linux_arch_build_dir(opts, config) {
+        local configured = this.table_get(config, "build_dir", "")
+        if (configured != "") return this.abs_path(configured)
+
+        local arch = this.normalize_appimage_arch(this.table_get(config, "arch", opts.appimage_arch))
+        if (arch != this.normalize_appimage_arch(this.machine_arch()))
+            return this.abs_path("build-" + arch)
+        return this.abs_path(opts.build_dir)
+    }
+
+    function doctor_linux_arches(errors, warnings, opts) {
+        local seen_arches = {}
+        local seen_build_dirs = {}
+
+        foreach (config in opts.linux.arches) {
+            local arch = this.normalize_appimage_arch(this.table_get(config, "arch", opts.appimage_arch))
+            if (this.table_get(seen_arches, arch, false)) {
+                print("ERROR: duplicate linux.arches target: " + arch + "\n")
+                errors++
+            }
+            seen_arches[arch] <- true
+
+            local build_dir = this.doctor_linux_arch_build_dir(opts, config)
+            if (build_dir in seen_build_dirs && seen_build_dirs[build_dir] != arch) {
+                warnings.push("Linux arch " + arch + " shares build_dir with " +
+                    seen_build_dirs[build_dir] + ": " + build_dir)
+            } else {
+                seen_build_dirs[build_dir] <- arch
+            }
+
+            local entry_linux = this.table_get(config, "entry_linux", "")
+            if (opts.entry_type == "native" && entry_linux == "")
+                warnings.push("Linux arch " + arch + " has no arch-specific native entry")
+        }
+
+        return errors
+    }
+
     function doctor(opts) {
         local errors = 0
         local warnings = []
@@ -140,9 +178,12 @@ class SqgiPkgDoctor extends Base.SqgiPkgTemplates {
             }
         }
 
-        if (opts.report.used_gst && opts.gstreamer_plugins.len() == 0)
+        errors = this.doctor_linux_arches(errors, warnings, opts)
+
+        local linux_auto_runtime = this.linux_auto_runtime_packages_enabled(opts)
+        if (opts.report.used_gst && opts.gstreamer_plugins.len() == 0 && !linux_auto_runtime)
             warnings.push("GStreamer import detected; package may rely on host GStreamer plugins")
-        if (opts.report.used_gtk && opts.gtk_data.len() == 0 && opts.typelibs.len() == 0)
+        if (opts.report.used_gtk && opts.gtk_data.len() == 0 && opts.typelibs.len() == 0 && !linux_auto_runtime)
             warnings.push("GTK import detected; package may rely on host GTK assets and typelibs")
 
         if (opts.entry_type == "sqgi") {

@@ -40,7 +40,7 @@ class SqgiPkgBuild extends Base.SqgiPkgDoctor {
         if (commands.len() == 0) return
 
         local dir = opts.manifest_dir == "" ? GLib.get_current_dir() : opts.manifest_dir
-        local env = this.linux_build_env_prefix(opts)
+        local env = this.linux_build_env_prefix(opts, this.command_list_contains(commands, "SQGI_SOURCE_DIR"))
 
         foreach (command in commands) {
             this.info("Linux " + opts.appimage_arch + " build: " + command)
@@ -52,8 +52,10 @@ class SqgiPkgBuild extends Base.SqgiPkgDoctor {
         this.mkdir_p(opts.output_dir)
 
         this.scan_project_imports(opts)
+        this.apply_linux_package_defaults(opts)
         this.ensure_linux_deb_sysroot_packages(opts)
         this.prepare_linux_build_environment(opts)
+        this.validate_linux_build_dir_state(opts)
         this.run_linux_build_commands(opts)
 
         local package_name = this.package_basename(opts.name)
@@ -66,9 +68,10 @@ class SqgiPkgBuild extends Base.SqgiPkgDoctor {
         local status = system("ARCH=" + this.shell_quote(opts.appimage_arch) + " " +
             this.shell_quote(appimagetool) + " " + this.shell_quote(appdir) + " " + this.shell_quote(appimage))
         if (status != 0) this.fail("building AppImage failed")
+        this.require_elf_appimage_arch(appimage, opts.appimage_arch, "AppImage")
 
         this.print_report(opts, appdir, appimage)
-        this.run_smoke_test(opts, appimage)
+        this.run_smoke_test(opts, appdir, appimage)
 
         if (!opts.keep_appdir) {
             this.run_shell("rm -rf " + this.shell_quote(appdir), "removing staged AppDir")
@@ -94,6 +97,56 @@ class SqgiPkgBuild extends Base.SqgiPkgDoctor {
         }
 
         this.build_appimage(opts)
+    }
+
+    function build_linux_sysroot(opts) {
+        this.mkdir_p(opts.output_dir)
+
+        this.scan_project_imports(opts)
+        this.apply_linux_package_defaults(opts)
+        this.ensure_linux_deb_sysroot_packages(opts)
+        this.prepare_linux_build_environment(opts)
+        if (this.linux_has_cross_build_work(opts))
+            this.validate_linux_build_dir_state(opts)
+
+        local sysroot = this.linux_current_sysroot(opts)
+        local toolchain = this.linux_current_is_cross(opts) ? this.linux_cmake_toolchain_path(opts) : ""
+        local cross_file = this.linux_current_is_cross(opts) ? this.linux_meson_cross_file_path(opts) : ""
+
+        this.info("Linux sysroot ready")
+        this.info("  target arch: " + this.linux_current_arch(opts))
+        this.info("  Debian arch: " + this.linux_current_deb_arch(opts))
+        this.info("  target triplet: " + this.linux_current_triplet(opts))
+        this.info("  sysroot: " + (sysroot == "" ? "(host root)" : sysroot))
+        this.info("  CMake toolchain: " + (toolchain == "" ? "(native)" : toolchain))
+        this.info("  Meson cross file: " + (cross_file == "" ? "(native)" : cross_file))
+        this.info("  pkg-config sysroot: " + sysroot)
+        this.info("  pkg-config libdir: " + this.linux_pkg_config_libdir(opts))
+        this.info("  SQGI_LINUX_ARCH=" + this.linux_current_arch(opts))
+        this.info("  SQGI_LINUX_DEB_ARCH=" + this.linux_current_deb_arch(opts))
+        this.info("  SQGI_LINUX_TRIPLET=" + this.linux_current_triplet(opts))
+        this.info("  SQGI_LINUX_SYSROOT=" + sysroot)
+        this.info("  SQGI_LINUX_CMAKE_TOOLCHAIN=" + toolchain)
+        this.info("  SQGI_LINUX_MESON_CROSS_FILE=" + cross_file)
+    }
+
+    function build_selected_linux_sysroot(opts) {
+        if (this.table_get(opts, "linux_current", null) != null || opts.linux.arches.len() == 0) {
+            this.build_linux_sysroot(opts)
+            return
+        }
+
+        local arch = this.normalize_appimage_arch(opts.appimage_arch)
+        foreach (config in this.effective_linux_arches(opts)) {
+            if (config.arch == arch) {
+                local linux_opts = this.clone_opts_for_linux_arch(opts, config, opts.output_dir)
+                linux_opts.target = "linux-sysroot"
+                this.build_linux_sysroot(linux_opts)
+                return
+            }
+        }
+
+        this.build_linux_sysroot(opts)
     }
 
     function build_windows_sysroot(opts) {
@@ -204,7 +257,7 @@ class SqgiPkgBuild extends Base.SqgiPkgDoctor {
 
         if (config.build_dir != "")
             out.build_dir = config.build_dir
-        else if (config.arch != opts.appimage_arch)
+        else if (config.arch != this.normalize_appimage_arch(this.machine_arch()))
             out.build_dir = "build-" + config.arch
 
         if (config.entry_linux != "") out.entry_linux = config.entry_linux
@@ -213,7 +266,8 @@ class SqgiPkgBuild extends Base.SqgiPkgDoctor {
         out.linux.deb = clone opts.linux.deb
         if (config.deb_package_cache != "") out.linux.deb.package_cache = config.deb_package_cache
         if (config.deb_sysroot_cache != "") out.linux.deb.sysroot_cache = config.deb_sysroot_cache
-        if (config.deb_download != null) out.linux.deb.download = config.deb_download
+        if (config.deb_download != null && out.linux.deb.download_forced == null)
+            out.linux.deb.download = config.deb_download
         if (config.deb_refresh != null) out.linux.deb.refresh = config.deb_refresh
         out.linux.deb.packages = this.array_join(opts.linux.deb.packages, config.deb_packages)
         out.linux.library_dirs = this.array_join(opts.linux.library_dirs, config.library_dirs)

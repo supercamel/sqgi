@@ -15,3 +15,7 @@ else
 fi
 
 meson compile -C "${BUILD_DIR}"
+
+if [[ -n "${SQGI_WINDOWS_SYSROOT:-}" ]]; then
+  g-ir-compiler SqHello-1.0.windows.gir --output "${BUILD_DIR}/SqHello-1.0.typelib"
+fi
