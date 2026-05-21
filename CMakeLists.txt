@@ -197,6 +197,12 @@ target_compile_definitions(sqgi-bin PRIVATE
     SQGI_VERSION="${PROJECT_VERSION}"
 )
 
+configure_file(
+    tools/sqgipkg.sh.in
+    ${CMAKE_CURRENT_BINARY_DIR}/sqgipkg
+    @ONLY
+)
+
 # ── Optional sanitizers ──────────────────────────────────────────────────────
 # (Now declared above so flags reach all targets — kept here as a no-op
 # anchor to preserve the prior file layout for diff readability.)
@@ -421,8 +427,17 @@ install(TARGETS sqgi-bin
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
 
-install(PROGRAMS tools/sqgipkg
+install(PROGRAMS ${CMAKE_CURRENT_BINARY_DIR}/sqgipkg
     DESTINATION ${CMAKE_INSTALL_BINDIR}
+)
+
+install(PROGRAMS tools/sqgipkg
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/sqgi
+    RENAME sqgipkg.nut
+)
+
+install(DIRECTORY tools/sqgipkg_lib
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/sqgi
 )
 
 install(DIRECTORY tools/sqgipkg_templates

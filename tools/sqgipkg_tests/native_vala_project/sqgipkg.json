@@ -1,8 +1,5 @@
 {
   "name": "NativeVala",
-  "script_dirs": [
-    "."
-  ],
   "native_projects": [
     {
       "dir": "native",
@@ -17,13 +14,46 @@
       ]
     }
   ],
+  "linux": {
+    "deb": {
+      "download": true
+    },
+    "arches": [
+      {
+        "arch": "x86_64"
+      },
+      {
+        "arch": "aarch64",
+        "build_dir": "build-aarch64",
+        "inherit_native_projects": false,
+        "build": [
+          "cmake -S ../../.. -B build-aarch64 -G Ninja -DCMAKE_TOOLCHAIN_FILE=\"$SQGI_LINUX_CMAKE_TOOLCHAIN\" -DCMAKE_BUILD_TYPE=Release -DSQ_ENABLE_JIT=ON",
+          "cmake --build build-aarch64"
+        ],
+        "native_projects": [
+          {
+            "dir": "native",
+            "build": [
+              "BUILD_DIR=build-aarch64 MESON_CROSS_FILE=\"$SQGI_LINUX_MESON_CROSS_FILE\" ./build.sh"
+            ],
+            "libraries": [
+              "build-aarch64/libsqvala-1.0.so"
+            ],
+            "typelibs": [
+              "build-aarch64/SqVala-1.0.typelib"
+            ]
+          }
+        ]
+      }
+    ]
+  },
   "windows": {
     "msys2_prefix": "mingw64",
     "packages": [
       "mingw-w64-x86_64-vala"
     ],
     "build": [
-      "cmake -S ../../.. -B build-win -G Ninja ${SQGI_WIN_CMAKE_TOOLCHAIN:+-DCMAKE_TOOLCHAIN_FILE=$SQGI_WIN_CMAKE_TOOLCHAIN} -DCMAKE_BUILD_TYPE=Release -DSQ_ENABLE_JIT=ON",
+      "cmake -S ../../.. -B build-win -G Ninja -DCMAKE_TOOLCHAIN_FILE=\"$SQGI_WIN_CMAKE_TOOLCHAIN\" -DCMAKE_BUILD_TYPE=Release -DSQ_ENABLE_JIT=ON",
       "cmake --build build-win"
     ],
     "build_dir": "build-win",

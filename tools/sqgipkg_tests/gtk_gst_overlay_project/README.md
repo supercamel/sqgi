@@ -56,14 +56,25 @@ APPIMAGE_EXTRACT_AND_RUN=1 tools/sqgipkg_tests/gtk_gst_overlay_project/dist/GtkG
 ```
 
 If you build every supported target with `sqgipkg --target all`, the Linux
-AppImage is written under `dist-linux/` and the Windows packaging output is
-written under `dist-windows/`.
+AppImages are written under `dist-linux-x86_64/` and `dist-linux-aarch64/`,
+and the Windows packaging output is written under `dist-windows/`.
 
-The manifest uses `script_dirs` so all project `.nut` scripts are discovered
-and packaged without listing every module. By default `sqgipkg` compiles those
-scripts to `.cnut` bytecode and leaves `.nut` compatibility links in place, so
-existing `import(... "ball_state.nut")` paths still work without shipping the
-original source text.
+The aarch64 entry uses sqgipkg's generated Linux CMake toolchain path via
+`SQGI_LINUX_CMAKE_TOOLCHAIN`, so the manifest does not need a checked-in
+cross-file. Each Linux arch entry enables `deb.download` and lists its Debian
+runtime packages, so both x86_64 and aarch64 builds populate private sysroots
+in the per-user `~/.cache/sqgipkg/linux-sysroots/` cache instead of requiring
+GTK/GStreamer target packages to be installed on the host or re-extracted for
+every project. The host still needs any compiler toolchain required to build
+that target, such as `aarch64-linux-gnu-gcc` and `aarch64-linux-gnu-g++` for the
+aarch64 entry. The Debian backend also needs apt package indexes for each target
+Debian architecture it downloads, for example `amd64` and `arm64`.
+
+The manifest relies on sqgipkg's import scanner, so `main.nut` and its
+project-local `ball_state.nut` import are packaged without listing every module.
+By default `sqgipkg` compiles those scripts to `.cnut` bytecode and leaves
+`.nut` compatibility links in place, so existing `import("ball_state.nut")`
+paths still work without shipping the original source text.
 
 Build a Windows staging directory:
 

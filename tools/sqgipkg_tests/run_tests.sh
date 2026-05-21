@@ -55,6 +55,16 @@ assert_contains() {
   fi
 }
 
+assert_not_contains() {
+  local file="$1"
+  local needle="$2"
+  if grep -Fq -- "$needle" "$file"; then
+    echo "--- ${file} ---" >&2
+    sed -n '1,160p' "$file" >&2 || true
+    fail "did not expect '$needle' in $file"
+  fi
+}
+
 appimagetool_arch() {
   case "$(uname -m)" in
     amd64) echo "x86_64" ;;
@@ -65,6 +75,7 @@ appimagetool_arch() {
 
 APPIMAGETOOL_CACHE="${WORK_DIR}/tool-cache"
 APPIMAGETOOL="${APPIMAGETOOL_CACHE}/appimagetool-$(appimagetool_arch).AppImage"
+HOST_APPIMAGE_ARCH="$(appimagetool_arch)"
 
 MAIN_SCRIPT="${WORK_DIR}/main.nut"
 cat >"${MAIN_SCRIPT}" <<'EOF'
@@ -97,21 +108,34 @@ printf 'manual file\n' >"${WORK_DIR}/manual-file.txt"
 printf 'nested\n' >"${WORK_DIR}/resources/sub/nested.txt"
 printf 'stat target\n' >"${WORK_DIR}/stat-target.txt"
 
+"${SQGI_BIN}" "${ROOT_DIR}/tools/sqgipkg_tests/test_modules.nut" >"${WORK_DIR}/modules.out"
+assert_contains "${WORK_DIR}/modules.out" "sqgipkg module tests passed"
+pass "module-level sqgipkg tests"
+
 HELP_OUT="${WORK_DIR}/help.out"
 run_sqgipkg --help >"${HELP_OUT}"
-assert_contains "${HELP_OUT}" "sqgipkg SCRIPT --name NAME --target appimage"
-assert_contains "${HELP_OUT}" "sqgipkg --manifest sqgipkg.json"
-assert_contains "${HELP_OUT}" "sqgipkg SCRIPT --name NAME --target all"
-assert_contains "${HELP_OUT}" "--resource PATH"
+assert_contains "${HELP_OUT}" "Usage:"
+assert_contains "${HELP_OUT}" "sqgipkg [OPTION?]"
+assert_contains "${HELP_OUT}" "Help Options:"
+assert_contains "${HELP_OUT}" "Application Options:"
+assert_contains "${HELP_OUT}" "--help-gapplication"
+assert_contains "${HELP_OUT}" "--resource=PATH"
 assert_contains "${HELP_OUT}" "--refresh-appimagetool"
-assert_contains "${HELP_OUT}" "--script-dir DIR"
+assert_contains "${HELP_OUT}" "--appimage-arch=ARCH"
+assert_contains "${HELP_OUT}" "--linux-arch=ARCH"
+assert_contains "${HELP_OUT}" "--linux-deb-package=PACKAGE"
+assert_contains "${HELP_OUT}" "--linux-package=PACKAGE"
+assert_contains "${HELP_OUT}" "--linux-deb-download"
+assert_contains "${HELP_OUT}" "--linux-deb-package-cache=DIR"
+assert_contains "${HELP_OUT}" "--no-linux-deb-download"
+assert_contains "${HELP_OUT}" "--script-dir=DIR"
 assert_contains "${HELP_OUT}" "--no-compile-scripts"
-assert_contains "${HELP_OUT}" "--file SPEC"
-assert_contains "${HELP_OUT}" "--library PATH"
+assert_contains "${HELP_OUT}" "--file=SPEC"
+assert_contains "${HELP_OUT}" "--library=PATH"
 assert_contains "${HELP_OUT}" "--doctor"
-assert_contains "${HELP_OUT}" "--smoke-test ARGS"
-assert_contains "${HELP_OUT}" "--init TEMPLATE"
-pass "custom help output"
+assert_contains "${HELP_OUT}" "--smoke-test=ARGS"
+assert_contains "${HELP_OUT}" "--init=TEMPLATE"
+pass "Gio.Application help output"
 
 INIT_DIR="${WORK_DIR}/init"
 mkdir -p "${INIT_DIR}"
@@ -150,6 +174,7 @@ run_sqgipkg "${MAIN_SCRIPT}" \
   --output "${OUT_DIR}" \
   --appimagetool-cache "${APPIMAGETOOL_CACHE}" \
   --refresh-appimagetool \
+  --appimage-arch "${HOST_APPIMAGE_ARCH}" \
   --keep-appdir \
   --smoke-test-isolated \
   --smoke-test "alpha beta" \
@@ -189,6 +214,7 @@ assert_contains "${APPDIR}/AppRun" "GI_TYPELIB_PATH"
 assert_contains "${APPDIR}/AppRun" "GSETTINGS_SCHEMA_DIR"
 assert_contains "${APPDIR}/AppRun" "GDK_PIXBUF_MODULE_FILE"
 assert_contains "${WORK_DIR}/package.out" "sqgipkg report"
+assert_contains "${WORK_DIR}/package.out" "appimage arch: ${HOST_APPIMAGE_ARCH}"
 assert_contains "${WORK_DIR}/package.out" "scripts:"
 assert_contains "${WORK_DIR}/package.out" "manual files:"
 assert_contains "${WORK_DIR}/package.out" "smoke test passed"
@@ -392,6 +418,97 @@ run_appimage "${MANIFEST_FILES_OUT}/ManifestFiles.AppImage" >"${WORK_DIR}/manife
 assert_contains "${WORK_DIR}/manifest-files-run.out" "manual payload: manifest file works"
 pass "manifest files payload"
 
+LINUX_PKG_PROJECT="${WORK_DIR}/linux-pkg-project"
+LINUX_PKG_ROOT="${WORK_DIR}/linux-pkg-root"
+LINUX_PKG_BIN="${WORK_DIR}/linux-pkg-bin"
+mkdir -p "${LINUX_PKG_PROJECT}" \
+  "${LINUX_PKG_ROOT}/usr/lib/x86_64-linux-gnu" \
+  "${LINUX_PKG_ROOT}/usr/share/fakepkg" \
+  "${LINUX_PKG_ROOT}/usr/include" \
+  "${LINUX_PKG_BIN}"
+cat >"${LINUX_PKG_PROJECT}/main.nut" <<'EOF'
+print("linux package staging\n")
+EOF
+printf 'fake shared library\n' >"${LINUX_PKG_ROOT}/usr/lib/x86_64-linux-gnu/libfakepkg.so.1"
+printf 'fake data\n' >"${LINUX_PKG_ROOT}/usr/share/fakepkg/data.txt"
+printf 'not runtime\n' >"${LINUX_PKG_ROOT}/usr/include/fakepkg.h"
+cat >"${LINUX_PKG_BIN}/dpkg-query" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "\${1:-}" == "-L" && "\${2:-}" == "fakepkg:amd64" ]]; then
+  printf '%s\n' \\
+    "/usr/lib/x86_64-linux-gnu/libfakepkg.so.1" \\
+    "/usr/share/fakepkg/data.txt" \\
+    "/usr/include/fakepkg.h"
+  exit 0
+fi
+exit 1
+EOF
+chmod +x "${LINUX_PKG_BIN}/dpkg-query"
+LINUX_PKG_OUT="${WORK_DIR}/linux-pkg-out"
+PATH="${LINUX_PKG_BIN}:${PATH}" run_sqgipkg \
+  "${LINUX_PKG_PROJECT}/main.nut" \
+  --name LinuxPkg \
+  --output "${LINUX_PKG_OUT}" \
+  --appimagetool "${APPIMAGETOOL}" \
+  --linux-package fakepkg \
+  --linux-sysroot "${LINUX_PKG_ROOT}" \
+  --no-linux-deps \
+  --keep-appdir \
+  >"${WORK_DIR}/linux-pkg-package.out"
+assert_file "${LINUX_PKG_OUT}/LinuxPkg.AppDir/usr/lib/libfakepkg.so.1"
+assert_file "${LINUX_PKG_OUT}/LinuxPkg.AppDir/usr/share/fakepkg/data.txt"
+assert_not_file "${LINUX_PKG_OUT}/LinuxPkg.AppDir/usr/include/fakepkg.h"
+assert_contains "${WORK_DIR}/linux-pkg-package.out" "copied 2 file(s) from fakepkg:amd64"
+pass "Linux Debian package runtime staging"
+
+if [[ "${HOST_APPIMAGE_ARCH}" != "aarch64" ]]; then
+  CROSS_MISSING_PROJECT="${WORK_DIR}/cross-missing-project"
+  mkdir -p "${CROSS_MISSING_PROJECT}/empty-root" "${CROSS_MISSING_PROJECT}/build-aarch64"
+  cat >"${CROSS_MISSING_PROJECT}/main.nut" <<'EOF'
+local Gtk = import("Gtk", "4.0")
+local Gst = import("Gst")
+print("cross preflight should stop before build\n")
+EOF
+  cat >"${CROSS_MISSING_PROJECT}/sqgipkg.json" <<'EOF'
+{
+  "script": "main.nut",
+  "name": "CrossMissing",
+  "appimage_arch": "aarch64",
+  "build_dir": "build-aarch64",
+  "linux": {
+    "sysroot": "empty-root",
+    "build": [
+      "echo should-not-run"
+    ]
+  }
+}
+EOF
+  set +e
+  run_sqgipkg \
+    --manifest "${CROSS_MISSING_PROJECT}/sqgipkg.json" \
+    --target appimage \
+    >"${WORK_DIR}/cross-missing-package.out" 2>&1
+  CROSS_MISSING_STATUS=$?
+  set -e
+  [[ ${CROSS_MISSING_STATUS} -ne 0 ]] || fail "expected missing aarch64 build requirements to fail"
+  assert_contains "${WORK_DIR}/cross-missing-package.out" "missing Linux aarch64 build requirements"
+  assert_contains "${WORK_DIR}/cross-missing-package.out" "PKG_CONFIG_LIBDIR"
+  assert_contains "${WORK_DIR}/cross-missing-package.out" "glib-2.0"
+  assert_contains "${WORK_DIR}/cross-missing-package.out" "gtk4"
+  assert_contains "${WORK_DIR}/cross-missing-package.out" "gstreamer-1.0"
+  assert_contains "${WORK_DIR}/cross-missing-package.out" "libglib2.0-dev:arm64"
+  assert_contains "${WORK_DIR}/cross-missing-package.out" "libgtk-4-dev:arm64"
+  assert_not_contains "${WORK_DIR}/cross-missing-package.out" "should-not-run"
+  if grep -Fq "Apt cannot currently see" "${WORK_DIR}/cross-missing-package.out"; then
+    assert_contains "${WORK_DIR}/cross-missing-package.out" "ports.ubuntu.com"
+    assert_contains "${WORK_DIR}/cross-missing-package.out" "ubuntu-arm64.sources"
+  fi
+  pass "Linux cross build preflight reports missing target packages"
+else
+  echo "SKIP: Linux cross build preflight missing-package test on aarch64 host"
+fi
+
 NATIVE_ENTRY_PROJECT="${WORK_DIR}/native-entry-project"
 mkdir -p "${NATIVE_ENTRY_PROJECT}/build-native"
 cat >"${NATIVE_ENTRY_PROJECT}/build-native/native-entry" <<'EOF'
@@ -509,6 +626,19 @@ cat >"${WIN_PROJECT}/sqgipkg.json" <<EOF
   "resources": [
     "assets"
   ],
+  "linux": {
+    "copy_dependencies": false,
+    "arches": [
+      {
+        "arch": "x86_64",
+        "build_dir": "${BUILD_DIR}"
+      },
+      {
+        "arch": "arm64",
+        "build_dir": "${BUILD_DIR}"
+      }
+    ]
+  },
   "windows": {
     "build_dir": "win-build",
     "msys2_root": "msys64",
@@ -660,11 +790,14 @@ run_sqgipkg \
   --appimagetool "${APPIMAGETOOL}" \
   --nsis definitely-not-makensis \
   >"${WORK_DIR}/win-all-package.out"
-assert_file "${WIN_ALL_OUT}-linux/WinSqurl.AppImage"
+assert_file "${WIN_ALL_OUT}-linux-x86_64/WinSqurl.AppImage"
+assert_file "${WIN_ALL_OUT}-linux-aarch64/WinSqurl.AppImage"
 assert_file "${WIN_ALL_OUT}-windows/WinSqurl/WinSqurl.bat"
 assert_file "${WIN_ALL_OUT}-windows/WinSqurl.nsi"
 assert_contains "${WORK_DIR}/win-all-package.out" "building all distribution targets"
-pass "all target builds AppImage and Windows NSIS"
+assert_contains "${WORK_DIR}/win-all-package.out" "appimage arch: x86_64"
+assert_contains "${WORK_DIR}/win-all-package.out" "appimage arch: aarch64"
+pass "all target builds x86_64/aarch64 AppImages and Windows NSIS"
 
 WIN_REPO_PROJECT="${WORK_DIR}/win-repo-project"
 WIN_REPO_BUILD="${WIN_REPO_PROJECT}/win-build"
@@ -807,7 +940,8 @@ if command -v meson >/dev/null 2>&1 &&
   assert_file "${NATIVE_OUT}/NativeGI.AppDir/usr/lib/libsqhello-1.0.so"
   assert_file "${NATIVE_OUT}/NativeGI.AppDir/usr/lib/girepository-1.0/SqHello-1.0.typelib"
   assert_contains "${WORK_DIR}/native-gi-package.out" "native projects: 1"
-  assert_contains "${WORK_DIR}/native-gi-package.out" "shared libraries: 1"
+  assert_contains "${WORK_DIR}/native-gi-package.out" "shared libraries:"
+  assert_contains "${WORK_DIR}/native-gi-package.out" "recursively resolved Linux ELF"
   assert_contains "${WORK_DIR}/native-gi-package.out" "typelibs: 1"
   assert_contains "${WORK_DIR}/native-gi-package.out" "Hello, SQGI from native GI; sum=42"
   pass "native GI AppImage payload"
@@ -831,7 +965,8 @@ if command -v meson >/dev/null 2>&1 &&
   assert_file "${NATIVE_VALA_OUT}/NativeVala.AppDir/usr/lib/libsqvala-1.0.so"
   assert_file "${NATIVE_VALA_OUT}/NativeVala.AppDir/usr/lib/girepository-1.0/SqVala-1.0.typelib"
   assert_contains "${WORK_DIR}/native-vala-package.out" "native projects: 1"
-  assert_contains "${WORK_DIR}/native-vala-package.out" "shared libraries: 1"
+  assert_contains "${WORK_DIR}/native-vala-package.out" "shared libraries:"
+  assert_contains "${WORK_DIR}/native-vala-package.out" "recursively resolved Linux ELF"
   assert_contains "${WORK_DIR}/native-vala-package.out" "typelibs: 1"
   assert_contains "${WORK_DIR}/native-vala-package.out" "caught expected Vala async error"
   assert_contains "${WORK_DIR}/native-vala-package.out" "async vala greets SQGI; sum=42; progress=3"

@@ -42,5 +42,6 @@ sqgipkg --target all --smoke-test "--auto"
 ```
 
 With the default AppImage target, outputs are written under `dist/`. With
-`--target all`, Linux outputs are written under `dist-linux/` and Windows
-outputs are written under `dist-windows/`.
+`--target all`, this manifest has no Linux architecture matrix, so the Linux
+AppImage is written under `dist-linux/` and Windows outputs are written under
+`dist-windows/`.

@@ -156,6 +156,7 @@ This installs:
 - `libsqgi.so`
 - public headers under `include/sqgi/`
 - `sqgi.pc` for `pkg-config`
+- `sqgipkg` runtime modules under `share/sqgi/sqgipkg_lib/`
 - `sqgipkg` starter templates under `share/sqgi/sqgipkg_templates/`
 
 ## Import Native Libraries

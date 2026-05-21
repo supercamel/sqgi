@@ -99,6 +99,11 @@ The default target. Stages an AppDir and produces:
 dist/<name>.AppImage
 ```
 
+By default, the AppImage is tagged for the build host architecture. To package
+an arm64/aarch64 AppImage, pass `--appimage-arch aarch64` or set
+`"appimage_arch": "aarch64"` in the manifest, and point `build_dir` at an
+arm64 SQGI build.
+
 ### `win-dir`
 
 Stages a Windows application directory:
@@ -155,10 +160,14 @@ preparing a cache for CI.
 
 ### `all`
 
-Builds `appimage`, then `win-nsis`.  To keep platform artifacts from
+Builds Linux AppImage output, then `win-nsis`. To keep platform artifacts from
 overwriting or confusing each other, `all` writes Linux output to
-`<output>-linux` and Windows output to `<output>-windows`. With the default
-output directory, that means `dist-linux` and `dist-windows`.
+`<output>-linux` and Windows output to `<output>-windows` by default. With the
+default output directory, that means `dist-linux` and `dist-windows`.
+
+When `linux.arches` is configured, `all` builds every listed Linux AppImage
+architecture and writes each one to `<output>-linux-<arch>` unless the arch entry
+sets its own `output`.
 
 ```sh
 sqgipkg --target all
@@ -817,7 +826,28 @@ Path to `appimagetool`.
 ```
 
 If not found, `sqgipkg` downloads the latest continuous AppImageTool build for
-the host architecture.
+the host architecture. This is the architecture of the tool that runs on the
+build machine, not necessarily the architecture of the AppImage being produced.
+
+#### `appimage_arch`
+
+Target architecture written into the AppImage. Common values are `x86_64` and
+`aarch64`; `amd64` and `arm64` are accepted as aliases.
+
+```json
+"appimage_arch": "aarch64"
+```
+
+Command-line equivalent:
+
+```sh
+sqgipkg --target appimage --appimage-arch aarch64 --build-dir build-aarch64
+```
+
+This selects the AppImage target architecture only. The staged runtime still
+needs to match that architecture, so `build-aarch64/sqgi`, native entries,
+shared libraries, plugins, and manually bundled files must already be built for
+arm64.
 
 #### `appimagetool_cache`
 
@@ -848,6 +878,233 @@ Do not delete the staged AppDir after building.
 ```json
 "keep_appdir": true
 ```
+
+### Linux architecture matrix
+
+For a single AppImage, `appimage_arch` and `build_dir` are enough:
+
+```json
+{
+  "appimage_arch": "aarch64",
+  "build_dir": "build-aarch64"
+}
+```
+
+For `--target all`, use `linux.arches` to build multiple Linux AppImages from
+one manifest:
+
+```json
+{
+  "linux": {
+    "arches": [
+      {
+        "arch": "x86_64",
+        "build_dir": "build",
+        "deb": {
+          "download": true,
+          "packages": [
+            "libgtk-4-1",
+            "libgstreamer1.0-0",
+            "gstreamer1.0-plugins-base"
+          ]
+        }
+      },
+      {
+        "arch": "aarch64",
+        "build_dir": "build-aarch64",
+        "deb": {
+          "download": true,
+          "packages": [
+            "libgtk-4-1",
+            "libgstreamer1.0-0",
+            "gstreamer1.0-plugins-base"
+          ]
+        },
+        "inherit_native_projects": false,
+        "build": [
+          "cmake -E rm -rf \"$SQGI_LINUX_BUILD_DIR\"",
+          "cmake -S . -B \"$SQGI_LINUX_BUILD_DIR\" -DCMAKE_TOOLCHAIN_FILE=\"$SQGI_LINUX_CMAKE_TOOLCHAIN\"",
+          "cmake --build \"$SQGI_LINUX_BUILD_DIR\""
+        ]
+      }
+    ]
+  }
+}
+```
+
+`arch` accepts `x86_64`, `aarch64`, and the common aliases `amd64`, `x64`, and
+`arm64`. `sqgipkg` maps these to Debian package arches when staging packages
+from Ubuntu multiarch installs: `x86_64` becomes `amd64`, and `aarch64` becomes
+`arm64`.
+
+For isolated Linux builds, the least invasive setup is a private sysroot. The
+Debian/Ubuntu backend is explicit: when `linux.deb.download` or an arch entry
+`deb.download` is enabled, `sqgipkg` uses `apt-cache`, `apt-get download`, and
+`dpkg-deb` to resolve and extract target packages into
+`~/.cache/sqgipkg/linux-sysroots/<distro>-<release>-<deb-arch>/` by default
+unless `linux.sysroot` or an arch `sysroot` is set. This keeps the sysroot
+isolated from the host while still letting runs and projects reuse the same
+extracted packages. `.deb` archives are cached separately under
+`~/.cache/sqgipkg/linux-debs/<deb-arch>/`.
+
+This works for native and cross target architectures, so an x86_64 package can
+use an x86_64 sysroot instead of the host `/usr`, and an aarch64 package can use
+an aarch64 sysroot from the same manifest. The generated CMake/Meson files then
+point pkg-config at that sysroot for cross builds. `sqgipkg` records the archive
+basename for each installed sysroot package and re-extracts it if the apt
+metadata points at a different package archive later.
+
+Set `linux.deb.sysroot_cache`, an arch entry `deb.sysroot_cache`, or
+`--linux-deb-sysroot-cache DIR` to move the reusable extracted sysroots somewhere
+else. Set `linux.sysroot` or an arch `sysroot` when you want to provide one exact
+sysroot yourself instead of using sqgipkg's Debian cache.
+
+The sysroot itself is generic: you can also populate `linux.sysroot` with any
+external tool and skip the Debian backend. Only `linux.deb.*` and package names
+like `libgtk-4-1` are Debian/Ubuntu-specific.
+
+The host still needs the cross compiler tools:
+
+```sh
+sudo apt install gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+```
+
+The apt package indexes must include the target architecture. On amd64 Ubuntu
+hosts, keep the normal `archive.ubuntu.com` and `security.ubuntu.com` sources
+limited to host architectures such as `amd64` and `i386`, then add a separate
+arm64 source from `ports.ubuntu.com`:
+
+```text
+Types: deb
+URIs: http://ports.ubuntu.com/ubuntu-ports/
+Suites: noble noble-updates noble-backports noble-security
+Components: main restricted universe multiverse
+Architectures: arm64
+Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+```
+
+Then run `sudo apt update`. You should not need `dpkg --add-architecture arm64`
+or `apt install libgtk-4-dev:arm64` for the sysroot workflow.
+
+The older host-multiarch Debian workflow still works when Debian downloading is
+disabled and the arch entry points at `/`:
+
+```sh
+sudo dpkg --add-architecture arm64
+sudo apt update
+sudo apt install gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
+  libglib2.0-dev:arm64 libgtk-4-dev:arm64 libgstreamer1.0-dev:arm64
+```
+
+Then let the aarch64 arch entry build SQGI and any native projects through the
+generated cross files:
+
+```sh
+sqgipkg --target all
+```
+
+Each Linux arch entry may also set:
+
+```text
+output
+build
+sysroot
+deb
+deb_download
+deb_refresh
+deb_package_cache
+deb_sysroot_cache
+deb_packages
+cmake_toolchain
+meson_cross_file
+package_arch
+library_dirs
+copy_dependencies
+libraries
+typelibs
+files
+resources
+gstreamer_plugins
+gsettings_schemas
+gtk_data
+gio_modules
+gdk_pixbuf_loaders
+native_projects
+inherit_native_projects
+entry_linux
+```
+
+`inherit_native_projects` defaults to `true`. Set it to `false` when a
+cross-architecture entry needs to replace the top-level native builds with
+architecture-specific native build commands and output paths.
+
+`build` commands run before staging with these environment variables:
+
+```text
+SQGI_LINUX_ARCH
+SQGI_LINUX_DEB_ARCH
+SQGI_LINUX_TRIPLET
+SQGI_LINUX_BUILD_DIR
+SQGI_LINUX_SYSROOT
+SQGI_LINUX_CMAKE_TOOLCHAIN
+SQGI_LINUX_MESON_CROSS_FILE
+```
+
+For cross-architecture Linux entries, `sqgipkg` writes generated CMake and
+Meson cross files under `<output>-linux-<arch>/_cross/<arch>/` and points
+`SQGI_LINUX_CMAKE_TOOLCHAIN` and `SQGI_LINUX_MESON_CROSS_FILE` at those files.
+This mirrors the Windows cross environment, where manifests consume generated
+toolchain paths instead of carrying project-local cross files. `cmake_toolchain`
+and `meson_cross_file` are only needed when you want to override the generated
+files.
+
+Before running cross build commands, `sqgipkg` validates the obvious target
+requirements and stops with an explicit error if they are missing. For an
+aarch64 SQGI app this includes `aarch64-linux-gnu-*` compiler tools and target
+pkg-config metadata for SQGI's core GLib/GI/Cairo dependencies. GTK and
+GStreamer pkg-config modules are added to that preflight automatically when
+project scripts import `Gtk` or `Gst`. The error includes the exact
+`PKG_CONFIG_LIBDIR` being searched and a suggested Ubuntu install command.
+
+### Linux dependency staging
+
+For Linux AppImages, `sqgipkg` now does two kinds of runtime staging:
+
+- It can copy selected runtime files from installed Debian/Ubuntu packages with
+  `linux.deb.packages`, per-arch `deb.packages`, or `--linux-deb-package`.
+- It recursively scans bundled ELF files with `readelf`, resolves `DT_NEEDED`
+  shared libraries from the target arch library paths, and copies non-system
+  libraries into `usr/lib`.
+
+Core glibc/loader libraries such as `libc.so.6`, `libm.so.6`, `libpthread.so.0`,
+and `ld-linux*` are intentionally not bundled. Everything else needed by SQGI,
+GTK, GStreamer, native entries, native libraries, and plugins should either be
+found through package staging, `library_dirs`, `sysroot`, or explicit file
+entries.
+
+When `sysroot` is set, package file lists are still read with `dpkg-query`, but
+files are copied from `sysroot + package-path` when that path exists. This lets
+you use either installed Ubuntu multiarch packages or a sysroot populated from
+extracted `.deb` packages.
+
+To disable ELF dependency copying:
+
+```json
+{
+  "linux": {
+    "copy_dependencies": false
+  }
+}
+```
+
+or:
+
+```sh
+sqgipkg --no-linux-deps
+```
+
+Smoke tests are skipped automatically for AppImages whose target architecture
+does not match the build host.
 
 ## Linux runtime environment
 
@@ -959,9 +1216,9 @@ Do not mix compiler CRT families and dependency package families.
       "mingw-w64-x86_64-vala"
     ],
     "build": [
-      "cmake -E rm -rf build-win",
-      "cmake -S ../../.. -B build-win -G Ninja -DCMAKE_TOOLCHAIN_FILE=\"$SQGI_WIN_CMAKE_TOOLCHAIN\" -DCMAKE_BUILD_TYPE=Release",
-      "cmake --build build-win"
+      "cmake -E rm -rf \"$SQGI_WINDOWS_BUILD_DIR\"",
+      "cmake -S ../../.. -B \"$SQGI_WINDOWS_BUILD_DIR\" -G Ninja -DCMAKE_TOOLCHAIN_FILE=\"$SQGI_WIN_CMAKE_TOOLCHAIN\" -DCMAKE_BUILD_TYPE=Release",
+      "cmake --build \"$SQGI_WINDOWS_BUILD_DIR\""
     ],
     "build_dir": "build-win",
     "native_projects": [
@@ -996,8 +1253,8 @@ Commands run from the manifest directory.
 
 ```json
 "build": [
-  "cmake -S ../../.. -B build-win -G Ninja -DCMAKE_TOOLCHAIN_FILE=\"$SQGI_WIN_CMAKE_TOOLCHAIN\" -DCMAKE_BUILD_TYPE=Release",
-  "cmake --build build-win"
+  "cmake -S ../../.. -B \"$SQGI_WINDOWS_BUILD_DIR\" -G Ninja -DCMAKE_TOOLCHAIN_FILE=\"$SQGI_WIN_CMAKE_TOOLCHAIN\" -DCMAKE_BUILD_TYPE=Release",
+  "cmake --build \"$SQGI_WINDOWS_BUILD_DIR\""
 ]
 ```
 
@@ -1291,6 +1548,7 @@ PKG_CONFIG_PATH=
 PKG_CONFIG_SYSROOT_DIR=<absolute MSYS2 sysroot>
 PKG_CONFIG_LIBDIR=<prefix>/lib/pkgconfig:<prefix>/share/pkgconfig
 SQGI_WINDOWS_SYSROOT=<absolute MSYS2 sysroot>
+SQGI_WINDOWS_BUILD_DIR=<configured Windows build_dir>
 SQGI_WINDOWS_PREFIX=/mingw64                 # or /ucrt64, /clang64, ...
 SQGI_WINDOWS_PREFIX_DIR=<absolute prefix dir>
 SQGI_WINDOWS_SYSROOT_PREFIX=<absolute prefix dir>
@@ -1538,6 +1796,7 @@ After staging, `sqgipkg` prints a report:
 sqgipkg report
   appdir: dist/MyApp.AppDir
   appimage: dist/MyApp.AppImage
+  appimage arch: x86_64
   scripts: 2 compiled, 0 copied, 2 compatibility links
   resources: 1
   manual files: 0
@@ -1617,6 +1876,23 @@ AppImage options:
 --appimagetool PATH
 --appimagetool-cache DIR
 --refresh-appimagetool
+--appimage-arch ARCH
+--linux-arch ARCH
+--linux-deb-package PACKAGE
+--linux-deb-download
+--linux-deb-package-cache DIR
+--linux-deb-sysroot-cache DIR
+--refresh-linux-deb-packages
+--no-linux-deb-download
+--linux-package PACKAGE
+--linux-sysroot DIR
+--linux-download-packages
+--linux-package-cache DIR
+--linux-sysroot-cache DIR
+--refresh-linux-packages
+--no-linux-download
+--linux-library-dir DIR
+--no-linux-deps
 --smoke-test ARGS
 --smoke-test-isolated
 ```
@@ -1658,7 +1934,7 @@ NSIS options:
 --nsis-start-menu-folder NAME
 ```
 
-Run the installed help for the exact current list:
+Run the installed Gio.Application help for the exact current list:
 
 ```sh
 sqgipkg --help
@@ -1709,9 +1985,9 @@ sqgipkg --manifest sqgipkg.json --smoke-test "--analyse --timeout=2"
       "mingw-w64-x86_64-gtk4"
     ],
     "build": [
-      "cmake -E rm -rf build-win",
-      "cmake -S ../../.. -B build-win -G Ninja -DCMAKE_TOOLCHAIN_FILE=\"$SQGI_WIN_CMAKE_TOOLCHAIN\" -DCMAKE_BUILD_TYPE=Release",
-      "cmake --build build-win"
+      "cmake -E rm -rf \"$SQGI_WINDOWS_BUILD_DIR\"",
+      "cmake -S ../../.. -B \"$SQGI_WINDOWS_BUILD_DIR\" -G Ninja -DCMAKE_TOOLCHAIN_FILE=\"$SQGI_WIN_CMAKE_TOOLCHAIN\" -DCMAKE_BUILD_TYPE=Release",
+      "cmake --build \"$SQGI_WINDOWS_BUILD_DIR\""
     ],
     "build_dir": "build-win",
     "native_dependencies": [
@@ -1785,6 +2061,17 @@ license implications. Prefer the smallest runtime set your app actually needs.
 
 ## Testing sqgipkg
 
+`sqgipkg` is implemented as a small launcher plus Squirrel modules. In the
+source tree they live under `tools/sqgipkg_lib/`; `make install` places the
+launcher in `bin/` and the Squirrel entry/modules under
+`share/sqgi/sqgipkg.nut` and `share/sqgi/sqgipkg_lib/`. The installed launcher
+sets `SQGI_APP_SHARE` to the SQGI share directory when it is otherwise unset, so
+the support modules are loaded from the shared data location instead of `bin/`.
+
+The modules are split by responsibility: command-line options, manifests,
+script staging, Linux dependency closure, AppImage staging, Windows/MSYS2 setup,
+NSIS generation, templates, doctor checks, and final build orchestration.
+
 The test suite builds real packages:
 
 ```sh
@@ -1793,6 +2080,7 @@ bash tools/sqgipkg_tests/run_tests.sh build/sqgi
 
 It covers:
 
+- module-level helper tests
 - help output
 - manifest initialization
 - AppImage builds

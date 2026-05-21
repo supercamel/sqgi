@@ -30,6 +30,26 @@ sqgipkg --target win-nsis
 sqgipkg --target all --smoke-test ""
 ```
 
+`--target all` builds the configured Linux architecture matrix plus Windows:
+
+- `dist-linux-x86_64/NativeVala.AppImage`
+- `dist-linux-aarch64/NativeVala.AppImage`
+- `dist-windows/NativeVala-Setup.exe` when `makensis` is available
+
+The manifest enables `linux.deb.download`, so Linux targets use private Debian
+sysroots under their output directories instead of relying on GLib/GIO
+development packages installed into the host OS. The aarch64 AppImage path
+still needs an aarch64 cross compiler such as `aarch64-linux-gnu-gcc` and
+`aarch64-linux-gnu-g++`. The Debian backend also needs apt package indexes for
+each target Debian architecture it downloads, for example `amd64` and `arm64`.
+
+For Linux cross entries, `sqgipkg` generates the CMake toolchain and Meson cross
+file under the target output directory and exports
+`SQGI_LINUX_CMAKE_TOOLCHAIN` and `SQGI_LINUX_MESON_CROSS_FILE` to the build
+commands. This keeps the Linux and Windows cross-build shapes the same: the
+manifest names the target architecture and consumes sqgipkg-provided cross-file
+paths.
+
 When working from an uninstalled checkout, run from the repository root:
 
 ```sh
@@ -62,8 +82,7 @@ know which Vala-built `.so`/`.dll` and `.typelib` files to stage. The generic
 SQGI runtime MSYS2 packages are inferred automatically for Windows targets.
 When `makensis` is available, `win-nsis` writes `dist/NativeVala-Setup.exe`;
 otherwise it leaves `dist/NativeVala.nsi` beside the staged Windows directory.
-For `--target all`, the same Windows outputs are written under `dist-windows/`
-and the Linux AppImage is written under `dist-linux/`.
+For `--target all`, the Windows outputs are written under `dist-windows/`.
 
 Most SQGI async code should use plain `await`. That works for SQGI tasks, GIO
 async APIs, and Vala async methods that expose callback/user-data finish pairs:

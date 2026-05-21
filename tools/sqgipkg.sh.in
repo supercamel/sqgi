@@ -1,0 +1,31 @@
+#!/bin/sh
+
+if [ -z "${SQGI_TOOL_SHARE:-}" ]; then
+    case "$0" in
+        */*) sqgi_script="$0" ;;
+        *) sqgi_script="$(command -v "$0")" ;;
+    esac
+
+    sqgi_bin_dir="$(CDPATH= cd "$(dirname "$sqgi_script")" && pwd)"
+    sqgi_prefix="$sqgi_bin_dir"
+    sqgi_bindir="@CMAKE_INSTALL_BINDIR@"
+
+    case "$sqgi_bindir" in
+        /*)
+            SQGI_TOOL_SHARE="@CMAKE_INSTALL_FULL_DATADIR@/sqgi"
+            ;;
+        *)
+            while [ "$sqgi_bindir" != "." ] && [ "$sqgi_bindir" != "" ]; do
+                sqgi_prefix="$(dirname "$sqgi_prefix")"
+                sqgi_bindir="$(dirname "$sqgi_bindir")"
+            done
+            SQGI_TOOL_SHARE="${sqgi_prefix}/@CMAKE_INSTALL_DATADIR@/sqgi"
+            ;;
+    esac
+fi
+
+if [ -z "${SQGI_APP_SHARE:-}" ]; then
+    export SQGI_APP_SHARE="${SQGI_TOOL_SHARE}"
+fi
+
+exec sqgi "${SQGI_TOOL_SHARE}/sqgipkg.nut" "$@"

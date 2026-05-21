@@ -1,12 +1,42 @@
 {
   "name": "GtkGstOverlay",
-  "script_dirs": [
-    "."
-  ],
+  "linux": {
+    "arches": [
+      {
+        "arch": "x86_64",
+        "deb": {
+          "download": true,
+          "packages": [
+            "libgtk-4-1",
+            "libgstreamer1.0-0",
+            "gstreamer1.0-plugins-base"
+          ]
+        }
+      },
+      {
+        "arch": "aarch64",
+        "build_dir": "build-aarch64",
+        "deb": {
+          "download": true,
+          "packages": [
+            "libgtk-4-1",
+            "libgstreamer1.0-0",
+            "gstreamer1.0-plugins-base"
+          ]
+        },
+        "build": [
+          "cmake -E rm -rf \"$SQGI_LINUX_BUILD_DIR\"",
+          "cmake -S ../../.. -B \"$SQGI_LINUX_BUILD_DIR\" -G Ninja -DCMAKE_TOOLCHAIN_FILE=\"$SQGI_LINUX_CMAKE_TOOLCHAIN\" -DCMAKE_BUILD_TYPE=Release",
+          "cmake --build \"$SQGI_LINUX_BUILD_DIR\""
+        ]
+      }
+    ]
+  },
   "windows": {
     "build": [
-      "cmake -S ../../.. -B build-win -G Ninja ${SQGI_WIN_CMAKE_TOOLCHAIN:+-DCMAKE_TOOLCHAIN_FILE=$SQGI_WIN_CMAKE_TOOLCHAIN} -DCMAKE_BUILD_TYPE=Release",
-      "cmake --build build-win"
+      "cmake -E rm -rf \"$SQGI_WINDOWS_BUILD_DIR\"",
+      "cmake -S ../../.. -B \"$SQGI_WINDOWS_BUILD_DIR\" -G Ninja -DCMAKE_TOOLCHAIN_FILE=\"$SQGI_WIN_CMAKE_TOOLCHAIN\" -DCMAKE_BUILD_TYPE=Release",
+      "cmake --build \"$SQGI_WINDOWS_BUILD_DIR\""
     ],
     "build_dir": "build-win"
   }
