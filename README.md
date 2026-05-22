@@ -325,6 +325,20 @@ On Linux hosts, `sqgipkg` can prepare an MSYS2-style sysroot, download packages,
 resolve dependencies, generate CMake/Meson cross files, isolate `pkg-config`,
 and recursively copy DLL dependencies.
 
+GUI apps do not need to carry a visible Windows console. `sqgipkg` supports a
+Windows manifest option:
+
+```json
+"windows": {
+  "console": false
+}
+```
+
+By default this is inferred for GTK-looking apps. During Windows cross builds,
+the generated CMake toolchain sets `SQGI_WINDOWS_GUI=ON`, so the packaged
+`sqgi.exe` is built with the Windows GUI subsystem. Use `"console": true` or
+`--windows-console` when you want a visible console for debugging.
+
 For current Ubuntu stock MinGW cross-builds, pair the stock
 `x86_64-w64-mingw32-*` toolchain with MSYS2 `mingw64` packages:
 

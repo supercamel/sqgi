@@ -2015,6 +2015,8 @@ Windows/MSYS2 options:
 --refresh-msys2-packages
 --no-msys2-download
 --no-windows-auto-packages
+--windows-console
+--no-windows-console
 --win-cmake-toolchain FILE
 --win-meson-cross-file FILE
 ```
@@ -2022,6 +2024,7 @@ Windows/MSYS2 options:
 Manifest-only Windows build fields include:
 
 ```text
+windows.console
 windows.native_dependencies
 windows.build_dependencies     # alias
 windows.native_projects
