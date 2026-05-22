@@ -67,13 +67,13 @@ sqgipkg
 On Linux, the default target is an AppImage:
 
 ```text
-dist/myapp.AppImage
+dist-linux-x86_64/myapp.AppImage
 ```
 
 Run it without requiring host FUSE support:
 
 ```sh
-APPIMAGE_EXTRACT_AND_RUN=1 dist/myapp.AppImage
+APPIMAGE_EXTRACT_AND_RUN=1 dist-linux-x86_64/myapp.AppImage
 ```
 
 This first package contains the SQGI runtime, your compiled script payload, and
@@ -107,7 +107,7 @@ package with no extra arguments after it is built.
 The output is now:
 
 ```text
-dist/HelloSqgi.AppImage
+dist-linux-x86_64/HelloSqgi.AppImage
 ```
 
 If `script` is omitted and `main.nut` exists beside the manifest, `sqgipkg`
@@ -268,7 +268,7 @@ sqgipkg --keep-appdir --smoke-test ""
 Look inside:
 
 ```text
-dist/GtkDemo.AppDir/
+dist-linux-x86_64/GtkDemo.AppDir/
   usr/lib/
   usr/lib/girepository-1.0/
   usr/share/glib-2.0/schemas/
@@ -397,10 +397,10 @@ Windows equivalents live under `windows`:
 {
   "windows": {
     "libraries": [
-      "native/build-win/myhelper.dll"
+      "native/build-windows-x86_64/myhelper.dll"
     ],
     "typelibs": [
-      "native/build-win/MyHelper-1.0.typelib"
+      "native/build-windows-x86_64/MyHelper-1.0.typelib"
     ],
     "files": [
       "data/windows.conf=share/sqgi/app/windows.conf"
@@ -474,7 +474,7 @@ Useful Windows manifest fields:
 The Windows package shape is:
 
 ```text
-dist/WindowsDemo/
+dist-windows-x86_64/WindowsDemo/
   WindowsDemo.bat
   bin/sqgi.exe
   bin/*.dll
@@ -681,7 +681,7 @@ Manifest:
   "entry": {
     "type": "native",
     "linux": "native/build/native-entry",
-    "windows": "native/build-win/native-entry.exe"
+    "windows": "native/build-windows-x86_64/native-entry.exe"
   },
   "script_dirs": [
     "scripts"
@@ -710,11 +710,11 @@ produce different output paths:
     "arches": [
       {
         "arch": "x86_64",
-        "entry_linux": "native/build-x86_64/native-entry"
+        "entry_linux": "native/build-linux-x86_64/native-entry"
       },
       {
         "arch": "aarch64",
-        "entry_linux": "native/build-aarch64/native-entry"
+        "entry_linux": "native/build-linux-aarch64/native-entry"
       }
     ]
   }
@@ -741,7 +741,7 @@ For a repeatable multi-arch manifest, use `linux.arches`:
     "arches": [
       {
         "arch": "x86_64",
-        "build_dir": "build-x86_64",
+        "build_dir": "build-linux-x86_64",
         "deb": {
           "download": true,
           "packages": [
@@ -757,7 +757,7 @@ For a repeatable multi-arch manifest, use `linux.arches`:
       },
       {
         "arch": "aarch64",
-        "build_dir": "build-aarch64",
+        "build_dir": "build-linux-aarch64",
         "deb": {
           "download": true,
           "packages": [
@@ -785,8 +785,8 @@ sqgipkg --target linux-sysroot --appimage-arch aarch64 --linux-deb-download
 For cross targets, `sqgipkg` writes:
 
 ```text
-dist/_cross/<arch>/toolchain-<arch>.cmake
-dist/_cross/<arch>/<arch>.ini
+dist-linux-<arch>/_cross/<arch>/toolchain-<arch>.cmake
+dist-linux-<arch>/_cross/<arch>/<arch>.ini
 ```
 
 and points:
@@ -823,7 +823,7 @@ A script app can often use the default Windows SQGI build plus MSYS2 packages:
       "cmake -S \"$SQGI_SOURCE_DIR\" -B \"$SQGI_WINDOWS_BUILD_DIR\" -G Ninja -DCMAKE_TOOLCHAIN_FILE=\"$SQGI_WIN_CMAKE_TOOLCHAIN\" -DCMAKE_BUILD_TYPE=Release",
       "cmake --build \"$SQGI_WINDOWS_BUILD_DIR\""
     ],
-    "build_dir": "build-win"
+    "build_dir": "build-windows-x86_64"
   }
 }
 ```
@@ -842,13 +842,13 @@ For native Windows modules:
       {
         "dir": "native",
         "build": [
-          "BUILD_DIR=build-win MESON_CROSS_FILE=\"$SQGI_MESON_CROSS_FILE\" ./build.sh"
+          "BUILD_DIR=build-windows-x86_64 MESON_CROSS_FILE=\"$SQGI_MESON_CROSS_FILE\" ./build.sh"
         ],
         "libraries": [
-          "build-win/myhelper.dll"
+          "build-windows-x86_64/myhelper.dll"
         ],
         "typelibs": [
-          "build-win/MyHelper-1.0.typelib"
+          "build-windows-x86_64/MyHelper-1.0.typelib"
         ]
       }
     ]
@@ -867,11 +867,11 @@ app builds, use `windows.native_dependencies`:
         "name": "private-lib",
         "dir": "deps/private-lib",
         "build": [
-          "meson setup build-win --cross-file \"$SQGI_MESON_CROSS_FILE\" --prefix \"$SQGI_WINDOWS_PREFIX\" --wipe || meson setup build-win --cross-file \"$SQGI_MESON_CROSS_FILE\" --prefix \"$SQGI_WINDOWS_PREFIX\"",
-          "meson compile -C build-win"
+          "meson setup build-windows-x86_64 --cross-file \"$SQGI_MESON_CROSS_FILE\" --prefix \"$SQGI_WINDOWS_PREFIX\" --wipe || meson setup build-windows-x86_64 --cross-file \"$SQGI_MESON_CROSS_FILE\" --prefix \"$SQGI_WINDOWS_PREFIX\"",
+          "meson compile -C build-windows-x86_64"
         ],
         "install": [
-          "meson install -C build-win --destdir \"$SQGI_WINDOWS_SYSROOT\""
+          "meson install -C build-windows-x86_64 --destdir \"$SQGI_WINDOWS_SYSROOT\""
         ],
         "stage": false
       }
@@ -904,10 +904,10 @@ sqgipkg --target all
 With no `linux.arches`, `all` builds:
 
 ```text
-dist-linux/<name>.AppImage
-dist-windows/<name>/
-dist-windows/<name>.nsi
-dist-windows/<name>-Setup.exe
+dist-linux-x86_64/<name>.AppImage
+dist-windows-x86_64/<name>/
+dist-windows-x86_64/<name>.nsi
+dist-windows-x86_64/<name>-Setup.exe
 ```
 
 With `linux.arches`, Linux outputs are split by architecture:
@@ -915,8 +915,23 @@ With `linux.arches`, Linux outputs are split by architecture:
 ```text
 dist-linux-x86_64/<name>.AppImage
 dist-linux-aarch64/<name>.AppImage
-dist-windows/<name>-Setup.exe
+dist-windows-x86_64/<name>-Setup.exe
 ```
+
+Clean generated project-local outputs when you want to reset the packaging
+workspace:
+
+```sh
+sqgipkg --clean
+```
+
+This removes target-aware defaults such as `dist-linux-x86_64`,
+`dist-windows-x86_64`, `build-linux-x86_64`, and `build-windows-x86_64`, along
+with legacy `dist`, `dist-linux`, `dist-windows`, `build`, and `build-win`
+directories when they are inside the project.
+
+`sqgipkg --target clean` is still accepted as a compatibility alias, but
+`--clean` is the intended command.
 
 This is the shape to aim for once the host-only build, runtime bundling, and
 native modules are all working independently.
@@ -929,7 +944,7 @@ For a new app, do this in order:
 2. Add resources and `script_dirs`.
 3. Add `--doctor` to your normal build loop.
 4. Add Linux runtime packages with `linux.deb.download`.
-5. Use `--keep-appdir` and inspect `dist/<name>.AppDir`.
+5. Use `--keep-appdir` and inspect `dist-linux-<arch>/<name>.AppDir`.
 6. Add `--smoke-test-isolated` for GStreamer apps.
 7. Add Windows package lists and build `--target win-dir`.
 8. Add NSIS only after `win-dir` works.
@@ -966,9 +981,10 @@ a relocatable gdk-pixbuf loader cache when the query helper is bundled.
 
 The wrong compiler is reused during cross builds:
 
-Clean the build directory or use per-arch build directories such as
-`build-x86_64`, `build-aarch64`, and `build-win`. The examples remove the build
-directory before configuring to avoid stale CMake state.
+Run `sqgipkg --clean`, or use per-arch build directories such as
+`build-linux-x86_64`, `build-linux-aarch64`, and `build-windows-x86_64`. The
+examples remove the build directory before configuring to avoid stale CMake
+state.
 
 The package works only when run from the source tree:
 

@@ -9,7 +9,7 @@ executable directly:
 "entry": {
   "type": "native",
   "linux": "native/build/sq-native-entry",
-  "windows": "native/build-win/sq-native-entry.exe"
+  "windows": "native/build-windows-x86_64/sq-native-entry.exe"
 }
 ```
 

@@ -3,7 +3,7 @@
   "entry": {
     "type": "native",
     "linux": "native/build/sq-native-entry",
-    "windows": "native/build-win/sq-native-entry.exe"
+    "windows": "native/build-windows-x86_64/sq-native-entry.exe"
   },
   "script_dirs": [
     "scripts"
@@ -26,26 +26,26 @@
     "arches": [
       {
         "arch": "x86_64",
-        "entry_linux": "native/build-x86_64/sq-native-entry",
+        "entry_linux": "native/build-linux-x86_64/sq-native-entry",
         "inherit_native_projects": false,
         "native_projects": [
           {
             "dir": "native",
             "build": [
-              "BUILD_DIR=build-x86_64 MESON_CROSS_FILE=\"$SQGI_LINUX_MESON_CROSS_FILE\" ./build.sh"
+              "BUILD_DIR=build-linux-x86_64 MESON_CROSS_FILE=\"$SQGI_LINUX_MESON_CROSS_FILE\" ./build.sh"
             ]
           }
         ]
       },
       {
         "arch": "aarch64",
-        "entry_linux": "native/build-aarch64/sq-native-entry",
+        "entry_linux": "native/build-linux-aarch64/sq-native-entry",
         "inherit_native_projects": false,
         "native_projects": [
           {
             "dir": "native",
             "build": [
-              "BUILD_DIR=build-aarch64 MESON_CROSS_FILE=\"$SQGI_LINUX_MESON_CROSS_FILE\" ./build.sh"
+              "BUILD_DIR=build-linux-aarch64 MESON_CROSS_FILE=\"$SQGI_LINUX_MESON_CROSS_FILE\" ./build.sh"
             ]
           }
         ]
@@ -59,7 +59,7 @@
       {
         "dir": "native",
         "build": [
-          "BUILD_DIR=build-win MESON_CROSS_FILE=\"$SQGI_MESON_CROSS_FILE\" ./build.sh"
+          "BUILD_DIR=build-windows-x86_64 MESON_CROSS_FILE=\"$SQGI_MESON_CROSS_FILE\" ./build.sh"
         ]
       }
     ]

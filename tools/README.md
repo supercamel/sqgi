@@ -61,7 +61,7 @@ sqgipkg
 By default this builds:
 
 ```text
-dist/<project-name>.AppImage
+dist-linux-<arch>/<project-name>.AppImage
 ```
 
 During in-tree development you can run the tool through the local SQGI binary:
@@ -91,7 +91,7 @@ sqgipkg --smoke-test "--timeout=2"
 Run an AppImage without relying on host FUSE:
 
 ```sh
-APPIMAGE_EXTRACT_AND_RUN=1 dist/MyApp.AppImage
+APPIMAGE_EXTRACT_AND_RUN=1 dist-linux-x86_64/MyApp.AppImage
 ```
 
 ## Package targets
@@ -101,7 +101,7 @@ APPIMAGE_EXTRACT_AND_RUN=1 dist/MyApp.AppImage
 The default target. Stages an AppDir and produces:
 
 ```text
-dist/<name>.AppImage
+dist-linux-<arch>/<name>.AppImage
 ```
 
 By default, the AppImage is tagged for the build host architecture. To package
@@ -122,7 +122,7 @@ sqgipkg --target linux-sysroot --appimage-arch x86_64 --linux-deb-download
 Typical output layout for a cross target:
 
 ```text
-dist/_cross/x86_64/
+dist-linux-x86_64/_cross/x86_64/
   toolchain-x86_64.cmake
   x86_64.ini
 
@@ -136,7 +136,7 @@ dist/_cross/x86_64/
 Stages a Windows application directory:
 
 ```text
-dist/<name>/
+dist-windows-x86_64/<name>/
   <name>.bat
   bin/sqgi.exe
   bin/*.dll
@@ -152,9 +152,9 @@ Stages the same Windows directory, writes an NSIS script, and runs `makensis` if
 available:
 
 ```text
-dist/<name>/
-dist/<name>.nsi
-dist/<name>-Setup.exe
+dist-windows-x86_64/<name>/
+dist-windows-x86_64/<name>.nsi
+dist-windows-x86_64/<name>-Setup.exe
 ```
 
 ### `win-sysroot`
@@ -170,14 +170,14 @@ sqgipkg --target win-sysroot --msys2-prefix mingw64
 Typical output layout:
 
 ```text
-dist/_msys2-mingw64/
+dist-windows-x86_64/_msys2-mingw64/
   mingw64/
     bin/
     include/
     lib/
     share/
 
-dist/_cross/mingw64/
+dist-windows-x86_64/_cross/mingw64/
   toolchain-mingw64.cmake
   mingw64.ini
 ```
@@ -189,8 +189,9 @@ preparing a cache for CI.
 
 Builds Linux AppImage output, then `win-nsis`. To keep platform artifacts from
 overwriting or confusing each other, `all` writes Linux output to
-`<output>-linux` and Windows output to `<output>-windows` by default. With the
-default output directory, that means `dist-linux` and `dist-windows`.
+`<output>-linux-<arch>` and Windows output to `<output>-windows-x86_64` by
+default. With the default output base, that means `dist-linux-x86_64` and
+`dist-windows-x86_64`.
 
 When `linux.arches` is configured, `all` builds every listed Linux AppImage
 architecture and writes each one to `<output>-linux-<arch>` unless the arch entry
@@ -199,6 +200,21 @@ sets its own `output`.
 ```sh
 sqgipkg --target all
 ```
+
+### Cleaning outputs
+
+Removes project-local sqgipkg build and distribution directories for the current
+manifest/default target layout. This includes the current target-aware defaults
+such as `dist-linux-x86_64`, `dist-windows-x86_64`, `build-linux-x86_64`, and
+`build-windows-x86_64`, plus legacy `dist`, `dist-linux`, `dist-windows`,
+`build`, and `build-win` directories when they are inside the project.
+
+```sh
+sqgipkg --clean
+```
+
+`sqgipkg --target clean` is accepted as a compatibility alias, but `--clean` is
+the preferred command.
 
 ### Reserved targets
 
@@ -262,7 +278,7 @@ Native form for C/C++/Vala apps:
 "entry": {
   "type": "native",
   "linux": "build/myapp",
-  "windows": "build-win/myapp.exe"
+  "windows": "build-windows-x86_64/myapp.exe"
 }
 ```
 
@@ -322,7 +338,7 @@ SQGI build directory. On Linux this is where `sqgi` and `libsqgi.so.0` are
 looked up when you are packaging against an already-built SQGI runtime. Default:
 
 ```text
-build
+build-linux-<arch>
 ```
 
 Example:
@@ -366,7 +382,8 @@ inside the SQGI source checkout.
 Output directory. Default:
 
 ```text
-dist
+dist-linux-<arch> for AppImage targets
+dist-windows-x86_64 for Windows targets
 ```
 
 Example:
@@ -781,7 +798,7 @@ For a fully native app, pair `native_projects` with `entry.type = "native"`:
   "entry": {
     "type": "native",
     "linux": "native/build/my-vala-app",
-    "windows": "native/build-win/my-vala-app.exe"
+    "windows": "native/build-windows-x86_64/my-vala-app.exe"
   },
   "script_dirs": [
     "scripts"
@@ -800,7 +817,7 @@ For a fully native app, pair `native_projects` with `entry.type = "native"`:
       {
         "dir": "native",
         "build": [
-          "BUILD_DIR=build-win MESON_CROSS_FILE=\"$SQGI_MESON_CROSS_FILE\" ./build.sh"
+          "BUILD_DIR=build-windows-x86_64 MESON_CROSS_FILE=\"$SQGI_MESON_CROSS_FILE\" ./build.sh"
         ]
       }
     ]
@@ -899,11 +916,11 @@ Target architecture written into the AppImage. Common values are `x86_64` and
 Command-line equivalent:
 
 ```sh
-sqgipkg --target appimage --appimage-arch aarch64 --build-dir build-aarch64
+sqgipkg --target appimage --appimage-arch aarch64 --build-dir build-linux-aarch64
 ```
 
 This selects the AppImage target architecture only. The staged runtime still
-needs to match that architecture, so `build-aarch64/sqgi`, native entries,
+needs to match that architecture, so `build-linux-aarch64/sqgi`, native entries,
 shared libraries, plugins, and manually bundled files must already be built for
 arm64.
 
@@ -944,7 +961,7 @@ For a single AppImage, `appimage_arch` and `build_dir` are enough:
 ```json
 {
   "appimage_arch": "aarch64",
-  "build_dir": "build-aarch64"
+  "build_dir": "build-linux-aarch64"
 }
 ```
 
@@ -957,7 +974,7 @@ one manifest:
     "arches": [
       {
         "arch": "x86_64",
-        "build_dir": "build",
+        "build_dir": "build-linux-x86_64",
         "deb": {
           "download": true,
           "packages": [
@@ -969,7 +986,7 @@ one manifest:
       },
       {
         "arch": "aarch64",
-        "build_dir": "build-aarch64",
+        "build_dir": "build-linux-aarch64",
         "deb": {
           "download": true,
           "packages": [
@@ -1270,18 +1287,18 @@ Do not mix compiler CRT families and dependency package families.
       "cmake -S \"$SQGI_SOURCE_DIR\" -B \"$SQGI_WINDOWS_BUILD_DIR\" -G Ninja -DCMAKE_TOOLCHAIN_FILE=\"$SQGI_WIN_CMAKE_TOOLCHAIN\" -DCMAKE_BUILD_TYPE=Release",
       "cmake --build \"$SQGI_WINDOWS_BUILD_DIR\""
     ],
-    "build_dir": "build-win",
+    "build_dir": "build-windows-x86_64",
     "native_projects": [
       {
         "dir": "native",
         "build": [
-          "BUILD_DIR=build-win MESON_CROSS_FILE=\"$SQGI_MESON_CROSS_FILE\" ./build.sh"
+          "BUILD_DIR=build-windows-x86_64 MESON_CROSS_FILE=\"$SQGI_MESON_CROSS_FILE\" ./build.sh"
         ],
         "libraries": [
-          "build-win/libsqvala-1.0.dll"
+          "build-windows-x86_64/libsqvala-1.0.dll"
         ],
         "typelibs": [
-          "build-win/SqVala-1.0.typelib"
+          "build-windows-x86_64/SqVala-1.0.typelib"
         ]
       }
     ]
@@ -1318,7 +1335,7 @@ instead of opening a console window.
 Directory containing `sqgi.exe` and SQGI DLLs.
 
 ```json
-"build_dir": "build-win"
+"build_dir": "build-windows-x86_64"
 ```
 
 For script-only apps using a prebuilt SDK, this can point at that SDK/build
@@ -1362,7 +1379,7 @@ MSYS2 root/sysroot directory. If omitted, `sqgipkg` creates a target-specific
 sysroot under `dist`, for example:
 
 ```text
-dist/_msys2-mingw64
+dist-windows-x86_64/_msys2-mingw64
 ```
 
 ### `windows.repo_url`
@@ -1515,7 +1532,7 @@ bin/
 
 ```json
 "libraries": [
-  "native/build-win/libmyapp-1.0.dll"
+  "native/build-windows-x86_64/libmyapp-1.0.dll"
 ]
 ```
 
@@ -1529,7 +1546,7 @@ lib/girepository-1.0/
 
 ```json
 "typelibs": [
-  "native/build-win/MyApp-1.0.typelib"
+  "native/build-windows-x86_64/MyApp-1.0.typelib"
 ]
 ```
 
@@ -1566,11 +1583,11 @@ A dependency usually installs into the generated MSYS2-style sysroot:
       "update": true,
       "submodules": true,
       "build": [
-        "meson setup build-win --cross-file \"$SQGI_MESON_CROSS_FILE\" --prefix \"$SQGI_WINDOWS_PREFIX\" --wipe || meson setup build-win --cross-file \"$SQGI_MESON_CROSS_FILE\" --prefix \"$SQGI_WINDOWS_PREFIX\"",
-        "ninja -C build-win"
+        "meson setup build-windows-x86_64 --cross-file \"$SQGI_MESON_CROSS_FILE\" --prefix \"$SQGI_WINDOWS_PREFIX\" --wipe || meson setup build-windows-x86_64 --cross-file \"$SQGI_MESON_CROSS_FILE\" --prefix \"$SQGI_WINDOWS_PREFIX\"",
+        "ninja -C build-windows-x86_64"
       ],
       "install": [
-        "meson install -C build-win --destdir \"$SQGI_WINDOWS_SYSROOT\""
+        "meson install -C build-windows-x86_64 --destdir \"$SQGI_WINDOWS_SYSROOT\""
       ],
       "stage": false
     }
@@ -1613,13 +1630,13 @@ Windows `.dll` builds separate.
   {
     "dir": "native",
     "build": [
-      "BUILD_DIR=build-win MESON_CROSS_FILE=\"$SQGI_MESON_CROSS_FILE\" ./build.sh"
+      "BUILD_DIR=build-windows-x86_64 MESON_CROSS_FILE=\"$SQGI_MESON_CROSS_FILE\" ./build.sh"
     ],
     "libraries": [
-      "build-win/libmyapp-1.0.dll"
+      "build-windows-x86_64/libmyapp-1.0.dll"
     ],
     "typelibs": [
-      "build-win/MyApp-1.0.typelib"
+      "build-windows-x86_64/MyApp-1.0.typelib"
     ]
   }
 ]
@@ -1901,8 +1918,8 @@ After staging, `sqgipkg` prints a report:
 
 ```text
 sqgipkg report
-  appdir: dist/MyApp.AppDir
-  appimage: dist/MyApp.AppImage
+  appdir: dist-linux-x86_64/MyApp.AppDir
+  appimage: dist-linux-x86_64/MyApp.AppImage
   appimage arch: x86_64
   scripts: 2 compiled, 0 copied, 2 compatibility links
   resources: 1
@@ -1955,6 +1972,7 @@ Core options:
 --build-dir DIR
 --output DIR
 --init TEMPLATE
+--clean
 --doctor
 --keep-appdir
 --no-compile-scripts
@@ -2099,7 +2117,7 @@ sqgipkg --manifest sqgipkg.json --smoke-test "--analyse --timeout=2"
       "cmake -S \"$SQGI_SOURCE_DIR\" -B \"$SQGI_WINDOWS_BUILD_DIR\" -G Ninja -DCMAKE_TOOLCHAIN_FILE=\"$SQGI_WIN_CMAKE_TOOLCHAIN\" -DCMAKE_BUILD_TYPE=Release",
       "cmake --build \"$SQGI_WINDOWS_BUILD_DIR\""
     ],
-    "build_dir": "build-win",
+    "build_dir": "build-windows-x86_64",
     "native_dependencies": [
       {
         "name": "my-private-lib",
@@ -2107,11 +2125,11 @@ sqgipkg --manifest sqgipkg.json --smoke-test "--analyse --timeout=2"
         "dir": ".sqgipkg/native/my-private-lib",
         "branch": "main",
         "build": [
-          "meson setup build-win --cross-file \"$SQGI_MESON_CROSS_FILE\" --prefix \"$SQGI_WINDOWS_PREFIX\" --wipe || meson setup build-win --cross-file \"$SQGI_MESON_CROSS_FILE\" --prefix \"$SQGI_WINDOWS_PREFIX\"",
-          "ninja -C build-win"
+          "meson setup build-windows-x86_64 --cross-file \"$SQGI_MESON_CROSS_FILE\" --prefix \"$SQGI_WINDOWS_PREFIX\" --wipe || meson setup build-windows-x86_64 --cross-file \"$SQGI_MESON_CROSS_FILE\" --prefix \"$SQGI_WINDOWS_PREFIX\"",
+          "ninja -C build-windows-x86_64"
         ],
         "install": [
-          "meson install -C build-win --destdir \"$SQGI_WINDOWS_SYSROOT\""
+          "meson install -C build-windows-x86_64 --destdir \"$SQGI_WINDOWS_SYSROOT\""
         ],
         "stage": false
       }
@@ -2125,10 +2143,10 @@ sqgipkg --manifest sqgipkg.json --smoke-test "--analyse --timeout=2"
       {
         "dir": "native",
         "build": [
-          "BUILD_DIR=build-win MESON_CROSS_FILE=\"$SQGI_MESON_CROSS_FILE\" ./build.sh"
+          "BUILD_DIR=build-windows-x86_64 MESON_CROSS_FILE=\"$SQGI_MESON_CROSS_FILE\" ./build.sh"
         ],
-        "libraries": ["build-win/libsqvala-1.0.dll"],
-        "typelibs": ["build-win/SqVala-1.0.typelib"]
+        "libraries": ["build-windows-x86_64/libsqvala-1.0.dll"],
+        "typelibs": ["build-windows-x86_64/SqVala-1.0.typelib"]
       }
     ],
     "nsis_options": {

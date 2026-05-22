@@ -408,12 +408,14 @@ class SqgiPkgWindowsMsys2 extends Base.SqgiPkgWindowsEnv {
             "gdiplus.dll", "glu32.dll", "hid.dll", "imm32.dll",
             "iphlpapi.dll", "kernel32.dll", "msimg32.dll", "msvcrt.dll",
             "mswsock.dll", "ncrypt.dll", "netapi32.dll", "ntdll.dll",
-            "ole32.dll", "oleaut32.dll", "opengl32.dll", "rpcrt4.dll",
+            "odbc32.dll", "odbccp32.dll", "ole32.dll", "oleaut32.dll",
+            "opengl32.dll", "psapi.dll", "rpcrt4.dll",
             "secur32.dll", "setupapi.dll", "shcore.dll", "shell32.dll",
             "shlwapi.dll", "ucrtbase.dll", "urlmon.dll", "user32.dll",
             "userenv.dll", "usp10.dll", "uuid.dll", "version.dll",
-            "wininet.dll", "winmm.dll", "winspool.drv", "wldap32.dll",
-            "ws2_32.dll", "wsock32.dll", "wtsapi32.dll",
+            "winhttp.dll", "wininet.dll", "winmm.dll", "winspool.drv",
+            "wldap32.dll", "ws2_32.dll", "wsock32.dll", "wtsapi32.dll",
+            "xinput9_1_0.dll",
             "bcryptprimitives.dll"
         ]
         return this.array_contains(system, n)
@@ -433,15 +435,29 @@ class SqgiPkgWindowsMsys2 extends Base.SqgiPkgWindowsEnv {
 
     function windows_find_sysroot_dll(opts, dll_name) {
         local prefix_dir = this.windows_sysroot_prefix_dir(opts)
-        local direct = GLib.build_filenamev([prefix_dir, "bin", dll_name])
-        if (this.path_exists(direct)) return direct
+        foreach (candidate in this.windows_sysroot_dll_name_candidates(dll_name)) {
+            local direct = GLib.build_filenamev([prefix_dir, "bin", candidate])
+            if (this.path_exists(direct)) return direct
 
-        // Case-insensitive fallback for filesystems/packages with odd casing.
-        local hits = this.optional_command_output(
-            "find " + this.shell_quote(GLib.build_filenamev([prefix_dir, "bin"])) +
-            " -maxdepth 1 -type f -iname " + this.shell_quote(dll_name) + " | sort"
-        )
-        return hits.len() > 0 ? hits[0] : null
+            // Case-insensitive fallback for filesystems/packages with odd casing.
+            local hits = this.optional_command_output(
+                "find " + this.shell_quote(GLib.build_filenamev([prefix_dir, "bin"])) +
+                " -maxdepth 1 -type f -iname " + this.shell_quote(candidate) + " | sort"
+            )
+            if (hits.len() > 0) return hits[0]
+        }
+
+        return null
+    }
+
+    function windows_sysroot_dll_name_candidates(dll_name) {
+        local out = [dll_name]
+        local lower = dll_name.tolower()
+        if (!this.starts_with(lower, "lib"))
+            out.push("lib" + dll_name)
+        else if (dll_name.len() > 3)
+            out.push(dll_name.slice(3))
+        return out
     }
 
     function windows_objdump_tool() {
@@ -519,10 +535,10 @@ class SqgiPkgWindowsMsys2 extends Base.SqgiPkgWindowsEnv {
         local src = this.windows_find_sysroot_dll(opts, dll_name)
         if (src == null) return false
 
-        local dest = GLib.build_filenamev([windir, "bin", this.basename(src)])
+        local dest = GLib.build_filenamev([windir, "bin", dll_name])
         if (this.path_exists(dest)) return true
 
-        this.copy_into_appdir(src, windir, GLib.build_filenamev(["bin", this.basename(src)]), "Windows DLL dependency")
+        this.copy_into_appdir(src, windir, GLib.build_filenamev(["bin", dll_name]), "Windows DLL dependency")
         return true
     }
 

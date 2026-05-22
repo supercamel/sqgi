@@ -54,6 +54,14 @@ check("options repeated value skip", options.extract_script_arg(["--script-dir",
 expect_error("options rejects multiple scripts", function() {
     options.extract_script_arg(["a.nut", "b.nut"])
 }, "only one script")
+local clean_cli_opts = options.new_options()
+class FakeCleanOptions {
+    function lookup_value(name, expected_type) {
+        return name == "clean" ? true : null
+    }
+}
+options.apply_option_dict(clean_cli_opts, FakeCleanOptions())
+check("options clean flag", clean_cli_opts.clean)
 
 local manifest = Manifest.SqgiPkgManifest()
 check("manifest string list scalar", manifest.manifest_string_list("gtk4")[0] == "gtk4")
@@ -371,7 +379,32 @@ selected_cross_opts.appimage_arch = cross_arch
 local selected_cross_config = build.normalize_linux_arch_config(selected_cross_opts, { arch = cross_arch })
 local selected_cross_clone = build.clone_opts_for_linux_arch(selected_cross_opts, selected_cross_config, "/tmp/sqgipkg-selected-cross")
 check("build selected cross arch uses target build dir",
-    selected_cross_clone.build_dir == "build-" + cross_arch)
+    selected_cross_clone.build_dir == "build-linux-" + cross_arch)
+local default_app_opts = build.new_options()
+default_app_opts.target = "appimage"
+default_app_opts.appimage_arch = host_arch
+build.apply_project_defaults(default_app_opts)
+check("default AppImage output includes arch",
+    default_app_opts.output_dir == "dist-linux-" + host_arch &&
+    default_app_opts.build_dir == "build-linux-" + host_arch)
+local default_win_opts = build.new_options()
+default_win_opts.target = "win-dir"
+build.apply_project_defaults(default_win_opts)
+check("default Windows output includes arch",
+    default_win_opts.output_dir == "dist-windows-x86_64" &&
+    default_win_opts.build_dir == "build-windows-x86_64" &&
+    build.windows_build_dir(default_win_opts) == "build-windows-x86_64")
+local clean_fixture_dir = GLib.build_filenamev([GLib.get_tmp_dir(), "sqgipkg-clean-fixture-" + GLib.get_monotonic_time()])
+local clean_project_dir = GLib.build_filenamev([clean_fixture_dir, "project"])
+build.mkdir_p(GLib.build_filenamev([clean_project_dir, "dist"]))
+build.mkdir_p(GLib.build_filenamev([clean_fixture_dir, "outside"]))
+build.clean_path(clean_project_dir, "dist", "output")
+build.clean_path(clean_project_dir, "../outside", "output")
+check("clean path resolves relative paths inside project",
+    !build.path_exists(GLib.build_filenamev([clean_project_dir, "dist"])))
+check("clean path refuses relative paths outside project",
+    build.path_exists(GLib.build_filenamev([clean_fixture_dir, "outside"])))
+system("rm -rf " + build.shell_quote(clean_fixture_dir))
 if (build.executable_available("git")) {
     local previous_sqgi_source_dir = GLib.getenv("SQGI_SOURCE_DIR")
     GLib.setenv("SQGI_SOURCE_DIR", "", true)
@@ -681,6 +714,12 @@ check("windows cross tools target x64", msys2.windows_cross_tool_names(win_opts)
 check("windows cross tool packages mention mingw64", msys2.windows_cross_tool_package_names(win_opts)[0] == "gcc-mingw-w64-x86-64")
 check("windows classifies dwrite as system dll", msys2.windows_system_dll("DWrite.dll"))
 check("windows classifies bcryptprimitives as system dll", msys2.windows_system_dll("bcryptprimitives.dll"))
+check("windows classifies winhttp as system dll", msys2.windows_system_dll("WINHTTP.dll"))
+local dll_candidates = msys2.windows_sysroot_dll_name_candidates("eigen_blas.dll")
+check("windows dll resolver tries lib-prefixed alias",
+    dll_candidates.len() == 2 &&
+    dll_candidates[0] == "eigen_blas.dll" &&
+    dll_candidates[1] == "libeigen_blas.dll")
 
 local nsis = Nsis.SqgiPkgWindowsNsis()
 check("nsis escape quotes", nsis.nsis_escape("a\"b") == "a$\\\"b")

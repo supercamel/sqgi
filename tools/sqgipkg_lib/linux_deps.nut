@@ -1944,6 +1944,9 @@ class SqgiPkgLinuxDeps extends Base.SqgiPkgStaging {
         foreach (root in roots) {
             foreach (rel in [
                 "/usr/lib/" + triplet,
+                "/usr/lib/" + triplet + "/blas",
+                "/usr/lib/" + triplet + "/lapack",
+                "/usr/lib/" + triplet + "/openblas-pthread",
                 "/usr/lib/" + triplet + "/pulseaudio",
                 "/lib/" + triplet,
                 "/lib/" + triplet + "/pulseaudio",

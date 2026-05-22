@@ -52,12 +52,12 @@ sqgipkg --smoke-test "--analyse --timeout=2"
 Run the AppImage:
 
 ```sh
-APPIMAGE_EXTRACT_AND_RUN=1 tools/sqgipkg_tests/gtk_gst_overlay_project/dist/GtkGstOverlay.AppImage --timeout=5
+APPIMAGE_EXTRACT_AND_RUN=1 tools/sqgipkg_tests/gtk_gst_overlay_project/dist-linux-x86_64/GtkGstOverlay.AppImage --timeout=5
 ```
 
 If you build every supported target with `sqgipkg --target all`, the Linux
 AppImages are written under `dist-linux-x86_64/` and `dist-linux-aarch64/`,
-and the Windows packaging output is written under `dist-windows/`.
+and the Windows packaging output is written under `dist-windows-x86_64/`.
 
 Each Linux arch entry uses sqgipkg's generated Linux CMake toolchain path via
 `SQGI_LINUX_CMAKE_TOOLCHAIN` when the target is not the host architecture, so

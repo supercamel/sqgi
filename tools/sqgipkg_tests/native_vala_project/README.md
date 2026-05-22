@@ -34,7 +34,7 @@ sqgipkg --target all --smoke-test ""
 
 - `dist-linux-x86_64/NativeVala.AppImage`
 - `dist-linux-aarch64/NativeVala.AppImage`
-- `dist-windows/NativeVala-Setup.exe` when `makensis` is available
+- `dist-windows-x86_64/NativeVala-Setup.exe` when `makensis` is available
 
 The manifest enables `linux.deb.download`, so Linux targets use private Debian
 sysroots in the per-user `~/.cache/sqgipkg/linux-sysroots/` cache instead of
@@ -81,9 +81,10 @@ sqgipkg --target win-nsis
 The manifest keeps native build outputs explicit, because `sqgipkg` needs to
 know which Vala-built `.so`/`.dll` and `.typelib` files to stage. The generic
 SQGI runtime MSYS2 packages are inferred automatically for Windows targets.
-When `makensis` is available, `win-nsis` writes `dist/NativeVala-Setup.exe`;
-otherwise it leaves `dist/NativeVala.nsi` beside the staged Windows directory.
-For `--target all`, the Windows outputs are written under `dist-windows/`.
+When `makensis` is available, `win-nsis` writes
+`dist-windows-x86_64/NativeVala-Setup.exe`; otherwise it leaves
+`dist-windows-x86_64/NativeVala.nsi` beside the staged Windows directory.
+For `--target all`, the Windows outputs are written under `dist-windows-x86_64/`.
 
 Most SQGI async code should use plain `await`. That works for SQGI tasks, GIO
 async APIs, and Vala async methods that expose callback/user-data finish pairs:

@@ -23,6 +23,8 @@ class SqgiPkg extends Base.SqgiPkgBuild {
             "SQGI build directory", "DIR")
         this.app.add_main_option("output", 'o', 0, GLib.OptionArg.string,
             "Output directory", "DIR")
+        this.app.add_main_option("clean", 0, 0, GLib.OptionArg.none,
+            "Remove project-local sqgipkg build and distribution directories", null)
         this.app.add_main_option("appimagetool", 0, 0, GLib.OptionArg.string,
             "appimagetool executable", "PATH")
         this.app.add_main_option("appimagetool-cache", 0, 0, GLib.OptionArg.string,
@@ -188,7 +190,9 @@ class SqgiPkg extends Base.SqgiPkgBuild {
 
                 this.validate_options(opts)
 
-                if (opts.target == "appimage") {
+                if (opts.clean || opts.target == "clean") {
+                    this.clean_project(opts)
+                } else if (opts.target == "appimage") {
                     this.build_selected_appimage(opts)
                 } else if (opts.target == "win-dir") {
                     this.build_windows_dir(opts)

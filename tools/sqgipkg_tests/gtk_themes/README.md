@@ -41,9 +41,11 @@ Build both the Linux AppImage and Windows NSIS output:
 sqgipkg --target all --smoke-test "--auto"
 ```
 
-With the default AppImage target, outputs are written under `dist/`. With
+With the default AppImage target, outputs are written under `dist-linux-x86_64/`
+on x86_64 hosts. With
 `--target all`, the Linux AppImages are written under `dist-linux-x86_64/` and
-`dist-linux-aarch64/`, and Windows outputs are written under `dist-windows/`.
+`dist-linux-aarch64/`, and Windows outputs are written under
+`dist-windows-x86_64/`.
 Each Linux arch entry enables private Debian sysroot downloads, so arm64 and
 x86_64 hosts can build the opposite Linux target without installing target GTK
 packages into the host apt database.

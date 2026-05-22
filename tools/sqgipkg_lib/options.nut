@@ -14,7 +14,9 @@ class SqgiPkgOptions extends Base.SqgiPkgCore {
             name = "",
             target = "",
             build_dir = "build",
+            build_dir_forced = false,
             output_dir = "dist",
+            output_dir_forced = false,
             appimagetool = "appimagetool",
             appimagetool_cache = this.default_appimagetool_cache_dir(),
             refresh_appimagetool = false,
@@ -44,6 +46,7 @@ class SqgiPkgOptions extends Base.SqgiPkgCore {
                 library_dirs = [],
                 copy_dependencies = true
             },
+            clean = false,
             keep_appdir = false,
             doctor = false,
             smoke_test_args = null,
@@ -221,9 +224,15 @@ class SqgiPkgOptions extends Base.SqgiPkgCore {
         v = this.option_value(option_dict, "target")
         if (v != null) opts.target = v
         v = this.option_value(option_dict, "build-dir")
-        if (v != null) opts.build_dir = v
+        if (v != null) {
+            opts.build_dir = v
+            opts.build_dir_forced = true
+        }
         v = this.option_value(option_dict, "output")
-        if (v != null) opts.output_dir = v
+        if (v != null) {
+            opts.output_dir = v
+            opts.output_dir_forced = true
+        }
         v = this.option_value(option_dict, "appimagetool")
         if (v != null) opts.appimagetool = v
         v = this.option_value(option_dict, "appimagetool-cache")
@@ -298,6 +307,7 @@ class SqgiPkgOptions extends Base.SqgiPkgCore {
         if (v != null) opts.windows.nsis_start_menu_folder = v
 
         if (this.option_present(option_dict, "refresh-appimagetool")) opts.refresh_appimagetool = true
+        if (this.option_present(option_dict, "clean")) opts.clean = true
         if (this.option_present(option_dict, "no-linux-deps")) opts.linux.copy_dependencies = false
         if (this.option_present(option_dict, "linux-deb-download")) {
             opts.linux.deb.download = true

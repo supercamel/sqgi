@@ -207,6 +207,70 @@ class SqgiPkgBuild extends Base.SqgiPkgDoctor {
         this.info("wrote " + GLib.build_filenamev([opts.output_dir, this.nsis_installer_name(opts, this.package_basename(opts.name))]))
     }
 
+    function add_clean_path(paths, path) {
+        if (path == null || path == "") return
+        foreach (existing in paths)
+            if (existing == path) return
+        paths.push(path)
+    }
+
+    function path_is_within_dir(path, root) {
+        path = this.strip_trailing_slashes(GLib.canonicalize_filename(this.abs_path(path), null))
+        root = this.strip_trailing_slashes(GLib.canonicalize_filename(this.abs_path(root), null))
+        return path == root || this.starts_with(path, root + "/")
+    }
+
+    function clean_abs_path(project_dir, path) {
+        local abs = GLib.path_is_absolute(path)
+            ? path
+            : GLib.build_filenamev([project_dir, path])
+        return GLib.canonicalize_filename(abs, null)
+    }
+
+    function clean_path(project_dir, path, label) {
+        if (path == null || path == "") return
+        local abs = this.clean_abs_path(project_dir, path)
+        if (!this.path_exists(abs)) return
+        if (!this.path_is_within_dir(abs, project_dir)) {
+            this.info("skipping " + label + " outside project: " + abs)
+            return
+        }
+        this.run_shell("rm -rf " + this.shell_quote(abs), "removing " + label)
+        this.info("removed " + label + ": " + abs)
+    }
+
+    function clean_project(opts) {
+        local project_dir = opts.manifest_dir == "" ? GLib.get_current_dir() : opts.manifest_dir
+        local output_paths = []
+        local build_paths = []
+        local host_arch = this.normalize_appimage_arch(this.machine_arch())
+
+        this.add_clean_path(output_paths, opts.output_dir)
+        this.add_clean_path(output_paths, "dist")
+        this.add_clean_path(output_paths, "dist-linux")
+        this.add_clean_path(output_paths, "dist-windows")
+        this.add_clean_path(output_paths, this.default_linux_output_dir(opts, host_arch))
+        this.add_clean_path(output_paths, this.default_windows_output_dir(opts))
+
+        this.add_clean_path(build_paths, opts.build_dir)
+        this.add_clean_path(build_paths, "build")
+        this.add_clean_path(build_paths, "build-win")
+        this.add_clean_path(build_paths, this.default_linux_build_dir(opts))
+        this.add_clean_path(build_paths, this.default_windows_build_dir(opts))
+        this.add_clean_path(build_paths, opts.windows.build_dir)
+
+        foreach (config in this.effective_linux_arches(opts)) {
+            this.add_clean_path(output_paths, config.output != "" ? config.output : this.default_linux_output_dir(opts, config.arch))
+            this.add_clean_path(build_paths, config.build_dir != "" ? config.build_dir : "build-linux-" + this.linux_arch_display_suffix(config.arch))
+            this.add_clean_path(build_paths, "build-" + this.linux_arch_display_suffix(config.arch))
+        }
+
+        foreach (path in output_paths)
+            this.clean_path(project_dir, path, "output")
+        foreach (path in build_paths)
+            this.clean_path(project_dir, path, "build directory")
+    }
+
     function normalize_linux_arch_config(opts, config) {
         local arch = this.normalize_appimage_arch(this.table_get(config, "arch", opts.appimage_arch))
         local copy_dependencies = this.table_get(config, "copy_dependencies", null)
@@ -261,7 +325,7 @@ class SqgiPkgBuild extends Base.SqgiPkgDoctor {
         if (config.build_dir != "")
             out.build_dir = config.build_dir
         else if (config.arch != this.normalize_appimage_arch(this.machine_arch()))
-            out.build_dir = "build-" + config.arch
+            out.build_dir = "build-linux-" + this.linux_arch_display_suffix(config.arch)
 
         if (config.entry_linux != "") out.entry_linux = config.entry_linux
 
@@ -300,7 +364,7 @@ class SqgiPkgBuild extends Base.SqgiPkgDoctor {
 
         if (linux_arches.len() == 0) {
             opts.target = "appimage"
-            opts.output_dir = base_output + "-linux"
+            opts.output_dir = base_output + "-linux-" + this.linux_arch_display_suffix(opts.appimage_arch)
             opts.report = this.new_report()
             this.build_selected_appimage(opts)
         } else {
@@ -314,7 +378,7 @@ class SqgiPkgBuild extends Base.SqgiPkgDoctor {
         }
 
         opts.target = "win-nsis"
-        opts.output_dir = base_output + "-windows"
+        opts.output_dir = base_output + "-windows-x86_64"
         opts.report = this.new_report()
         this.build_windows_nsis(opts)
 

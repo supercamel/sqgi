@@ -158,6 +158,10 @@ class SqgiPkgWindowsEnv extends Base.SqgiPkgAppImage {
             "set(CMAKE_RANLIB x86_64-w64-mingw32-ranlib)\n" +
             "set(CMAKE_STRIP x86_64-w64-mingw32-strip)\n" +
             "\n" +
+            "set(CMAKE_EXE_LINKER_FLAGS_INIT \"-static-libgcc -static-libstdc++\")\n" +
+            "set(CMAKE_SHARED_LINKER_FLAGS_INIT \"-static-libgcc -static-libstdc++\")\n" +
+            "set(CMAKE_MODULE_LINKER_FLAGS_INIT \"-static-libgcc -static-libstdc++\")\n" +
+            "\n" +
             "set(SQGI_MSYS2_PREFIX \"" + prefix_dir + "\")\n" +
             "set(CMAKE_FIND_ROOT_PATH \"${SQGI_MSYS2_PREFIX}\")\n" +
             "set(CMAKE_PREFIX_PATH \"${SQGI_MSYS2_PREFIX}\")\n" +
@@ -291,6 +295,10 @@ class SqgiPkgWindowsEnv extends Base.SqgiPkgAppImage {
             "[properties]\n" +
             "sys_root = '" + opts.windows.msys2_root + "'\n" +
             "pkg_config_libdir = ['" + prefix_dir + "/lib/pkgconfig', '" + prefix_dir + "/share/pkgconfig']\n" +
+            "\n" +
+            "[built-in options]\n" +
+            "c_link_args = ['-static-libgcc']\n" +
+            "cpp_link_args = ['-static-libgcc', '-static-libstdc++']\n" +
             "\n" +
             "[host_machine]\n" +
             "system = 'windows'\n" +
@@ -473,7 +481,11 @@ class SqgiPkgWindowsEnv extends Base.SqgiPkgAppImage {
     }
 
     function windows_build_dir(opts) {
-        return opts.windows.build_dir == "" ? opts.build_dir : opts.windows.build_dir
+        if (opts.windows.build_dir != "") return opts.windows.build_dir
+        if (opts.target == "all") return this.default_windows_build_dir(opts)
+        if (this.starts_with(opts.target, "win-") && !opts.build_dir_forced)
+            return this.default_windows_build_dir(opts)
+        return opts.build_dir
     }
 
     function copy_windows_sqgi_runtime(opts, windir) {

@@ -241,7 +241,7 @@ sqgipkg
 By default, this builds a Linux AppImage:
 
 ```text
-dist/<project-name>.AppImage
+dist-linux-<arch>/<project-name>.AppImage
 ```
 
 Add a manifest when the defaults are not enough:
@@ -272,6 +272,12 @@ sqgipkg --target all
 cross files without building the app. `all` builds Linux AppImage output and a
 Windows NSIS package; when `linux.arches` is configured it builds each listed
 Linux architecture.
+
+Clean generated package output and build directories with:
+
+```sh
+sqgipkg --clean
+```
 
 `sqgipkg` can stage:
 
@@ -306,7 +312,7 @@ SQGI includes a serious Windows packaging path.
 For script apps and native-extension apps, `sqgipkg` can create:
 
 ```text
-dist/MyApp/
+dist-windows-x86_64/MyApp/
   MyApp.bat
   bin/sqgi.exe
   bin/*.dll
@@ -318,7 +324,7 @@ dist/MyApp/
 It can also generate an NSIS installer:
 
 ```text
-dist/MyApp-Setup.exe
+dist-windows-x86_64/MyApp-Setup.exe
 ```
 
 On Linux hosts, `sqgipkg` can prepare an MSYS2-style sysroot, download packages,
@@ -367,7 +373,7 @@ ship SQGI scripts as an internal payload.
   "entry": {
     "type": "native",
     "linux": "native/build/myapp",
-    "windows": "native/build-win/myapp.exe"
+    "windows": "native/build-windows-x86_64/myapp.exe"
   },
   "script_dirs": ["scripts"]
 }

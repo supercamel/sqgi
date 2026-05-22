@@ -21,7 +21,7 @@
     "arches": [
       {
         "arch": "x86_64",
-        "build_dir": "build-x86_64",
+        "build_dir": "build-linux-x86_64",
         "inherit_native_projects": false,
         "build": [
           "cmake -E rm -rf \"$SQGI_LINUX_BUILD_DIR\"",
@@ -32,20 +32,20 @@
           {
             "dir": "native",
             "build": [
-              "BUILD_DIR=build-x86_64 MESON_CROSS_FILE=\"$SQGI_LINUX_MESON_CROSS_FILE\" ./build.sh"
+              "BUILD_DIR=build-linux-x86_64 MESON_CROSS_FILE=\"$SQGI_LINUX_MESON_CROSS_FILE\" ./build.sh"
             ],
             "libraries": [
-              "build-x86_64/libsqhello-1.0.so"
+              "build-linux-x86_64/libsqhello-1.0.so"
             ],
             "typelibs": [
-              "build-x86_64/SqHello-1.0.typelib"
+              "build-linux-x86_64/SqHello-1.0.typelib"
             ]
           }
         ]
       },
       {
         "arch": "aarch64",
-        "build_dir": "build-aarch64",
+        "build_dir": "build-linux-aarch64",
         "inherit_native_projects": false,
         "build": [
           "cmake -E rm -rf \"$SQGI_LINUX_BUILD_DIR\"",
@@ -56,13 +56,13 @@
           {
             "dir": "native",
             "build": [
-              "BUILD_DIR=build-aarch64 MESON_CROSS_FILE=\"$SQGI_LINUX_MESON_CROSS_FILE\" ./build.sh"
+              "BUILD_DIR=build-linux-aarch64 MESON_CROSS_FILE=\"$SQGI_LINUX_MESON_CROSS_FILE\" ./build.sh"
             ],
             "libraries": [
-              "build-aarch64/libsqhello-1.0.so"
+              "build-linux-aarch64/libsqhello-1.0.so"
             ],
             "typelibs": [
-              "build-aarch64/SqHello-1.0.typelib"
+              "build-linux-aarch64/SqHello-1.0.typelib"
             ]
           }
         ]
@@ -76,18 +76,18 @@
       "cmake -S \"$SQGI_SOURCE_DIR\" -B \"$SQGI_WINDOWS_BUILD_DIR\" -G Ninja -DCMAKE_TOOLCHAIN_FILE=\"$SQGI_WIN_CMAKE_TOOLCHAIN\" -DCMAKE_BUILD_TYPE=Release",
       "cmake --build \"$SQGI_WINDOWS_BUILD_DIR\""
     ],
-    "build_dir": "build-win",
+    "build_dir": "build-windows-x86_64",
     "native_projects": [
       {
         "dir": "native",
         "build": [
-          "BUILD_DIR=build-win MESON_CROSS_FILE=\"$SQGI_MESON_CROSS_FILE\" ./build.sh"
+          "BUILD_DIR=build-windows-x86_64 MESON_CROSS_FILE=\"$SQGI_MESON_CROSS_FILE\" ./build.sh"
         ],
         "libraries": [
-          "build-win/libsqhello-1.0.dll"
+          "build-windows-x86_64/libsqhello-1.0.dll"
         ],
         "typelibs": [
-          "build-win/SqHello-1.0.typelib"
+          "build-windows-x86_64/SqHello-1.0.typelib"
         ]
       }
     ]

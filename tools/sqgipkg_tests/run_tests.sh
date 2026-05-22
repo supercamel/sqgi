@@ -221,6 +221,7 @@ assert_contains "${HELP_OUT}" "--linux-deb-download"
 assert_contains "${HELP_OUT}" "--linux-deb-package-cache=DIR"
 assert_contains "${HELP_OUT}" "--no-linux-deb-download"
 assert_contains "${HELP_OUT}" "linux-sysroot"
+assert_contains "${HELP_OUT}" "--clean"
 assert_contains "${HELP_OUT}" "--windows-console"
 assert_contains "${HELP_OUT}" "--no-windows-console"
 assert_contains "${HELP_OUT}" "--script-dir=DIR"
@@ -430,11 +431,29 @@ EOF
     --appimagetool "${APPIMAGETOOL}" \
     >"${WORK_DIR}/default-project-package.out"
 )
-assert_file "${DEFAULT_PROJECT}/dist/default-project.AppImage"
-assert_elf_arch "${DEFAULT_PROJECT}/dist/default-project.AppImage" "${HOST_APPIMAGE_ARCH}"
-run_appimage "${DEFAULT_PROJECT}/dist/default-project.AppImage" >"${WORK_DIR}/default-project-run.out"
+assert_file "${DEFAULT_PROJECT}/dist-linux-${HOST_APPIMAGE_ARCH}/default-project.AppImage"
+assert_elf_arch "${DEFAULT_PROJECT}/dist-linux-${HOST_APPIMAGE_ARCH}/default-project.AppImage" "${HOST_APPIMAGE_ARCH}"
+run_appimage "${DEFAULT_PROJECT}/dist-linux-${HOST_APPIMAGE_ARCH}/default-project.AppImage" >"${WORK_DIR}/default-project-run.out"
 assert_contains "${WORK_DIR}/default-project-run.out" "default project packaged"
 pass "default project packaging"
+
+mkdir -p "${DEFAULT_PROJECT}/dist" \
+  "${DEFAULT_PROJECT}/dist-linux-${HOST_APPIMAGE_ARCH}" \
+  "${DEFAULT_PROJECT}/dist-windows-x86_64" \
+  "${DEFAULT_PROJECT}/build" \
+  "${DEFAULT_PROJECT}/build-linux-${HOST_APPIMAGE_ARCH}" \
+  "${DEFAULT_PROJECT}/build-windows-x86_64"
+(
+  cd "${DEFAULT_PROJECT}"
+  PATH="${BUILD_DIR}:${PATH}" run_sqgipkg --clean >"${WORK_DIR}/default-project-clean.out"
+)
+assert_not_file "${DEFAULT_PROJECT}/dist-linux-${HOST_APPIMAGE_ARCH}/default-project.AppImage"
+[[ ! -d "${DEFAULT_PROJECT}/dist" ]] || fail "expected clean to remove legacy dist"
+[[ ! -d "${DEFAULT_PROJECT}/dist-windows-x86_64" ]] || fail "expected clean to remove Windows dist"
+[[ ! -d "${DEFAULT_PROJECT}/build" ]] || fail "expected clean to remove legacy build"
+[[ ! -d "${DEFAULT_PROJECT}/build-linux-${HOST_APPIMAGE_ARCH}" ]] || fail "expected clean to remove Linux build"
+[[ ! -d "${DEFAULT_PROJECT}/build-windows-x86_64" ]] || fail "expected clean to remove Windows build"
+pass "clean target removes project build and dist directories"
 
 PATH="${BUILD_DIR}:${PATH}" LD_LIBRARY_PATH="${BUILD_DIR}${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}" \
   "${SQGIPKG}" "${ROOT_DIR}/demo/glib/paths_env.nut" \
@@ -745,7 +764,7 @@ else
 fi
 
 WIN_PROJECT="${WORK_DIR}/win-project"
-WIN_BUILD="${WIN_PROJECT}/win-build"
+WIN_BUILD="${WIN_PROJECT}/build-windows-x86_64"
 WIN_MSYS2="${WIN_PROJECT}/msys64"
 mkdir -p "${WIN_PROJECT}" "${WIN_BUILD}" \
   "${WIN_MSYS2}/mingw64/bin" \
@@ -806,7 +825,7 @@ cat >"${WIN_PROJECT}/sqgipkg.json" <<EOF
     ]
   },
   "windows": {
-    "build_dir": "win-build",
+    "build_dir": "build-windows-x86_64",
     "msys2_root": "msys64",
     "msys2_prefix": "mingw64",
     "download_packages": false,
@@ -896,7 +915,7 @@ cat >"${WIN_MISSING_PROJECT}/sqgipkg.json" <<'EOF'
   "name": "WinMissingRuntime",
   "target": "win-dir",
   "windows": {
-    "build_dir": "win-build",
+    "build_dir": "build-windows-x86_64",
     "download_packages": false,
     "auto_packages": false
   }
@@ -913,7 +932,7 @@ assert_contains "${WORK_DIR}/win-missing-package.out" "no windows.build command 
 pass "Windows sqgi.exe is required for script entry packages"
 
 WIN_NATIVE_PROJECT="${WORK_DIR}/win-native-project"
-WIN_NATIVE_BUILD="${WIN_NATIVE_PROJECT}/win-build"
+WIN_NATIVE_BUILD="${WIN_NATIVE_PROJECT}/build-windows-x86_64"
 mkdir -p "${WIN_NATIVE_PROJECT}" "${WIN_NATIVE_BUILD}"
 printf 'fake native exe\n' >"${WIN_NATIVE_BUILD}/native-entry.exe"
 cat >"${WIN_NATIVE_PROJECT}/helper.nut" <<'EOF'
@@ -926,7 +945,7 @@ cat >"${WIN_NATIVE_PROJECT}/sqgipkg.json" <<'EOF'
   "name": "WinNativeEntry",
   "entry": {
     "type": "native",
-    "windows": "win-build/native-entry.exe"
+    "windows": "build-windows-x86_64/native-entry.exe"
   },
   "target": "win-dir",
   "script_dirs": [
@@ -975,14 +994,14 @@ run_sqgipkg \
   --nsis definitely-not-makensis \
   >"${WORK_DIR}/win-all-package.out"
 assert_file "${WIN_ALL_OUT}-linux-${HOST_APPIMAGE_ARCH}/WinSqurl.AppImage"
-assert_file "${WIN_ALL_OUT}-windows/WinSqurl/WinSqurl.bat"
-assert_file "${WIN_ALL_OUT}-windows/WinSqurl.nsi"
+assert_file "${WIN_ALL_OUT}-windows-x86_64/WinSqurl/WinSqurl.bat"
+assert_file "${WIN_ALL_OUT}-windows-x86_64/WinSqurl.nsi"
 assert_contains "${WORK_DIR}/win-all-package.out" "building all distribution targets"
 assert_contains "${WORK_DIR}/win-all-package.out" "appimage arch: ${HOST_APPIMAGE_ARCH}"
 pass "all target builds native AppImage and Windows NSIS"
 
 WIN_REPO_PROJECT="${WORK_DIR}/win-repo-project"
-WIN_REPO_BUILD="${WIN_REPO_PROJECT}/win-build"
+WIN_REPO_BUILD="${WIN_REPO_PROJECT}/build-windows-x86_64"
 WIN_REPO="${WIN_REPO_PROJECT}/repo/mingw64"
 WIN_REPO_DB="${WIN_REPO_PROJECT}/repo-db"
 WIN_REPO_PKGS="${WIN_REPO_PROJECT}/repo-pkgs"
@@ -1027,7 +1046,7 @@ cat >"${WIN_REPO_PROJECT}/sqgipkg.json" <<EOF
   "name": "WinResolved",
   "target": "win-dir",
   "windows": {
-    "build_dir": "win-build",
+    "build_dir": "build-windows-x86_64",
     "msys2_root": "downloaded-msys64",
     "msys2_prefix": "mingw64",
     "repo_url": "file://${WIN_REPO}",

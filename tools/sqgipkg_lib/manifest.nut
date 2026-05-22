@@ -19,6 +19,39 @@ class SqgiPkgManifest extends Base.SqgiPkgOptions {
         if (opts.name == "") opts.name = this.basename(project_dir)
         if (opts.target == "") opts.target = "appimage"
         opts.appimage_arch = this.normalize_appimage_arch(opts.appimage_arch)
+
+        if (!opts.output_dir_forced)
+            opts.output_dir = this.default_output_dir_for_target(opts)
+        if (!opts.build_dir_forced)
+            opts.build_dir = this.default_build_dir_for_target(opts)
+    }
+
+    function default_linux_build_dir(opts) {
+        return "build-linux-" + this.linux_arch_display_suffix(opts.appimage_arch)
+    }
+
+    function default_windows_build_dir(opts) {
+        return "build-windows-x86_64"
+    }
+
+    function default_build_dir_for_target(opts) {
+        if (this.starts_with(opts.target, "win-")) return this.default_windows_build_dir(opts)
+        return this.default_linux_build_dir(opts)
+    }
+
+    function default_linux_output_dir(opts, arch = null) {
+        local linux_arch = arch == null ? opts.appimage_arch : arch
+        return "dist-linux-" + this.linux_arch_display_suffix(linux_arch)
+    }
+
+    function default_windows_output_dir(opts) {
+        return "dist-windows-x86_64"
+    }
+
+    function default_output_dir_for_target(opts) {
+        if (opts.target == "all" || opts.target == "clean") return "dist"
+        if (this.starts_with(opts.target, "win-")) return this.default_windows_output_dir(opts)
+        return this.default_linux_output_dir(opts)
     }
 
     function apply_manifest(opts) {
@@ -57,8 +90,14 @@ class SqgiPkgManifest extends Base.SqgiPkgOptions {
         if (opts.script == "" && script != null) opts.script = this.manifest_path(base_dir, script)
         if (opts.name == "" && name != null) opts.name = name
         if (opts.target == "" && target != null) opts.target = target
-        if (opts.build_dir == "build" && build_dir != null) opts.build_dir = this.manifest_path(base_dir, build_dir)
-        if (opts.output_dir == "dist" && output_dir != null) opts.output_dir = this.manifest_path(base_dir, output_dir)
+        if (!opts.build_dir_forced && build_dir != null) {
+            opts.build_dir = this.manifest_path(base_dir, build_dir)
+            opts.build_dir_forced = true
+        }
+        if (!opts.output_dir_forced && output_dir != null) {
+            opts.output_dir = this.manifest_path(base_dir, output_dir)
+            opts.output_dir_forced = true
+        }
         if (opts.appimagetool == "appimagetool" && appimagetool != null) opts.appimagetool = this.manifest_path(base_dir, appimagetool)
         if (opts.appimagetool_cache == this.default_appimagetool_cache_dir() && appimagetool_cache != null)
             opts.appimagetool_cache = this.manifest_path(base_dir, appimagetool_cache)
@@ -570,6 +609,7 @@ class SqgiPkgManifest extends Base.SqgiPkgOptions {
     }
 
     function validate_options(opts) {
+        if (opts.clean || opts.target == "clean") return
         if (opts.target == "linux-sysroot" || opts.target == "win-sysroot") return
         if (opts.entry_type == "sqgi") {
             if (opts.script == "") this.fail("missing script")
