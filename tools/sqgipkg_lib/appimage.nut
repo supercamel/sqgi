@@ -325,9 +325,19 @@ class SqgiPkgAppImage extends Base.SqgiPkgLinuxDeps {
             "export GIO_EXTRA_MODULES=\"${HERE}/usr/lib/gio/modules${GIO_EXTRA_MODULES:+:${GIO_EXTRA_MODULES}}\"\n" +
             "export GDK_PIXBUF_MODULEDIR=\"${HERE}/usr/lib/gdk-pixbuf-2.0/2.10.0/loaders\"\n" +
             "export GDK_PIXBUF_MODULE_FILE=\"${HERE}/usr/lib/gdk-pixbuf-2.0/2.10.0/loaders.cache\"\n" +
+            "SQGI_CACHE_HOME=\"${XDG_CACHE_HOME:-${HOME:-/tmp}/.cache}/sqgi\"\n" +
+            "mkdir -p \"${SQGI_CACHE_HOME}\"\n" +
+            "if [ -x \"${HERE}/usr/lib/gdk-pixbuf-2.0/gdk-pixbuf-query-loaders\" ] && compgen -G \"${GDK_PIXBUF_MODULEDIR}/*.so\" >/dev/null; then\n" +
+            "  GDK_PIXBUF_RUNTIME_CACHE=\"${SQGI_CACHE_HOME}/gdk-pixbuf-loaders.cache\"\n" +
+            "  if \"${HERE}/usr/lib/gdk-pixbuf-2.0/gdk-pixbuf-query-loaders\" \"${GDK_PIXBUF_MODULEDIR}\"/*.so > \"${GDK_PIXBUF_RUNTIME_CACHE}\" 2>/dev/null; then\n" +
+            "    export GDK_PIXBUF_MODULE_FILE=\"${GDK_PIXBUF_RUNTIME_CACHE}\"\n" +
+            "  fi\n" +
+            "fi\n" +
             "export GST_PLUGIN_PATH=\"${HERE}/usr/lib/gstreamer-1.0${GST_PLUGIN_PATH:+:${GST_PLUGIN_PATH}}\"\n" +
-            "mkdir -p \"${XDG_CACHE_HOME:-${HOME:-/tmp}/.cache}/sqgi\"\n" +
-            "export GST_REGISTRY=\"${XDG_CACHE_HOME:-${HOME:-/tmp}/.cache}/sqgi/gstreamer-registry.bin\"\n" +
+            "export GST_PLUGIN_SYSTEM_PATH_1_0=\"${HERE}/usr/lib/gstreamer-1.0\"\n" +
+            "export GST_PLUGIN_SYSTEM_PATH=\"${HERE}/usr/lib/gstreamer-1.0\"\n" +
+            "export GST_PLUGIN_SCANNER=\"${HERE}/usr/lib/gstreamer1.0/gstreamer-1.0/gst-plugin-scanner\"\n" +
+            "export GST_REGISTRY=\"${SQGI_CACHE_HOME}/gstreamer-registry.bin\"\n" +
             this.app_run_exec_line(opts, entry_rel))
         this.chmod_exec(path)
     }

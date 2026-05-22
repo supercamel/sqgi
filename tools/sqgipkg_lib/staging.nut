@@ -173,6 +173,56 @@ class SqgiPkgStaging extends Base.SqgiPkgScripts {
         this.report_inc(opts, "typelibs")
     }
 
+    function copy_runtime_bucket(opts, path, appdir, dest_dir_rel, description, report_key) {
+        local src_abs = this.abs_path(path)
+        if (!this.path_exists(src_abs)) this.fail(description + " not found: " + path)
+
+        local dest_abs = GLib.build_filenamev([appdir, this.relative_dest(dest_dir_rel)])
+        this.mkdir_p(dest_abs)
+        if (this.run_shell_status("[ -d " + this.shell_quote(src_abs) + " ]") == 0) {
+            this.run_shell(
+                "cp -a " + this.shell_quote(src_abs) + "/. " + this.shell_quote(dest_abs) + "/",
+                "copying " + description + " directory"
+            )
+        } else {
+            this.run_shell(
+                "cp -a " + this.shell_quote(src_abs) + " " + this.shell_quote(dest_abs) + "/",
+                "copying " + description
+            )
+        }
+        this.report_inc(opts, report_key)
+    }
+
+    function copy_gstreamer_plugin(opts, path, appdir) {
+        this.copy_runtime_bucket(opts, path, appdir,
+            GLib.build_filenamev(["usr", "lib", "gstreamer-1.0"]),
+            "GStreamer plugin", "gstreamer_plugins")
+    }
+
+    function copy_gi_typelib(opts, path, appdir, description = "GI typelib") {
+        this.copy_runtime_bucket(opts, path, appdir,
+            GLib.build_filenamev(["usr", "lib", "girepository-1.0"]),
+            description, "typelibs")
+    }
+
+    function copy_gsettings_schema(opts, path, appdir) {
+        this.copy_runtime_bucket(opts, path, appdir,
+            GLib.build_filenamev(["usr", "share", "glib-2.0", "schemas"]),
+            "GSettings schema", "gsettings_schemas")
+    }
+
+    function copy_gio_module(opts, path, appdir) {
+        this.copy_runtime_bucket(opts, path, appdir,
+            GLib.build_filenamev(["usr", "lib", "gio", "modules"]),
+            "GIO module", "gio_modules")
+    }
+
+    function copy_gdk_pixbuf_loader(opts, path, appdir) {
+        this.copy_runtime_bucket(opts, path, appdir,
+            GLib.build_filenamev(["usr", "lib", "gdk-pixbuf-2.0", "2.10.0", "loaders"]),
+            "gdk-pixbuf loader", "gdk_pixbuf_loaders")
+    }
+
     function sqgi_source_checkout_name(opts) {
         local repo = opts.sqgi_source.repo == "" ? this.default_sqgi_source_repo() : opts.sqgi_source.repo
         local name = this.sanitize_id(this.git_repo_basename(repo))
@@ -238,22 +288,28 @@ class SqgiPkgStaging extends Base.SqgiPkgScripts {
             local dir = project.dir
             if (!this.path_exists(dir)) this.fail("native project directory not found: " + dir)
 
+            local needs_source = this.command_list_contains(project.build, "SQGI_SOURCE_DIR") ||
+                this.command_list_contains(project.install, "SQGI_SOURCE_DIR")
             local env = this.starts_with(opts.target, "win-") ? "" :
-                this.linux_build_env_prefix(opts, this.command_list_contains(project.build, "SQGI_SOURCE_DIR"))
+                this.linux_build_env_prefix(opts, needs_source)
             foreach (command in project.build) {
                 this.info("native build: " + command)
                 this.run_shell_in_dir(env + command, dir, "native build")
             }
 
+            foreach (command in project.install) {
+                this.info("native install: " + command)
+                this.run_shell_in_dir(env + command, dir, "native install")
+            }
+
             this.report_inc(opts, "native_projects")
+            if (!project.stage) continue
 
             foreach (path in project.libraries)
                 this.copy_library(opts, path, appdir, "native shared library")
 
-            foreach (path in project.typelibs) {
-                this.copy_to_dir(path, appdir, GLib.build_filenamev(["usr", "lib", "girepository-1.0"]), "native GI typelib")
-                this.report_inc(opts, "typelibs")
-            }
+            foreach (path in project.typelibs)
+                this.copy_gi_typelib(opts, path, appdir, "native GI typelib")
 
             foreach (spec in project.files)
                 this.copy_file_spec(opts, spec, appdir)
@@ -455,34 +511,25 @@ class SqgiPkgStaging extends Base.SqgiPkgScripts {
         }
 
         foreach (path in opts.gstreamer_plugins) {
-            this.copy_to_dir(path, appdir, GLib.build_filenamev(["usr", "lib", "gstreamer-1.0"]), "GStreamer plugin")
-            this.report_inc(opts, "gstreamer_plugins")
+            this.copy_gstreamer_plugin(opts, path, appdir)
         }
 
-        foreach (path in opts.typelibs) {
-            this.copy_to_dir(path, appdir, GLib.build_filenamev(["usr", "lib", "girepository-1.0"]), "GI typelib")
-            this.report_inc(opts, "typelibs")
-        }
+        foreach (path in opts.typelibs)
+            this.copy_gi_typelib(opts, path, appdir)
 
-        foreach (path in opts.gsettings_schemas) {
-            this.copy_to_dir(path, appdir, GLib.build_filenamev(["usr", "share", "glib-2.0", "schemas"]), "GSettings schema")
-            this.report_inc(opts, "gsettings_schemas")
-        }
+        foreach (path in opts.gsettings_schemas)
+            this.copy_gsettings_schema(opts, path, appdir)
 
         foreach (path in opts.gtk_data) {
             this.copy_to_dir(path, appdir, GLib.build_filenamev(["usr", "share"]), "GTK data")
             this.report_inc(opts, "gtk_data")
         }
 
-        foreach (path in opts.gio_modules) {
-            this.copy_to_dir(path, appdir, GLib.build_filenamev(["usr", "lib", "gio", "modules"]), "GIO module")
-            this.report_inc(opts, "gio_modules")
-        }
+        foreach (path in opts.gio_modules)
+            this.copy_gio_module(opts, path, appdir)
 
-        foreach (path in opts.gdk_pixbuf_loaders) {
-            this.copy_to_dir(path, appdir, GLib.build_filenamev(["usr", "lib", "gdk-pixbuf-2.0", "2.10.0", "loaders"]), "gdk-pixbuf loader")
-            this.report_inc(opts, "gdk_pixbuf_loaders")
-        }
+        foreach (path in opts.gdk_pixbuf_loaders)
+            this.copy_gdk_pixbuf_loader(opts, path, appdir)
     }
 
 }

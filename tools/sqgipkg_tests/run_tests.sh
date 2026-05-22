@@ -144,7 +144,14 @@ HOST_LINUX_TRIPLET="$(linux_triplet_for_appimage_arch "${HOST_APPIMAGE_ARCH}")"
 
 MAIN_SCRIPT="${WORK_DIR}/main.nut"
 cat >"${MAIN_SCRIPT}" <<'EOF'
+local GLib = import("GLib")
+local Gio = import("Gio")
 local helper = import("helper.nut")
+
+function read_text(path) {
+    local result = Gio.File.new_for_path(path).load_contents(null)
+    return typeof(result) == "array" ? result[0] : result
+}
 
 if (vargv.len() != 2) {
     print("expected 2 args, got " + vargv.len() + "\n")
@@ -155,6 +162,22 @@ if (vargv[0] != "alpha" || vargv[1] != "beta") {
     return 11
 }
 print(helper.message() + "\n")
+print("resource payload: " + read_text(GLib.build_filenamev([
+    GLib.getenv("SQGI_APP_RESOURCES"),
+    "resources",
+    "sub",
+    "nested.txt"
+])))
+print("manual payload: " + read_text(GLib.build_filenamev([
+    GLib.getenv("SQGI_APP_SHARE"),
+    "manual",
+    "file.txt"
+])))
+print("include payload: " + read_text(GLib.build_filenamev([
+    GLib.getenv("SQGI_APP_SHARE"),
+    "assets",
+    "asset.txt"
+])))
 EOF
 
 cat >"${WORK_DIR}/helper.nut" <<'EOF'
@@ -198,6 +221,8 @@ assert_contains "${HELP_OUT}" "--linux-deb-download"
 assert_contains "${HELP_OUT}" "--linux-deb-package-cache=DIR"
 assert_contains "${HELP_OUT}" "--no-linux-deb-download"
 assert_contains "${HELP_OUT}" "linux-sysroot"
+assert_contains "${HELP_OUT}" "--windows-console"
+assert_contains "${HELP_OUT}" "--no-windows-console"
 assert_contains "${HELP_OUT}" "--script-dir=DIR"
 assert_contains "${HELP_OUT}" "--no-compile-scripts"
 assert_contains "${HELP_OUT}" "--file=SPEC"
@@ -343,6 +368,9 @@ pass "AppImage GTK theme selection"
 
 run_appimage "${APPIMAGE}" alpha beta >"${WORK_DIR}/appimage.out"
 assert_contains "${WORK_DIR}/appimage.out" "sqgipkg packaged app ran"
+assert_contains "${WORK_DIR}/appimage.out" "resource payload: nested"
+assert_contains "${WORK_DIR}/appimage.out" "manual payload: manual file"
+assert_contains "${WORK_DIR}/appimage.out" "include payload: asset"
 pass "real custom AppImage execution"
 
 IMPLICIT_PROJECT="${WORK_DIR}/implicit-imports"
@@ -741,6 +769,7 @@ mingw64/share/glib-2.0/schemas/org.example.gschema.xml
 mingw64/include/glib-2.0/glib.h
 EOF
 cat >"${WIN_PROJECT}/main.nut" <<'EOF'
+local Gtk = import("Gtk", "4.0")
 local helper = import("helper.nut")
 print(helper.message() + "\n")
 EOF
@@ -809,6 +838,7 @@ assert_file "${WINDIR}/share/sqgi/app/resources/assets/data.txt"
 assert_file "${WINDIR}/etc/gtk-4.0/settings.ini"
 assert_file "${WINDIR}/share/gtk-4.0/settings.ini"
 assert_file "${WINDIR}/WinSqurl.bat"
+assert_not_file "${WINDIR}/WinSqurl.vbs"
 assert_contains "${WINDIR}/WinSqurl.bat" "SQGI_APP_SHARE"
 assert_contains "${WINDIR}/WinSqurl.bat" "GI_TYPELIB_PATH"
 assert_contains "${WINDIR}/WinSqurl.bat" "XDG_CONFIG_DIRS"
@@ -820,8 +850,11 @@ assert_contains "${WINDIR}/etc/gtk-4.0/settings.ini" "gtk-font-name=Shared Font 
 assert_contains "${WINDIR}/etc/gtk-4.0/settings.ini" "gtk-application-prefer-dark-theme=true"
 assert_contains "${WORK_DIR}/win-dir-package.out" "Windows dist directory"
 CROSS_FILE="${WIN_OUT}/_cross/mingw64/mingw64.ini"
+TOOLCHAIN_FILE="${WIN_OUT}/_cross/mingw64/toolchain-mingw64.cmake"
 assert_file "${CROSS_FILE}"
+assert_file "${TOOLCHAIN_FILE}"
 assert_contains "${CROSS_FILE}" "pkg-config = 'pkg-config'"
+assert_contains "${TOOLCHAIN_FILE}" "set(SQGI_WINDOWS_GUI ON"
 if command -v g-ir-scanner >/dev/null 2>&1; then
   assert_file "${WIN_OUT}/_cross/mingw64/g-ir-scanner-wrapper.sh"
   assert_contains "${CROSS_FILE}" "g-ir-scanner = '${WIN_OUT}/_cross/mingw64/g-ir-scanner-wrapper.sh'"
@@ -839,6 +872,18 @@ if { command -v wine >/dev/null 2>&1 || command -v wine64 >/dev/null 2>&1; } &&
   assert_contains "${WIN_OUT}/_cross/mingw64/g-ir-scanner-wrapper.sh" "--use-ldd-wrapper='${WIN_OUT}/_cross/mingw64/g-ir-ldd-wrapper.sh'"
 fi
 pass "Windows dist directory staging"
+
+WIN_CONSOLE_OUT="${WORK_DIR}/win-console-out"
+run_sqgipkg \
+  --manifest "${WIN_PROJECT}/sqgipkg.json" \
+  --target win-dir \
+  --windows-console \
+  --output "${WIN_CONSOLE_OUT}" \
+  >"${WORK_DIR}/win-console-package.out"
+assert_file "${WIN_CONSOLE_OUT}/WinSqurl/WinSqurl.bat"
+assert_not_file "${WIN_CONSOLE_OUT}/WinSqurl/WinSqurl.vbs"
+assert_contains "${WIN_CONSOLE_OUT}/_cross/mingw64/toolchain-mingw64.cmake" "set(SQGI_WINDOWS_GUI OFF"
+pass "Windows console launcher override"
 
 WIN_MISSING_PROJECT="${WORK_DIR}/win-missing-runtime"
 mkdir -p "${WIN_MISSING_PROJECT}"
@@ -916,6 +961,8 @@ assert_file "${WIN_NSIS_OUT}/WinSqurl.nsi"
 assert_contains "${WIN_NSIS_OUT}/WinSqurl.nsi" "File /r"
 assert_contains "${WIN_NSIS_OUT}/WinSqurl.nsi" "WinSqurl/*"
 assert_contains "${WIN_NSIS_OUT}/WinSqurl.nsi" "CreateShortcut"
+assert_contains "${WIN_NSIS_OUT}/WinSqurl.nsi" "bin\\sqgi.exe"
+assert_not_contains "${WIN_NSIS_OUT}/WinSqurl.nsi" "WinSqurl.vbs"
 assert_contains "${WORK_DIR}/win-nsis-package.out" "makensis not found"
 pass "Windows NSIS script generation"
 

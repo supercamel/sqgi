@@ -93,8 +93,59 @@ class SqgiPkgWindowsEnv extends Base.SqgiPkgAppImage {
         return GLib.build_filenamev([this.windows_cross_dir(opts), "g-ir-ldd-wrapper.sh"])
     }
 
+    function windows_effective_gtk_theme(opts) {
+        return opts.windows.gtk_theme != "" ? opts.windows.gtk_theme : opts.gtk_theme
+    }
+
+    function windows_effective_gtk_icon_theme(opts) {
+        return opts.windows.gtk_icon_theme != "" ? opts.windows.gtk_icon_theme : opts.gtk_icon_theme
+    }
+
+    function windows_effective_gtk_font_name(opts) {
+        return opts.windows.gtk_font_name != "" ? opts.windows.gtk_font_name : opts.gtk_font_name
+    }
+
+    function windows_effective_gtk_prefer_dark(opts) {
+        return opts.windows.gtk_prefer_dark || opts.gtk_prefer_dark
+    }
+
+    function windows_effective_gdk_backend(opts) {
+        return opts.windows.gdk_backend != "" ? opts.windows.gdk_backend : opts.gdk_backend
+    }
+
+    function windows_package_mentions_gtk(opts) {
+        foreach (package_name in opts.windows.packages) {
+            local lower = package_name.tolower()
+            if (lower.find("gtk4") != null || lower.find("gtk3") != null || lower.find("gtk2") != null)
+                return true
+        }
+        return false
+    }
+
+    function windows_console_enabled(opts) {
+        if (opts.windows.console != null) return opts.windows.console
+        if (opts.report.used_gtk) return false
+        if (this.has_gtk_settings(
+                this.windows_effective_gtk_theme(opts),
+                this.windows_effective_gtk_icon_theme(opts),
+                this.windows_effective_gtk_font_name(opts),
+                this.windows_effective_gtk_prefer_dark(opts)))
+            return false
+        if (this.windows_package_mentions_gtk(opts)) return false
+        return true
+    }
+
+    function windows_gui_enabled(opts) {
+        return !this.windows_console_enabled(opts)
+    }
+
+    function windows_gui_cmake_value(opts) {
+        return this.windows_gui_enabled(opts) ? "ON" : "OFF"
+    }
+
     function write_windows_cmake_toolchain(opts, path) {
         local prefix_dir = this.windows_sysroot_prefix_dir(opts)
+        local gui_value = this.windows_gui_cmake_value(opts)
         this.mkdir_p(this.dirname(path))
         this.write_file(path,
             "set(CMAKE_SYSTEM_NAME Windows)\n" +
@@ -119,7 +170,8 @@ class SqgiPkgWindowsEnv extends Base.SqgiPkgAppImage {
             "set(ENV{PKG_CONFIG_PATH} \"\")\n" +
             "set(ENV{PKG_CONFIG_SYSROOT_DIR} \"" + opts.windows.msys2_root + "\")\n" +
             "set(ENV{PKG_CONFIG_LIBDIR} \"" + prefix_dir + "/lib/pkgconfig:" + prefix_dir + "/share/pkgconfig\")\n" +
-            "set(PKG_CONFIG_EXECUTABLE pkg-config CACHE FILEPATH \"pkg-config\")\n")
+            "set(PKG_CONFIG_EXECUTABLE pkg-config CACHE FILEPATH \"pkg-config\")\n" +
+            "set(SQGI_WINDOWS_GUI " + gui_value + " CACHE BOOL \"Build sqgi.exe with the Windows GUI subsystem\" FORCE)\n")
     }
 
     function write_windows_exe_wrapper(opts) {
@@ -283,6 +335,7 @@ class SqgiPkgWindowsEnv extends Base.SqgiPkgAppImage {
         GLib.setenv("SQGI_WINDOWS_PREFIX", "/" + opts.windows.msys2_prefix, true)
         GLib.setenv("SQGI_WINDOWS_PREFIX_DIR", prefix_dir, true)
         GLib.setenv("SQGI_WINDOWS_SYSROOT_PREFIX", prefix_dir, true)
+        GLib.setenv("SQGI_WINDOWS_GUI", this.windows_gui_cmake_value(opts), true)
 
         // Lock pkg-config to the Windows sysroot.  This prevents the host
         // /usr/include and /usr/lib/pkgconfig paths from leaking into MinGW
@@ -294,6 +347,7 @@ class SqgiPkgWindowsEnv extends Base.SqgiPkgAppImage {
         this.info("Windows cross sysroot: " + sysroot + " (" + opts.windows.msys2_prefix + ")")
         this.info("SQGI_WIN_CMAKE_TOOLCHAIN=" + GLib.getenv("SQGI_WIN_CMAKE_TOOLCHAIN"))
         this.info("SQGI_MESON_CROSS_FILE=" + GLib.getenv("SQGI_MESON_CROSS_FILE"))
+        this.info("SQGI_WINDOWS_GUI=" + GLib.getenv("SQGI_WINDOWS_GUI"))
     }
 
     function windows_cross_tool_names(opts) {
@@ -398,7 +452,8 @@ class SqgiPkgWindowsEnv extends Base.SqgiPkgAppImage {
             this.shell_export("SQGI_WINDOWS_SYSROOT", sysroot) +
             this.shell_export("SQGI_WINDOWS_PREFIX", "/" + opts.windows.msys2_prefix) +
             this.shell_export("SQGI_WINDOWS_PREFIX_DIR", prefix_dir) +
-            this.shell_export("SQGI_WINDOWS_SYSROOT_PREFIX", prefix_dir)
+            this.shell_export("SQGI_WINDOWS_SYSROOT_PREFIX", prefix_dir) +
+            this.shell_export("SQGI_WINDOWS_GUI", this.windows_gui_cmake_value(opts))
         if (include_source)
             env += this.shell_export("SQGI_SOURCE_DIR", this.ensure_sqgi_source(opts))
         return env

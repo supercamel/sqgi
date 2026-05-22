@@ -11,6 +11,9 @@ cross-build/debug workflows.
 The design goal is simple: keep the developer-facing manifest small, while
 putting the ugly platform work inside `sqgipkg`.
 
+If you are learning `sqgipkg` from scratch, start with the tutorial-style
+[sqgipkg User Manual](MANUAL.md). This file is the broader reference.
+
 ## Highlights
 
 - Linux AppImage packaging.
@@ -1089,6 +1092,9 @@ SQGI_LINUX_DEB_ARCH
 SQGI_LINUX_TRIPLET
 SQGI_LINUX_BUILD_DIR
 SQGI_LINUX_SYSROOT
+SQGI_LINUX_PREFIX             # /usr
+SQGI_LINUX_PREFIX_DIR         # <sysroot>/usr, or /usr for host-root builds
+SQGI_LINUX_INSTALL_PREFIX     # /usr
 SQGI_LINUX_CMAKE_TOOLCHAIN
 SQGI_LINUX_MESON_CROSS_FILE
 SQGI_SOURCE_DIR              # only when a command references it
@@ -1302,6 +1308,11 @@ Commands run from the manifest directory.
 ]
 ```
 
+The generated `SQGI_WIN_CMAKE_TOOLCHAIN` also sets the CMake cache option
+`SQGI_WINDOWS_GUI` from `windows.console`. For GTK-looking GUI apps this is
+`ON` by default, so the cross-built `sqgi.exe` uses the Windows GUI subsystem
+instead of opening a console window.
+
 ### `windows.build_dir`
 
 Directory containing `sqgi.exe` and SQGI DLLs.
@@ -1425,6 +1436,53 @@ CLI:
 
 ```sh
 --no-windows-auto-packages
+```
+
+### `windows.console`
+
+Control whether the packaged Windows app is built/launched as a console app or
+a GUI app. The default is automatic:
+
+- console on for command-line-style apps
+- console off for GTK-looking GUI apps
+
+GTK-looking means a GTK import was detected, GTK settings were configured, or a
+GTK MSYS2 package was selected.
+
+When the console is off, the generated Windows CMake toolchain sets:
+
+```cmake
+set(SQGI_WINDOWS_GUI ON CACHE BOOL "Build sqgi.exe with the Windows GUI subsystem" FORCE)
+```
+
+`sqgipkg` still writes `<name>.bat` for debugging and command-line launches.
+NSIS shortcuts point directly at `bin\sqgi.exe` for script apps, or the native
+entry executable for native-entry apps, so they do not go through a batch file.
+The Windows SQGI runtime detects the packaged layout, sets the same GI/GTK/GIO
+environment that the batch launcher sets, and runs `share\sqgi\app\main.cnut`
+or `main.nut` when launched without arguments.
+
+Force console output:
+
+```json
+"windows": {
+  "console": true
+}
+```
+
+Force no console:
+
+```json
+"windows": {
+  "console": false
+}
+```
+
+CLI:
+
+```sh
+--windows-console
+--no-windows-console
 ```
 
 ### `windows.packages`
@@ -1667,6 +1725,10 @@ The launcher executes:
 ```
 
 or the source `.nut` entry if script compilation is disabled.
+
+For GUI apps with `windows.console` disabled, NSIS-created shortcuts target the
+GUI-subsystem executable directly instead of this batch file. The batch file is
+kept in the package as a visible-console debugging launcher.
 
 ## Windows GTK theme/settings support
 

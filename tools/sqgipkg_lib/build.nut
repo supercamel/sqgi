@@ -126,6 +126,9 @@ class SqgiPkgBuild extends Base.SqgiPkgDoctor {
         this.info("  SQGI_LINUX_DEB_ARCH=" + this.linux_current_deb_arch(opts))
         this.info("  SQGI_LINUX_TRIPLET=" + this.linux_current_triplet(opts))
         this.info("  SQGI_LINUX_SYSROOT=" + sysroot)
+        this.info("  SQGI_LINUX_PREFIX=/usr")
+        this.info("  SQGI_LINUX_PREFIX_DIR=" + (sysroot == "" ? "/usr" : GLib.build_filenamev([sysroot, "usr"])))
+        this.info("  SQGI_LINUX_INSTALL_PREFIX=/usr")
         this.info("  SQGI_LINUX_CMAKE_TOOLCHAIN=" + toolchain)
         this.info("  SQGI_LINUX_MESON_CROSS_FILE=" + cross_file)
     }

@@ -85,26 +85,6 @@ class SqgiPkgWindowsStaging extends Base.SqgiPkgWindowsMsys2 {
         return "set \"" + name + "=" + value + "\"\r\n"
     }
 
-    function windows_effective_gtk_theme(opts) {
-        return opts.windows.gtk_theme != "" ? opts.windows.gtk_theme : opts.gtk_theme
-    }
-
-    function windows_effective_gtk_icon_theme(opts) {
-        return opts.windows.gtk_icon_theme != "" ? opts.windows.gtk_icon_theme : opts.gtk_icon_theme
-    }
-
-    function windows_effective_gtk_font_name(opts) {
-        return opts.windows.gtk_font_name != "" ? opts.windows.gtk_font_name : opts.gtk_font_name
-    }
-
-    function windows_effective_gtk_prefer_dark(opts) {
-        return opts.windows.gtk_prefer_dark || opts.gtk_prefer_dark
-    }
-
-    function windows_effective_gdk_backend(opts) {
-        return opts.windows.gdk_backend != "" ? opts.windows.gdk_backend : opts.gdk_backend
-    }
-
     function write_windows_gtk_settings(opts, windir) {
         local gtk_theme = this.windows_effective_gtk_theme(opts)
         local gtk_icon_theme = this.windows_effective_gtk_icon_theme(opts)
@@ -131,6 +111,10 @@ class SqgiPkgWindowsStaging extends Base.SqgiPkgWindowsMsys2 {
         return "\"%HERE%bin\\sqgi.exe\" \"%HERE%" + entry + "\" %*\r\n"
     }
 
+    function windows_primary_launcher_name(opts, package_name) {
+        return package_name + ".bat"
+    }
+
     function write_windows_launcher(opts, windir, app_name, entry_rel) {
         local path = GLib.build_filenamev([windir, app_name + ".bat"])
         local gtk_theme = this.windows_effective_gtk_theme(opts)
@@ -154,6 +138,7 @@ class SqgiPkgWindowsStaging extends Base.SqgiPkgWindowsMsys2 {
             "set \"GIO_EXTRA_MODULES=%HERE%lib\\gio\\modules;%GIO_EXTRA_MODULES%\"\r\n" +
             "set \"GDK_PIXBUF_MODULEDIR=%HERE%lib\\gdk-pixbuf-2.0\\2.10.0\\loaders\"\r\n" +
             this.windows_launcher_exec_line(opts, entry_rel))
+
     }
 
     function stage_windows_dir(opts) {

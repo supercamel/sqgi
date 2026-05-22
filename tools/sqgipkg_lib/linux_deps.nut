@@ -287,7 +287,10 @@ class SqgiPkgLinuxDeps extends Base.SqgiPkgStaging {
             this.shell_export("SQGI_LINUX_DEB_ARCH", deb_arch) +
             this.shell_export("SQGI_LINUX_TRIPLET", triplet) +
             this.shell_export("SQGI_LINUX_BUILD_DIR", opts.build_dir) +
-            this.shell_export("SQGI_LINUX_SYSROOT", sysroot)
+            this.shell_export("SQGI_LINUX_SYSROOT", sysroot) +
+            this.shell_export("SQGI_LINUX_PREFIX", "/usr") +
+            this.shell_export("SQGI_LINUX_PREFIX_DIR", sysroot == "" ? "/usr" : GLib.build_filenamev([sysroot, "usr"])) +
+            this.shell_export("SQGI_LINUX_INSTALL_PREFIX", "/usr")
 
         if (this.linux_current_is_cross(opts)) {
             env += this.shell_export("SQGI_LINUX_CMAKE_TOOLCHAIN", this.linux_cmake_toolchain_path(opts)) +

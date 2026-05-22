@@ -65,8 +65,8 @@ SQGI is useful for:
 - **Embeddable runtime**: use SQGI as a standalone interpreter or embed it in a
   native application.
 - **Portable packaging**: `sqgipkg` can bundle scripts, resources, typelibs,
-  plugins, native libraries, AppImages, Windows app directories, and NSIS
-  installers.
+  plugins, native libraries, private Linux/Windows dependency sysroots,
+  AppImages, Windows app directories, and NSIS installers.
 - **AI-friendly workflow**: the runtime is small, the language is familiar, and
   the underlying libraries are well-documented, which makes SQGI practical for
   AI-assisted development.
@@ -252,15 +252,26 @@ sqgipkg --doctor
 sqgipkg --smoke-test ""
 ```
 
+Starter manifests are intentionally small. For portable GTK/GStreamer packages,
+add the runtime packages or enable `linux.deb.download` / `--linux-deb-download`
+so `sqgipkg` can prepare a private Debian/Ubuntu sysroot instead of relying on
+whatever happens to be installed on the host.
+
 Useful targets:
 
 ```sh
 sqgipkg --target appimage
+sqgipkg --target linux-sysroot
 sqgipkg --target win-dir
 sqgipkg --target win-nsis
 sqgipkg --target win-sysroot
 sqgipkg --target all
 ```
+
+`linux-sysroot` prepares Linux target dependencies and generated CMake/Meson
+cross files without building the app. `all` builds Linux AppImage output and a
+Windows NSIS package; when `linux.arches` is configured it builds each listed
+Linux architecture.
 
 `sqgipkg` can stage:
 
@@ -274,12 +285,19 @@ sqgipkg --target all
 - GSettings schemas
 - GIO modules
 - gdk-pixbuf loaders
+- Debian/Ubuntu packages into isolated Linux sysroots
+- generated Linux CMake/Meson cross files with `pkg-config` isolation
 - Windows MSYS2 packages
 - Windows recursive DLL dependency closure
 - generated AppImage and Windows launchers
 - NSIS installers with icon/license/shortcut options
 
-For full packaging documentation, see [tools/README.md](tools/README.md).
+For AppImages, smoke tests can run the built package immediately, and
+cross-architecture smoke tests use QEMU user-mode/binfmt when the matching
+emulator and target sysroot are available.
+
+For a guided packaging tutorial, see [tools/MANUAL.md](tools/MANUAL.md). For
+the broader packaging reference, see [tools/README.md](tools/README.md).
 
 ## Windows Packaging
 
@@ -307,13 +325,15 @@ On Linux hosts, `sqgipkg` can prepare an MSYS2-style sysroot, download packages,
 resolve dependencies, generate CMake/Meson cross files, isolate `pkg-config`,
 and recursively copy DLL dependencies.
 
-For current Ubuntu stock MinGW cross-builds, use MSYS2 `mingw64` packages:
+For current Ubuntu stock MinGW cross-builds, pair the stock
+`x86_64-w64-mingw32-*` toolchain with MSYS2 `mingw64` packages:
 
 ```text
 x86_64-w64-mingw32-gcc/g++ -> MSYS2 mingw64 packages
 ```
 
-For native MSYS2 UCRT64 builds, use matching UCRT64 packages:
+For native MSYS2 UCRT64 builds, use a matching UCRT64 compiler and matching
+UCRT64 packages:
 
 ```text
 MSYS2 UCRT64 gcc/clang -> MSYS2 ucrt64 packages
@@ -361,7 +381,8 @@ are placed under `include/sqgi/`.
 | Look up SQGI runtime APIs | [docs/api/README.md](docs/api/README.md) |
 | Follow library-specific recipes | [docs/recipes/](docs/recipes/) |
 | Browse runnable examples | [demo/](demo/) |
-| Package Linux/Windows apps | [tools/README.md](tools/README.md) |
+| Learn app packaging step by step | [tools/MANUAL.md](tools/MANUAL.md) |
+| Look up packaging fields and targets | [tools/README.md](tools/README.md) |
 
 The demos cover GLib, Gio, GTK 4, GStreamer, libsoup, GdkPixbuf, Cairo,
 AppImage packaging, Windows staging, GTK theme packaging, native executable

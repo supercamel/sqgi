@@ -187,6 +187,7 @@ class SqgiPkgManifest extends Base.SqgiPkgOptions {
         local download_packages = this.table_get(windows, "download_packages")
         local refresh_packages = this.table_get(windows, "refresh_packages")
         local auto_packages = this.table_get(windows, "auto_packages")
+        local console = this.table_get(windows, "console")
         local nsis = this.table_get(windows, "nsis")
         local gtk_theme = this.table_get(windows, "gtk_theme")
         local gtk_icon_theme = this.table_get(windows, "gtk_icon_theme")
@@ -215,6 +216,7 @@ class SqgiPkgManifest extends Base.SqgiPkgOptions {
         if (!opts.windows.refresh_packages && refresh_packages != null)
             opts.windows.refresh_packages = refresh_packages
         if (auto_packages != null) opts.windows.auto_packages = auto_packages
+        if (!opts.windows.console_forced && console != null) opts.windows.console = console
         if (opts.windows.nsis == "makensis" && nsis != null) opts.windows.nsis = nsis
         if (gtk_theme != null) opts.windows.gtk_theme = gtk_theme
         if (gtk_icon_theme != null) opts.windows.gtk_icon_theme = gtk_icon_theme

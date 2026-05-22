@@ -96,6 +96,9 @@ local linux_sysroot_opts = manifest.new_options()
 linux_sysroot_opts.target = "linux-sysroot"
 manifest.validate_options(linux_sysroot_opts)
 check("manifest linux-sysroot does not require script", true)
+local windows_console_opts = manifest.new_options()
+manifest.apply_windows_manifest(windows_console_opts, "/tmp/project", { console = false })
+check("manifest Windows console setting", windows_console_opts.windows.console == false)
 
 local linux = Linux.SqgiPkgLinuxDeps()
 check("linux system library filter", linux.linux_system_library("libc.so.6"))
@@ -313,6 +316,33 @@ local package_stage_appdir = GLib.build_filenamev([GLib.get_tmp_dir(), "sqgipkg-
 linux.stage_linux_package(package_stage_opts, package_stage_appdir, "libdemo")
 check("linux package staging copies from generated sysroot",
     linux.path_exists(GLib.build_filenamev([package_stage_appdir, "usr", "lib", "libdemo.so.1"])))
+check("linux package staging preserves GStreamer plugin dir",
+    linux.linux_package_dest_for_file(package_stage_opts, "/usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstfake.so") ==
+    GLib.build_filenamev(["usr", "lib", "gstreamer-1.0", "libgstfake.so"]))
+check("linux package staging preserves GStreamer scanner path",
+    linux.linux_package_dest_for_file(package_stage_opts, "/usr/lib/x86_64-linux-gnu/gstreamer1.0/gstreamer-1.0/gst-plugin-scanner") ==
+    GLib.build_filenamev(["usr", "lib", "gstreamer1.0", "gstreamer-1.0", "gst-plugin-scanner"]))
+check("linux package staging flattens triplet GI typelibs",
+    linux.linux_package_dest_for_file(package_stage_opts, "/usr/lib/x86_64-linux-gnu/girepository-1.0/Gtk-4.0.typelib") ==
+    GLib.build_filenamev(["usr", "lib", "girepository-1.0", "Gtk-4.0.typelib"]))
+check("linux package staging preserves libsoup typelib path",
+    linux.linux_package_dest_for_file(package_stage_opts, "/usr/lib/x86_64-linux-gnu/girepository-1.0/Soup-3.0.typelib") ==
+    GLib.build_filenamev(["usr", "lib", "girepository-1.0", "Soup-3.0.typelib"]))
+check("linux package staging preserves GSettings schema path",
+    linux.linux_package_dest_for_file(package_stage_opts, "/usr/share/glib-2.0/schemas/org.gtk.Settings.FileChooser.gschema.xml") ==
+    GLib.build_filenamev(["usr", "share", "glib-2.0", "schemas", "org.gtk.Settings.FileChooser.gschema.xml"]))
+check("linux package staging flattens triplet GIO module path",
+    linux.linux_package_dest_for_file(package_stage_opts, "/usr/lib/x86_64-linux-gnu/gio/modules/libgiognutls.so") ==
+    GLib.build_filenamev(["usr", "lib", "gio", "modules", "libgiognutls.so"]))
+check("linux package staging preserves gdk-pixbuf loader path",
+    linux.linux_package_dest_for_file(package_stage_opts, "/usr/lib/x86_64-linux-gnu/gdk-pixbuf-2.0/2.10.0/loaders/libpixbufloader-png.so") ==
+    GLib.build_filenamev(["usr", "lib", "gdk-pixbuf-2.0", "2.10.0", "loaders", "libpixbufloader-png.so"]))
+check("linux package staging preserves gdk-pixbuf query helper path",
+    linux.linux_package_dest_for_file(package_stage_opts, "/usr/lib/x86_64-linux-gnu/gdk-pixbuf-2.0/gdk-pixbuf-query-loaders") ==
+    GLib.build_filenamev(["usr", "lib", "gdk-pixbuf-2.0", "gdk-pixbuf-query-loaders"]))
+check("linux package staging flattens triplet GTK module path",
+    linux.linux_package_dest_for_file(package_stage_opts, "/usr/lib/x86_64-linux-gnu/gtk-4.0/4.0.0/printbackends/libprintbackend-file.so") ==
+    GLib.build_filenamev(["usr", "lib", "gtk-4.0", "4.0.0", "printbackends", "libprintbackend-file.so"]))
 system("rm -rf " + linux.shell_quote(package_stage_opts.linux.sysroot) + " " + linux.shell_quote(package_stage_appdir))
 local auto_runtime_opts = linux.new_options()
 auto_runtime_opts.linux.deb.download = true
@@ -455,6 +485,7 @@ check("linux generated cmake toolchain", linux.path_exists(generated_toolchain))
 check("linux generated meson cross file", linux.path_exists(generated_cross_file))
 check("linux build env exposes generated toolchain", linux.linux_build_env_prefix(linux_opts).find("SQGI_LINUX_CMAKE_TOOLCHAIN=") != null)
 check("linux build env exposes build dir", linux.linux_build_env_prefix(linux_opts).find("SQGI_LINUX_BUILD_DIR=") != null)
+check("linux build env exposes install prefix", linux.linux_build_env_prefix(linux_opts).find("SQGI_LINUX_INSTALL_PREFIX=") != null)
 check("linux cmake toolchain uses target triplet", linux.read_file(generated_toolchain).find(linux.linux_current_triplet(linux_opts) + "-gcc") != null)
 system("rm -rf " + linux.shell_quote(linux_opts.output_dir))
 local sysrooted_cross_opts = linux.new_options()
@@ -487,9 +518,136 @@ check("linux build env exposes qemu loader prefix for cross sysroot",
     linux.linux_build_env_prefix(sysrooted_cross_opts).find("QEMU_LD_PREFIX=") != null)
 system("rm -rf " + linux.shell_quote(sysrooted_cross_opts.output_dir) + " " + linux.shell_quote(sysrooted_cross_opts.linux.sysroot))
 
+local native_install_opts = build.new_options()
+native_install_opts.target = "appimage"
+native_install_opts.appimage_arch = host_arch
+native_install_opts.output_dir = GLib.build_filenamev([GLib.get_tmp_dir(), "sqgipkg-native-install-out-" + GLib.get_monotonic_time()])
+local native_install_dir = GLib.build_filenamev([GLib.get_tmp_dir(), "sqgipkg-native-install-project-" + GLib.get_monotonic_time()])
+local native_install_appdir = GLib.build_filenamev([GLib.get_tmp_dir(), "sqgipkg-native-install-appdir-" + GLib.get_monotonic_time()])
+build.mkdir_p(native_install_dir)
+build.mkdir_p(native_install_appdir)
+build.write_file(GLib.build_filenamev([native_install_dir, "unstaged.txt"]), "do not copy\n")
+native_install_opts.native_projects = [
+    {
+        name = "native-install",
+        dir = native_install_dir,
+        repo = null,
+        branch = null,
+        ref = null,
+        update = true,
+        shallow = false,
+        submodules = false,
+        build = ["printf '%s' \"$SQGI_LINUX_ARCH\" > build-arch.txt"],
+        install = ["printf '%s' \"$SQGI_LINUX_INSTALL_PREFIX\" > install-prefix.txt"],
+        libraries = [],
+        typelibs = [],
+        files = ["unstaged.txt=usr/share/sqgi/app/unstaged.txt"],
+        stage = false
+    }
+]
+build.stage_native_projects(native_install_opts, native_install_appdir)
+check("linux native project build command receives target env",
+    build.read_file(GLib.build_filenamev([native_install_dir, "build-arch.txt"])) == host_arch)
+check("linux native project install commands run",
+    build.read_file(GLib.build_filenamev([native_install_dir, "install-prefix.txt"])) == "/usr")
+check("linux native project stage false skips outputs",
+    !build.path_exists(GLib.build_filenamev([native_install_appdir, "usr", "share", "sqgi", "app", "unstaged.txt"])))
+system("rm -rf " + build.shell_quote(native_install_opts.output_dir) + " " +
+    build.shell_quote(native_install_dir) + " " + build.shell_quote(native_install_appdir))
+
 local appimage = AppImage.SqgiPkgAppImage()
 check("appimage qemu binary for x86_64", appimage.qemu_user_binary_name("x86_64") == "qemu-x86_64")
 check("appimage qemu binary for aarch64", appimage.qemu_user_binary_name("arm64") == "qemu-aarch64")
+local source_script_opts = build.new_options()
+source_script_opts.target = "appimage"
+source_script_opts.compile_scripts = false
+local source_script_root = GLib.build_filenamev([GLib.get_tmp_dir(), "sqgipkg-source-scripts-" + GLib.get_monotonic_time()])
+local source_script_appdir = GLib.build_filenamev([source_script_root, "appdir"])
+local source_script_dir = GLib.build_filenamev([source_script_root, "src"])
+build.mkdir_p(source_script_dir)
+build.mkdir_p(source_script_appdir)
+build.write_file(GLib.build_filenamev([source_script_dir, "main.nut"]),
+    "local helper = import(\"helper.nut\")\nprint(helper.message() + \"\\n\")\n")
+build.write_file(GLib.build_filenamev([source_script_dir, "helper.nut"]),
+    "function message() { return \"source scripts\" }\nreturn { message = message }\n")
+source_script_opts.script = GLib.build_filenamev([source_script_dir, "main.nut"])
+local source_script_entry = build.stage_app_scripts(source_script_opts, source_script_appdir, {})
+check("source script packaging keeps nut entry",
+    source_script_entry == GLib.build_filenamev(["usr", "share", "sqgi", "app", "main.nut"]))
+check("source script packaging copies main nut",
+    build.path_exists(GLib.build_filenamev([source_script_appdir, "usr", "share", "sqgi", "app", "main.nut"])))
+check("source script packaging copies imported nut",
+    build.path_exists(GLib.build_filenamev([source_script_appdir, "usr", "share", "sqgi", "app", "helper.nut"])))
+check("source script packaging skips cnut bytecode",
+    !build.path_exists(GLib.build_filenamev([source_script_appdir, "usr", "share", "sqgi", "app", "main.cnut"])) &&
+    !build.path_exists(GLib.build_filenamev([source_script_appdir, "usr", "share", "sqgi", "app", "helper.cnut"])))
+check("source script packaging reports copied scripts",
+    source_script_opts.report.scripts_copied == 2 &&
+    source_script_opts.report.scripts_compiled == 0 &&
+    source_script_opts.report.script_links == 0)
+system("rm -rf " + build.shell_quote(source_script_root))
+local plugin_stage_opts = appimage.new_options()
+local plugin_stage_root = GLib.build_filenamev([GLib.get_tmp_dir(), "sqgipkg-plugin-stage-" + GLib.get_monotonic_time()])
+local plugin_src_dir = GLib.build_filenamev([plugin_stage_root, "gstreamer-1.0"])
+local typelib_src_dir = GLib.build_filenamev([plugin_stage_root, "girepository-1.0"])
+local schema_src_dir = GLib.build_filenamev([plugin_stage_root, "schemas"])
+local gio_src_dir = GLib.build_filenamev([plugin_stage_root, "modules"])
+local pixbuf_src_dir = GLib.build_filenamev([plugin_stage_root, "loaders"])
+local plugin_appdir = GLib.build_filenamev([plugin_stage_root, "appdir"])
+appimage.mkdir_p(plugin_src_dir)
+appimage.mkdir_p(typelib_src_dir)
+appimage.mkdir_p(schema_src_dir)
+appimage.mkdir_p(gio_src_dir)
+appimage.mkdir_p(pixbuf_src_dir)
+appimage.mkdir_p(plugin_appdir)
+appimage.write_file(GLib.build_filenamev([plugin_src_dir, "libgstfake.so"]), "fake plugin\n")
+appimage.write_file(GLib.build_filenamev([typelib_src_dir, "Gtk-4.0.typelib"]), "fake typelib\n")
+appimage.write_file(GLib.build_filenamev([schema_src_dir, "org.example.gschema.xml"]), "fake schema\n")
+appimage.write_file(GLib.build_filenamev([gio_src_dir, "libgiofake.so"]), "fake gio module\n")
+appimage.write_file(GLib.build_filenamev([pixbuf_src_dir, "libpixbuffake.so"]), "fake pixbuf loader\n")
+plugin_stage_opts.gstreamer_plugins = [plugin_src_dir]
+plugin_stage_opts.typelibs = [typelib_src_dir]
+plugin_stage_opts.gsettings_schemas = [schema_src_dir]
+plugin_stage_opts.gio_modules = [gio_src_dir]
+plugin_stage_opts.gdk_pixbuf_loaders = [pixbuf_src_dir]
+appimage.stage_extra_files(plugin_stage_opts, plugin_appdir, {})
+check("appimage gstreamer plugin dir copies contents",
+    appimage.path_exists(GLib.build_filenamev([plugin_appdir, "usr", "lib", "gstreamer-1.0", "libgstfake.so"])))
+check("appimage gstreamer plugin dir is not nested",
+    !appimage.path_exists(GLib.build_filenamev([plugin_appdir, "usr", "lib", "gstreamer-1.0", "gstreamer-1.0", "libgstfake.so"])))
+check("appimage typelib dir copies contents",
+    appimage.path_exists(GLib.build_filenamev([plugin_appdir, "usr", "lib", "girepository-1.0", "Gtk-4.0.typelib"])))
+check("appimage typelib dir is not nested",
+    !appimage.path_exists(GLib.build_filenamev([plugin_appdir, "usr", "lib", "girepository-1.0", "girepository-1.0", "Gtk-4.0.typelib"])))
+check("appimage schema dir copies contents",
+    appimage.path_exists(GLib.build_filenamev([plugin_appdir, "usr", "share", "glib-2.0", "schemas", "org.example.gschema.xml"])))
+check("appimage schema dir is not nested",
+    !appimage.path_exists(GLib.build_filenamev([plugin_appdir, "usr", "share", "glib-2.0", "schemas", "schemas", "org.example.gschema.xml"])))
+check("appimage GIO module dir copies contents",
+    appimage.path_exists(GLib.build_filenamev([plugin_appdir, "usr", "lib", "gio", "modules", "libgiofake.so"])))
+check("appimage GIO module dir is not nested",
+    !appimage.path_exists(GLib.build_filenamev([plugin_appdir, "usr", "lib", "gio", "modules", "modules", "libgiofake.so"])))
+check("appimage gdk-pixbuf loader dir copies contents",
+    appimage.path_exists(GLib.build_filenamev([plugin_appdir, "usr", "lib", "gdk-pixbuf-2.0", "2.10.0", "loaders", "libpixbuffake.so"])))
+check("appimage gdk-pixbuf loader dir is not nested",
+    !appimage.path_exists(GLib.build_filenamev([plugin_appdir, "usr", "lib", "gdk-pixbuf-2.0", "2.10.0", "loaders", "loaders", "libpixbuffake.so"])))
+appimage.write_apprun(plugin_stage_opts, plugin_appdir, GLib.build_filenamev(["usr", "share", "sqgi", "app", "main.cnut"]))
+local plugin_apprun = appimage.read_file(GLib.build_filenamev([plugin_appdir, "AppRun"]))
+check("appimage launcher pins gstreamer system path",
+    plugin_apprun.find("GST_PLUGIN_SYSTEM_PATH_1_0") != null &&
+    plugin_apprun.find("GST_PLUGIN_SYSTEM_PATH") != null &&
+    plugin_apprun.find("GST_PLUGIN_SCANNER") != null)
+check("appimage launcher pins GTK and GI runtime paths",
+    plugin_apprun.find("GTK_PATH=") != null &&
+    plugin_apprun.find("GI_TYPELIB_PATH=") != null &&
+    plugin_apprun.find("GSETTINGS_SCHEMA_DIR=") != null &&
+    plugin_apprun.find("GIO_EXTRA_MODULES=") != null &&
+    plugin_apprun.find("GDK_PIXBUF_MODULEDIR=") != null)
+check("appimage launcher regenerates relocatable gdk-pixbuf cache",
+    plugin_apprun.find("gdk-pixbuf-query-loaders") != null &&
+    plugin_apprun.find("GDK_PIXBUF_RUNTIME_CACHE") != null &&
+    plugin_apprun.find("SQGI_CACHE_HOME") != null)
+system("rm -rf " + appimage.shell_quote(plugin_stage_root))
 local smoke_opts = appimage.new_options()
 smoke_opts.appimage_arch = "x86_64"
 smoke_opts.linux.sysroot = GLib.build_filenamev([GLib.get_tmp_dir(), "sqgipkg-smoke-sysroot-" + GLib.get_monotonic_time()])

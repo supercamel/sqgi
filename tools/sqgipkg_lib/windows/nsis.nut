@@ -56,12 +56,30 @@ class SqgiPkgWindowsNsis extends Base.SqgiPkgWindowsStaging {
         return icon_abs
     }
 
+    function nsis_shortcut_target(opts, package_name) {
+        if (!this.windows_console_enabled(opts)) {
+            if (opts.entry_type == "sqgi")
+                return GLib.build_filenamev(["bin", "sqgi.exe"])
+            return GLib.build_filenamev(["bin", this.basename(opts.entry_windows)])
+        }
+        return this.windows_primary_launcher_name(opts, package_name)
+    }
+
+    function nsis_create_shortcut_line(link_path, target_rel, has_icon) {
+        local target = this.windows_path(target_rel)
+        local text = "  CreateShortcut \"" + this.nsis_escape_keep_vars(link_path) + "\" " +
+            "\"$INSTDIR\\" + this.nsis_escape(target) + "\""
+        if (has_icon)
+            text += " \"\" \"$INSTDIR\\app.ico\""
+        return text + "\n"
+    }
+
     function write_nsis_script(opts, windir) {
         local package_name = this.package_basename(opts.name)
         local script = GLib.build_filenamev([opts.output_dir, package_name + ".nsi"])
         local installer = this.nsis_installer_name(opts, package_name)
         local source_glob = package_name + "/*"
-        local launcher = package_name + ".bat"
+        local launcher = this.nsis_shortcut_target(opts, package_name)
         local install_dir = this.nsis_install_dir(opts, package_name)
         local level = this.nsis_validate_execution_level(opts.windows.nsis_request_execution_level)
         local start_menu_folder = this.nsis_start_menu_folder(opts)
@@ -93,16 +111,20 @@ class SqgiPkgWindowsNsis extends Base.SqgiPkgWindowsStaging {
             "  File /r \"" + this.nsis_escape(source_glob) + "\"\n"
 
         if (opts.windows.nsis_desktop_shortcut) {
-            text += "  CreateShortcut \"$DESKTOP\\" + this.nsis_escape(opts.name) + ".lnk\" " +
-                    "\"$INSTDIR\\" + this.nsis_escape(launcher) + "\"" +
-                    (has_icon ? " \"$INSTDIR\\app.ico\"" : "") + "\n"
+            text += this.nsis_create_shortcut_line(
+                "$DESKTOP\\" + this.nsis_escape(opts.name) + ".lnk",
+                launcher,
+                has_icon
+            )
         }
 
         if (opts.windows.nsis_start_menu_shortcut) {
             text += "  CreateDirectory \"$SMPROGRAMS\\" + this.nsis_escape(start_menu_folder) + "\"\n" +
-                    "  CreateShortcut \"$SMPROGRAMS\\" + this.nsis_escape(start_menu_folder) + "\\" + this.nsis_escape(opts.name) + ".lnk\" " +
-                    "\"$INSTDIR\\" + this.nsis_escape(launcher) + "\"" +
-                    (has_icon ? " \"$INSTDIR\\app.ico\"" : "") + "\n" +
+                    this.nsis_create_shortcut_line(
+                        "$SMPROGRAMS\\" + this.nsis_escape(start_menu_folder) + "\\" + this.nsis_escape(opts.name) + ".lnk",
+                        launcher,
+                        has_icon
+                    ) +
                     "  CreateShortcut \"$SMPROGRAMS\\" + this.nsis_escape(start_menu_folder) + "\\Uninstall " + this.nsis_escape(opts.name) + ".lnk\" " +
                     "\"$INSTDIR\\Uninstall.exe\"\n"
         }

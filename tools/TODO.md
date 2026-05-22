@@ -80,7 +80,7 @@ AppImage, MSYS2, pkg-config, Debian package metadata, or cross compilation.
 - [ ] Make Linux cross builds robust against stale CMake/Meson state.
   - Cover both host directions: x86_64 host building aarch64, and arm64 host
     building x86_64.
-  - Prefer generated build-dir environment variables in examples.
+  - [x] Prefer generated build-dir environment variables in examples.
   - [x] Add diagnostics when a build dir was configured with a compiler that does
     not match `SQGI_LINUX_TRIPLET`.
   - Consider an opt-in `clean_build_dir` field or `--clean-build-dir`.
@@ -160,11 +160,13 @@ AppImage, MSYS2, pkg-config, Debian package metadata, or cross compilation.
   - [x] Add `SQGI_SOURCE_DIR`, backed by `sqgi_source` / `--sqgi-source` and a
     cached Git checkout, so examples do not require the app to live inside the
     SQGI source tree.
-  - Add standard environment variables for build dir, install prefix,
+  - [x] Run Linux native project `install` commands after `build` commands.
+  - [x] Add standard environment variables for build dir, install prefix,
     target arch, and sysroot.
   - Ensure defaults and examples do not bake in x86_64-host assumptions; arm64
     hosts cross-building x86_64 should look like the mirror image of x86_64
     hosts cross-building aarch64.
+  - [x] Honor `stage = false` for Linux native projects, matching Windows.
   - Better distinguish native dependencies installed into a sysroot from native
     project artifacts staged into the app.
 - [ ] Improve Windows/MSYS2 parity.
@@ -222,20 +224,20 @@ The test suite should have three layers:
 ## P0 Tests
 
 - [ ] Keep `tools/sqgipkg_tests/test_modules.nut` fast and deterministic.
-  - Manifest parsing and merge rules.
-  - Option parsing and aliases.
-  - Debian dependency parser.
-  - Virtual dependency provider selection.
-  - `Architecture: all` package handling.
-  - Sysroot cache key/path behavior.
-  - Shell environment export behavior.
-  - Windows package dependency parser.
-  - NSIS escaping.
+  - [x] Manifest parsing and Linux arch config behavior.
+  - [x] Option parsing and positional script handling.
+  - [x] Debian dependency parser.
+  - [x] Virtual dependency provider selection.
+  - [x] `Architecture: all` package handling.
+  - [x] Sysroot cache key/path behavior.
+  - [x] Shell environment export behavior.
+  - [x] Windows package dependency parser.
+  - [x] NSIS escaping.
 - [ ] Add fake Debian resolver fixtures.
   - [x] Fixture input from repository `Packages` stanzas.
   - [x] Fixture input shaped like `apt-cache depends`.
-  - Tests should run without host apt indexes.
-  - Include virtual dependencies, alternatives, arch-qualified dependencies,
+  - [x] Tests should run without host apt indexes.
+  - [x] Include virtual dependencies, alternatives, arch-qualified dependencies,
     epochs in versions, and architecture-all packages.
 - [ ] Add real Linux sysroot smoke tests.
   - Use a tiny package such as `zlib1g`.

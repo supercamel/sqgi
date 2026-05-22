@@ -82,6 +82,8 @@ class SqgiPkgOptions extends Base.SqgiPkgCore {
                 download_packages = true,
                 refresh_packages = false,
                 auto_packages = true,
+                console = null,
+                console_forced = false,
                 libraries = [],
                 typelibs = [],
                 files = [],
@@ -323,6 +325,14 @@ class SqgiPkgOptions extends Base.SqgiPkgCore {
         if (this.option_present(option_dict, "refresh-msys2-packages")) opts.windows.refresh_packages = true
         if (this.option_present(option_dict, "no-msys2-download")) opts.windows.download_packages = false
         if (this.option_present(option_dict, "no-windows-auto-packages")) opts.windows.auto_packages = false
+        if (this.option_present(option_dict, "windows-console")) {
+            opts.windows.console = true
+            opts.windows.console_forced = true
+        }
+        if (this.option_present(option_dict, "no-windows-console")) {
+            opts.windows.console = false
+            opts.windows.console_forced = true
+        }
         if (this.option_present(option_dict, "windows-prefer-dark")) opts.windows.gtk_prefer_dark = true
         if (this.option_present(option_dict, "nsis-no-desktop-shortcut")) opts.windows.nsis_desktop_shortcut = false
         if (this.option_present(option_dict, "nsis-no-start-menu-shortcut")) opts.windows.nsis_start_menu_shortcut = false

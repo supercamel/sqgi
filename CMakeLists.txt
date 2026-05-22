@@ -67,6 +67,8 @@ pkg_check_modules(CAIRO REQUIRED IMPORTED_TARGET cairo)
 # GLib/GI/cairo dependencies dynamic.
 option(SQGI_MINGW_STATIC_CXX_RUNTIME
     "Statically link libgcc/libstdc++ into SQGI MinGW targets" ON)
+option(SQGI_WINDOWS_GUI
+    "Build sqgi as a Windows GUI-subsystem executable instead of a console executable" OFF)
 
 set(SQGI_MINGW_RUNTIME_LINK_OPTIONS)
 if(MINGW AND SQGI_MINGW_STATIC_CXX_RUNTIME)
@@ -185,6 +187,11 @@ set_target_properties(sqgi-bin PROPERTIES
     OUTPUT_NAME sqgi
     LINKER_LANGUAGE CXX
 )
+if(WIN32 AND SQGI_WINDOWS_GUI)
+    message(STATUS "SQGI: building sqgi.exe as a Windows GUI-subsystem executable")
+    set_target_properties(sqgi-bin PROPERTIES WIN32_EXECUTABLE ON)
+    target_compile_definitions(sqgi-bin PRIVATE SQGI_WINDOWS_GUI)
+endif()
 target_include_directories(sqgi-bin PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}/Squirrel3/include

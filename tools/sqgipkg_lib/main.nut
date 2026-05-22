@@ -141,6 +141,10 @@ class SqgiPkg extends Base.SqgiPkgBuild {
             "Do not download missing MSYS2 packages", null)
         this.app.add_main_option("no-windows-auto-packages", 0, 0, GLib.OptionArg.none,
             "Do not add inferred base/GTK/GStreamer MSYS2 packages", null)
+        this.app.add_main_option("windows-console", 0, 0, GLib.OptionArg.none,
+            "Use the Windows console launcher even for GUI apps", null)
+        this.app.add_main_option("no-windows-console", 0, 0, GLib.OptionArg.none,
+            "Build and launch Windows GUI apps without a visible console", null)
         this.app.add_main_option("nsis", 0, 0, GLib.OptionArg.string,
             "makensis executable for --target win-nsis", "PATH")
         this.app.add_main_option("windows-gtk-theme", 0, 0, GLib.OptionArg.string,
