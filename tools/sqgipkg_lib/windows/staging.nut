@@ -134,11 +134,38 @@ class SqgiPkgWindowsStaging extends Base.SqgiPkgWindowsMsys2 {
             this.windows_batch_set("GTK_THEME", gtk_theme) +
             this.windows_batch_set("GDK_BACKEND", gdk_backend) +
             "set \"GI_TYPELIB_PATH=%HERE%lib\\girepository-1.0;%GI_TYPELIB_PATH%\"\r\n" +
-            "set \"GST_PLUGIN_PATH=%HERE%lib\\gstreamer-1.0;%GST_PLUGIN_PATH%\"\r\n" +
+            "set \"GSETTINGS_SCHEMA_DIR=%HERE%share\\glib-2.0\\schemas\"\r\n" +
+            "set \"GST_PLUGIN_PATH=%HERE%lib\\gstreamer-1.0\"\r\n" +
+            "set \"GST_PLUGIN_SYSTEM_PATH_1_0=%HERE%lib\\gstreamer-1.0\"\r\n" +
+            "set \"GST_PLUGIN_SYSTEM_PATH=%HERE%lib\\gstreamer-1.0\"\r\n" +
+            "set \"GST_PLUGIN_SCANNER=%HERE%libexec\\gstreamer-1.0\\gst-plugin-scanner.exe\"\r\n" +
+            "if not exist \"%LOCALAPPDATA%\\sqgi\" mkdir \"%LOCALAPPDATA%\\sqgi\" >NUL 2>NUL\r\n" +
+            "set \"GST_REGISTRY=%LOCALAPPDATA%\\sqgi\\" + app_name + "-gstreamer-registry.bin\"\r\n" +
             "set \"GIO_EXTRA_MODULES=%HERE%lib\\gio\\modules;%GIO_EXTRA_MODULES%\"\r\n" +
             "set \"GDK_PIXBUF_MODULEDIR=%HERE%lib\\gdk-pixbuf-2.0\\2.10.0\\loaders\"\r\n" +
             this.windows_launcher_exec_line(opts, entry_rel))
 
+    }
+
+    function materialize_windows_symlinks(windir) {
+        local links = this.optional_command_output(
+            "find " + this.shell_quote(windir) + " -type l | sort"
+        )
+
+        foreach (link in links) {
+            if (link == "") continue
+
+            local tmp = link + ".sqgipkg-link-target"
+            this.run_shell(
+                "rm -rf " + this.shell_quote(tmp) + " && " +
+                "if [ -e " + this.shell_quote(link) + " ]; then " +
+                "cp -aL " + this.shell_quote(link) + " " + this.shell_quote(tmp) + " && " +
+                "rm -f " + this.shell_quote(link) + " && " +
+                "mv " + this.shell_quote(tmp) + " " + this.shell_quote(link) + "; " +
+                "else rm -f " + this.shell_quote(link) + "; fi",
+                "materializing Windows symlink"
+            )
+        }
     }
 
     function stage_windows_dir(opts) {
@@ -165,9 +192,11 @@ class SqgiPkgWindowsStaging extends Base.SqgiPkgWindowsMsys2 {
         if (opts.entry_type == "native")
             entry_rel = this.copy_windows_native_entry(opts, windir)
         this.stage_windows_extra_files(opts, windir, staged_scripts)
+        this.stage_windows_runtime_support_files(opts, windir)
         this.resolve_windows_dll_dependencies(opts, windir)
         this.verify_windows_binary_arches(opts, windir)
         this.write_windows_gtk_settings(opts, windir)
+        this.materialize_windows_symlinks(windir)
         this.write_windows_launcher(opts, windir, package_name, entry_rel)
 
         return windir

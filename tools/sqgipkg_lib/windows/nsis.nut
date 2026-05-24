@@ -60,7 +60,6 @@ class SqgiPkgWindowsNsis extends Base.SqgiPkgWindowsStaging {
         if (!this.windows_console_enabled(opts)) {
             if (opts.entry_type == "sqgi")
                 return GLib.build_filenamev(["bin", "sqgi.exe"])
-            return GLib.build_filenamev(["bin", this.basename(opts.entry_windows)])
         }
         return this.windows_primary_launcher_name(opts, package_name)
     }

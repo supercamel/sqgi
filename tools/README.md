@@ -1472,12 +1472,13 @@ When the console is off, the generated Windows CMake toolchain sets:
 set(SQGI_WINDOWS_GUI ON CACHE BOOL "Build sqgi.exe with the Windows GUI subsystem" FORCE)
 ```
 
-`sqgipkg` still writes `<name>.bat` for debugging and command-line launches.
-NSIS shortcuts point directly at `bin\sqgi.exe` for script apps, or the native
-entry executable for native-entry apps, so they do not go through a batch file.
-The Windows SQGI runtime detects the packaged layout, sets the same GI/GTK/GIO
-environment that the batch launcher sets, and runs `share\sqgi\app\main.cnut`
-or `main.nut` when launched without arguments.
+`sqgipkg` writes `<name>.bat` as the Windows environment launcher. NSIS
+shortcuts point directly at `bin\sqgi.exe` for script apps because the Windows
+SQGI runtime detects the packaged layout, sets the same GI/GTK/GIO environment
+that the batch launcher sets, and runs `share\sqgi\app\main.cnut` or `main.nut`
+when launched without arguments. Native-entry app shortcuts point at
+`<name>.bat` so the native executable receives the bundled resource and runtime
+environment too.
 
 Force console output:
 
@@ -1510,7 +1511,9 @@ Additional MSYS2 packages to install/stage.
 "packages": [
   "mingw-w64-x86_64-gtk4",
   "mingw-w64-x86_64-gstreamer",
-  "mingw-w64-x86_64-gst-plugins-good"
+  "mingw-w64-x86_64-gst-plugins-good",
+  "mingw-w64-x86_64-gst-plugins-bad",
+  "mingw-w64-x86_64-gst-libav"
 ]
 ```
 
@@ -1718,6 +1721,10 @@ SQGI_APP_RESOURCES
 PATH
 GI_TYPELIB_PATH
 GST_PLUGIN_PATH
+GST_PLUGIN_SYSTEM_PATH_1_0
+GST_PLUGIN_SYSTEM_PATH
+GST_PLUGIN_SCANNER
+GST_REGISTRY
 GIO_EXTRA_MODULES
 GDK_PIXBUF_MODULEDIR
 ```

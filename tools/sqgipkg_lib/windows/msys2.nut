@@ -273,17 +273,39 @@ class SqgiPkgWindowsMsys2 extends Base.SqgiPkgWindowsEnv {
 
         if (this.starts_with(rel, "bin/") && this.ends_with(rel, ".dll"))
             return rel
+        if (rel == "bin/gdbus.exe")
+            return rel
+        if (this.starts_with(rel, "bin/gspawn-") && this.ends_with(rel, ".exe"))
+            return rel
+        if (this.starts_with(rel, "lib/ossl-modules/"))
+            return rel
+        if (this.starts_with(rel, "lib/engines-3/"))
+            return rel
         if (this.starts_with(rel, "lib/girepository-1.0/"))
             return rel
         if (this.starts_with(rel, "lib/gstreamer-1.0/"))
+            return rel
+        if (this.starts_with(rel, "libexec/gstreamer-1.0/"))
             return rel
         if (this.starts_with(rel, "lib/gio/modules/"))
             return rel
         if (this.starts_with(rel, "lib/gdk-pixbuf-2.0/"))
             return rel
+        if (this.starts_with(rel, "share/fontconfig/"))
+            return rel
+        if (this.starts_with(rel, "share/gdal/"))
+            return rel
         if (this.starts_with(rel, "share/glib-2.0/"))
             return rel
+        if (this.starts_with(rel, "share/gst-plugins-base/"))
+            return rel
+        if (this.starts_with(rel, "share/gstreamer-1.0/"))
+            return rel
         if (this.starts_with(rel, "share/icons/"))
+            return rel
+        if (this.starts_with(rel, "share/icu/"))
+            return rel
+        if (this.starts_with(rel, "share/locale/"))
             return rel
         if (this.starts_with(rel, "share/themes/"))
             return rel
@@ -362,6 +384,37 @@ class SqgiPkgWindowsMsys2 extends Base.SqgiPkgWindowsEnv {
             this.info("copied " + copied + " runtime file(s) from MSYS2 package " + package_name)
     }
 
+    function stage_windows_runtime_support_path(opts, windir, rel) {
+        local src = GLib.build_filenamev([opts.windows.msys2_root, opts.windows.msys2_prefix, rel])
+        if (!this.path_exists(src)) return
+
+        if (this.run_shell_status("[ -d " + this.shell_quote(src) + " ]") == 0) {
+            this.copy_runtime_bucket(opts, src, windir, rel, "MSYS2 runtime support", "manual_files")
+        } else {
+            this.copy_into_appdir(src, windir, rel, "MSYS2 runtime support")
+            this.report_inc(opts, "manual_files")
+        }
+    }
+
+    function stage_windows_runtime_support_files(opts, windir) {
+        foreach (rel in [
+            GLib.build_filenamev(["bin", "gdbus.exe"]),
+            GLib.build_filenamev(["bin", "gspawn-win64-helper.exe"]),
+            GLib.build_filenamev(["bin", "gspawn-win64-helper-console.exe"]),
+            GLib.build_filenamev(["etc", "fonts"]),
+            GLib.build_filenamev(["lib", "ossl-modules"]),
+            GLib.build_filenamev(["lib", "engines-3"]),
+            GLib.build_filenamev(["libexec", "gstreamer-1.0"]),
+            GLib.build_filenamev(["share", "fontconfig"]),
+            GLib.build_filenamev(["share", "gdal"]),
+            GLib.build_filenamev(["share", "gst-plugins-base"]),
+            GLib.build_filenamev(["share", "gstreamer-1.0"]),
+            GLib.build_filenamev(["share", "icu"]),
+            GLib.build_filenamev(["share", "locale"])
+        ])
+            this.stage_windows_runtime_support_path(opts, windir, rel)
+    }
+
     function report_windows_package_dest(opts, dest_rel) {
         dest_rel = this.relative_dest(dest_rel)
         if (this.starts_with(dest_rel, GLib.build_filenamev(["lib", "gstreamer-1.0"]) + "/")) {
@@ -401,13 +454,16 @@ class SqgiPkgWindowsMsys2 extends Base.SqgiPkgWindowsEnv {
         if (this.starts_with(n, "ext-ms-")) return true
 
         local system = [
-            "advapi32.dll", "bcrypt.dll", "cfgmgr32.dll", "comctl32.dll",
-            "comdlg32.dll", "crypt32.dll", "d3d11.dll", "d3d12.dll",
+            "advapi32.dll", "avicap32.dll", "avrt.dll", "bcrypt.dll",
+            "cfgmgr32.dll", "comctl32.dll", "comdlg32.dll", "crypt32.dll",
+            "d2d1.dll", "d3d9.dll", "d3d11.dll", "d3d12.dll",
             "dcomp.dll", "dbghelp.dll", "dnsapi.dll", "dsound.dll",
             "dwmapi.dll", "dwrite.dll", "dxgi.dll", "gdi32.dll",
             "gdiplus.dll", "glu32.dll", "hid.dll", "imm32.dll",
-            "iphlpapi.dll", "kernel32.dll", "msimg32.dll", "msvcrt.dll",
-            "mswsock.dll", "ncrypt.dll", "netapi32.dll", "ntdll.dll",
+            "iphlpapi.dll", "kernel32.dll", "ksuser.dll", "mf.dll",
+            "mfplat.dll", "mfreadwrite.dll", "mmdevapi.dll",
+            "msimg32.dll", "msvcrt.dll", "mswsock.dll", "ncrypt.dll",
+            "netapi32.dll", "ntdll.dll",
             "odbc32.dll", "odbccp32.dll", "ole32.dll", "oleaut32.dll",
             "opengl32.dll", "psapi.dll", "rpcrt4.dll",
             "secur32.dll", "setupapi.dll", "shcore.dll", "shell32.dll",
@@ -471,11 +527,10 @@ class SqgiPkgWindowsMsys2 extends Base.SqgiPkgWindowsEnv {
     function windows_imported_dlls(path) {
         local tool = this.windows_objdump_tool()
         local dlls = []
-        foreach (line in this.optional_command_output(this.shell_quote(tool) + " -p " + this.shell_quote(path))) {
-            local marker = "DLL Name: "
-            local pos = line.find(marker)
-            if (pos == null) continue
-            local name = line.slice(pos + marker.len())
+        foreach (line in this.optional_command_output(
+                this.shell_quote(tool) + " -p " + this.shell_quote(path) +
+                " | sed -n 's/^[[:space:]]*DLL Name: //p'")) {
+            local name = line
             while (name.len() > 0 && name.slice(0, 1) == " ") name = name.slice(1)
             while (name.len() > 0 && (name.slice(name.len() - 1) == " " || name.slice(name.len() - 1) == "\r"))
                 name = name.slice(0, name.len() - 1)

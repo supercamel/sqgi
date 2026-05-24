@@ -715,15 +715,106 @@ check("windows cross tool packages mention mingw64", msys2.windows_cross_tool_pa
 check("windows classifies dwrite as system dll", msys2.windows_system_dll("DWrite.dll"))
 check("windows classifies bcryptprimitives as system dll", msys2.windows_system_dll("bcryptprimitives.dll"))
 check("windows classifies winhttp as system dll", msys2.windows_system_dll("WINHTTP.dll"))
+check("windows classifies media foundation dlls as system dlls",
+    msys2.windows_system_dll("MFPlat.DLL") &&
+    msys2.windows_system_dll("MFReadWrite.dll") &&
+    msys2.windows_system_dll("mmdevapi.dll"))
+check("windows classifies legacy capture and d3d dlls as system dlls",
+    msys2.windows_system_dll("AVICAP32.dll") &&
+    msys2.windows_system_dll("AVRT.dll") &&
+    msys2.windows_system_dll("d3d9.dll"))
 local dll_candidates = msys2.windows_sysroot_dll_name_candidates("eigen_blas.dll")
 check("windows dll resolver tries lib-prefixed alias",
     dll_candidates.len() == 2 &&
     dll_candidates[0] == "eigen_blas.dll" &&
     dll_candidates[1] == "libeigen_blas.dll")
+check("windows stages gdbus helper",
+    msys2.windows_package_dest("mingw64/bin/gdbus.exe", "mingw64") ==
+    GLib.build_filenamev(["bin", "gdbus.exe"]))
+check("windows stages gspawn helpers",
+    msys2.windows_package_dest("mingw64/bin/gspawn-win64-helper.exe", "mingw64") ==
+    GLib.build_filenamev(["bin", "gspawn-win64-helper.exe"]))
+check("windows skips arbitrary helper executables",
+    msys2.windows_package_dest("mingw64/bin/gapplication.exe", "mingw64") == null)
+check("windows stages gdal data",
+    msys2.windows_package_dest("mingw64/share/gdal/gcs.csv", "mingw64") ==
+    GLib.build_filenamev(["share", "gdal", "gcs.csv"]))
+check("windows stages fontconfig data",
+    msys2.windows_package_dest("mingw64/share/fontconfig/conf.avail/10-hinting-slight.conf", "mingw64") ==
+    GLib.build_filenamev(["share", "fontconfig", "conf.avail", "10-hinting-slight.conf"]))
+check("windows stages locale data",
+    msys2.windows_package_dest("mingw64/share/locale/en/LC_MESSAGES/glib20.mo", "mingw64") ==
+    GLib.build_filenamev(["share", "locale", "en", "LC_MESSAGES", "glib20.mo"]))
+check("windows stages gstreamer runtime helpers",
+    msys2.windows_package_dest("mingw64/libexec/gstreamer-1.0/gst-plugin-scanner.exe", "mingw64") ==
+    GLib.build_filenamev(["libexec", "gstreamer-1.0", "gst-plugin-scanner.exe"]))
+check("windows stages openssl providers",
+    msys2.windows_package_dest("mingw64/lib/ossl-modules/legacy.dll", "mingw64") ==
+    GLib.build_filenamev(["lib", "ossl-modules", "legacy.dll"]))
+local win_runtime_root = GLib.build_filenamev([GLib.get_tmp_dir(), "sqgipkg-win-runtime-" + GLib.get_monotonic_time()])
+local win_runtime_app = GLib.build_filenamev([GLib.get_tmp_dir(), "sqgipkg-win-app-" + GLib.get_monotonic_time()])
+local win_runtime_prefix = GLib.build_filenamev([win_runtime_root, "mingw64"])
+msys2.mkdir_p(GLib.build_filenamev([win_runtime_prefix, "bin"]))
+msys2.mkdir_p(GLib.build_filenamev([win_runtime_prefix, "share", "gdal"]))
+msys2.mkdir_p(GLib.build_filenamev([win_runtime_prefix, "share", "fontconfig", "conf.avail"]))
+msys2.mkdir_p(GLib.build_filenamev([win_runtime_prefix, "libexec", "gstreamer-1.0"]))
+msys2.write_file(GLib.build_filenamev([win_runtime_prefix, "bin", "gdbus.exe"]), "gdbus")
+msys2.write_file(GLib.build_filenamev([win_runtime_prefix, "share", "gdal", "gcs.csv"]), "gdal")
+msys2.write_file(GLib.build_filenamev([win_runtime_prefix, "share", "fontconfig", "conf.avail", "fonts.conf"]), "fontconfig")
+msys2.write_file(GLib.build_filenamev([win_runtime_prefix, "libexec", "gstreamer-1.0", "gst-plugin-scanner.exe"]), "scanner")
+local win_runtime_opts = msys2.new_options()
+win_runtime_opts.windows.msys2_root = win_runtime_root
+win_runtime_opts.windows.msys2_prefix = "mingw64"
+msys2.stage_windows_runtime_support_files(win_runtime_opts, win_runtime_app)
+check("windows runtime support copies helper files",
+    msys2.path_exists(GLib.build_filenamev([win_runtime_app, "bin", "gdbus.exe"])))
+check("windows runtime support copies data directories",
+    msys2.path_exists(GLib.build_filenamev([win_runtime_app, "share", "gdal", "gcs.csv"])) &&
+    msys2.path_exists(GLib.build_filenamev([win_runtime_app, "share", "fontconfig", "conf.avail", "fonts.conf"])) &&
+    msys2.path_exists(GLib.build_filenamev([win_runtime_app, "libexec", "gstreamer-1.0", "gst-plugin-scanner.exe"])))
+system("rm -rf " + msys2.shell_quote(win_runtime_root) + " " + msys2.shell_quote(win_runtime_app))
+
+local win_launcher_dir = GLib.build_filenamev([GLib.get_tmp_dir(), "sqgipkg-win-launcher-" + GLib.get_monotonic_time()])
+msys2.mkdir_p(win_launcher_dir)
+local win_launcher = Nsis.SqgiPkgWindowsNsis()
+local win_launcher_opts = win_launcher.new_options()
+win_launcher_opts.entry_type = "native"
+win_launcher.write_windows_launcher(win_launcher_opts, win_launcher_dir, "WinNative", GLib.build_filenamev(["bin", "native.exe"]))
+local win_launcher_text = win_launcher.read_file(GLib.build_filenamev([win_launcher_dir, "WinNative.bat"]))
+check("windows launcher pins gstreamer runtime paths",
+    win_launcher_text.find("GST_PLUGIN_PATH=%HERE%lib\\gstreamer-1.0\"") != null &&
+    win_launcher_text.find("GST_PLUGIN_SYSTEM_PATH_1_0") != null &&
+    win_launcher_text.find("GST_PLUGIN_SYSTEM_PATH") != null &&
+    win_launcher_text.find("GST_PLUGIN_SCANNER") != null &&
+    win_launcher_text.find("GST_REGISTRY") != null)
+check("windows launcher pins schema path",
+    win_launcher_text.find("GSETTINGS_SCHEMA_DIR=%HERE%share\\glib-2.0\\schemas") != null)
+local win_symlink_target = GLib.build_filenamev([win_launcher_dir, "target.txt"])
+local win_symlink_link = GLib.build_filenamev([win_launcher_dir, "link.txt"])
+win_launcher.write_file(win_symlink_target, "target")
+system("ln -s target.txt " + win_launcher.shell_quote(win_symlink_link))
+win_launcher.materialize_windows_symlinks(win_launcher_dir)
+check("windows materializes symlinks before NSIS",
+    win_launcher.path_exists(win_symlink_link) &&
+    win_launcher.run_shell_status("[ ! -L " + win_launcher.shell_quote(win_symlink_link) + " ]") == 0 &&
+    win_launcher.read_file(win_symlink_link) == "target")
+system("rm -rf " + win_launcher.shell_quote(win_launcher_dir))
 
 local nsis = Nsis.SqgiPkgWindowsNsis()
 check("nsis escape quotes", nsis.nsis_escape("a\"b") == "a$\\\"b")
 check("nsis keep vars", nsis.nsis_escape_keep_vars("$LOCALAPPDATA\\App") == "$LOCALAPPDATA\\App")
+local nsis_gui_script_opts = nsis.new_options()
+nsis_gui_script_opts.entry_type = "sqgi"
+nsis_gui_script_opts.windows.console = false
+check("nsis GUI script shortcuts target sqgi runtime",
+    nsis.nsis_shortcut_target(nsis_gui_script_opts, "WinSqurl") ==
+    GLib.build_filenamev(["bin", "sqgi.exe"]))
+local nsis_gui_native_opts = nsis.new_options()
+nsis_gui_native_opts.entry_type = "native"
+nsis_gui_native_opts.entry_windows = "/tmp/native-entry.exe"
+nsis_gui_native_opts.windows.console = false
+check("nsis GUI native shortcuts target env launcher",
+    nsis.nsis_shortcut_target(nsis_gui_native_opts, "WinNative") == "WinNative.bat")
 
 if (failures != 0) {
     print("sqgipkg module tests failed: " + failures + "\n")
