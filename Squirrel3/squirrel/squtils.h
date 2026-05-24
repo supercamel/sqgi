@@ -103,6 +103,8 @@ public:
     SQUnsignedInteger capacity() { return _allocated; }
     inline T &back() const { return _vals[_size - 1]; }
     inline T& operator[](SQUnsignedInteger pos) const{ return _vals[pos]; }
+    static SQInteger RawValuesOffset() { return (SQInteger)(size_t)&(((sqvector<T> *)0)->_vals); }
+    static SQInteger RawSizeOffset() { return (SQInteger)(size_t)&(((sqvector<T> *)0)->_size); }
     T* _vals;
 private:
     void _realloc(SQUnsignedInteger newsize)

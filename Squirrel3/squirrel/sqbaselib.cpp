@@ -356,6 +356,11 @@ static SQInteger default_delegate_len(HSQUIRRELVM v)
     return 1;
 }
 
+bool sq_nativeclosure_is_default_len(SQNativeClosure *nclosure)
+{
+    return nclosure && nclosure->_function == default_delegate_len;
+}
+
 static SQInteger default_delegate_tofloat(HSQUIRRELVM v)
 {
     SQObjectPtr &o=stack_get(v,1);

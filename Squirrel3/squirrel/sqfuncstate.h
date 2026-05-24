@@ -38,6 +38,7 @@ struct SQFuncState
     SQInteger GetStackSize();
     SQInteger CalcStackFrameSize();
     void AddLineInfos(SQInteger line,bool lineop,bool force=false);
+    void OptimizeBytecode();
     SQFunctionProto *BuildProto();
     SQInteger AllocStackPos();
     SQInteger PushTarget(SQInteger n=-1);

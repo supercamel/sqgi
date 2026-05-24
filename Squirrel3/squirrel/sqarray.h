@@ -16,6 +16,14 @@ public:
         new (newarray) SQArray(ss,nInitialSize);
         return newarray;
     }
+    static SQInteger RawValuesOffset() {
+        return (SQInteger)(size_t)&(((SQArray *)0)->_values) +
+            SQObjectPtrVec::RawValuesOffset();
+    }
+    static SQInteger RawSizeOffset() {
+        return (SQInteger)(size_t)&(((SQArray *)0)->_values) +
+            SQObjectPtrVec::RawSizeOffset();
+    }
 #ifndef NO_GARBAGE_COLLECTOR
     void Mark(SQCollectable **chain);
     SQObjectType GetType() {return OT_ARRAY;}

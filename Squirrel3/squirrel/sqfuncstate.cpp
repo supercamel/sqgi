@@ -448,6 +448,10 @@ void SQFuncState::DiscardTarget()
 
 void SQFuncState::AddInstruction(SQInstruction &i)
 {
+    if(i.op == _OP_MOVE && i._arg0 == i._arg1) {
+        return;
+    }
+
     SQInteger size = _instructions.size();
     if(size > 0 && _optimization){ //simple optimizer
         SQInstruction &pi = _instructions[size-1];//previous instruction
@@ -517,7 +521,12 @@ void SQFuncState::AddInstruction(SQInstruction &i)
             break;
         case _OP_MOVE:
             switch(pi.op) {
-            case _OP_GET: case _OP_ADD: case _OP_SUB: case _OP_MUL: case _OP_DIV: case _OP_MOD: case _OP_BITW:
+            case _OP_GET: case _OP_GETK:
+            case _OP_ADD: case _OP_SUB: case _OP_MUL: case _OP_DIV: case _OP_MOD: case _OP_BITW:
+            case _OP_EQ: case _OP_NE: case _OP_CMP:
+            case _OP_NEG: case _OP_NOT: case _OP_BWNOT: case _OP_TYPEOF:
+            case _OP_EXISTS: case _OP_INSTANCEOF:
+            case _OP_GETOUTER: case _OP_LOADROOT: case _OP_GETBASE:
             case _OP_LOADINT: case _OP_LOADFLOAT: case _OP_LOADBOOL: case _OP_LOAD:
 
                 if(pi._arg0 == i._arg1)
@@ -589,8 +598,120 @@ SQObject SQFuncState::CreateTable()
     return nt;
 }
 
+static SQInteger sqfs_signed_arg1(const SQInstruction &inst)
+{
+    return (SQInteger)((SQInt32)inst._arg1);
+}
+
+static bool sqfs_target_in_range(const SQInstructionVec &instructions,SQInteger target)
+{
+    return target >= 0 && target < (SQInteger)instructions.size();
+}
+
+static bool sqfs_threadable_branch(SQOpcode op)
+{
+    return op == _OP_JMP || op == _OP_JZ || op == _OP_JCMP;
+}
+
+static bool sqfs_branch_target(const SQInstructionVec &instructions,SQInteger ip,SQInteger &target)
+{
+    const SQInstruction &inst = instructions[ip];
+    switch(inst.op) {
+    case _OP_JMP:
+    case _OP_JZ:
+    case _OP_JCMP:
+    case _OP_AND:
+    case _OP_OR:
+    case _OP_FOREACH:
+    case _OP_PUSHTRAP:
+        target = ip + 1 + sqfs_signed_arg1(inst);
+        return true;
+    case _OP_POSTFOREACH:
+        target = ip + sqfs_signed_arg1(inst);
+        return true;
+    default:
+        return false;
+    }
+}
+
+static bool sqfs_has_branch_targeting(const SQInstructionVec &instructions,SQInteger target)
+{
+    for(SQInteger ip = 0; ip < (SQInteger)instructions.size(); ip++) {
+        SQInteger branchtarget;
+        if(sqfs_branch_target(instructions,ip,branchtarget) && branchtarget == target) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool sqfs_metadata_targets(const SQFuncState *fs,SQInteger target)
+{
+    for(SQUnsignedInteger i = 0; i < fs->_lineinfos.size(); i++) {
+        if(fs->_lineinfos[i]._op == target) {
+            return true;
+        }
+    }
+    for(SQUnsignedInteger i = 0; i < fs->_localvarinfos.size(); i++) {
+        if(fs->_localvarinfos[i]._start_op == (SQUnsignedInteger)target ||
+            fs->_localvarinfos[i]._end_op == (SQUnsignedInteger)target) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool sqfs_is_terminal(const SQInstruction &inst)
+{
+    return inst.op == _OP_RETURN || inst.op == _OP_THROW;
+}
+
+void SQFuncState::OptimizeBytecode()
+{
+    const SQInteger maxjumps = 16;
+    for(SQInteger ip = 0; ip < (SQInteger)_instructions.size(); ip++) {
+        SQInstruction &inst = _instructions[ip];
+        if(!sqfs_threadable_branch((SQOpcode)inst.op)) {
+            continue;
+        }
+
+        SQInteger target = ip + 1 + sqfs_signed_arg1(inst);
+        SQInteger depth = 0;
+        while(sqfs_target_in_range(_instructions,target) &&
+            _instructions[target].op == _OP_JMP &&
+            depth < maxjumps) {
+            SQInteger nexttarget = target + 1 + sqfs_signed_arg1(_instructions[target]);
+            if(!sqfs_target_in_range(_instructions,nexttarget) ||
+                nexttarget == target || nexttarget == ip) {
+                break;
+            }
+            target = nexttarget;
+            depth++;
+        }
+
+        SQInteger newoffset = target - ip - 1;
+        if((SQInteger)((SQInt32)newoffset) == newoffset) {
+            inst._arg1 = (SQInt32)newoffset;
+        }
+    }
+
+    while(_instructions.size() > 1) {
+        SQInteger last = (SQInteger)_instructions.size() - 1;
+        SQInstruction &inst = _instructions[last];
+        SQInstruction &prev = _instructions[last - 1];
+        if(inst.op != _OP_RETURN || inst._arg0 != 0xFF ||
+            !sqfs_is_terminal(prev) ||
+            sqfs_has_branch_targeting(_instructions,last) ||
+            sqfs_metadata_targets(this,last)) {
+            break;
+        }
+        _instructions.pop_back();
+    }
+}
+
 SQFunctionProto *SQFuncState::BuildProto()
 {
+    OptimizeBytecode();
 
     SQFunctionProto *f=SQFunctionProto::Create(_ss,_instructions.size(),
         _nliterals,_parameters.size(),_functions.size(),_outervalues.size(),

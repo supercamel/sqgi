@@ -52,9 +52,35 @@ struct SQLocalVarInfo
 
 struct SQLineInfo { SQInteger _line;SQInteger _op; };
 
+enum SQMemberCacheKind {
+    SQ_MEMBER_CACHE_EMPTY = 0,
+    SQ_MEMBER_CACHE_INSTANCE_FIELD,
+    SQ_MEMBER_CACHE_INSTANCE_METHOD,
+    SQ_MEMBER_CACHE_CLASS_FIELD,
+    SQ_MEMBER_CACHE_CLASS_METHOD,
+    SQ_MEMBER_CACHE_TABLE_SLOT
+};
+
+struct SQMemberCache {
+    SQMemberCache() : _kind(SQ_MEMBER_CACHE_EMPTY), _index(-1), _version(0) {}
+    void Clear()
+    {
+        _owner.Null();
+        _kind = SQ_MEMBER_CACHE_EMPTY;
+        _index = -1;
+        _version = 0;
+    }
+
+    SQObjectPtr _owner;
+    SQInteger _kind;
+    SQInteger _index;
+    SQUnsignedInteger _version;
+};
+
 typedef sqvector<SQOuterVar> SQOuterVarVec;
 typedef sqvector<SQLocalVarInfo> SQLocalVarInfoVec;
 typedef sqvector<SQLineInfo> SQLineInfoVec;
+typedef sqvector<SQMemberCache> SQMemberCacheVec;
 
 #define _FUNC_SIZE(ni,nl,nparams,nfuncs,nouters,nlineinf,localinf,defparams) (sizeof(SQFunctionProto) \
         +((ni-1)*sizeof(SQInstruction))+(nl*sizeof(SQObjectPtr)) \
@@ -127,7 +153,7 @@ public:
     static bool Load(SQVM *v,SQUserPointer up,SQREADFUNC read,SQObjectPtr &ret);
 #ifndef NO_GARBAGE_COLLECTOR
     void Mark(SQCollectable **chain);
-    void Finalize(){ _NULL_SQOBJECT_VECTOR(_literals,_nliterals); }
+    void Finalize(){ _NULL_SQOBJECT_VECTOR(_literals,_nliterals); _membercache.resize(0); }
     SQObjectType GetType() {return OT_FUNCPROTO;}
 #endif
     SQObjectPtr _sourcename;
@@ -160,6 +186,7 @@ public:
 #ifdef SQ_ENABLE_JIT
     SQJitProto *_jit;
 #endif
+    SQMemberCacheVec _membercache;
 
     SQInteger _ninstructions;
     SQInstruction _instructions[1];

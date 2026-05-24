@@ -144,10 +144,15 @@ void SQSharedState::Init()
     _consts = SQTable::Create(this,0);
     _table_default_delegate = CreateDefaultDelegate(this,_table_default_delegate_funcz);
     _array_default_delegate = CreateDefaultDelegate(this,_array_default_delegate_funcz);
+    _array_len_key = SQString::Create(this,_SC("len"));
+    _array_append_key = SQString::Create(this,_SC("append"));
+    _array_push_key = SQString::Create(this,_SC("push"));
+    _array_len_closure.Null();
     _array_append_closure.Null();
     _array_push_closure.Null();
-    _table(_array_default_delegate)->Get(SQObjectPtr(SQString::Create(this,_SC("append"))), _array_append_closure);
-    _table(_array_default_delegate)->Get(SQObjectPtr(SQString::Create(this,_SC("push"))), _array_push_closure);
+    _table(_array_default_delegate)->Get(_array_len_key, _array_len_closure);
+    _table(_array_default_delegate)->Get(_array_append_key, _array_append_closure);
+    _table(_array_default_delegate)->Get(_array_push_key, _array_push_closure);
     _string_default_delegate = CreateDefaultDelegate(this,_string_default_delegate_funcz);
     _number_default_delegate = CreateDefaultDelegate(this,_number_default_delegate_funcz);
     _closure_default_delegate = CreateDefaultDelegate(this,_closure_default_delegate_funcz);
@@ -176,6 +181,10 @@ SQSharedState::~SQSharedState()
     _root_vm.Null();
     _table_default_delegate.Null();
     _array_default_delegate.Null();
+    _array_len_key.Null();
+    _array_append_key.Null();
+    _array_push_key.Null();
+    _array_len_closure.Null();
     _array_append_closure.Null();
     _array_push_closure.Null();
     _string_default_delegate.Null();
@@ -259,6 +268,7 @@ void SQSharedState::RunMark(SQVM* SQ_UNUSED_ARG(vm),SQCollectable **tchain)
     MarkObject(_metamethodsmap,tchain);
     MarkObject(_table_default_delegate,tchain);
     MarkObject(_array_default_delegate,tchain);
+    MarkObject(_array_len_closure,tchain);
     MarkObject(_array_append_closure,tchain);
     MarkObject(_array_push_closure,tchain);
     MarkObject(_string_default_delegate,tchain);

@@ -5,6 +5,7 @@
 #include "sqvm.h"
 #include "sqarray.h"
 #include "sqtable.h"
+#include "sqclass.h"
 #include "sqclosure.h"
 #include "sqjit.h"
 #include "sqjit_backend.h"
@@ -42,7 +43,384 @@
 static bool sqjit_env_checked = false;
 static bool sqjit_env_enabled = false;
 static bool sqjit_trace_enabled = false;
+static bool sqjit_trace_stats_enabled = false;
 static SQInteger sqjit_threshold = 1000;
+
+enum {
+    SQ_JIT_DIAG_MAX_REASONS = 96,
+    SQ_JIT_DIAG_MAX_PROTOS = 256,
+    SQ_JIT_DIAG_MAX_LOOPS = 256,
+    SQ_JIT_DIAG_MAX_REJECT_SITES = 256,
+    SQ_JIT_DIAG_NAME_SIZE = 96,
+    SQ_JIT_DIAG_SOURCE_SIZE = 160,
+    SQ_JIT_GUARD_BACKOFF_THRESHOLD = 16,
+    SQ_JIT_GUARD_BACKOFF_INITIAL = 256,
+    SQ_JIT_GUARD_BACKOFF_MAX = 65536,
+    SQ_JIT_LOOP_GUARD_BACKOFF_THRESHOLD = 16,
+    SQ_JIT_LOOP_GUARD_BACKOFF_INITIAL = 128,
+    SQ_JIT_LOOP_GUARD_BACKOFF_MAX = 32768,
+    SQ_JIT_TRANSIENT_RETRY_LIMIT = 16
+};
+
+struct SQJitDiagReason {
+    const char *reason;
+    SQInteger count;
+};
+
+struct SQJitDiagStats {
+    SQInteger proto_enters;
+    SQInteger proto_hot;
+    SQInteger proto_compile_attempts;
+    SQInteger proto_compile_successes;
+    SQInteger proto_compile_failures;
+    SQInteger proto_exec_attempts;
+    SQInteger proto_exec_successes;
+    SQInteger proto_exec_guard_failures;
+    SQInteger direct_call_attempts;
+    SQInteger direct_call_successes;
+    SQInteger direct_call_misses;
+    SQInteger direct_call_guard_failures;
+    SQInteger loop_try_attempts;
+    SQInteger loop_find_failures;
+    SQInteger loop_compile_attempts;
+    SQInteger loop_compile_successes;
+    SQInteger loop_compile_failures;
+    SQInteger loop_exec_attempts;
+    SQInteger loop_exec_successes;
+    SQInteger loop_exec_guard_failures;
+    SQInteger proto_backoffs;
+    SQInteger proto_backoff_skips;
+    SQInteger loop_backoffs;
+    SQInteger loop_backoff_skips;
+    SQInteger rejects;
+    SQInteger nreasons;
+    SQJitDiagReason reasons[SQ_JIT_DIAG_MAX_REASONS];
+};
+
+struct SQJitDiagProtoStats {
+    SQFunctionProto *proto;
+    SQChar name[SQ_JIT_DIAG_NAME_SIZE];
+    SQChar source[SQ_JIT_DIAG_SOURCE_SIZE];
+    SQInteger enters;
+    SQInteger hot;
+    SQInteger compile_attempts;
+    SQInteger compile_successes;
+    SQInteger compile_failures;
+    SQInteger exec_attempts;
+    SQInteger exec_successes;
+    SQInteger exec_guard_failures;
+    SQInteger direct_attempts;
+    SQInteger direct_successes;
+    SQInteger direct_misses;
+    SQInteger direct_guard_failures;
+    SQInteger backoffs;
+    SQInteger backoff_skips;
+    SQInteger rejects;
+    SQInteger last_reject_ip;
+    const char *last_reject_reason;
+};
+
+struct SQJitDiagLoopStats {
+    SQFunctionProto *proto;
+    SQInteger header_ip;
+    SQChar name[SQ_JIT_DIAG_NAME_SIZE];
+    SQChar source[SQ_JIT_DIAG_SOURCE_SIZE];
+    SQInteger line;
+    SQInteger try_attempts;
+    SQInteger find_failures;
+    SQInteger compile_attempts;
+    SQInteger compile_successes;
+    SQInteger compile_failures;
+    SQInteger exec_attempts;
+    SQInteger exec_successes;
+    SQInteger exec_guard_failures;
+    SQInteger backoffs;
+    SQInteger backoff_skips;
+};
+
+struct SQJitDiagRejectSite {
+    SQFunctionProto *proto;
+    SQInteger ip;
+    SQChar name[SQ_JIT_DIAG_NAME_SIZE];
+    SQChar source[SQ_JIT_DIAG_SOURCE_SIZE];
+    SQInteger line;
+    const char *reason;
+    SQInteger count;
+};
+
+static SQJitDiagStats sqjit_diag_stats;
+static SQJitDiagProtoStats sqjit_diag_proto_stats[SQ_JIT_DIAG_MAX_PROTOS];
+static SQInteger sqjit_diag_proto_count = 0;
+static SQJitDiagLoopStats sqjit_diag_loop_stats[SQ_JIT_DIAG_MAX_LOOPS];
+static SQInteger sqjit_diag_loop_count = 0;
+static SQJitDiagRejectSite sqjit_diag_reject_sites[SQ_JIT_DIAG_MAX_REJECT_SITES];
+static SQInteger sqjit_diag_reject_site_count = 0;
+static bool sqjit_diag_registered_atexit = false;
+static SQInteger sqjit_proto_runtime_tick = 0;
+static SQInteger sqjit_loop_runtime_tick = 0;
+static bool sqjit_last_reject_transient = false;
+
+static const SQChar *sqjit_diag_proto_name(SQFunctionProto *proto)
+{
+    return proto && sq_type(proto->_name) == OT_STRING ?
+        _stringval(proto->_name) : _SC("<anonymous>");
+}
+
+static const SQChar *sqjit_diag_proto_source(SQFunctionProto *proto)
+{
+    return proto && sq_type(proto->_sourcename) == OT_STRING ?
+        _stringval(proto->_sourcename) : _SC("<unknown>");
+}
+
+static void sqjit_diag_copy_string(SQChar *dst, SQInteger dst_size,
+    const SQChar *src)
+{
+    if(!dst) {
+        return;
+    }
+    if(!src) {
+        src = _SC("");
+    }
+
+    SQInteger n = 0;
+    while(src[n] && n < dst_size - 1) {
+        dst[n] = src[n];
+        n++;
+    }
+    dst[n] = _SC('\0');
+}
+
+static void sqjit_diag_copy_name(SQChar *dst, SQFunctionProto *proto)
+{
+    sqjit_diag_copy_string(dst, SQ_JIT_DIAG_NAME_SIZE,
+        sqjit_diag_proto_name(proto));
+}
+
+static void sqjit_diag_copy_source(SQChar *dst, SQFunctionProto *proto)
+{
+    sqjit_diag_copy_string(dst, SQ_JIT_DIAG_SOURCE_SIZE,
+        sqjit_diag_proto_source(proto));
+}
+
+static SQInteger sqjit_diag_proto_line(SQFunctionProto *proto, SQInteger ip)
+{
+    if(!proto || ip < 0 || ip >= proto->_ninstructions) {
+        return -1;
+    }
+    return proto->GetLine(&proto->_instructions[ip]);
+}
+
+static SQJitDiagProtoStats *sqjit_diag_get_proto(SQFunctionProto *proto)
+{
+    if(!proto) {
+        return NULL;
+    }
+    for(SQInteger n = 0; n < sqjit_diag_proto_count; n++) {
+        if(sqjit_diag_proto_stats[n].proto == proto) {
+            return &sqjit_diag_proto_stats[n];
+        }
+    }
+    if(sqjit_diag_proto_count >= SQ_JIT_DIAG_MAX_PROTOS) {
+        return NULL;
+    }
+
+    SQJitDiagProtoStats *entry = &sqjit_diag_proto_stats[sqjit_diag_proto_count++];
+    memset(entry, 0, sizeof(*entry));
+    entry->proto = proto;
+    entry->last_reject_ip = -1;
+    sqjit_diag_copy_name(entry->name, proto);
+    sqjit_diag_copy_source(entry->source, proto);
+    return entry;
+}
+
+static SQJitDiagLoopStats *sqjit_diag_get_loop(SQFunctionProto *proto,
+    SQInteger header_ip)
+{
+    if(!proto || header_ip < 0) {
+        return NULL;
+    }
+    for(SQInteger n = 0; n < sqjit_diag_loop_count; n++) {
+        if(sqjit_diag_loop_stats[n].proto == proto &&
+            sqjit_diag_loop_stats[n].header_ip == header_ip) {
+            return &sqjit_diag_loop_stats[n];
+        }
+    }
+    if(sqjit_diag_loop_count >= SQ_JIT_DIAG_MAX_LOOPS) {
+        return NULL;
+    }
+
+    SQJitDiagLoopStats *entry = &sqjit_diag_loop_stats[sqjit_diag_loop_count++];
+    memset(entry, 0, sizeof(*entry));
+    entry->proto = proto;
+    entry->header_ip = header_ip;
+    entry->line = sqjit_diag_proto_line(proto, header_ip);
+    sqjit_diag_copy_name(entry->name, proto);
+    sqjit_diag_copy_source(entry->source, proto);
+    return entry;
+}
+
+static SQJitDiagRejectSite *sqjit_diag_get_reject_site(SQFunctionProto *proto,
+    SQInteger ip, const char *reason)
+{
+    if(!proto || !reason) {
+        return NULL;
+    }
+    for(SQInteger n = 0; n < sqjit_diag_reject_site_count; n++) {
+        SQJitDiagRejectSite *entry = &sqjit_diag_reject_sites[n];
+        if(entry->proto == proto && entry->ip == ip &&
+            strcmp(entry->reason, reason) == 0) {
+            return entry;
+        }
+    }
+    if(sqjit_diag_reject_site_count >= SQ_JIT_DIAG_MAX_REJECT_SITES) {
+        return NULL;
+    }
+
+    SQJitDiagRejectSite *entry =
+        &sqjit_diag_reject_sites[sqjit_diag_reject_site_count++];
+    memset(entry, 0, sizeof(*entry));
+    entry->proto = proto;
+    entry->ip = ip;
+    entry->line = sqjit_diag_proto_line(proto, ip);
+    entry->reason = reason;
+    sqjit_diag_copy_name(entry->name, proto);
+    sqjit_diag_copy_source(entry->source, proto);
+    return entry;
+}
+
+static SQInteger sqjit_backoff_next_delay(SQInteger delay, SQInteger initial,
+    SQInteger max_delay)
+{
+    if(delay <= 0) {
+        return initial;
+    }
+    if(delay >= max_delay / 2) {
+        return max_delay;
+    }
+    return delay * 2;
+}
+
+static void sqjit_diag_dump_stats()
+{
+    if(!sqjit_trace_stats_enabled) {
+        return;
+    }
+
+    scprintf(_SC("[sqjit:stats] proto enters=%d hot=%d compile=%d success=%d fail=%d\n"),
+        (SQInt32)sqjit_diag_stats.proto_enters,
+        (SQInt32)sqjit_diag_stats.proto_hot,
+        (SQInt32)sqjit_diag_stats.proto_compile_attempts,
+        (SQInt32)sqjit_diag_stats.proto_compile_successes,
+        (SQInt32)sqjit_diag_stats.proto_compile_failures);
+    scprintf(_SC("[sqjit:stats] proto exec attempts=%d success=%d guard_fail=%d\n"),
+        (SQInt32)sqjit_diag_stats.proto_exec_attempts,
+        (SQInt32)sqjit_diag_stats.proto_exec_successes,
+        (SQInt32)sqjit_diag_stats.proto_exec_guard_failures);
+    scprintf(_SC("[sqjit:stats] direct calls attempts=%d success=%d miss=%d guard_fail=%d\n"),
+        (SQInt32)sqjit_diag_stats.direct_call_attempts,
+        (SQInt32)sqjit_diag_stats.direct_call_successes,
+        (SQInt32)sqjit_diag_stats.direct_call_misses,
+        (SQInt32)sqjit_diag_stats.direct_call_guard_failures);
+    scprintf(_SC("[sqjit:stats] loops try=%d find_fail=%d compile=%d success=%d fail=%d exec=%d exec_success=%d guard_fail=%d\n"),
+        (SQInt32)sqjit_diag_stats.loop_try_attempts,
+        (SQInt32)sqjit_diag_stats.loop_find_failures,
+        (SQInt32)sqjit_diag_stats.loop_compile_attempts,
+        (SQInt32)sqjit_diag_stats.loop_compile_successes,
+        (SQInt32)sqjit_diag_stats.loop_compile_failures,
+        (SQInt32)sqjit_diag_stats.loop_exec_attempts,
+        (SQInt32)sqjit_diag_stats.loop_exec_successes,
+        (SQInt32)sqjit_diag_stats.loop_exec_guard_failures);
+    scprintf(_SC("[sqjit:stats] rejects=%d unique_reasons=%d\n"),
+        (SQInt32)sqjit_diag_stats.rejects,
+        (SQInt32)sqjit_diag_stats.nreasons);
+    scprintf(_SC("[sqjit:stats] backoff proto=%d proto_skips=%d loop=%d loop_skips=%d\n"),
+        (SQInt32)sqjit_diag_stats.proto_backoffs,
+        (SQInt32)sqjit_diag_stats.proto_backoff_skips,
+        (SQInt32)sqjit_diag_stats.loop_backoffs,
+        (SQInt32)sqjit_diag_stats.loop_backoff_skips);
+    for(SQInteger n = 0; n < sqjit_diag_stats.nreasons; n++) {
+        scprintf(_SC("[sqjit:stats] reject reason count=%d reason=%s\n"),
+            (SQInt32)sqjit_diag_stats.reasons[n].count,
+            sqjit_diag_stats.reasons[n].reason);
+    }
+
+    bool printed_protos[SQ_JIT_DIAG_MAX_PROTOS];
+    memset(printed_protos, 0, sizeof(printed_protos));
+    for(SQInteger rank = 0; rank < 12; rank++) {
+        SQInteger best = -1;
+        SQInteger best_score = 0;
+        for(SQInteger n = 0; n < sqjit_diag_proto_count; n++) {
+            SQInteger score = sqjit_diag_proto_stats[n].exec_guard_failures +
+                sqjit_diag_proto_stats[n].direct_guard_failures;
+            if(!printed_protos[n] && score > best_score) {
+                best = n;
+                best_score = score;
+            }
+        }
+        if(best < 0 || best_score <= 0) {
+            break;
+        }
+        printed_protos[best] = true;
+        SQJitDiagProtoStats *entry = &sqjit_diag_proto_stats[best];
+        scprintf(_SC("[sqjit:stats] proto_guard rank=%d proto=%p name=%s source=%s guard_fail=%d exec=%d exec_ok=%d direct=%d direct_ok=%d backoffs=%d skips=%d rejects=%d last_reject_ip=%d reason=%s\n"),
+            (SQInt32)(rank + 1), (void *)entry->proto, entry->name,
+            entry->source, (SQInt32)best_score,
+            (SQInt32)entry->exec_attempts, (SQInt32)entry->exec_successes,
+            (SQInt32)entry->direct_attempts, (SQInt32)entry->direct_successes,
+            (SQInt32)entry->backoffs, (SQInt32)entry->backoff_skips,
+            (SQInt32)entry->rejects, (SQInt32)entry->last_reject_ip,
+            entry->last_reject_reason ? entry->last_reject_reason : "none");
+    }
+
+    bool printed_loops[SQ_JIT_DIAG_MAX_LOOPS];
+    memset(printed_loops, 0, sizeof(printed_loops));
+    for(SQInteger rank = 0; rank < 12; rank++) {
+        SQInteger best = -1;
+        SQInteger best_score = 0;
+        for(SQInteger n = 0; n < sqjit_diag_loop_count; n++) {
+            SQInteger score = sqjit_diag_loop_stats[n].exec_guard_failures;
+            if(!printed_loops[n] && score > best_score) {
+                best = n;
+                best_score = score;
+            }
+        }
+        if(best < 0 || best_score <= 0) {
+            break;
+        }
+        printed_loops[best] = true;
+        SQJitDiagLoopStats *entry = &sqjit_diag_loop_stats[best];
+        scprintf(_SC("[sqjit:stats] loop_guard rank=%d proto=%p name=%s source=%s line=%d ip=%d guard_fail=%d exec=%d exec_ok=%d compile=%d compile_ok=%d backoffs=%d skips=%d\n"),
+            (SQInt32)(rank + 1), (void *)entry->proto, entry->name,
+            entry->source, (SQInt32)entry->line, (SQInt32)entry->header_ip,
+            (SQInt32)entry->exec_guard_failures, (SQInt32)entry->exec_attempts,
+            (SQInt32)entry->exec_successes, (SQInt32)entry->compile_attempts,
+            (SQInt32)entry->compile_successes, (SQInt32)entry->backoffs,
+            (SQInt32)entry->backoff_skips);
+    }
+
+    bool printed_rejects[SQ_JIT_DIAG_MAX_REJECT_SITES];
+    memset(printed_rejects, 0, sizeof(printed_rejects));
+    for(SQInteger rank = 0; rank < 12; rank++) {
+        SQInteger best = -1;
+        SQInteger best_score = 0;
+        for(SQInteger n = 0; n < sqjit_diag_reject_site_count; n++) {
+            SQInteger score = sqjit_diag_reject_sites[n].count;
+            if(!printed_rejects[n] && score > best_score) {
+                best = n;
+                best_score = score;
+            }
+        }
+        if(best < 0 || best_score <= 0) {
+            break;
+        }
+        printed_rejects[best] = true;
+        SQJitDiagRejectSite *entry = &sqjit_diag_reject_sites[best];
+        scprintf(_SC("[sqjit:stats] reject_site rank=%d proto=%p name=%s source=%s line=%d ip=%d count=%d reason=%s\n"),
+            (SQInt32)(rank + 1), (void *)entry->proto, entry->name,
+            entry->source, (SQInt32)entry->line, (SQInt32)entry->ip,
+            (SQInt32)entry->count, entry->reason ? entry->reason : "unknown");
+    }
+}
 
 static bool sqjit_is_truthy_env(const char *value)
 {
@@ -57,7 +435,14 @@ static void sqjit_read_env_once()
     sqjit_env_checked = true;
 
     sqjit_env_enabled = sqjit_is_truthy_env(getenv("SQGI_JIT"));
-    sqjit_trace_enabled = sqjit_is_truthy_env(getenv("SQGI_JIT_TRACE"));
+    const char *trace = getenv("SQGI_JIT_TRACE");
+    sqjit_trace_enabled = sqjit_is_truthy_env(trace) &&
+        (!trace || strcmp(trace, "stats") != 0);
+    sqjit_trace_stats_enabled = trace && strcmp(trace, "stats") == 0;
+    if(sqjit_trace_stats_enabled && !sqjit_diag_registered_atexit) {
+        atexit(sqjit_diag_dump_stats);
+        sqjit_diag_registered_atexit = true;
+    }
 
     const char *threshold = getenv("SQGI_JIT_THRESHOLD");
     if(threshold && threshold[0] != '\0') {
@@ -82,6 +467,9 @@ static SQJitProto *sqjit_ensure_proto(SQFunctionProto *proto)
         proto->_jit->_loop_exit_ip = -1;
         proto->_jit->_loop_hot_count = 0;
         proto->_jit->_loop_fail_count = 0;
+        proto->_jit->_loop_guard_fail_count = 0;
+        proto->_jit->_loop_guard_backoff_until = 0;
+        proto->_jit->_loop_guard_backoff_delay = 0;
         proto->_jit->_loop_reject_count = 0;
         proto->_jit->_loop_reject_next = 0;
         for(SQInteger n = 0; n < SQ_JIT_LOOP_REJECT_CACHE_SIZE; n++) {
@@ -90,6 +478,9 @@ static SQJitProto *sqjit_ensure_proto(SQFunctionProto *proto)
         proto->_jit->_loop_trace_executed = false;
         proto->_jit->_hot_count = 0;
         proto->_jit->_fail_count = 0;
+        proto->_jit->_guard_fail_count = 0;
+        proto->_jit->_guard_backoff_until = 0;
+        proto->_jit->_guard_backoff_delay = 0;
         proto->_jit->_version = 0;
         proto->_jit->_eligibility = SQ_JIT_UNKNOWN;
     }
@@ -127,6 +518,182 @@ static void sqjit_loop_reject_header(SQJitProto *jit, SQInteger header_ip)
 
     jit->_loop_reject_headers[jit->_loop_reject_next] = header_ip;
     jit->_loop_reject_next = (jit->_loop_reject_next + 1) % SQ_JIT_LOOP_REJECT_CACHE_SIZE;
+}
+
+bool sqjit_diag_trace_enabled()
+{
+    sqjit_read_env_once();
+    return sqjit_trace_enabled;
+}
+
+void sqjit_diag_record_reject(SQFunctionProto *proto, SQInteger ip, const char *reason)
+{
+    sqjit_read_env_once();
+    if(!sqjit_trace_stats_enabled) {
+        return;
+    }
+
+    sqjit_diag_stats.rejects++;
+    if(!reason) {
+        reason = "unknown";
+    }
+    bool reason_recorded = false;
+    for(SQInteger n = 0; n < sqjit_diag_stats.nreasons; n++) {
+        if(strcmp(sqjit_diag_stats.reasons[n].reason, reason) == 0) {
+            sqjit_diag_stats.reasons[n].count++;
+            reason_recorded = true;
+            break;
+        }
+    }
+    if(!reason_recorded && sqjit_diag_stats.nreasons < SQ_JIT_DIAG_MAX_REASONS) {
+        SQJitDiagReason &entry = sqjit_diag_stats.reasons[sqjit_diag_stats.nreasons++];
+        entry.reason = reason;
+        entry.count = 1;
+    }
+
+    SQJitDiagProtoStats *proto_entry = sqjit_diag_get_proto(proto);
+    if(proto_entry) {
+        proto_entry->rejects++;
+        proto_entry->last_reject_ip = ip;
+        proto_entry->last_reject_reason = reason;
+    }
+    SQJitDiagRejectSite *site = sqjit_diag_get_reject_site(proto, ip, reason);
+    if(site) {
+        site->count++;
+    }
+}
+
+void sqjit_diag_mark_transient_reject()
+{
+    sqjit_last_reject_transient = true;
+}
+
+void sqjit_diag_clear_transient_reject()
+{
+    sqjit_last_reject_transient = false;
+}
+
+bool sqjit_diag_consume_transient_reject()
+{
+    bool transient = sqjit_last_reject_transient;
+    sqjit_last_reject_transient = false;
+    return transient;
+}
+
+static bool sqjit_proto_backoff_active(SQFunctionProto *proto, SQJitProto *jit)
+{
+    if(!jit || jit->_guard_backoff_until <= sqjit_proto_runtime_tick) {
+        return false;
+    }
+    if(sqjit_trace_stats_enabled) {
+        sqjit_diag_stats.proto_backoff_skips++;
+        SQJitDiagProtoStats *entry = sqjit_diag_get_proto(proto);
+        if(entry) {
+            entry->backoff_skips++;
+        }
+    }
+    return true;
+}
+
+static void sqjit_proto_note_guard_fail(SQFunctionProto *proto, SQJitProto *jit)
+{
+    if(!jit) {
+        return;
+    }
+    jit->_guard_fail_count++;
+    if(jit->_guard_fail_count < SQ_JIT_GUARD_BACKOFF_THRESHOLD) {
+        return;
+    }
+
+    jit->_guard_backoff_delay = sqjit_backoff_next_delay(
+        jit->_guard_backoff_delay, SQ_JIT_GUARD_BACKOFF_INITIAL,
+        SQ_JIT_GUARD_BACKOFF_MAX);
+    jit->_guard_backoff_until = sqjit_proto_runtime_tick + jit->_guard_backoff_delay;
+    jit->_guard_fail_count = 0;
+
+    if(sqjit_trace_stats_enabled) {
+        sqjit_diag_stats.proto_backoffs++;
+        SQJitDiagProtoStats *entry = sqjit_diag_get_proto(proto);
+        if(entry) {
+            entry->backoffs++;
+        }
+    }
+    if(sqjit_trace_enabled) {
+        scprintf(_SC("[sqjit] backing off native proto '%s' for %d attempts after guard churn\n"),
+            sqjit_diag_proto_name(proto), (SQInt32)jit->_guard_backoff_delay);
+    }
+}
+
+static void sqjit_proto_note_success(SQJitProto *jit)
+{
+    if(!jit) {
+        return;
+    }
+    jit->_guard_fail_count = 0;
+    jit->_guard_backoff_until = 0;
+    jit->_guard_backoff_delay = 0;
+}
+
+static bool sqjit_loop_backoff_active(SQFunctionProto *proto, SQJitProto *jit,
+    SQInteger header_ip)
+{
+    if(!jit || jit->_loop_guard_backoff_until <= sqjit_loop_runtime_tick) {
+        return false;
+    }
+    if(sqjit_trace_stats_enabled) {
+        sqjit_diag_stats.loop_backoff_skips++;
+        SQJitDiagLoopStats *entry = sqjit_diag_get_loop(proto, header_ip);
+        if(entry) {
+            entry->backoff_skips++;
+        }
+    }
+    return true;
+}
+
+static void sqjit_loop_note_guard_fail(SQFunctionProto *proto, SQJitProto *jit,
+    SQInteger header_ip)
+{
+    if(!jit) {
+        return;
+    }
+    jit->_loop_guard_fail_count += 2;
+    if(jit->_loop_guard_fail_count < SQ_JIT_LOOP_GUARD_BACKOFF_THRESHOLD) {
+        return;
+    }
+
+    jit->_loop_guard_backoff_delay = sqjit_backoff_next_delay(
+        jit->_loop_guard_backoff_delay, SQ_JIT_LOOP_GUARD_BACKOFF_INITIAL,
+        SQ_JIT_LOOP_GUARD_BACKOFF_MAX);
+    jit->_loop_guard_backoff_until = sqjit_loop_runtime_tick +
+        jit->_loop_guard_backoff_delay;
+    jit->_loop_guard_fail_count = 0;
+
+    if(sqjit_trace_stats_enabled) {
+        sqjit_diag_stats.loop_backoffs++;
+        SQJitDiagLoopStats *entry = sqjit_diag_get_loop(proto, header_ip);
+        if(entry) {
+            entry->backoffs++;
+        }
+    }
+    if(sqjit_trace_enabled) {
+        scprintf(_SC("[sqjit] backing off native loop in proto '%s' at ip %d for %d attempts after guard churn\n"),
+            sqjit_diag_proto_name(proto), (SQInt32)header_ip,
+            (SQInt32)jit->_loop_guard_backoff_delay);
+    }
+}
+
+static void sqjit_loop_note_success(SQJitProto *jit)
+{
+    if(!jit) {
+        return;
+    }
+    if(jit->_loop_guard_fail_count > 0) {
+        jit->_loop_guard_fail_count--;
+    }
+    jit->_loop_guard_backoff_until = 0;
+    if(jit->_loop_guard_fail_count == 0) {
+        jit->_loop_guard_backoff_delay = 0;
+    }
 }
 
 #if SQJIT_HAS_X64_NATIVE
@@ -4508,11 +5075,940 @@ bool sqjit_backend_loop_find_region(SQFunctionProto *SQ_UNUSED_ARG(proto), SQInt
 bool sqjit_backend_compile_loop(SQFunctionProto *SQ_UNUSED_ARG(proto),
     SQObjectPtr *SQ_UNUSED_ARG(entry_stack), SQClosure *SQ_UNUSED_ARG(closure),
     SQInteger SQ_UNUSED_ARG(start_ip), SQInteger SQ_UNUSED_ARG(header_ip),
-    SQInteger SQ_UNUSED_ARG(end_ip), SQInteger SQ_UNUSED_ARG(exit_ip), SQJitProto *SQ_UNUSED_ARG(jit))
+    SQInteger SQ_UNUSED_ARG(end_ip), SQInteger SQ_UNUSED_ARG(exit_ip),
+    SQJitProto *SQ_UNUSED_ARG(jit))
 {
     return false;
 }
 #endif
+
+static bool sqjit_member_get_value(const SQObjectPtr &target, const SQObjectPtr *key,
+    SQObjectPtr &value)
+{
+    if(!key) {
+        return false;
+    }
+    if(sq_type(target) == OT_TABLE) {
+        return _table(target)->Get(*key, value);
+    }
+    if(sq_type(target) == OT_INSTANCE) {
+        return _instance(target)->Get(*key, value);
+    }
+    return false;
+}
+
+static bool sqjit_member_set_value(const SQObjectPtr &target, const SQObjectPtr *key,
+    const SQObjectPtr &value)
+{
+    if(!key) {
+        return false;
+    }
+    if(sq_type(target) == OT_TABLE) {
+        return _table(target)->Set(*key, value);
+    }
+    if(sq_type(target) == OT_INSTANCE) {
+        return _instance(target)->Set(*key, value);
+    }
+    return false;
+}
+
+static SQInteger sqjit_accessor_entry(SQObjectPtr *stack, SQObjectPtr *outres,
+    SQClosure *closure)
+{
+    if(!stack || !outres || !closure || !closure->_function || !closure->_function->_jit ||
+        !closure->_function->_jit->_entry) {
+        return SQ_JIT_NATIVE_GUARD_FAILED;
+    }
+
+    SQJitNative *native = (SQJitNative *)closure->_function->_jit->_entry;
+    SQFunctionProto *proto = closure->_function;
+    if((SQJitNativeKind)native->_native_kind == SQ_JIT_NATIVE_SETTER) {
+        if(native->_setter_count <= 0 ||
+            native->_setter_count > SQ_JIT_NATIVE_MAX_SETTERS) {
+            return SQ_JIT_NATIVE_GUARD_FAILED;
+        }
+        for(SQInteger n = 0; n < native->_setter_count; n++) {
+            SQInteger base_slot = native->_setter_base_slots[n];
+            SQInteger field_literal_index = native->_setter_field_literal_indices[n];
+            SQInteger value_slot = native->_setter_value_slots[n];
+            if(base_slot < 0 || base_slot >= MAX_FUNC_STACKSIZE ||
+                field_literal_index < 0 || field_literal_index >= proto->_nliterals ||
+                value_slot < 0 || value_slot >= MAX_FUNC_STACKSIZE) {
+                return SQ_JIT_NATIVE_GUARD_FAILED;
+            }
+            const SQObjectPtr *field_key = &proto->_literals[field_literal_index];
+            if(native->_setter_array_indices[n] >= 0 || native->_setter_index_slots[n] >= 0) {
+                SQObjectPtr array_value;
+                if(!sqjit_member_get_value(stack[base_slot], field_key, array_value) ||
+                    sq_type(array_value) != OT_ARRAY) {
+                    return SQ_JIT_NATIVE_GUARD_FAILED;
+                }
+                SQInteger index = native->_setter_array_indices[n];
+                SQInteger index_slot = native->_setter_index_slots[n];
+                if(index_slot >= 0) {
+                    if(index_slot >= MAX_FUNC_STACKSIZE ||
+                        sq_type(stack[index_slot]) != OT_INTEGER) {
+                        return SQ_JIT_NATIVE_GUARD_FAILED;
+                    }
+                    index = _integer(stack[index_slot]);
+                }
+                if(index < 0 || !_array(array_value)->Set(index, stack[value_slot])) {
+                    return SQ_JIT_NATIVE_GUARD_FAILED;
+                }
+            }
+            else if(!sqjit_member_set_value(stack[base_slot], field_key, stack[value_slot])) {
+                return SQ_JIT_NATIVE_GUARD_FAILED;
+            }
+        }
+        if(native->_return_slot >= 0) {
+            if(native->_return_slot >= MAX_FUNC_STACKSIZE) {
+                return SQ_JIT_NATIVE_GUARD_FAILED;
+            }
+            *outres = stack[native->_return_slot];
+        }
+        else {
+            outres->Null();
+        }
+        return SQ_JIT_NATIVE_RETURNED;
+    }
+
+    if(native->_base_slot < 0 || native->_base_slot >= MAX_FUNC_STACKSIZE ||
+        native->_field_literal_index < 0 ||
+        native->_field_literal_index >= proto->_nliterals) {
+        return SQ_JIT_NATIVE_GUARD_FAILED;
+    }
+
+    SQObjectPtr value;
+    if(!sqjit_member_get_value(stack[native->_base_slot],
+        &proto->_literals[native->_field_literal_index], value)) {
+        return SQ_JIT_NATIVE_GUARD_FAILED;
+    }
+
+    switch((SQJitNativeKind)native->_native_kind) {
+        case SQ_JIT_NATIVE_FIELD_ACCESSOR:
+            *outres = value;
+            return SQ_JIT_NATIVE_RETURNED;
+        case SQ_JIT_NATIVE_FIELD_ARRAY_CONST_ACCESSOR:
+            if(sq_type(value) != OT_ARRAY || native->_array_index < 0 ||
+                !_array(value)->Get(native->_array_index, *outres)) {
+                return SQ_JIT_NATIVE_GUARD_FAILED;
+            }
+            return SQ_JIT_NATIVE_RETURNED;
+        case SQ_JIT_NATIVE_FIELD_ARRAY_DYNAMIC_ACCESSOR:
+            if(sq_type(value) != OT_ARRAY || native->_index_slot < 0 ||
+                native->_index_slot >= MAX_FUNC_STACKSIZE ||
+                sq_type(stack[native->_index_slot]) != OT_INTEGER ||
+                !_array(value)->Get(_integer(stack[native->_index_slot]), *outres)) {
+                return SQ_JIT_NATIVE_GUARD_FAILED;
+            }
+            return SQ_JIT_NATIVE_RETURNED;
+        case SQ_JIT_NATIVE_FIELD_ARRAY_LEN_ACCESSOR:
+            if(sq_type(value) != OT_ARRAY) {
+                return SQ_JIT_NATIVE_GUARD_FAILED;
+            }
+            *outres = _array(value)->Size();
+            return SQ_JIT_NATIVE_RETURNED;
+        default:
+            return SQ_JIT_NATIVE_GUARD_FAILED;
+    }
+}
+
+static SQInteger sqjit_next_effective_ip(SQFunctionProto *proto, SQInteger ip)
+{
+    while(proto && ip < proto->_ninstructions &&
+        proto->_instructions[ip].op == _OP_LINE) {
+        ip++;
+    }
+    return ip;
+}
+
+static bool sqjit_return_matches_slot(const SQInstruction &inst, SQInteger slot)
+{
+    return inst.op == _OP_RETURN && inst._arg0 != 0xFF && inst._arg1 == slot;
+}
+
+static bool sqjit_return_matches_null(const SQInstruction &inst)
+{
+    return inst.op == _OP_RETURN && inst._arg0 == 0xFF;
+}
+
+static SQInteger sqjit_native_loadint_value(const SQInstruction &inst)
+{
+#ifndef _SQ64
+    return (SQInteger)inst._arg1;
+#else
+    return (SQInteger)((SQInt32)inst._arg1);
+#endif
+}
+
+static SQInteger sqjit_native_signed_arg1(const SQInstruction &inst)
+{
+    return (SQInteger)((SQInt32)inst._arg1);
+}
+
+static SQInteger sqjit_native_branch_target(SQInteger ip, const SQInstruction &inst)
+{
+    return ip + 1 + sqjit_native_signed_arg1(inst);
+}
+
+static bool sqjit_literal_is_string(SQFunctionProto *proto, SQInteger literal_index,
+    const SQChar *value)
+{
+    return proto && value && literal_index >= 0 && literal_index < proto->_nliterals &&
+        sq_type(proto->_literals[literal_index]) == OT_STRING &&
+        scstrcmp(_stringval(proto->_literals[literal_index]), value) == 0;
+}
+
+static bool sqjit_native_is_loadint_value(const SQInstruction &inst,
+    SQInteger slot, SQInteger value)
+{
+    return inst.op == _OP_LOADINT && inst._arg0 == slot &&
+        sqjit_native_loadint_value(inst) == value;
+}
+
+static bool sqjit_numeric_compare(CmpOP op, const SQObjectPtr &left,
+    const SQObjectPtr &right, bool &out)
+{
+    if(!sq_isnumeric(left) || !sq_isnumeric(right)) {
+        return false;
+    }
+
+    if(sq_type(left) == OT_INTEGER && sq_type(right) == OT_INTEGER) {
+        SQInteger l = _integer(left);
+        SQInteger r = _integer(right);
+        switch(op) {
+            case CMP_G: out = l > r; return true;
+            case CMP_GE: out = l >= r; return true;
+            case CMP_L: out = l < r; return true;
+            case CMP_LE: out = l <= r; return true;
+            default: return false;
+        }
+    }
+
+    SQFloat l = tofloat(left);
+    SQFloat r = tofloat(right);
+    switch(op) {
+        case CMP_G: out = l > r; return true;
+        case CMP_GE: out = l >= r; return true;
+        case CMP_L: out = l < r; return true;
+        case CMP_LE: out = l <= r; return true;
+        default: return false;
+    }
+}
+
+static SQInteger sqjit_numeric_entry(SQObjectPtr *stack, SQObjectPtr *outres,
+    SQClosure *closure)
+{
+    if(!stack || !outres || !closure || !closure->_function ||
+        !closure->_function->_jit || !closure->_function->_jit->_entry) {
+        return SQ_JIT_NATIVE_GUARD_FAILED;
+    }
+
+    SQJitNative *native = (SQJitNative *)closure->_function->_jit->_entry;
+    bool selected = false;
+    SQObjectPtr zero((SQInteger)0);
+    switch((SQJitNativeKind)native->_native_kind) {
+        case SQ_JIT_NATIVE_NUMERIC_ABS:
+            if(!sq_isnumeric(stack[1]) ||
+                !sqjit_numeric_compare(CMP_L, stack[1], zero, selected)) {
+                return SQ_JIT_NATIVE_GUARD_FAILED;
+            }
+            if(!selected) {
+                *outres = stack[1];
+                return SQ_JIT_NATIVE_RETURNED;
+            }
+            if(sq_type(stack[1]) == OT_INTEGER) {
+                *outres = -_integer(stack[1]);
+                return SQ_JIT_NATIVE_RETURNED;
+            }
+            if(sq_type(stack[1]) == OT_FLOAT) {
+                *outres = -_float(stack[1]);
+                return SQ_JIT_NATIVE_RETURNED;
+            }
+            return SQ_JIT_NATIVE_GUARD_FAILED;
+        case SQ_JIT_NATIVE_NUMERIC_MIN:
+            if(!sqjit_numeric_compare(CMP_L, stack[1], stack[2], selected)) {
+                return SQ_JIT_NATIVE_GUARD_FAILED;
+            }
+            *outres = selected ? stack[1] : stack[2];
+            return SQ_JIT_NATIVE_RETURNED;
+        case SQ_JIT_NATIVE_NUMERIC_MAX:
+            if(!sqjit_numeric_compare(CMP_G, stack[1], stack[2], selected)) {
+                return SQ_JIT_NATIVE_GUARD_FAILED;
+            }
+            *outres = selected ? stack[1] : stack[2];
+            return SQ_JIT_NATIVE_RETURNED;
+        case SQ_JIT_NATIVE_NUMERIC_CLAMP:
+            if(!sqjit_numeric_compare(CMP_L, stack[1], stack[2], selected)) {
+                return SQ_JIT_NATIVE_GUARD_FAILED;
+            }
+            if(selected) {
+                *outres = stack[2];
+                return SQ_JIT_NATIVE_RETURNED;
+            }
+            if(!sqjit_numeric_compare(CMP_G, stack[1], stack[3], selected)) {
+                return SQ_JIT_NATIVE_GUARD_FAILED;
+            }
+            *outres = selected ? stack[3] : stack[1];
+            return SQ_JIT_NATIVE_RETURNED;
+        default:
+            return SQ_JIT_NATIVE_GUARD_FAILED;
+    }
+}
+
+static bool sqjit_native_precheck(SQJitNative *native, SQObjectPtr *stack)
+{
+    if(!native || !stack) {
+        return false;
+    }
+
+    switch((SQJitNativeKind)native->_native_kind) {
+        case SQ_JIT_NATIVE_FIELD_ARRAY_DYNAMIC_ACCESSOR:
+            return native->_index_slot >= 0 &&
+                native->_index_slot < MAX_FUNC_STACKSIZE &&
+                sq_type(stack[native->_index_slot]) == OT_INTEGER;
+        case SQ_JIT_NATIVE_SETTER:
+            if(native->_setter_count <= 0 ||
+                native->_setter_count > SQ_JIT_NATIVE_MAX_SETTERS) {
+                return false;
+            }
+            for(SQInteger n = 0; n < native->_setter_count; n++) {
+                SQInteger index_slot = native->_setter_index_slots[n];
+                if(index_slot >= 0 && (index_slot >= MAX_FUNC_STACKSIZE ||
+                    sq_type(stack[index_slot]) != OT_INTEGER)) {
+                    return false;
+                }
+            }
+            return true;
+        case SQ_JIT_NATIVE_NUMERIC_ABS:
+            return sq_isnumeric(stack[1]);
+        case SQ_JIT_NATIVE_NUMERIC_MIN:
+        case SQ_JIT_NATIVE_NUMERIC_MAX:
+            return sq_isnumeric(stack[1]) && sq_isnumeric(stack[2]);
+        case SQ_JIT_NATIVE_NUMERIC_CLAMP:
+            return sq_isnumeric(stack[1]) && sq_isnumeric(stack[2]) &&
+                sq_isnumeric(stack[3]);
+        default:
+            return true;
+    }
+}
+
+static bool sqjit_typeof_integer_guard_matches(SQFunctionProto *proto, SQInteger start_ip,
+    SQInteger *index_slot, SQInteger *body_ip, SQInteger *fallback_ip)
+{
+    if(!proto || !index_slot || !body_ip || !fallback_ip) {
+        return false;
+    }
+
+    SQInteger ip0 = sqjit_next_effective_ip(proto, start_ip);
+    if(ip0 >= proto->_ninstructions || proto->_instructions[ip0].op != _OP_TYPEOF) {
+        return false;
+    }
+    const SQInstruction &type_inst = proto->_instructions[ip0];
+    if(type_inst._arg1 < 0 || type_inst._arg1 >= proto->_nparameters) {
+        return false;
+    }
+
+    SQInteger ip1 = sqjit_next_effective_ip(proto, ip0 + 1);
+    if(ip1 >= proto->_ninstructions || proto->_instructions[ip1].op != _OP_EQ) {
+        return false;
+    }
+    const SQInstruction &eq_inst = proto->_instructions[ip1];
+    if(eq_inst._arg2 != type_inst._arg0 ||
+        !sqjit_literal_is_string(proto, eq_inst._arg1, _SC("integer"))) {
+        return false;
+    }
+
+    SQInteger ip2 = sqjit_next_effective_ip(proto, ip1 + 1);
+    if(ip2 >= proto->_ninstructions || proto->_instructions[ip2].op != _OP_JZ ||
+        proto->_instructions[ip2]._arg0 != eq_inst._arg0) {
+        return false;
+    }
+
+    SQInteger target_ip = ip2 + 1 + sqjit_native_signed_arg1(proto->_instructions[ip2]);
+    SQInteger ip3 = sqjit_next_effective_ip(proto, ip2 + 1);
+    if(ip3 >= proto->_ninstructions || target_ip <= ip3 ||
+        target_ip >= proto->_ninstructions) {
+        return false;
+    }
+
+    *index_slot = type_inst._arg1;
+    *body_ip = ip3;
+    *fallback_ip = target_ip;
+    return true;
+}
+
+static bool sqjit_tail_is_throw_null(SQFunctionProto *proto, SQInteger ip)
+{
+    ip = sqjit_next_effective_ip(proto, ip);
+    if(!proto || ip >= proto->_ninstructions ||
+        proto->_instructions[ip].op != _OP_LOADNULLS) {
+        return false;
+    }
+    ip = sqjit_next_effective_ip(proto, ip + 1);
+    if(ip >= proto->_ninstructions || proto->_instructions[ip].op != _OP_THROW) {
+        return false;
+    }
+    for(ip = sqjit_next_effective_ip(proto, ip + 1); ip < proto->_ninstructions;
+        ip = sqjit_next_effective_ip(proto, ip + 1)) {
+        if(!sqjit_return_matches_null(proto->_instructions[ip])) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool sqjit_tail_is_only_null_returns(SQFunctionProto *proto, SQInteger ip)
+{
+    if(!proto) {
+        return false;
+    }
+    for(ip = sqjit_next_effective_ip(proto, ip); ip < proto->_ninstructions;
+        ip = sqjit_next_effective_ip(proto, ip + 1)) {
+        if(!sqjit_return_matches_null(proto->_instructions[ip])) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool sqjit_compile_numeric_select_proto(SQFunctionProto *proto,
+    SQJitNative *native)
+{
+    if(!proto || !native || proto->_varparams || proto->_ndefaultparams != 0 ||
+        proto->_bgenerator || proto->_ninstructions <= 0 ||
+        proto->_ninstructions > 16) {
+        return false;
+    }
+
+    auto set_numeric_native = [&](SQJitNativeKind kind) -> bool {
+        native->_native_kind = kind;
+        native->_base_slot = -1;
+        native->_field_literal_index = -1;
+        native->_array_index = -1;
+        native->_index_slot = -1;
+        native->_native_entry = (void *)sqjit_numeric_entry;
+        native->_native_size = 0;
+        return true;
+    };
+
+    if(proto->_nparameters == 2) {
+        SQInteger ip0 = sqjit_next_effective_ip(proto, 0);
+        SQInteger ip1 = sqjit_next_effective_ip(proto, ip0 + 1);
+        SQInteger ip2 = sqjit_next_effective_ip(proto, ip1 + 1);
+        SQInteger ip3 = sqjit_next_effective_ip(proto, ip2 + 1);
+        SQInteger ip4 = sqjit_next_effective_ip(proto, ip3 + 1);
+        SQInteger ip5 = sqjit_next_effective_ip(proto, ip4 + 1);
+        if(ip5 < proto->_ninstructions &&
+            sqjit_native_is_loadint_value(proto->_instructions[ip0],
+                proto->_instructions[ip0]._arg0, 0) &&
+            proto->_instructions[ip1].op == _OP_JCMP &&
+            proto->_instructions[ip1]._arg0 == proto->_instructions[ip0]._arg0 &&
+            proto->_instructions[ip1]._arg2 == 1 &&
+            proto->_instructions[ip1]._arg3 == CMP_L &&
+            sqjit_native_branch_target(ip1, proto->_instructions[ip1]) == ip4 &&
+            proto->_instructions[ip2].op == _OP_NEG &&
+            proto->_instructions[ip2]._arg1 == 1 &&
+            proto->_instructions[ip3].op == _OP_JMP &&
+            sqjit_native_branch_target(ip3, proto->_instructions[ip3]) == ip5 &&
+            proto->_instructions[ip4].op == _OP_MOVE &&
+            proto->_instructions[ip4]._arg0 == proto->_instructions[ip2]._arg0 &&
+            proto->_instructions[ip4]._arg1 == 1 &&
+            sqjit_return_matches_slot(proto->_instructions[ip5],
+                proto->_instructions[ip2]._arg0) &&
+            sqjit_tail_is_only_null_returns(proto, ip5 + 1)) {
+            return set_numeric_native(SQ_JIT_NATIVE_NUMERIC_ABS);
+        }
+    }
+
+    if(proto->_nparameters == 3) {
+        SQInteger ip0 = sqjit_next_effective_ip(proto, 0);
+        SQInteger ip1 = sqjit_next_effective_ip(proto, ip0 + 1);
+        SQInteger ip2 = sqjit_next_effective_ip(proto, ip1 + 1);
+        SQInteger ip3 = sqjit_next_effective_ip(proto, ip2 + 1);
+        SQInteger ip4 = sqjit_next_effective_ip(proto, ip3 + 1);
+        if(ip4 < proto->_ninstructions &&
+            proto->_instructions[ip0].op == _OP_JCMP &&
+            proto->_instructions[ip0]._arg0 == 2 &&
+            proto->_instructions[ip0]._arg2 == 1 &&
+            (proto->_instructions[ip0]._arg3 == CMP_L ||
+            proto->_instructions[ip0]._arg3 == CMP_G) &&
+            sqjit_native_branch_target(ip0, proto->_instructions[ip0]) == ip3 &&
+            proto->_instructions[ip1].op == _OP_MOVE &&
+            proto->_instructions[ip1]._arg1 == 1 &&
+            proto->_instructions[ip2].op == _OP_JMP &&
+            sqjit_native_branch_target(ip2, proto->_instructions[ip2]) == ip4 &&
+            proto->_instructions[ip3].op == _OP_MOVE &&
+            proto->_instructions[ip3]._arg0 == proto->_instructions[ip1]._arg0 &&
+            proto->_instructions[ip3]._arg1 == 2 &&
+            sqjit_return_matches_slot(proto->_instructions[ip4],
+                proto->_instructions[ip1]._arg0) &&
+            sqjit_tail_is_only_null_returns(proto, ip4 + 1)) {
+            return set_numeric_native(
+                proto->_instructions[ip0]._arg3 == CMP_L ?
+                SQ_JIT_NATIVE_NUMERIC_MIN : SQ_JIT_NATIVE_NUMERIC_MAX);
+        }
+    }
+
+    if(proto->_nparameters == 4) {
+        SQInteger ip0 = sqjit_next_effective_ip(proto, 0);
+        SQInteger ip1 = sqjit_next_effective_ip(proto, ip0 + 1);
+        SQInteger ip2 = sqjit_next_effective_ip(proto, ip1 + 1);
+        SQInteger ip3 = sqjit_next_effective_ip(proto, ip2 + 1);
+        SQInteger ip4 = sqjit_next_effective_ip(proto, ip3 + 1);
+        SQInteger ip5 = sqjit_next_effective_ip(proto, ip4 + 1);
+        SQInteger ip6 = sqjit_next_effective_ip(proto, ip5 + 1);
+        SQInteger ip7 = sqjit_next_effective_ip(proto, ip6 + 1);
+        SQInteger ip8 = sqjit_next_effective_ip(proto, ip7 + 1);
+        if(ip8 < proto->_ninstructions &&
+            proto->_instructions[ip0].op == _OP_JCMP &&
+            proto->_instructions[ip0]._arg0 == 2 &&
+            proto->_instructions[ip0]._arg2 == 1 &&
+            proto->_instructions[ip0]._arg3 == CMP_L &&
+            sqjit_native_branch_target(ip0, proto->_instructions[ip0]) == ip3 &&
+            proto->_instructions[ip1].op == _OP_MOVE &&
+            proto->_instructions[ip1]._arg1 == 2 &&
+            proto->_instructions[ip2].op == _OP_JMP &&
+            sqjit_native_branch_target(ip2, proto->_instructions[ip2]) == ip8 &&
+            proto->_instructions[ip3].op == _OP_JCMP &&
+            proto->_instructions[ip3]._arg0 == 3 &&
+            proto->_instructions[ip3]._arg2 == 1 &&
+            proto->_instructions[ip3]._arg3 == CMP_G &&
+            sqjit_native_branch_target(ip3, proto->_instructions[ip3]) == ip6 &&
+            proto->_instructions[ip4].op == _OP_MOVE &&
+            proto->_instructions[ip4]._arg1 == 3 &&
+            proto->_instructions[ip5].op == _OP_JMP &&
+            sqjit_native_branch_target(ip5, proto->_instructions[ip5]) == ip7 &&
+            proto->_instructions[ip6].op == _OP_MOVE &&
+            proto->_instructions[ip6]._arg0 == proto->_instructions[ip4]._arg0 &&
+            proto->_instructions[ip6]._arg1 == 1 &&
+            proto->_instructions[ip7].op == _OP_MOVE &&
+            proto->_instructions[ip7]._arg0 == proto->_instructions[ip1]._arg0 &&
+            proto->_instructions[ip7]._arg1 == proto->_instructions[ip4]._arg0 &&
+            sqjit_return_matches_slot(proto->_instructions[ip8],
+                proto->_instructions[ip1]._arg0) &&
+            sqjit_tail_is_only_null_returns(proto, ip8 + 1)) {
+            return set_numeric_native(SQ_JIT_NATIVE_NUMERIC_CLAMP);
+        }
+    }
+
+    return false;
+}
+
+static bool sqjit_compile_accessor_proto(SQFunctionProto *proto, SQJitNative *native)
+{
+    if(!proto || !native || proto->_nparameters < 1 || proto->_varparams ||
+        proto->_ndefaultparams != 0 || proto->_ninstructions <= 0 ||
+        proto->_ninstructions > 16 || proto->_bgenerator) {
+        return false;
+    }
+
+    SQInteger ip0 = sqjit_next_effective_ip(proto, 0);
+    if(ip0 >= proto->_ninstructions || proto->_instructions[ip0].op != _OP_GETK) {
+        return false;
+    }
+    const SQInstruction &field_get = proto->_instructions[ip0];
+    if(field_get._arg1 < 0 || field_get._arg1 >= proto->_nliterals ||
+        field_get._arg2 < 0 || field_get._arg2 >= proto->_nparameters ||
+        sq_type(proto->_literals[field_get._arg1]) != OT_STRING) {
+        return false;
+    }
+
+    SQInteger ip1 = sqjit_next_effective_ip(proto, ip0 + 1);
+    if(ip1 >= proto->_ninstructions) {
+        return false;
+    }
+    const SQInstruction &second = proto->_instructions[ip1];
+    if(sqjit_return_matches_slot(second, field_get._arg0)) {
+        native->_native_kind = SQ_JIT_NATIVE_FIELD_ACCESSOR;
+        native->_base_slot = field_get._arg2;
+        native->_field_literal_index = field_get._arg1;
+        native->_native_entry = (void *)sqjit_accessor_entry;
+        native->_native_size = 0;
+        return true;
+    }
+
+    SQInteger value_slot = -1;
+    SQInteger array_index = -1;
+    SQInteger index_slot = -1;
+    SQJitNativeKind kind = SQ_JIT_NATIVE_RAW_CODE;
+    if(second.op == _OP_PREPCALLK && second._arg0 == field_get._arg0 &&
+        second._arg2 == field_get._arg0 &&
+        second._arg1 >= 0 && second._arg1 < proto->_nliterals &&
+        sq_type(proto->_literals[second._arg1]) == OT_STRING &&
+        scstrcmp(_stringval(proto->_literals[second._arg1]), _SC("len")) == 0) {
+        SQInteger ip2 = sqjit_next_effective_ip(proto, ip1 + 1);
+        if(ip2 >= proto->_ninstructions ||
+            (proto->_instructions[ip2].op != _OP_CALL &&
+            proto->_instructions[ip2].op != _OP_TAILCALL) ||
+            proto->_instructions[ip2]._arg1 != field_get._arg0 ||
+            proto->_instructions[ip2]._arg2 != second._arg3 ||
+            proto->_instructions[ip2]._arg3 != 1) {
+            return false;
+        }
+        SQInteger ip3 = sqjit_next_effective_ip(proto, ip2 + 1);
+        if(ip3 >= proto->_ninstructions ||
+            !sqjit_return_matches_slot(proto->_instructions[ip3], proto->_instructions[ip2]._arg0)) {
+            return false;
+        }
+        native->_native_kind = SQ_JIT_NATIVE_FIELD_ARRAY_LEN_ACCESSOR;
+        native->_base_slot = field_get._arg2;
+        native->_field_literal_index = field_get._arg1;
+        native->_array_index = -1;
+        native->_index_slot = -1;
+        native->_native_entry = (void *)sqjit_accessor_entry;
+        native->_native_size = 0;
+        return true;
+    }
+
+    if(second.op == _OP_GETK && second._arg2 == field_get._arg0 &&
+        second._arg1 >= 0 && second._arg1 < proto->_nliterals &&
+        sq_type(proto->_literals[second._arg1]) == OT_INTEGER) {
+        value_slot = second._arg0;
+        array_index = _integer(proto->_literals[second._arg1]);
+        kind = SQ_JIT_NATIVE_FIELD_ARRAY_CONST_ACCESSOR;
+    }
+    else if(second.op == _OP_GET && second._arg1 == field_get._arg0 &&
+        second._arg2 >= 0 && second._arg2 < proto->_nparameters) {
+        value_slot = second._arg0;
+        index_slot = second._arg2;
+        kind = SQ_JIT_NATIVE_FIELD_ARRAY_DYNAMIC_ACCESSOR;
+    }
+    else {
+        return false;
+    }
+
+    SQInteger ip2 = sqjit_next_effective_ip(proto, ip1 + 1);
+    if(ip2 >= proto->_ninstructions ||
+        !sqjit_return_matches_slot(proto->_instructions[ip2], value_slot)) {
+        return false;
+    }
+
+    native->_native_kind = kind;
+    native->_base_slot = field_get._arg2;
+    native->_field_literal_index = field_get._arg1;
+    native->_array_index = array_index;
+    native->_index_slot = index_slot;
+    native->_native_entry = (void *)sqjit_accessor_entry;
+    native->_native_size = 0;
+    return true;
+}
+
+static bool sqjit_compile_guarded_accessor_proto(SQFunctionProto *proto, SQJitNative *native)
+{
+    if(!proto || !native || proto->_nparameters < 2 || proto->_varparams ||
+        proto->_ndefaultparams != 0 || proto->_ninstructions <= 0 ||
+        proto->_ninstructions > 16 || proto->_bgenerator) {
+        return false;
+    }
+
+    SQInteger index_slot = -1;
+    SQInteger body_ip = -1;
+    SQInteger fallback_ip = -1;
+    if(!sqjit_typeof_integer_guard_matches(proto, 0, &index_slot, &body_ip,
+        &fallback_ip)) {
+        return false;
+    }
+
+    const SQInstruction &field_get = proto->_instructions[body_ip];
+    if(field_get.op != _OP_GETK || field_get._arg1 < 0 ||
+        field_get._arg1 >= proto->_nliterals || field_get._arg2 < 0 ||
+        field_get._arg2 >= proto->_nparameters ||
+        sq_type(proto->_literals[field_get._arg1]) != OT_STRING) {
+        return false;
+    }
+
+    SQInteger read_ip = sqjit_next_effective_ip(proto, body_ip + 1);
+    if(read_ip >= proto->_ninstructions || proto->_instructions[read_ip].op != _OP_GET ||
+        proto->_instructions[read_ip]._arg1 != field_get._arg0 ||
+        proto->_instructions[read_ip]._arg2 != index_slot) {
+        return false;
+    }
+    SQInteger return_ip = sqjit_next_effective_ip(proto, read_ip + 1);
+    if(return_ip >= proto->_ninstructions ||
+        !sqjit_return_matches_slot(proto->_instructions[return_ip],
+            proto->_instructions[read_ip]._arg0) ||
+        !sqjit_tail_is_throw_null(proto, fallback_ip)) {
+        return false;
+    }
+
+    native->_native_kind = SQ_JIT_NATIVE_FIELD_ARRAY_DYNAMIC_ACCESSOR;
+    native->_base_slot = field_get._arg2;
+    native->_field_literal_index = field_get._arg1;
+    native->_array_index = -1;
+    native->_index_slot = index_slot;
+    native->_native_entry = (void *)sqjit_accessor_entry;
+    native->_native_size = 0;
+    return true;
+}
+
+static void sqjit_native_record_setter(SQJitNative *native, SQInteger base_slot,
+    SQInteger field_literal_index, SQInteger array_index, SQInteger index_slot,
+    SQInteger value_slot)
+{
+    SQInteger setter_index = native->_setter_count++;
+    native->_setter_base_slots[setter_index] = base_slot;
+    native->_setter_field_literal_indices[setter_index] = field_literal_index;
+    native->_setter_array_indices[setter_index] = array_index;
+    native->_setter_index_slots[setter_index] = index_slot;
+    native->_setter_value_slots[setter_index] = value_slot;
+}
+
+static bool sqjit_compile_setter_proto(SQFunctionProto *proto, SQJitNative *native)
+{
+    if(!proto || !native || proto->_nparameters < 1 || proto->_varparams ||
+        proto->_ndefaultparams != 0 || proto->_ninstructions <= 0 ||
+        proto->_ninstructions > 32 || proto->_bgenerator) {
+        return false;
+    }
+
+    SQInteger literal_slot[MAX_FUNC_STACKSIZE];
+    bool integer_slot_known[MAX_FUNC_STACKSIZE];
+    SQInteger integer_slot_value[MAX_FUNC_STACKSIZE];
+    SQInteger field_base_slot[MAX_FUNC_STACKSIZE];
+    SQInteger field_literal_slot[MAX_FUNC_STACKSIZE];
+    SQInteger param_alias_slot[MAX_FUNC_STACKSIZE];
+    for(SQInteger n = 0; n < MAX_FUNC_STACKSIZE; n++) {
+        literal_slot[n] = -1;
+        integer_slot_known[n] = false;
+        integer_slot_value[n] = 0;
+        field_base_slot[n] = -1;
+        field_literal_slot[n] = -1;
+        param_alias_slot[n] = n < proto->_nparameters ? n : -1;
+    }
+
+    native->_setter_count = 0;
+    native->_return_slot = -1;
+
+    auto clear_slot = [&](SQInteger slot) {
+        if(slot < 0 || slot >= MAX_FUNC_STACKSIZE) {
+            return;
+        }
+        literal_slot[slot] = -1;
+        integer_slot_known[slot] = false;
+        integer_slot_value[slot] = 0;
+        field_base_slot[slot] = -1;
+        field_literal_slot[slot] = -1;
+        param_alias_slot[slot] = -1;
+    };
+
+    auto load_literal_slot = [&](SQInteger slot, SQInteger literal_index) -> bool {
+        if(slot < 0 || slot >= MAX_FUNC_STACKSIZE ||
+            literal_index < 0 || literal_index >= proto->_nliterals) {
+            return false;
+        }
+        clear_slot(slot);
+        literal_slot[slot] = literal_index;
+        if(sq_type(proto->_literals[literal_index]) == OT_INTEGER) {
+            integer_slot_known[slot] = true;
+            integer_slot_value[slot] = _integer(proto->_literals[literal_index]);
+        }
+        return true;
+    };
+
+    auto load_integer_slot = [&](SQInteger slot, SQInteger value) -> bool {
+        if(slot < 0 || slot >= MAX_FUNC_STACKSIZE) {
+            return false;
+        }
+        clear_slot(slot);
+        integer_slot_known[slot] = true;
+        integer_slot_value[slot] = value;
+        return true;
+    };
+
+    for(SQInteger ip = 0; ip < proto->_ninstructions; ip++) {
+        const SQInstruction &inst = proto->_instructions[ip];
+        switch(inst.op) {
+            case _OP_LINE:
+                break;
+            case _OP_LOAD:
+                if(!load_literal_slot(inst._arg0, inst._arg1)) {
+                    return false;
+                }
+                break;
+            case _OP_DLOAD:
+                if(!load_literal_slot(inst._arg0, inst._arg1) ||
+                    !load_literal_slot(inst._arg2, inst._arg3)) {
+                    return false;
+                }
+                break;
+            case _OP_LOADINT:
+                if(!load_integer_slot(inst._arg0, sqjit_native_loadint_value(inst))) {
+                    return false;
+                }
+                break;
+            case _OP_MOVE:
+                if(inst._arg0 < 0 || inst._arg0 >= MAX_FUNC_STACKSIZE ||
+                    inst._arg1 < 0 || inst._arg1 >= MAX_FUNC_STACKSIZE) {
+                    return false;
+                }
+                literal_slot[inst._arg0] = literal_slot[inst._arg1];
+                integer_slot_known[inst._arg0] = integer_slot_known[inst._arg1];
+                integer_slot_value[inst._arg0] = integer_slot_value[inst._arg1];
+                field_base_slot[inst._arg0] = field_base_slot[inst._arg1];
+                field_literal_slot[inst._arg0] = field_literal_slot[inst._arg1];
+                param_alias_slot[inst._arg0] = param_alias_slot[inst._arg1];
+                break;
+            case _OP_GETK:
+                if(inst._arg0 < 0 || inst._arg0 >= MAX_FUNC_STACKSIZE ||
+                    inst._arg1 < 0 || inst._arg1 >= proto->_nliterals ||
+                    inst._arg2 < 0 || inst._arg2 >= MAX_FUNC_STACKSIZE ||
+                    param_alias_slot[inst._arg2] < 0 ||
+                    sq_type(proto->_literals[inst._arg1]) != OT_STRING) {
+                    return false;
+                }
+                clear_slot(inst._arg0);
+                field_base_slot[inst._arg0] = param_alias_slot[inst._arg2];
+                field_literal_slot[inst._arg0] = inst._arg1;
+                break;
+            case _OP_GET: {
+                if(inst._arg0 < 0 || inst._arg0 >= MAX_FUNC_STACKSIZE ||
+                    inst._arg1 < 0 || inst._arg1 >= MAX_FUNC_STACKSIZE ||
+                    inst._arg2 < 0 || inst._arg2 >= MAX_FUNC_STACKSIZE ||
+                    param_alias_slot[inst._arg1] < 0) {
+                    return false;
+                }
+                SQInteger literal_index = literal_slot[inst._arg2];
+                if(literal_index < 0 || literal_index >= proto->_nliterals ||
+                    sq_type(proto->_literals[literal_index]) != OT_STRING) {
+                    return false;
+                }
+                clear_slot(inst._arg0);
+                field_base_slot[inst._arg0] = param_alias_slot[inst._arg1];
+                field_literal_slot[inst._arg0] = literal_index;
+                break;
+            }
+            case _OP_SET: {
+                if(native->_setter_count >= SQ_JIT_NATIVE_MAX_SETTERS ||
+                    inst._arg1 < 0 || inst._arg1 >= MAX_FUNC_STACKSIZE ||
+                    inst._arg2 < 0 || inst._arg2 >= MAX_FUNC_STACKSIZE ||
+                    inst._arg3 < 0 || inst._arg3 >= MAX_FUNC_STACKSIZE ||
+                    param_alias_slot[inst._arg3] < 0) {
+                    return false;
+                }
+                SQInteger value_slot = param_alias_slot[inst._arg3];
+                if(field_literal_slot[inst._arg1] >= 0) {
+                    SQInteger array_index = -1;
+                    SQInteger index_slot = -1;
+                    if(integer_slot_known[inst._arg2]) {
+                        array_index = integer_slot_value[inst._arg2];
+                    }
+                    else if(param_alias_slot[inst._arg2] >= 0) {
+                        index_slot = param_alias_slot[inst._arg2];
+                    }
+                    else {
+                        return false;
+                    }
+                    sqjit_native_record_setter(native, field_base_slot[inst._arg1],
+                        field_literal_slot[inst._arg1], array_index, index_slot, value_slot);
+                }
+                else {
+                    SQInteger base_slot = param_alias_slot[inst._arg1];
+                    SQInteger key_literal_index = literal_slot[inst._arg2];
+                    if(base_slot < 0 || key_literal_index < 0 ||
+                        key_literal_index >= proto->_nliterals ||
+                        sq_type(proto->_literals[key_literal_index]) != OT_STRING) {
+                        return false;
+                    }
+                    sqjit_native_record_setter(native, base_slot, key_literal_index,
+                        -1, -1, value_slot);
+                }
+                if(inst._arg0 >= 0 && inst._arg0 < MAX_FUNC_STACKSIZE) {
+                    clear_slot(inst._arg0);
+                }
+                break;
+            }
+            case _OP_RETURN:
+                if(native->_setter_count <= 0) {
+                    return false;
+                }
+                if(sqjit_return_matches_null(inst)) {
+                    native->_return_slot = -1;
+                }
+                else if(inst._arg0 != 0xFF && inst._arg1 >= 0 &&
+                    inst._arg1 < MAX_FUNC_STACKSIZE && param_alias_slot[inst._arg1] >= 0) {
+                    native->_return_slot = param_alias_slot[inst._arg1];
+                }
+                else {
+                    return false;
+                }
+                for(SQInteger tail_ip = sqjit_next_effective_ip(proto, ip + 1);
+                    tail_ip < proto->_ninstructions;
+                    tail_ip = sqjit_next_effective_ip(proto, tail_ip + 1)) {
+                    if(!sqjit_return_matches_null(proto->_instructions[tail_ip])) {
+                        return false;
+                    }
+                }
+                native->_native_kind = SQ_JIT_NATIVE_SETTER;
+                native->_base_slot = 0;
+                native->_field_literal_index = 0;
+                native->_array_index = -1;
+                native->_index_slot = -1;
+                native->_native_entry = (void *)sqjit_accessor_entry;
+                native->_native_size = 0;
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    return false;
+}
+
+static bool sqjit_compile_guarded_setter_proto(SQFunctionProto *proto, SQJitNative *native)
+{
+    if(!proto || !native || proto->_nparameters < 3 || proto->_varparams ||
+        proto->_ndefaultparams != 0 || proto->_ninstructions <= 0 ||
+        proto->_ninstructions > 16 || proto->_bgenerator) {
+        return false;
+    }
+
+    SQInteger index_slot = -1;
+    SQInteger body_ip = -1;
+    SQInteger fallback_ip = -1;
+    if(!sqjit_typeof_integer_guard_matches(proto, 0, &index_slot, &body_ip,
+        &fallback_ip)) {
+        return false;
+    }
+
+    const SQInstruction &field_get = proto->_instructions[body_ip];
+    if(field_get.op != _OP_GETK || field_get._arg1 < 0 ||
+        field_get._arg1 >= proto->_nliterals || field_get._arg2 < 0 ||
+        field_get._arg2 >= proto->_nparameters ||
+        sq_type(proto->_literals[field_get._arg1]) != OT_STRING) {
+        return false;
+    }
+
+    SQInteger set_ip = sqjit_next_effective_ip(proto, body_ip + 1);
+    if(set_ip >= proto->_ninstructions || proto->_instructions[set_ip].op != _OP_SET ||
+        proto->_instructions[set_ip]._arg1 != field_get._arg0 ||
+        proto->_instructions[set_ip]._arg2 != index_slot ||
+        proto->_instructions[set_ip]._arg3 < 0 ||
+        proto->_instructions[set_ip]._arg3 >= proto->_nparameters) {
+        return false;
+    }
+
+    SQInteger return_ip = sqjit_next_effective_ip(proto, set_ip + 1);
+    if(return_ip >= proto->_ninstructions ||
+        !sqjit_return_matches_slot(proto->_instructions[return_ip],
+            proto->_instructions[set_ip]._arg3) ||
+        !sqjit_tail_is_throw_null(proto, fallback_ip)) {
+        return false;
+    }
+
+    native->_native_kind = SQ_JIT_NATIVE_SETTER;
+    native->_base_slot = 0;
+    native->_field_literal_index = 0;
+    native->_array_index = -1;
+    native->_index_slot = -1;
+    native->_setter_count = 0;
+    sqjit_native_record_setter(native, field_get._arg2, field_get._arg1,
+        -1, index_slot, proto->_instructions[set_ip]._arg3);
+    native->_return_slot = proto->_instructions[set_ip]._arg3;
+    native->_native_entry = (void *)sqjit_accessor_entry;
+    native->_native_size = 0;
+    return true;
+}
 
 static bool sqjit_compile_proto(SQFunctionProto *proto, SQObjectPtr *entry_stack, SQClosure *closure,
     SQJitProto *jit)
@@ -4520,22 +6016,73 @@ static bool sqjit_compile_proto(SQFunctionProto *proto, SQObjectPtr *entry_stack
     if(!entry_stack || jit->_entry || jit->_eligibility == SQ_JIT_NEVER) {
         return jit->_entry != NULL;
     }
+    sqjit_diag_clear_transient_reject();
+
+    if(sqjit_trace_stats_enabled) {
+        sqjit_diag_stats.proto_compile_attempts++;
+        SQJitDiagProtoStats *entry = sqjit_diag_get_proto(proto);
+        if(entry) {
+            entry->compile_attempts++;
+        }
+    }
 
     SQJitNative *native = (SQJitNative *)sq_vm_malloc(sizeof(SQJitNative));
     if(!native) {
         jit->_fail_count++;
+        if(sqjit_trace_stats_enabled) {
+            sqjit_diag_stats.proto_compile_failures++;
+            SQJitDiagProtoStats *entry = sqjit_diag_get_proto(proto);
+            if(entry) {
+                entry->compile_failures++;
+            }
+        }
         return false;
     }
 
     native->_ninstructions = proto->_ninstructions;
     native->_native_entry = NULL;
     native->_native_size = 0;
+    native->_native_kind = SQ_JIT_NATIVE_RAW_CODE;
+    native->_base_slot = -1;
+    native->_field_literal_index = -1;
+    native->_array_index = -1;
+    native->_index_slot = -1;
+    native->_setter_count = 0;
+    for(SQInteger n = 0; n < SQ_JIT_NATIVE_MAX_SETTERS; n++) {
+        native->_setter_base_slots[n] = -1;
+        native->_setter_field_literal_indices[n] = -1;
+        native->_setter_array_indices[n] = -1;
+        native->_setter_index_slots[n] = -1;
+        native->_setter_value_slots[n] = -1;
+    }
+    native->_return_slot = -1;
+    native->_return_shape = SQ_JIT_NATIVE_RETURN_UNKNOWN;
+    native->_return_shape_class = NULL;
+    native->_return_shape_field_index = -1;
     native->_native_trace_executed = false;
 
-    if(!sqjit_backend_compile_proto(proto, entry_stack, closure, native)) {
+    if(!sqjit_compile_numeric_select_proto(proto, native) &&
+        !sqjit_compile_accessor_proto(proto, native) &&
+        !sqjit_compile_guarded_accessor_proto(proto, native) &&
+        !sqjit_compile_setter_proto(proto, native) &&
+        !sqjit_compile_guarded_setter_proto(proto, native) &&
+        !sqjit_backend_compile_proto(proto, entry_stack, closure, native)) {
         sq_vm_free(native, sizeof(SQJitNative));
+        bool transient_reject = sqjit_diag_consume_transient_reject();
         jit->_fail_count++;
-        jit->_eligibility = SQ_JIT_NEVER;
+        if(transient_reject && jit->_fail_count < SQ_JIT_TRANSIENT_RETRY_LIMIT) {
+            jit->_hot_count = 0;
+        }
+        else {
+            jit->_eligibility = SQ_JIT_NEVER;
+        }
+        if(sqjit_trace_stats_enabled) {
+            sqjit_diag_stats.proto_compile_failures++;
+            SQJitDiagProtoStats *entry = sqjit_diag_get_proto(proto);
+            if(entry) {
+                entry->compile_failures++;
+            }
+        }
         if(sqjit_trace_enabled) {
             scprintf(_SC("[sqjit] proto '%s' is not native eligible\n"), sqjit_proto_name(proto));
         }
@@ -4545,6 +6092,13 @@ static bool sqjit_compile_proto(SQFunctionProto *proto, SQObjectPtr *entry_stack
     jit->_entry = native;
     jit->_eligibility = SQ_JIT_NATIVE_CANDIDATE;
     jit->_version++;
+    if(sqjit_trace_stats_enabled) {
+        sqjit_diag_stats.proto_compile_successes++;
+        SQJitDiagProtoStats *entry = sqjit_diag_get_proto(proto);
+        if(entry) {
+            entry->compile_successes++;
+        }
+    }
 
     if(sqjit_trace_enabled) {
         scprintf(_SC("[sqjit] compiled native proto '%s'\n"), sqjit_proto_name(proto));
@@ -4570,6 +6124,13 @@ void sqjit_on_function_enter(SQVM *v, SQFunctionProto *proto)
     if(!sqjit_env_enabled || !proto) {
         return;
     }
+    if(sqjit_trace_stats_enabled) {
+        sqjit_diag_stats.proto_enters++;
+        SQJitDiagProtoStats *entry = sqjit_diag_get_proto(proto);
+        if(entry) {
+            entry->enters++;
+        }
+    }
 
     SQJitProto *jit = sqjit_ensure_proto(proto);
     if(!jit) {
@@ -4578,6 +6139,13 @@ void sqjit_on_function_enter(SQVM *v, SQFunctionProto *proto)
 
     jit->_hot_count++;
     if(jit->_hot_count >= sqjit_threshold && !jit->_entry && jit->_eligibility != SQ_JIT_NEVER) {
+        if(sqjit_trace_stats_enabled) {
+            sqjit_diag_stats.proto_hot++;
+            SQJitDiagProtoStats *entry = sqjit_diag_get_proto(proto);
+            if(entry) {
+                entry->hot++;
+            }
+        }
         if(sqjit_trace_enabled) {
             scprintf(_SC("[sqjit] hot proto '%s' reached JIT threshold\n"),
                 sqjit_proto_name(proto));
@@ -4594,15 +6162,62 @@ bool sqjit_try_execute_closure(SQVM *v, SQClosure *closure, SQObjectPtr *stack, 
     if(!sqjit_env_enabled || !v || !closure || !stack || v->_debughook) {
         return false;
     }
+    sqjit_proto_runtime_tick++;
+    if(sqjit_trace_stats_enabled) {
+        sqjit_diag_stats.direct_call_attempts++;
+    }
 
     SQFunctionProto *proto = closure->_function;
+    if(sqjit_trace_stats_enabled && proto) {
+        SQJitDiagProtoStats *entry = sqjit_diag_get_proto(proto);
+        if(entry) {
+            entry->direct_attempts++;
+        }
+    }
     if(!proto || proto->_bgenerator || proto->_varparams || proto->_ndefaultparams != 0 ||
         proto->_nparameters != nargs || !proto->_jit || !proto->_jit->_entry) {
+        if(sqjit_trace_stats_enabled) {
+            sqjit_diag_stats.direct_call_misses++;
+            SQJitDiagProtoStats *entry = sqjit_diag_get_proto(proto);
+            if(entry) {
+                entry->direct_misses++;
+            }
+        }
+        return false;
+    }
+    if(sqjit_proto_backoff_active(proto, proto->_jit)) {
+        if(sqjit_trace_stats_enabled) {
+            sqjit_diag_stats.direct_call_misses++;
+            SQJitDiagProtoStats *entry = sqjit_diag_get_proto(proto);
+            if(entry) {
+                entry->direct_misses++;
+            }
+        }
         return false;
     }
 
     SQJitNative *native = (SQJitNative *)proto->_jit->_entry;
     if(!native || native->_ninstructions != proto->_ninstructions || !native->_native_entry) {
+        if(sqjit_trace_stats_enabled) {
+            sqjit_diag_stats.direct_call_misses++;
+            SQJitDiagProtoStats *entry = sqjit_diag_get_proto(proto);
+            if(entry) {
+                entry->direct_misses++;
+            }
+        }
+        return false;
+    }
+    if(!sqjit_native_precheck(native, stack)) {
+        if(sqjit_trace_stats_enabled) {
+            sqjit_diag_stats.direct_call_misses++;
+            sqjit_diag_stats.direct_call_guard_failures++;
+            SQJitDiagProtoStats *entry = sqjit_diag_get_proto(proto);
+            if(entry) {
+                entry->direct_misses++;
+                entry->direct_guard_failures++;
+            }
+        }
+        sqjit_proto_note_guard_fail(proto, proto->_jit);
         return false;
     }
 
@@ -4610,10 +6225,34 @@ bool sqjit_try_execute_closure(SQVM *v, SQClosure *closure, SQObjectPtr *stack, 
     SQObjectPtr result;
     SQInteger status = fn(stack, &result, closure);
     if(status != SQ_JIT_NATIVE_RETURNED) {
+        if(sqjit_trace_stats_enabled) {
+            sqjit_diag_stats.direct_call_misses++;
+            SQJitDiagProtoStats *entry = sqjit_diag_get_proto(proto);
+            if(entry) {
+                entry->direct_misses++;
+            }
+            if(status == SQ_JIT_NATIVE_GUARD_FAILED) {
+                sqjit_diag_stats.direct_call_guard_failures++;
+                if(entry) {
+                    entry->direct_guard_failures++;
+                }
+            }
+        }
+        if(status == SQ_JIT_NATIVE_GUARD_FAILED) {
+            sqjit_proto_note_guard_fail(proto, proto->_jit);
+        }
         return false;
     }
 
     outres = result;
+    sqjit_proto_note_success(proto->_jit);
+    if(sqjit_trace_stats_enabled) {
+        sqjit_diag_stats.direct_call_successes++;
+        SQJitDiagProtoStats *entry = sqjit_diag_get_proto(proto);
+        if(entry) {
+            entry->direct_successes++;
+        }
+    }
     if(sqjit_trace_enabled && !native->_native_trace_executed) {
         native->_native_trace_executed = true;
         scprintf(_SC("[sqjit] executed native proto '%s' by direct call\n"), sqjit_proto_name(proto));
@@ -4632,11 +6271,21 @@ bool sqjit_try_execute_current_loop(SQVM *v, SQInteger header_ip)
     if(!sqjit_env_enabled || !v || !v->ci || v->_debughook) {
         return false;
     }
+    sqjit_loop_runtime_tick++;
+    if(sqjit_trace_stats_enabled) {
+        sqjit_diag_stats.loop_try_attempts++;
+    }
 
     SQClosure *closure = _closure(v->ci->_closure);
     SQFunctionProto *proto = closure->_function;
     if(!proto || proto->_bgenerator || header_ip < 0 || header_ip >= proto->_ninstructions) {
         return false;
+    }
+    if(sqjit_trace_stats_enabled) {
+        SQJitDiagLoopStats *entry = sqjit_diag_get_loop(proto, header_ip);
+        if(entry) {
+            entry->try_attempts++;
+        }
     }
 
     SQInteger start_ip = -1;
@@ -4645,6 +6294,10 @@ bool sqjit_try_execute_current_loop(SQVM *v, SQInteger header_ip)
     SQJitProto *jit = proto->_jit;
     if(jit) {
         if(sqjit_loop_header_is_rejected(jit, header_ip)) {
+            return false;
+        }
+        if(jit->_loop_header_ip == header_ip &&
+            sqjit_loop_backoff_active(proto, jit, header_ip)) {
             return false;
         }
         if(jit->_loop_entry) {
@@ -4659,6 +6312,13 @@ bool sqjit_try_execute_current_loop(SQVM *v, SQInteger header_ip)
     }
 
     if(!sqjit_backend_loop_find_region(proto, header_ip, &start_ip, &end_ip, &exit_ip)) {
+        if(sqjit_trace_stats_enabled) {
+            sqjit_diag_stats.loop_find_failures++;
+            SQJitDiagLoopStats *entry = sqjit_diag_get_loop(proto, header_ip);
+            if(entry) {
+                entry->find_failures++;
+            }
+        }
         jit = sqjit_ensure_proto(proto);
         if(jit) {
             sqjit_loop_reject_header(jit, header_ip);
@@ -4684,6 +6344,13 @@ bool sqjit_try_execute_current_loop(SQVM *v, SQInteger header_ip)
             scprintf(_SC("[sqjit] hot loop in proto '%s' reached JIT threshold at ip %d\n"),
                 sqjit_proto_name(proto), (SQInt32)header_ip);
         }
+        if(sqjit_trace_stats_enabled) {
+            sqjit_diag_stats.loop_compile_attempts++;
+            SQJitDiagLoopStats *entry = sqjit_diag_get_loop(proto, header_ip);
+            if(entry) {
+                entry->compile_attempts++;
+            }
+        }
         if(!sqjit_backend_compile_loop(proto, &v->_stack._vals[v->_stackbase], closure,
             start_ip, header_ip, end_ip, exit_ip, jit)) {
             jit->_loop_fail_count++;
@@ -4694,11 +6361,25 @@ bool sqjit_try_execute_current_loop(SQVM *v, SQInteger header_ip)
                 scprintf(_SC("[sqjit] loop in proto '%s' at ip %d is not native eligible\n"),
                     sqjit_proto_name(proto), (SQInt32)header_ip);
             }
+            if(sqjit_trace_stats_enabled) {
+                sqjit_diag_stats.loop_compile_failures++;
+                SQJitDiagLoopStats *entry = sqjit_diag_get_loop(proto, header_ip);
+                if(entry) {
+                    entry->compile_failures++;
+                }
+            }
             return false;
         }
         jit->_loop_header_ip = header_ip;
         jit->_loop_exit_ip = exit_ip;
         jit->_version++;
+        if(sqjit_trace_stats_enabled) {
+            sqjit_diag_stats.loop_compile_successes++;
+            SQJitDiagLoopStats *entry = sqjit_diag_get_loop(proto, header_ip);
+            if(entry) {
+                entry->compile_successes++;
+            }
+        }
         if(sqjit_trace_enabled) {
             scprintf(_SC("[sqjit] compiled native loop in proto '%s' ip %d..%d\n"),
                 sqjit_proto_name(proto), (SQInt32)header_ip, (SQInt32)end_ip);
@@ -4706,10 +6387,27 @@ bool sqjit_try_execute_current_loop(SQVM *v, SQInteger header_ip)
     }
 
 execute_loop:
+    if(sqjit_trace_stats_enabled) {
+        sqjit_diag_stats.loop_exec_attempts++;
+        SQJitDiagLoopStats *entry = sqjit_diag_get_loop(proto, header_ip);
+        if(entry) {
+            entry->exec_attempts++;
+        }
+    }
     SQJitNativeLoopFn fn = (SQJitNativeLoopFn)jit->_loop_entry;
     SQInteger next_ip = header_ip;
     SQInteger status = fn(&v->_stack._vals[v->_stackbase], &next_ip, closure);
     if(status != SQ_JIT_NATIVE_RETURNED) {
+        if(sqjit_trace_stats_enabled) {
+            sqjit_diag_stats.loop_exec_guard_failures++;
+            SQJitDiagLoopStats *entry = sqjit_diag_get_loop(proto, header_ip);
+            if(entry) {
+                entry->exec_guard_failures++;
+            }
+        }
+        if(status == SQ_JIT_NATIVE_GUARD_FAILED) {
+            sqjit_loop_note_guard_fail(proto, jit, header_ip);
+        }
         return false;
     }
     if(next_ip < 0 || next_ip > proto->_ninstructions) {
@@ -4717,6 +6415,14 @@ execute_loop:
     }
 
     v->ci->_ip = &proto->_instructions[next_ip];
+    if(sqjit_trace_stats_enabled) {
+        sqjit_diag_stats.loop_exec_successes++;
+        SQJitDiagLoopStats *entry = sqjit_diag_get_loop(proto, header_ip);
+        if(entry) {
+            entry->exec_successes++;
+        }
+    }
+    sqjit_loop_note_success(jit);
     if(sqjit_trace_enabled && !jit->_loop_trace_executed) {
         jit->_loop_trace_executed = true;
         scprintf(_SC("[sqjit] executed native loop in proto '%s' at ip %d\n"),
@@ -4732,10 +6438,23 @@ SQJitExecResult sqjit_try_execute_current(SQVM *v, SQObjectPtr &outres)
     if(!sqjit_env_enabled || !v || !v->ci || v->_debughook) {
         return SQ_JIT_EXEC_NOT_EXECUTED;
     }
+    sqjit_proto_runtime_tick++;
+    if(sqjit_trace_stats_enabled) {
+        sqjit_diag_stats.proto_exec_attempts++;
+    }
 
     SQClosure *closure = _closure(v->ci->_closure);
     SQFunctionProto *proto = closure->_function;
+    if(sqjit_trace_stats_enabled && proto) {
+        SQJitDiagProtoStats *entry = sqjit_diag_get_proto(proto);
+        if(entry) {
+            entry->exec_attempts++;
+        }
+    }
     if(!proto || !proto->_jit || !proto->_jit->_entry) {
+        return SQ_JIT_EXEC_NOT_EXECUTED;
+    }
+    if(sqjit_proto_backoff_active(proto, proto->_jit)) {
         return SQ_JIT_EXEC_NOT_EXECUTED;
     }
 
@@ -4745,10 +6464,21 @@ SQJitExecResult sqjit_try_execute_current(SQVM *v, SQObjectPtr &outres)
     }
 
     SQObjectPtr *stack = &v->_stack._vals[v->_stackbase];
+    if(!sqjit_native_precheck(native, stack)) {
+        return SQ_JIT_EXEC_NOT_EXECUTED;
+    }
     SQJitNativeObjectFn fn = (SQJitNativeObjectFn)native->_native_entry;
     SQObjectPtr result;
     SQInteger status = fn(stack, &result, closure);
     if(status == SQ_JIT_NATIVE_GUARD_FAILED) {
+        if(sqjit_trace_stats_enabled) {
+            sqjit_diag_stats.proto_exec_guard_failures++;
+            SQJitDiagProtoStats *entry = sqjit_diag_get_proto(proto);
+            if(entry) {
+                entry->exec_guard_failures++;
+            }
+        }
+        sqjit_proto_note_guard_fail(proto, proto->_jit);
         return SQ_JIT_EXEC_NOT_EXECUTED;
     }
     if(status != SQ_JIT_NATIVE_RETURNED) {
@@ -4761,12 +6491,28 @@ SQJitExecResult sqjit_try_execute_current(SQVM *v, SQObjectPtr &outres)
             native->_native_trace_executed = true;
             scprintf(_SC("[sqjit] executed native proto '%s' as root\n"), sqjit_proto_name(proto));
         }
+        if(sqjit_trace_stats_enabled) {
+            sqjit_diag_stats.proto_exec_successes++;
+            SQJitDiagProtoStats *entry = sqjit_diag_get_proto(proto);
+            if(entry) {
+                entry->exec_successes++;
+            }
+        }
+        sqjit_proto_note_success(proto->_jit);
         return SQ_JIT_EXEC_ROOT_RETURNED;
     }
     if(sqjit_trace_enabled && !native->_native_trace_executed) {
         native->_native_trace_executed = true;
         scprintf(_SC("[sqjit] executed native proto '%s'\n"), sqjit_proto_name(proto));
     }
+    if(sqjit_trace_stats_enabled) {
+        sqjit_diag_stats.proto_exec_successes++;
+        SQJitDiagProtoStats *entry = sqjit_diag_get_proto(proto);
+        if(entry) {
+            entry->exec_successes++;
+        }
+    }
+    sqjit_proto_note_success(proto->_jit);
     return SQ_JIT_EXEC_FRAME_RETURNED;
 }
 

@@ -36,10 +36,18 @@ private:
     _HashNode *_nodes;
     SQInteger _numofnodes;
     SQInteger _usednodes;
+    SQUnsignedInteger _version;
 
 ///////////////////////////
     void AllocNodes(SQInteger nSize);
     void Rehash(bool force);
+    void BumpVersion()
+    {
+        _version++;
+        if(_version == 0) {
+            _version = 1;
+        }
+    }
     SQTable(SQSharedState *ss, SQInteger nInitialSize);
     void _ClearNodes();
 public:
@@ -98,6 +106,10 @@ public:
         return false;
     }
     bool Get(const SQObjectPtr &key,SQObjectPtr &val);
+    bool GetCacheSlot(const SQObjectPtr &key,SQInteger &index,
+        SQUnsignedInteger &version,SQObjectPtr &val);
+    bool GetCachedSlot(SQInteger index,SQUnsignedInteger version,
+        SQObjectPtr &val);
     void Remove(const SQObjectPtr &key);
     bool Set(const SQObjectPtr &key, const SQObjectPtr &val);
     //returns true if a new slot has been created false if it was already present

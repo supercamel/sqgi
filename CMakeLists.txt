@@ -134,6 +134,7 @@ if(SQ_ENABLE_JIT)
     )
     if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64|ARM64)$")
         list(APPEND SQUIRREL3_SRC
+            Squirrel3/squirrel/jit/sqjit_backend_aarch64_emit.cpp
             Squirrel3/squirrel/jit/sqjit_backend_aarch64.cpp
         )
     endif()
@@ -289,13 +290,17 @@ add_sqgi_nut_test(sqgi_test_jit_fastpath                test_jit_fastpath.nut)
 add_sqgi_nut_test(sqgi_test_jit_fastpath_runtime        test_jit_fastpath.nut)
 add_sqgi_nut_test(sqgi_test_jit_correctness             test_jit_correctness.nut)
 add_sqgi_nut_test(sqgi_test_jit_correctness_runtime     test_jit_correctness.nut)
+add_sqgi_nut_test(sqgi_test_jit_perf_correctness        test_jit_perf_correctness.nut)
+add_sqgi_nut_test(sqgi_test_jit_perf_correctness_runtime test_jit_perf_correctness.nut)
 set(JIT_TESTS
     sqgi_test_jit_math
     sqgi_test_jit_math_runtime
     sqgi_test_jit_fastpath
     sqgi_test_jit_fastpath_runtime
     sqgi_test_jit_correctness
-    sqgi_test_jit_correctness_runtime)
+    sqgi_test_jit_correctness_runtime
+    sqgi_test_jit_perf_correctness
+    sqgi_test_jit_perf_correctness_runtime)
 if(SQGI_HAS_NATIVE_JIT)
     add_sqgi_nut_test(sqgi_test_jit_native_runtime      test_jit_fastpath.nut)
     list(APPEND JIT_TESTS sqgi_test_jit_native_runtime)
@@ -312,6 +317,9 @@ set_tests_properties(sqgi_test_jit_fastpath_runtime PROPERTIES
 set_tests_properties(sqgi_test_jit_correctness_runtime PROPERTIES
     ENVIRONMENT "${SQGI_TEST_ENV};SQGI_JIT=1;SQGI_JIT_THRESHOLD=1;SQGI_JIT_TRACE=0"
 )
+set_tests_properties(sqgi_test_jit_perf_correctness_runtime PROPERTIES
+    ENVIRONMENT "${SQGI_TEST_ENV};SQGI_JIT=1;SQGI_JIT_THRESHOLD=1;SQGI_JIT_TRACE=0"
+)
 if(SQGI_HAS_NATIVE_JIT)
     set_tests_properties(sqgi_test_jit_fastpath_runtime PROPERTIES
         PASS_REGULAR_EXPRESSION "\\[sqjit\\] executed native proto 'numeric_variant_kernel'"
@@ -323,7 +331,6 @@ if(SQGI_HAS_NATIVE_JIT)
         PASS_REGULAR_EXPRESSION "\\[sqjit\\] executed native proto 'numeric_variant_kernel'"
     )
 endif()
-
 # Cover error/exit-code paths in main.c
 add_test(
     NAME sqgi_test_cli_nonexistent_file
@@ -389,6 +396,11 @@ add_sqgi_c_test(sqgi_test_c_signal_vm_closing test/c/test_signal_vm_closing.c)
 add_sqgi_c_test(sqgi_test_c_gvalue_branches test/c/test_gvalue_branches.c)
 add_sqgi_c_test(sqgi_test_c_squirrel_core_hardening test/c/test_squirrel_core_hardening.c)
 add_sqgi_c_test(sqgi_test_cpp_sqvector test/cpp/test_sqvector.cpp)
+if(SQ_ENABLE_JIT AND CMAKE_SYSTEM_NAME STREQUAL "Linux" AND
+    CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64|ARM64)$")
+    add_sqgi_c_test(sqgi_test_cpp_sqjit_aarch64_emit test/cpp/test_sqjit_aarch64_emit.cpp)
+    set_tests_properties(sqgi_test_cpp_sqjit_aarch64_emit PROPERTIES LABELS "jit")
+endif()
 
 # Cover the -e / dobuffer path (sqgi_vm_dobuffer)
 add_test(

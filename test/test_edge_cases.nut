@@ -146,4 +146,36 @@ check(typeof nested == "array" && nested.len() == 2,
 check(nested[0].x == 1 && nested[1].y == 4,
       "nested _tojson values")
 
+// ── 9. VM member caches preserve dynamic semantics ───────────────────────
+class CacheBox {
+    value = 0
+    function get_value() { return this.value }
+    function set_value(v) { this.value = v }
+}
+local cache_box = CacheBox()
+for (local i = 0; i < 16; i++) {
+    cache_box.set_value(i)
+    check(cache_box.get_value() == i, "cached instance field tracks writes")
+}
+
+class CacheFallback {
+    count = 0
+    function _get(k) {
+        if (k == "missing") {
+            this.count++
+            return this.count
+        }
+        throw null
+    }
+}
+local cache_fallback = CacheFallback()
+check(cache_fallback.missing == 1, "member cache fallback first miss")
+check(cache_fallback.missing == 2, "member cache does not cache _get fallback")
+
+local cache_len = [1]
+for (local i = 0; i < 8; i++) {
+    check(cache_len.len() == i + 1, "array len fast path tracks size")
+    cache_len.append(i)
+}
+
 print("[OK] test_edge_cases passed\n")

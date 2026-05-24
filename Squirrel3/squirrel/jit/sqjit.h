@@ -34,12 +34,18 @@ struct SQJitProto {
     SQInteger _loop_exit_ip;
     SQInteger _loop_hot_count;
     SQInteger _loop_fail_count;
+    SQInteger _loop_guard_fail_count;
+    SQInteger _loop_guard_backoff_until;
+    SQInteger _loop_guard_backoff_delay;
     SQInteger _loop_reject_count;
     SQInteger _loop_reject_next;
     SQInteger _loop_reject_headers[SQ_JIT_LOOP_REJECT_CACHE_SIZE];
     bool _loop_trace_executed;
     SQInteger _hot_count;
     SQInteger _fail_count;
+    SQInteger _guard_fail_count;
+    SQInteger _guard_backoff_until;
+    SQInteger _guard_backoff_delay;
     SQInteger _version;
     SQJitEligibility _eligibility;
 };

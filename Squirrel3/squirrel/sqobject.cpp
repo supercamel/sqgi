@@ -735,6 +735,9 @@ void SQFunctionProto::Mark(SQCollectable **chain)
     START_MARK()
         for(SQInteger i = 0; i < _nliterals; i++) SQSharedState::MarkObject(_literals[i], chain);
         for(SQInteger k = 0; k < _nfunctions; k++) SQSharedState::MarkObject(_functions[k], chain);
+        for(SQUnsignedInteger c = 0; c < _membercache.size(); c++) {
+            SQSharedState::MarkObject(_membercache[c]._owner, chain);
+        }
     END_MARK()
 }
 
