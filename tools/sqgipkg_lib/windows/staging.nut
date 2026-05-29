@@ -3,6 +3,11 @@ local Gio = import("Gio")
 local Base = import("msys2.nut")
 
 class SqgiPkgWindowsStaging extends Base.SqgiPkgWindowsMsys2 {
+    function run_optional_tool(command, description) {
+        local status = system(command)
+        if (status != 0) this.info(description + " skipped or failed")
+    }
+
     function stage_windows_extra_files(opts, windir, staged_scripts) {
         foreach (spec in opts.includes)
             this.copy_or_compile_include_spec(opts, spec, windir, staged_scripts)
@@ -104,6 +109,23 @@ class SqgiPkgWindowsStaging extends Base.SqgiPkgWindowsMsys2 {
             this.write_gtk_settings_file(windir, rel, contents)
     }
 
+    function postprocess_windows_runtime_files(opts, windir) {
+        local schema_dir = GLib.build_filenamev([windir, "share", "glib-2.0", "schemas"])
+        local has_schema_xml = this.path_exists(schema_dir) &&
+            this.shell_has_matches(GLib.build_filenamev([schema_dir, "*.xml"]))
+
+        if (has_schema_xml && this.executable_available("glib-compile-schemas")) {
+            this.run_optional_tool(
+                "glib-compile-schemas " + this.shell_quote(schema_dir),
+                "Windows GSettings schema compilation"
+            )
+        } else if (has_schema_xml) {
+            this.report_warn(opts,
+                "GSettings schemas were staged, but glib-compile-schemas was not found; " +
+                "the Windows bundle may fail to start")
+        }
+    }
+
     function windows_launcher_exec_line(opts, entry_rel) {
         local entry = this.windows_path(entry_rel)
         if (opts.entry_type == "native")
@@ -143,6 +165,11 @@ class SqgiPkgWindowsStaging extends Base.SqgiPkgWindowsMsys2 {
             "set \"GST_REGISTRY=%LOCALAPPDATA%\\sqgi\\" + app_name + "-gstreamer-registry.bin\"\r\n" +
             "set \"GIO_EXTRA_MODULES=%HERE%lib\\gio\\modules;%GIO_EXTRA_MODULES%\"\r\n" +
             "set \"GDK_PIXBUF_MODULEDIR=%HERE%lib\\gdk-pixbuf-2.0\\2.10.0\\loaders\"\r\n" +
+            "set \"GDK_PIXBUF_MODULE_FILE=%LOCALAPPDATA%\\sqgi\\" + app_name + "-gdk-pixbuf-loaders.cache\"\r\n" +
+            "if exist \"%HERE%bin\\gdk-pixbuf-query-loaders.exe\" (\r\n" +
+            "  type NUL > \"%GDK_PIXBUF_MODULE_FILE%\"\r\n" +
+            "  for %%F in (\"%GDK_PIXBUF_MODULEDIR%\\*.dll\") do \"%HERE%bin\\gdk-pixbuf-query-loaders.exe\" \"%%~fF\" >> \"%GDK_PIXBUF_MODULE_FILE%\" 2>NUL\r\n" +
+            ")\r\n" +
             this.windows_launcher_exec_line(opts, entry_rel))
 
     }
@@ -193,6 +220,7 @@ class SqgiPkgWindowsStaging extends Base.SqgiPkgWindowsMsys2 {
             entry_rel = this.copy_windows_native_entry(opts, windir)
         this.stage_windows_extra_files(opts, windir, staged_scripts)
         this.stage_windows_runtime_support_files(opts, windir)
+        this.postprocess_windows_runtime_files(opts, windir)
         this.resolve_windows_dll_dependencies(opts, windir)
         this.verify_windows_binary_arches(opts, windir)
         this.write_windows_gtk_settings(opts, windir)

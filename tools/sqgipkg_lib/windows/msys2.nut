@@ -273,6 +273,8 @@ class SqgiPkgWindowsMsys2 extends Base.SqgiPkgWindowsEnv {
 
         if (this.starts_with(rel, "bin/") && this.ends_with(rel, ".dll"))
             return rel
+        if (rel == "bin/gdk-pixbuf-query-loaders.exe")
+            return rel
         if (rel == "bin/gdbus.exe")
             return rel
         if (this.starts_with(rel, "bin/gspawn-") && this.ends_with(rel, ".exe"))
