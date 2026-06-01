@@ -8,6 +8,7 @@
  *   - write_to_png produces a non-empty PNG file
  *   - GC of the wrappers does not crash
  *   - cairo.Pattern.create_linear + add_color_stop_rgba + set_source
+ *   - cairo.Context dash setters/getters
  *
  * No GTK / display required.
  */
@@ -49,6 +50,19 @@ cr.fill()
 cr.restore()
 
 cr.set_line_width(2.0)
+cr.set_dash([6.0, 3.0], 1.5)
+assert(cr.get_dash_count() == 2)
+local dash = cr.get_dash()
+assert(typeof dash == "table")
+assert(typeof dash.dashes == "array")
+assert(dash.dashes.len() == 2)
+assert(dash.dashes[0] == 6.0)
+assert(dash.dashes[1] == 3.0)
+assert(dash.offset == 1.5)
+
+cr.set_dashes([], 0.0)
+assert(cr.get_dash_count() == 0)
+
 cr.set_source_rgb(1, 1, 1)
 cr.rectangle(4, 4, W - 8, H - 8)
 cr.stroke()

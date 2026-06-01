@@ -4,6 +4,8 @@
 #include "sqgi_gi_object.h"
 #include "sqgi_stack.h"
 
+#include <limits.h>
+#include <stdlib.h>
 #include <string.h>
 
 #define SQGI_CAIRO_REG_SLOT "sqgi_cairo_classes"
@@ -240,6 +242,80 @@ CTX_FN(set_line_width,  { ARG_F(2, w); cairo_set_line_width(cr, w); return 0; })
 CTX_FN(get_line_width,  { sq_pushfloat(v, (SQFloat)cairo_get_line_width(cr)); return 1; })
 CTX_FN(set_line_cap,    { ARG_I(2, c); cairo_set_line_cap(cr, (cairo_line_cap_t)c);   return 0; })
 CTX_FN(set_line_join,   { ARG_I(2, j); cairo_set_line_join(cr, (cairo_line_join_t)j); return 0; })
+
+CTX_FN(set_dash, {
+    if (sq_gettype(v, 2) != OT_ARRAY)
+        return sq_throwerror(v, "cairo.set_dash: expected array argument #2");
+
+    SQInteger n = sq_getsize(v, 2);
+    if (n < 0 || n > (SQInteger)INT_MAX)
+        return sq_throwerror(v, "cairo.set_dash: invalid dash array size");
+
+    SQFloat offset = 0.0;
+    if (sq_gettop(v) >= 3 && SQ_FAILED(sqc_tofloat(v, 3, &offset)))
+        return sq_throwerror(v, "cairo.set_dash: expected numeric argument #3");
+
+    double *dashes = NULL;
+    if (n > 0) {
+        dashes = (double *)malloc(sizeof(double) * (size_t)n);
+        if (!dashes) return sq_throwerror(v, "cairo.set_dash: out of memory");
+
+        for (SQInteger i = 0; i < n; i++) {
+            sq_pushinteger(v, i);
+            if (SQ_FAILED(sq_get(v, 2))) {
+                free(dashes);
+                return SQ_ERROR;
+            }
+
+            SQFloat dash = 0.0;
+            if (SQ_FAILED(sqc_tofloat(v, -1, &dash))) {
+                sq_pop(v, 1);
+                free(dashes);
+                return sq_throwerror(v, "cairo.set_dash: dash elements must be numeric");
+            }
+            sq_pop(v, 1);
+            dashes[i] = (double)dash;
+        }
+    }
+
+    cairo_set_dash(cr, dashes, (int)n, (double)offset);
+    free(dashes);
+    return 0;
+})
+
+CTX_FN(get_dash_count, {
+    sq_pushinteger(v, (SQInteger)cairo_get_dash_count(cr));
+    return 1;
+})
+
+CTX_FN(get_dash, {
+    int n = cairo_get_dash_count(cr);
+    double *dashes = NULL;
+    if (n > 0) {
+        dashes = (double *)malloc(sizeof(double) * (size_t)n);
+        if (!dashes) return sq_throwerror(v, "cairo.get_dash: out of memory");
+    }
+
+    double offset = 0.0;
+    cairo_get_dash(cr, dashes, &offset);
+
+    sq_newtable(v);
+    sq_pushstring(v, "dashes", -1);
+    sq_newarray(v, 0);
+    for (int i = 0; i < n; i++) {
+        sq_pushfloat(v, (SQFloat)dashes[i]);
+        sq_arrayappend(v, -2);
+    }
+    sq_newslot(v, -3, SQFalse);
+
+    sq_pushstring(v, "offset", -1);
+    sq_pushfloat(v, (SQFloat)offset);
+    sq_newslot(v, -3, SQFalse);
+
+    free(dashes);
+    return 1;
+})
+
 CTX_FN(set_fill_rule,   { ARG_I(2, r); cairo_set_fill_rule(cr, (cairo_fill_rule_t)r); return 0; })
 CTX_FN(set_operator,    { ARG_I(2, o); cairo_set_operator(cr, (cairo_operator_t)o);   return 0; })
 
@@ -513,6 +589,10 @@ void sqgi_cairo_register(HSQUIRRELVM v)
     add_method(v, "get_line_width",   ctx_get_line_width);
     add_method(v, "set_line_cap",     ctx_set_line_cap);
     add_method(v, "set_line_join",    ctx_set_line_join);
+    add_method(v, "set_dash",         ctx_set_dash);
+    add_method(v, "set_dashes",       ctx_set_dash);
+    add_method(v, "get_dash_count",   ctx_get_dash_count);
+    add_method(v, "get_dash",         ctx_get_dash);
     add_method(v, "set_fill_rule",    ctx_set_fill_rule);
     add_method(v, "set_operator",     ctx_set_operator);
     add_method(v, "move_to",          ctx_move_to);
