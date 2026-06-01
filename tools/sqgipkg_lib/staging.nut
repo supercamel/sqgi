@@ -303,16 +303,16 @@ class SqgiPkgStaging extends Base.SqgiPkgScripts {
             }
 
             this.report_inc(opts, "native_projects")
-            if (!project.stage) continue
+            if (project.stage) {
+                foreach (path in project.libraries)
+                    this.copy_library(opts, path, appdir, "native shared library")
 
-            foreach (path in project.libraries)
-                this.copy_library(opts, path, appdir, "native shared library")
+                foreach (path in project.typelibs)
+                    this.copy_gi_typelib(opts, path, appdir, "native GI typelib")
 
-            foreach (path in project.typelibs)
-                this.copy_gi_typelib(opts, path, appdir, "native GI typelib")
-
-            foreach (spec in project.files)
-                this.copy_file_spec(opts, spec, appdir)
+                foreach (spec in project.files)
+                    this.copy_file_spec(opts, spec, appdir)
+            }
         }
     }
 

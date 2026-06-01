@@ -51,7 +51,9 @@ TESTS=(
   "test_gio_recipes.nut"
   "test_gstreamer_recipes.nut"
   "test_gdkpixbuf_recipes.nut"
+  "test_boxed_record_constructor.nut"
   "test_gtk_textbuffer.nut"
+  "test_math_extended.nut"
   "test_application_run_crash_regression.nut"
 )
 

@@ -718,6 +718,13 @@ static SQInteger sqgi_struct_type_release(SQUserPointer p, SQInteger size)
     return 0;
 }
 
+static SQInteger struct_alloc_release_hook(SQUserPointer p, SQInteger size)
+{
+    (void)size;
+    g_free(p);
+    return 0;
+}
+
 /* The struct/union class's "_giinfo" static slot stores a userdata pointing
  * to the GIStructInfo so _get / _set can look up field offsets at runtime. */
 #define SQGI_STRUCT_INFO_SLOT "__giinfo"
@@ -812,6 +819,50 @@ static SQInteger sqgi_struct_set(HSQUIRRELVM v)
     return sq_throwerror(v, "the index doesn't exist");
 }
 
+static SQInteger sqgi_struct_constructor(HSQUIRRELVM v)
+{
+    /* Stack: [instance] */
+    GIStructInfo *info = sqgi_struct_info_from_instance(v, 1);
+    if (!info) return sq_throwerror(v, "sqgi: missing struct type info");
+
+    gsize size = (gsize)g_struct_info_get_size(info);
+    if (size == 0) {
+        return sq_throwerror(v, "sqgi: cannot construct zero-sized GI record");
+    }
+
+    gpointer ptr = NULL;
+    GType gtype = g_registered_type_info_get_g_type((GIRegisteredTypeInfo *)info);
+    if (gtype != G_TYPE_NONE && gtype != G_TYPE_INVALID &&
+        g_type_is_a(gtype, G_TYPE_BOXED)) {
+        gpointer zero = g_malloc0(size);
+        ptr = g_boxed_copy(gtype, zero);
+        g_free(zero);
+    } else {
+        ptr = g_malloc0(size);
+    }
+
+    if (!ptr) return sq_throwerror(v, "sqgi: failed to allocate GI record");
+
+    if (SQ_FAILED(sq_setinstanceup(v, 1, ptr))) {
+        if (gtype != G_TYPE_NONE && gtype != G_TYPE_INVALID &&
+            g_type_is_a(gtype, G_TYPE_BOXED)) {
+            g_boxed_free(gtype, ptr);
+        } else {
+            g_free(ptr);
+        }
+        return sq_throwerror(v, "sqgi: cannot attach GI record storage");
+    }
+
+    if (gtype != G_TYPE_NONE && gtype != G_TYPE_INVALID &&
+        g_type_is_a(gtype, G_TYPE_BOXED)) {
+        sqgi_boxed_track_ownership(v, 1, ptr, gtype);
+    } else {
+        sq_setreleasehook(v, 1, struct_alloc_release_hook);
+    }
+
+    return 0;
+}
+
 void sqgi_gi_object_build_struct_class(HSQUIRRELVM v, GIStructInfo *info)
 {
     sq_newclass(v, SQFalse);
@@ -824,7 +875,8 @@ void sqgi_gi_object_build_struct_class(HSQUIRRELVM v, GIStructInfo *info)
     sq_setreleasehook(v, -1, sqgi_struct_type_release);
     sq_newslot(v, -3, SQTrue);
 
-    /* Field _get / _set */
+    /* Field _get / _set and native storage allocation for Record(). */
+    add_method(v, "constructor", sqgi_struct_constructor);
     add_method(v, "_get", sqgi_struct_get);
     add_method(v, "_set", sqgi_struct_set);
 

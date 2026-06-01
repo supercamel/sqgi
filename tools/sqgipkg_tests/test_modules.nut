@@ -551,6 +551,7 @@ check("linux build env exposes qemu loader prefix for cross sysroot",
     linux.linux_build_env_prefix(sysrooted_cross_opts).find("QEMU_LD_PREFIX=") != null)
 system("rm -rf " + linux.shell_quote(sysrooted_cross_opts.output_dir) + " " + linux.shell_quote(sysrooted_cross_opts.linux.sysroot))
 
+function run_late_packaging_module_tests(build, linux, host_arch, cross_arch) {
 local native_install_opts = build.new_options()
 native_install_opts.target = "appimage"
 native_install_opts.appimage_arch = host_arch
@@ -815,6 +816,9 @@ nsis_gui_native_opts.entry_windows = "/tmp/native-entry.exe"
 nsis_gui_native_opts.windows.console = false
 check("nsis GUI native shortcuts target env launcher",
     nsis.nsis_shortcut_target(nsis_gui_native_opts, "WinNative") == "WinNative.bat")
+}
+
+run_late_packaging_module_tests(build, linux, host_arch, cross_arch)
 
 if (failures != 0) {
     print("sqgipkg module tests failed: " + failures + "\n")

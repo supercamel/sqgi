@@ -284,6 +284,8 @@ add_sqgi_nut_test(sqgi_test_subclass_vfuncs             test_subclass_vfuncs.nut
 add_sqgi_nut_test(sqgi_test_gi_multi_out                test_gi_multi_out.nut)
 add_sqgi_nut_test(sqgi_test_bytes_converters            test_bytes_converters.nut)
 add_sqgi_nut_test(sqgi_test_cairo                       test_cairo.nut)
+add_sqgi_nut_test(sqgi_test_boxed_record_constructor    test_boxed_record_constructor.nut)
+add_sqgi_nut_test(sqgi_test_math_extended               test_math_extended.nut)
 add_sqgi_nut_test(sqgi_test_jit_math                    test_jit_math.nut)
 add_sqgi_nut_test(sqgi_test_jit_math_runtime            test_jit_math.nut)
 add_sqgi_nut_test(sqgi_test_jit_fastpath                test_jit_fastpath.nut)
