@@ -14,6 +14,7 @@ Conventions in this document:
 
 - [Top-level builtins](#top-level-builtins)
   - [`import`](#import)
+  - [`import("system")`](#importsystem)
 - [Async runtime: `sqgi.*`](#async-runtime-sqgi)
   - [`sqgi.Task`](#sqgitask)
   - [Task methods](#task-methods)
@@ -51,11 +52,13 @@ Conventions in this document:
 import(name)
 import(name, version)
 import("path/to/script.nut")
+import("system")
 ```
 
 Load a GObject Introspection namespace, or execute another Squirrel script.
 Relative `.nut` paths are resolved next to the module doing the import first,
 then through the current working directory / packaged app script root fallback.
+`import("system")` loads SQGI's built-in read-mostly system information module.
 
 **Arguments**
 
@@ -66,6 +69,8 @@ then through the current working directory / packaged app script root fallback.
 
 - For GI imports: a **namespace table** whose slots are the public symbols (functions, classes, enums, constants) of the library.
 - For `.nut` imports: the value returned by the script (executed in the root table).
+- For `import("system")`: a table with OS, CPU, runtime, path, package, and
+  environment helpers.
 
 **Throws**
 
@@ -78,6 +83,87 @@ then through the current working directory / packaged app script root fallback.
 local Gio  = import("Gio")
 local Gtk  = import("Gtk", "4.0")
 local help = import("test/helper.nut")
+local system = import("system")
+```
+
+### `import("system")`
+
+```squirrel
+local system = import("system")
+```
+
+Returns a fresh table describing the current process environment. The module is
+read-mostly by design; use GLib/Gio for platform-specific mutation or process
+management.
+
+Shape:
+
+```squirrel
+system.os = {
+    name = "linux",          // "linux", "windows", "macos", "bsd", ...
+    family = "unix",         // "unix", "windows", or "unknown"
+    pretty_name = "...",     // human-readable OS name when available
+    version = "...",         // OS version string or null
+    id = "..."               // OS id from GLib, or null
+}
+
+system.cpu = {
+    arch = "x86_64",         // normalized target architecture
+    endian = "little"        // "little", "big", or "unknown"
+}
+
+system.runtime = {
+    sqgi_version = "0.1.0",
+    squirrel_version = "Squirrel 3.2 stable",
+    squirrel_version_number = 320,
+    jit = false,
+    debug = false
+}
+
+system.paths = {
+    home = "...",
+    tmp = "...",
+    config = "...",
+    cache = "...",
+    data = "...",
+    current = "...",
+    app_share = null,        // SQGI_APP_SHARE when packaged
+    app_resources = null     // SQGI_APP_RESOURCES when packaged
+}
+
+system.package = {
+    packaged = false,
+    app_share = null,
+    resources = null
+}
+```
+
+Environment helpers:
+
+```squirrel
+system.env.get(name)  // string or null
+system.env.has(name)  // bool
+system.env.all()      // table of current environment variables
+```
+
+`system.env.get` and `system.env.has` read the live process environment, so they
+reflect changes made through GLib such as `GLib.setenv` and `GLib.unsetenv`.
+The snapshot tables such as `paths` and `package` are rebuilt each time
+`import("system")` is called.
+
+Examples:
+
+```squirrel
+local system = import("system")
+
+print(system.os.name + " " + system.cpu.arch + "\n")
+
+local home = system.env.get("HOME")
+if (home != null) print("home: " + home + "\n")
+
+if (system.package.packaged) {
+    print("resources: " + system.paths.app_resources + "\n")
+}
 ```
 
 ---

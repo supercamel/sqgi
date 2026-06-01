@@ -102,6 +102,7 @@ set(LIBSQGI_SRC
     src/sqgi_subclass.c
     src/sqgi_json.c
     src/sqgi_cairo.c
+    src/sqgi_system.c
 )
 
 
@@ -163,6 +164,10 @@ target_include_directories(sqgi-core
 if(SQ_ENABLE_JIT)
     target_compile_definitions(sqgi-core PRIVATE SQ_ENABLE_JIT)
 endif()
+target_compile_definitions(sqgi-core PRIVATE
+    SQGI_VERSION="${PROJECT_VERSION}"
+    SQGI_TARGET_ARCH="${CMAKE_SYSTEM_PROCESSOR}"
+)
 target_link_libraries(sqgi-core PUBLIC ${SQGI_DEPS})
 
 # ── libsqgi shared library ────────────────────────────────────────────────────
@@ -286,6 +291,7 @@ add_sqgi_nut_test(sqgi_test_bytes_converters            test_bytes_converters.nu
 add_sqgi_nut_test(sqgi_test_cairo                       test_cairo.nut)
 add_sqgi_nut_test(sqgi_test_boxed_record_constructor    test_boxed_record_constructor.nut)
 add_sqgi_nut_test(sqgi_test_math_extended               test_math_extended.nut)
+add_sqgi_nut_test(sqgi_test_system_module               test_system_module.nut)
 add_sqgi_nut_test(sqgi_test_jit_math                    test_jit_math.nut)
 add_sqgi_nut_test(sqgi_test_jit_math_runtime            test_jit_math.nut)
 add_sqgi_nut_test(sqgi_test_jit_fastpath                test_jit_fastpath.nut)

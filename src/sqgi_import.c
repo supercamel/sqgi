@@ -1,5 +1,6 @@
 #include "sqgi_import.h"
 #include "sqgi_gi.h"
+#include "sqgi_system.h"
 
 #include <squirrel.h>
 #include <sqstdio.h>
@@ -168,6 +169,13 @@ static SQInteger sqgi_import(HSQUIRRELVM v)
     const SQChar *name = NULL;
     if (SQ_FAILED(sq_getstring(v, 2, &name)) || !name) {
         return sq_throwerror(v, "import: expected a string argument");
+    }
+
+    /* Check built-in modules before falling through to GI namespaces. */
+    if (strcmp(name, "system") == 0) {
+        SQRESULT res = sqgi_system_push_module(v);
+        if (SQ_FAILED(res)) return res;
+        return 1;
     }
 
     /* Check if it's a .nut file */

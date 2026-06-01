@@ -20,12 +20,21 @@ SQGI is a GI-aware runtime. When you call `import("Gio")`, SQGI:
 local Gio = import("Gio")
 local GLib = import("GLib")
 local Gtk = import("Gtk", "4.0")
+local system = import("system")
 ```
 
 - `import("Name")` loads the namespace's default version.
 - `import("Name", "Version")` pins a specific version.
+- `import("system")` loads SQGI's built-in system information module.
 
 It returns a **namespace table** — a Squirrel table whose keys are the public symbols of that library.
+For `system`, the table contains OS, CPU, runtime, path, package, and environment
+helpers:
+
+```squirrel
+print(system.os.name + " on " + system.cpu.arch + "\n")
+print(system.env.get("HOME") + "\n")
+```
 
 ## 7.3 Calling functions
 

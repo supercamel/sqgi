@@ -3,7 +3,9 @@
 SQGI is a small Squirrel runtime for building native cross-platform
 applications. It connects Squirrel scripts to GLib/GObject libraries through
 GObject Introspection, adds async/await, and includes `sqgipkg` for shipping
-apps as AppImages, Windows directories, and NSIS installers.
+apps as AppImages, Windows directories, and NSIS installers. Built-in modules
+such as `system` provide a small stable surface for runtime and environment
+information.
 
 ## Start Here
 
@@ -64,4 +66,3 @@ Install:
 ```sh
 sudo cmake --install build --prefix /usr/local
 ```
-
