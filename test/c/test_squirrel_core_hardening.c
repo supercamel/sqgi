@@ -188,6 +188,36 @@ static int test_nested_closure_roundtrip(HSQUIRRELVM v)
     return rc;
 }
 
+static int test_rejects_too_many_compiler_locals(HSQUIRRELVM v)
+{
+    int rc = 0;
+    Buffer b = {0};
+
+    CHECK(buffer_append(&b, "function too_many_locals() {\n", 29),
+          "allocate too-many-locals source header");
+    for (int i = 0; i < 300; i++) {
+        char line[64];
+        int n = snprintf(line, sizeof(line), "  local v%d = %d\n", i, i);
+        CHECK(n > 0 && n < (int)sizeof(line) &&
+              buffer_append(&b, line, (size_t)n),
+              "append too-many-locals source line");
+        if (rc) break;
+    }
+    CHECK(buffer_append(&b, "  return 0\n}\nreturn too_many_locals()\n", 37),
+          "append too-many-locals source footer");
+    CHECK(buffer_append(&b, "", 1), "terminate too-many-locals source");
+
+    if (!rc) {
+        SQRESULT res = sq_compilebuffer(v, (const SQChar *)b.data,
+                                        (SQInteger)(b.len - 1),
+                                        "too-many-locals", SQFalse);
+        CHECK(SQ_FAILED(res), "compiler rejects too many locals");
+    }
+
+    buffer_free(&b);
+    return rc;
+}
+
 static int test_rejects_oversized_userdata(HSQUIRRELVM v)
 {
     int rc = 0;
@@ -215,6 +245,7 @@ int main(void)
     rc |= test_rejects_negative_string_length(v);
     rc |= test_rejects_invalid_function_counts(v);
     rc |= test_nested_closure_roundtrip(v);
+    rc |= test_rejects_too_many_compiler_locals(v);
     rc |= test_rejects_oversized_userdata(v);
 
     sqgi_vm_free(v);

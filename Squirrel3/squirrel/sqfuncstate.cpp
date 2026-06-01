@@ -258,10 +258,10 @@ void SQFuncState::SetInstructionParam(SQInteger pos,SQInteger arg,SQInteger val)
 
 SQInteger SQFuncState::AllocStackPos()
 {
+    if(_vlocals.size() >= MAX_FUNC_STACKSIZE) Error(_SC("internal compiler error: too many locals"));
     SQInteger npos=_vlocals.size();
     _vlocals.push_back(SQLocalVarInfo());
     if(_vlocals.size()>((SQUnsignedInteger)_stacksize)) {
-        if(_stacksize>MAX_FUNC_STACKSIZE) Error(_SC("internal compiler error: too many locals"));
         _stacksize=_vlocals.size();
     }
     return npos;
@@ -352,6 +352,7 @@ bool SQFuncState::IsLocal(SQUnsignedInteger stkpos)
 
 SQInteger SQFuncState::PushLocalVariable(const SQObject &name)
 {
+    if(_vlocals.size() >= MAX_FUNC_STACKSIZE) Error(_SC("internal compiler error: too many locals"));
     SQInteger pos=_vlocals.size();
     SQLocalVarInfo lvi;
     lvi._name=name;
