@@ -1,6 +1,6 @@
 # SQGI API Reference
 
-This is a flat reference for every runtime function and helper SQGI exposes on top of vanilla Squirrel. For tutorial-style introductions, see `docs/language/`.
+This is a flat reference for every runtime function and helper SQGI exposes on top of vanilla Squirrel. For tutorial-style introductions, see the [language tutorial](../language/).
 
 Conventions in this document:
 
@@ -209,7 +209,7 @@ A Task that resolves with an array of results, in input order.
 
 **Notes**
 
-If any element is rejected, the aggregate Task rejects with that error; other Tasks keep running but their results are discarded. To isolate per-item failures, have each Task catch its own errors and return a result record (see `docs/language/11-end-to-end-patterns-and-recipes.md`).
+If any element is rejected, the aggregate Task rejects with that error; other Tasks keep running but their results are discarded. To isolate per-item failures, have each Task catch its own errors and return a result record (see [end-to-end patterns and recipes](../language/11-end-to-end-patterns-and-recipes.md)).
 
 ### `sqgi.race`
 
@@ -615,7 +615,7 @@ The original C-level method is still accessible as `foo_async_raw` if you need t
 
 ## See also
 
-- `docs/language/` — narrative tutorial.
+- [Language tutorial](../language/) — narrative tutorial.
 - `demo/` — runnable examples per GI namespace.
 - `test/` — exhaustive behavior tests.
 - Source of truth: `src/sqgi_async.c`, `src/sqgi_gi_object.c`, `src/sqgi_subclass.c`, `src/sqgi_gerror.c`, `src/sqgi_json.c`, `src/sqgi_import.c`.

@@ -210,5 +210,4 @@ GIO modules, pixbuf loaders, and warnings were included.
 7. Build `--target all` after individual targets work.
 8. Keep target-specific native build directories separate.
 
-For every manifest field, see `tools/README.md`.
-
+For every manifest field, see `tools/README.md` in the source tree.

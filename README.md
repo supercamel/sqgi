@@ -302,8 +302,8 @@ For AppImages, smoke tests can run the built package immediately, and
 cross-architecture smoke tests use QEMU user-mode/binfmt when the matching
 emulator and target sysroot are available.
 
-For a guided packaging tutorial, see [tools/MANUAL.md](tools/MANUAL.md). For
-the broader packaging reference, see [tools/README.md](tools/README.md).
+For guided packaging tutorials, see [docs/packaging/](docs/packaging/). For the
+broader packaging reference, see [tools/README.md](tools/README.md).
 
 ## Windows Packaging
 
@@ -401,7 +401,7 @@ are placed under `include/sqgi/`.
 | Look up SQGI runtime APIs | [docs/api/README.md](docs/api/README.md) |
 | Follow library-specific recipes | [docs/recipes/](docs/recipes/) |
 | Browse runnable examples | [demo/](demo/) |
-| Learn app packaging step by step | [tools/MANUAL.md](tools/MANUAL.md) |
+| Learn app packaging step by step | [docs/packaging/](docs/packaging/) |
 | Look up packaging fields and targets | [tools/README.md](tools/README.md) |
 
 The demos cover GLib, Gio, GTK 4, GStreamer, libsoup, GdkPixbuf, Cairo,

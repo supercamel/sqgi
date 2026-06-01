@@ -4,8 +4,8 @@ This tutorial series teaches `sqgipkg` by building up one packaging problem at a
 time. It starts with one Squirrel file and ends with native modules, GTK runtime
 data, themes, AppImages, Windows staging, and multi-architecture builds.
 
-Use these pages when you want a guided path. Use `tools/README.md` when you need
-the complete field reference.
+Use these pages when you want a guided path. Use `tools/README.md` in the source
+tree when you need the complete field reference.
 
 ## Tutorial Path
 
@@ -93,4 +93,3 @@ or put a source checkout rule in the manifest:
 - `tools/sqgipkg_tests/native_entry_project/` launches a native executable while
   still staging Squirrel payloads.
 - `tools/sqgipkg_tests/gtk_themes/` stages GTK theme data and launcher settings.
-
