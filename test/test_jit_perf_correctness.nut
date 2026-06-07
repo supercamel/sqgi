@@ -178,6 +178,88 @@ function dynamic_member_kernel(n) {
         boxes[0].payload[0] * 11 + boxes[1].payload[2] * 13
 }
 
+function dynamic_key_get_set_kernel(n) {
+    local keys = ["a", "b", "c", "d"]
+    local state = { a = 1, b = 2, c = 3, d = 4 }
+    local acc = 0
+
+    for (local i = 0; i < n; i++) {
+        local key = keys[i % 4]
+        local next_key = keys[(i + 1) % 4]
+        local current = state[key]
+        local next_value = (current + i * 3 + 7) % 1000003
+        state[key] = next_value
+        acc = (acc + state[next_key] + next_value) % 1000003
+    }
+
+    return acc + state.a * 3 + state.b * 5 + state.c * 7 + state.d * 11
+}
+
+function object_member_write_fallback_kernel(n) {
+    local state = {
+        active = [1, 2, 3],
+        spare = [4, 5, 6],
+        label = "init"
+    }
+    local sum = 0
+
+    for (local i = 0; i < n; i++) {
+        local previous = state.active
+        state.active = state.spare
+        state.spare = previous
+        state.label = (i % 2) == 0 ? "even" : "odd"
+        state.active[i % 3] =
+            (state.active[i % 3] + i + state.label.len()) % 997
+        sum = (sum + state.active[(i + 1) % 3] +
+            state.spare[(i + 2) % 3]) % 1000003
+    }
+
+    return sum + state.active[0] * 3 + state.active[1] * 5 +
+        state.spare[2] * 7 + state.label.len()
+}
+
+function array_append_kernel(n) {
+    local values = []
+
+    for (local i = 0; i < n; i++) {
+        values.append(i % 251)
+    }
+
+    local sum = 0
+    for (local i = 0; i < n; i++) {
+        sum = (sum + values[i] * ((i % 7) + 1)) % 1000003
+    }
+    return sum + values.len() * 13
+}
+
+function array_write_kernel(n) {
+    local values = [0, 0, 0, 0, 0, 0, 0, 0]
+
+    for (local i = 0; i < n; i++) {
+        local slot = i % 8
+        values[slot] = (values[slot] + i * 5 + slot) % 1000003
+    }
+
+    local sum = 0
+    for (local i = 0; i < 8; i++) {
+        sum = (sum + values[i] * (i + 3)) % 1000003
+    }
+    return sum
+}
+
+function math_intrinsic_kernel(n) {
+    local total = 0.0
+
+    for (local i = 0; i < n; i++) {
+        local x = ((i % 97) + 1).tofloat()
+        total += sqrt(x) + sin(0.0) + cos(0.0)
+        total += fabs(-3.5) + floor(1.75) + ceil(1.25)
+        total += pow(1.0001, (i % 5).tofloat())
+    }
+
+    return total
+}
+
 function matrix_kernel(n) {
     local a = [
         [1.0, 0.5, -0.25],
@@ -206,6 +288,13 @@ function run_correctness() {
     check_eq(numeric_loop_kernel(400), 2500508, "numeric loop checksum")
     approx(vector_kernel(120), 0.021712612, 0.0005, "vector kernel checksum")
     check_eq(dynamic_member_kernel(160), 186190, "dynamic member checksum")
+    check_eq(dynamic_key_get_set_kernel(200), 470622, "dynamic key checksum")
+    check_eq(object_member_write_fallback_kernel(120), 82710,
+        "object member write fallback checksum")
+    check_eq(array_append_kernel(300), 134408, "array append checksum")
+    check_eq(array_write_kernel(300), 461837, "array write checksum")
+    approx(math_intrinsic_kernel(80), 1161.312988281, 0.0005,
+        "math intrinsic checksum")
     approx(matrix_kernel(200), -0.314673245, 0.0005, "matrix kernel checksum")
 }
 
@@ -226,6 +315,12 @@ if (has_arg("--bench")) {
     bench_one("numeric_loop", iterations * 20, numeric_loop_kernel)
     bench_one("vector", iterations, vector_kernel)
     bench_one("dynamic_member", iterations, dynamic_member_kernel)
+    bench_one("dynamic_key_get_set", iterations, dynamic_key_get_set_kernel)
+    bench_one("object_member_write_fallback", iterations,
+        object_member_write_fallback_kernel)
+    bench_one("array_append", iterations, array_append_kernel)
+    bench_one("array_write", iterations, array_write_kernel)
+    bench_one("math_intrinsic", iterations, math_intrinsic_kernel)
     bench_one("matrix", iterations, matrix_kernel)
 }
 else {

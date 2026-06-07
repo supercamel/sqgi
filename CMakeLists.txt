@@ -408,6 +408,9 @@ if(SQ_ENABLE_JIT AND CMAKE_SYSTEM_NAME STREQUAL "Linux" AND
     CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64|ARM64)$")
     add_sqgi_c_test(sqgi_test_cpp_sqjit_aarch64_emit test/cpp/test_sqjit_aarch64_emit.cpp)
     set_tests_properties(sqgi_test_cpp_sqjit_aarch64_emit PROPERTIES LABELS "jit")
+    add_sqgi_c_test(sqgi_test_cpp_sqjit_aarch64_backend_invalid
+        test/cpp/test_sqjit_aarch64_backend_invalid.cpp)
+    set_tests_properties(sqgi_test_cpp_sqjit_aarch64_backend_invalid PROPERTIES LABELS "jit")
 endif()
 
 # Cover the -e / dobuffer path (sqgi_vm_dobuffer)

@@ -464,6 +464,32 @@ class ArrayFieldCtorBox {
     }
 }
 
+class SimpleArrayFieldCtorBox {
+    values = null
+
+    constructor(x = 0.0, y = 0.0, z = 0.0) {
+        this.values = [x, y, z]
+    }
+}
+
+class SimpleScalarFieldCtorBox {
+    payload = null
+    label = ""
+
+    constructor(payload, label) {
+        this.payload = payload
+        this.label = label
+    }
+
+    function swap_with(other, label) {
+        local previous = this.payload
+        this.payload = other.payload
+        this.label = label
+        other.payload = previous
+        return this.payload[0] + other.payload[1]
+    }
+}
+
 function array_field_constructor_kernel(n) {
     local total = 0.0
     for (local i = 0; i < n; i++) {
@@ -489,6 +515,82 @@ function array_field_constructor_clone_kernel() {
 function array_field_constructor_null_kernel() {
     local values = ArrayFieldCtorBox(null)
     return values.values.len()
+}
+
+function simple_array_field_constructor_kernel(n) {
+    local total = 0.0
+    for (local i = 0; i < n; i++) {
+        local x = i.tofloat()
+        local values = SimpleArrayFieldCtorBox(x, x + 1.0, x + 2.0)
+        total += values.values[0] + values.values[1] + values.values[2]
+    }
+    return total
+}
+
+function scalar_field_object_constructor_kernel(n) {
+    local total = 0
+    for (local i = 0; i < n; i++) {
+        local box = SimpleScalarFieldCtorBox([i, i + 1, i + 2], "abc")
+        total += box.payload[0] + box.payload[2] + box.label.len()
+    }
+    return total
+}
+
+function object_member_write_method_kernel(n) {
+    local left = SimpleScalarFieldCtorBox([1, 2, 3], "left")
+    local right = SimpleScalarFieldCtorBox([4, 5, 6], "right")
+    local total = 0
+    for (local i = 0; i < n; i++) {
+        total += left.swap_with(right, "next")
+    }
+    return total + left.label.len() + right.payload[0]
+}
+
+function dynamic_stack_key_member_get_kernel(n) {
+    local keys = ["x", "y", "z"]
+    local state = {
+        x = 3,
+        y = 5,
+        z = 7
+    }
+    local total = 0
+    for (local i = 0; i < n; i++) {
+        local key = keys[i % 3]
+        total += state[key]
+    }
+    return total
+}
+
+function dynamic_stack_key_member_set_kernel(n) {
+    local keys = ["x", "y", "z"]
+    local state = {
+        x = 3,
+        y = 5,
+        z = 7
+    }
+    local total = 0
+    for (local i = 0; i < n; i++) {
+        local key = keys[i % 3]
+        state[key] = state[key] + i
+        total += state[key]
+    }
+    return total + state.x * 3 + state.y * 5 + state.z * 7
+}
+
+function literal_member_get_after_null_set_kernel(n) {
+    local state = {
+        active = null
+    }
+    local boxes = [
+        SimpleScalarFieldCtorBox([1, 2], "box")
+    ]
+    local total = 0
+    for (local i = 0; i < n; i++) {
+        state.active = boxes[0]
+        local box = state.active
+        total += box.payload[0]
+    }
+    return total
 }
 
 FullProtoRootTable <- {
@@ -611,6 +713,13 @@ function number_tofloat_call_kernel(n) {
     return total
 }
 
+function straight_number_conversion_member_kernel(a, b, c) {
+    local af = a.tofloat()
+    local bi = b.tointeger()
+    local ci = c.tointeger()
+    return af + bi.tofloat() * 0.5 + ci.tofloat() * 0.25
+}
+
 function array_compound_arith_kernel(values, n) {
     for (local i = 0; i < n; i++) {
         values[i % values.len()] *= 2.0
@@ -633,6 +742,60 @@ function math_native_call_kernel(n) {
         total += pow(2.0, 3.0) + floor(1.75) + ceil(1.25) + fabs(-3.5)
     }
     return total
+}
+
+class LifetimePayload {
+    id = 0
+    payload = null
+
+    constructor(id_) {
+        id = id_
+        payload = [id_ * 2, id_ * 3]
+    }
+
+    function bump(extra) {
+        payload[0] = payload[0] + extra
+        return payload[0] + payload[1] + id
+    }
+}
+
+function helper_object_lifetime_kernel(n) {
+    local values = [
+        LifetimePayload(1),
+        LifetimePayload(2),
+        LifetimePayload(3),
+        LifetimePayload(4)
+    ]
+    local holder = { current = values[0], other = values[1] }
+    local watched = []
+    foreach (v in values) watched.push(v.weakref())
+    local sum = 0
+
+    for (local i = 0; i < n; i++) {
+        local obj = LifetimePayload(100 + i)
+        local weak = obj.weakref()
+        watched.push(weak)
+        values[i % 4] = obj
+        holder.current = values[i % 4]
+        holder.other = obj
+        ::collectgarbage()
+
+        local alive = weak.ref()
+        if (alive == null) return -1
+        sum = (sum + alive.bump(i % 7) + holder.current.payload[1]) % 1000003
+    }
+
+    ::collectgarbage()
+    for (local i = 0; i < 4; i++) {
+        if (values[i].weakref().ref() == null) return -2
+        sum = (sum + values[i].bump(i + 1)) % 1000003
+    }
+    if (holder.current.weakref().ref() == null ||
+        holder.other.weakref().ref() == null) {
+        return -3
+    }
+    return sum + watched.len() * 17 + holder.current.id * 19 +
+        holder.other.id * 23
 }
 
 function loop_region_marker(x) {
@@ -922,6 +1085,18 @@ check(array_field_constructor_clone_kernel() == 31,
     "array-field constructor fast path clones array input")
 check(array_field_constructor_null_kernel() == 3,
     "array-field constructor fast path falls back for explicit null")
+approx(simple_array_field_constructor_kernel(20), 630.0, 0.0001,
+    "simple array-field constructor fast path")
+check(scalar_field_object_constructor_kernel(20) == 480,
+    "scalar-field object constructor fast path")
+check(object_member_write_method_kernel(20) == 128,
+    "object member write method fallback")
+check(dynamic_stack_key_member_get_kernel(12) == 60,
+    "dynamic stack-object member key fast path")
+check(dynamic_stack_key_member_set_kernel(6) == 214,
+    "dynamic stack-object member set fallback")
+check(literal_member_get_after_null_set_kernel(8) == 8,
+    "literal member get after null field mutation")
 check(inline_member_call_kernel(120) == 240,
     "loop inlined member accessor specialization")
 check(inline_conditional_call_kernel(20) == 42,
@@ -930,6 +1105,8 @@ approx(numeric_select_helper_kernel(20), 238.75, 0.0001,
     "numeric conditional-select helper specialization")
 approx(number_tofloat_call_kernel(20), 40.0, 0.0001,
     "loop numeric default delegate conversion specialization")
+approx(straight_number_conversion_member_kernel(3, 4.75, 7.5), 6.75, 0.0001,
+    "straight-line numeric default delegate conversion specialization")
 local compound_values = [1.0, 2.0]
 approx(array_compound_arith_kernel(compound_values, 4), 12.0, 0.0001,
     "loop compound array arithmetic specialization")
@@ -942,5 +1119,7 @@ approx(mixed_numeric_array_float_mul_kernel([1, 2.5, 3, 4.5], 2.0, 20),
     "loop mixed numeric array float multiply specialization")
 approx(math_native_call_kernel(20), 350.0, 0.0001,
     "loop native math call specialization")
+check(helper_object_lifetime_kernel(40) == 53041,
+    "helper-backed object lifetime/refcount stress")
 
 print("test_jit_correctness.nut passed\n")

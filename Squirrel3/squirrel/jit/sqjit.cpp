@@ -54,6 +54,7 @@ enum {
     SQ_JIT_DIAG_NAME_SIZE = 96,
     SQ_JIT_DIAG_SOURCE_SIZE = 160,
     SQ_JIT_GUARD_BACKOFF_THRESHOLD = 16,
+    SQ_JIT_DIRECT_GUARD_BACKOFF_WEIGHT = 4,
     SQ_JIT_GUARD_BACKOFF_INITIAL = 256,
     SQ_JIT_GUARD_BACKOFF_MAX = 65536,
     SQ_JIT_LOOP_GUARD_BACKOFF_THRESHOLD = 16,
@@ -93,6 +94,7 @@ struct SQJitDiagStats {
     SQInteger loop_backoffs;
     SQInteger loop_backoff_skips;
     SQInteger rejects;
+    SQInteger reject_categories[SQ_JIT_REJECT_COUNT];
     SQInteger nreasons;
     SQJitDiagReason reasons[SQ_JIT_DIAG_MAX_REASONS];
 };
@@ -159,6 +161,68 @@ static bool sqjit_diag_registered_atexit = false;
 static SQInteger sqjit_proto_runtime_tick = 0;
 static SQInteger sqjit_loop_runtime_tick = 0;
 static bool sqjit_last_reject_transient = false;
+
+static const char *sqjit_diag_reject_category_names[SQ_JIT_REJECT_COUNT] = {
+    "unknown",
+    "invalid-bytecode",
+    "opcode",
+    "loop",
+    "array",
+    "array-append",
+    "member",
+    "call",
+    "constructor",
+    "guard",
+    "write",
+    "other"
+};
+
+const char *sqjit_diag_reject_category_name(SQJitRejectCategory category)
+{
+    if(category < 0 || category >= SQ_JIT_REJECT_COUNT) {
+        return sqjit_diag_reject_category_names[SQ_JIT_REJECT_UNKNOWN];
+    }
+    return sqjit_diag_reject_category_names[category];
+}
+
+static SQJitRejectCategory sqjit_diag_classify_reject_reason(const char *reason)
+{
+    if(!reason) {
+        return SQ_JIT_REJECT_UNKNOWN;
+    }
+    if(strstr(reason, "invalid") || strstr(reason, "operand")) {
+        return SQ_JIT_REJECT_INVALID_BYTECODE;
+    }
+    if(strstr(reason, "append") || strstr(reason, "push")) {
+        return SQ_JIT_REJECT_ARRAY_APPEND;
+    }
+    if(strstr(reason, "loop")) {
+        return SQ_JIT_REJECT_LOOP;
+    }
+    if(strstr(reason, "array")) {
+        return SQ_JIT_REJECT_ARRAY;
+    }
+    if(strstr(reason, "member") || strstr(reason, "field")) {
+        return SQ_JIT_REJECT_MEMBER;
+    }
+    if(strstr(reason, "unsupported opcode")) {
+        return SQ_JIT_REJECT_OPCODE;
+    }
+    if(strstr(reason, "CALL") || strstr(reason, "call") ||
+        strstr(reason, "closure") || strstr(reason, "native")) {
+        return SQ_JIT_REJECT_CALL;
+    }
+    if(strstr(reason, "class") || strstr(reason, "constructor")) {
+        return SQ_JIT_REJECT_CONSTRUCTOR;
+    }
+    if(strstr(reason, "guard")) {
+        return SQ_JIT_REJECT_GUARD;
+    }
+    if(strstr(reason, "SET") || strstr(reason, "write")) {
+        return SQ_JIT_REJECT_WRITE;
+    }
+    return SQ_JIT_REJECT_OTHER;
+}
 
 static const SQChar *sqjit_diag_proto_name(SQFunctionProto *proto)
 {
@@ -338,6 +402,14 @@ static void sqjit_diag_dump_stats()
         (SQInt32)sqjit_diag_stats.proto_backoff_skips,
         (SQInt32)sqjit_diag_stats.loop_backoffs,
         (SQInt32)sqjit_diag_stats.loop_backoff_skips);
+    for(SQInteger n = 0; n < SQ_JIT_REJECT_COUNT; n++) {
+        if(sqjit_diag_stats.reject_categories[n] <= 0) {
+            continue;
+        }
+        scprintf(_SC("[sqjit:stats] reject category count=%d category=%s\n"),
+            (SQInt32)sqjit_diag_stats.reject_categories[n],
+            sqjit_diag_reject_category_name((SQJitRejectCategory)n));
+    }
     for(SQInteger n = 0; n < sqjit_diag_stats.nreasons; n++) {
         scprintf(_SC("[sqjit:stats] reject reason count=%d reason=%s\n"),
             (SQInt32)sqjit_diag_stats.reasons[n].count,
@@ -537,6 +609,8 @@ void sqjit_diag_record_reject(SQFunctionProto *proto, SQInteger ip, const char *
     if(!reason) {
         reason = "unknown";
     }
+    SQJitRejectCategory category = sqjit_diag_classify_reject_reason(reason);
+    sqjit_diag_stats.reject_categories[category]++;
     bool reason_recorded = false;
     for(SQInteger n = 0; n < sqjit_diag_stats.nreasons; n++) {
         if(strcmp(sqjit_diag_stats.reasons[n].reason, reason) == 0) {
@@ -595,12 +669,16 @@ static bool sqjit_proto_backoff_active(SQFunctionProto *proto, SQJitProto *jit)
     return true;
 }
 
-static void sqjit_proto_note_guard_fail(SQFunctionProto *proto, SQJitProto *jit)
+static void sqjit_proto_note_guard_fail(SQFunctionProto *proto, SQJitProto *jit,
+    SQInteger weight = 1)
 {
     if(!jit) {
         return;
     }
-    jit->_guard_fail_count++;
+    if(weight < 1) {
+        weight = 1;
+    }
+    jit->_guard_fail_count += weight;
     if(jit->_guard_fail_count < SQ_JIT_GUARD_BACKOFF_THRESHOLD) {
         return;
     }
@@ -6217,7 +6295,8 @@ bool sqjit_try_execute_closure(SQVM *v, SQClosure *closure, SQObjectPtr *stack, 
                 entry->direct_guard_failures++;
             }
         }
-        sqjit_proto_note_guard_fail(proto, proto->_jit);
+        sqjit_proto_note_guard_fail(proto, proto->_jit,
+            SQ_JIT_DIRECT_GUARD_BACKOFF_WEIGHT);
         return false;
     }
 
@@ -6239,7 +6318,8 @@ bool sqjit_try_execute_closure(SQVM *v, SQClosure *closure, SQObjectPtr *stack, 
             }
         }
         if(status == SQ_JIT_NATIVE_GUARD_FAILED) {
-            sqjit_proto_note_guard_fail(proto, proto->_jit);
+            sqjit_proto_note_guard_fail(proto, proto->_jit,
+                SQ_JIT_DIRECT_GUARD_BACKOFF_WEIGHT);
         }
         return false;
     }

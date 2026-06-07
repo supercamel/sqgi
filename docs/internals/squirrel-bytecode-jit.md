@@ -5,6 +5,9 @@ This document sketches an optional JIT compiler for the vendored Squirrel VM in
 the interpreter as the source of truth for semantics, error handling, debugging,
 and unsupported bytecode paths.
 
+For the current AArch64 cleanup checklist, benchmark gates, and pruning rules,
+see `docs/internals/jit-maintainability-todo.md`.
+
 ## Goals
 
 - Improve tight-loop Squirrel execution speed for arithmetic, locals, arrays,
@@ -53,10 +56,15 @@ Add a small optional JIT subsystem under `Squirrel3/squirrel/jit/`:
 Squirrel3/squirrel/jit/
   sqjit.h              public/internal JIT declarations
   sqjit.cpp            manager, policy, hotness counters
-  sqjit_ir.h           tiny baseline IR, optional after MVP
   sqjit_backend.h      backend interface
-  sqjit_backend_x64.*  first machine-code backend
-  sqjit_stubs.cpp      C-callable helper wrappers
+  sqjit_backend_aarch64.cpp
+                        AArch64 backend root and include-fragment owner
+  sqjit_backend_aarch64_private.h
+                        private backend constants and small state structs
+  sqjit_backend_aarch64_*.inc
+                        AArch64 helper, whole-proto, and loop compiler fragments
+  sqjit_backend_aarch64_emit.*
+                        AArch64 instruction encoder helpers
 ```
 
 Build controls:
@@ -66,6 +74,7 @@ SQ_ENABLE_JIT=ON/OFF          CMake option, default OFF
 SQGI_JIT=0/1                  runtime env toggle
 SQGI_JIT_THRESHOLD=N          hot-call threshold
 SQGI_JIT_TRACE=0/1            logging for compile/fallback decisions
+SQGI_JIT_TRACE=stats          aggregate counters and rejection summary at exit
 ```
 
 When JIT is disabled, the build should compile no executable-code allocator and
@@ -375,8 +384,13 @@ Expose optionally through:
 
 ```text
 SQGI_JIT_TRACE=1
-sqgi --jit-stats script.nut
+SQGI_JIT_TRACE=stats
+tools/run_jit_reject_summary.py script.nut
 ```
+
+Stats output includes stable reject-category rows from `SQJitRejectCategory`.
+Detailed rejection strings remain useful for humans, but tests and tools should
+prefer the category rows.
 
 ## Benchmark Plan
 

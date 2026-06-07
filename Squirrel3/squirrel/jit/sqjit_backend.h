@@ -36,6 +36,22 @@ enum SQJitNativeReturnShape {
     SQ_JIT_NATIVE_RETURN_ARRAY_FIELD_INSTANCE = 1
 };
 
+enum SQJitRejectCategory {
+    SQ_JIT_REJECT_UNKNOWN = 0,
+    SQ_JIT_REJECT_INVALID_BYTECODE,
+    SQ_JIT_REJECT_OPCODE,
+    SQ_JIT_REJECT_LOOP,
+    SQ_JIT_REJECT_ARRAY,
+    SQ_JIT_REJECT_ARRAY_APPEND,
+    SQ_JIT_REJECT_MEMBER,
+    SQ_JIT_REJECT_CALL,
+    SQ_JIT_REJECT_CONSTRUCTOR,
+    SQ_JIT_REJECT_GUARD,
+    SQ_JIT_REJECT_WRITE,
+    SQ_JIT_REJECT_OTHER,
+    SQ_JIT_REJECT_COUNT
+};
+
 enum {
     SQ_JIT_NATIVE_MAX_SETTERS = 4
 };
@@ -70,6 +86,7 @@ bool sqjit_backend_loop_find_region(SQFunctionProto *proto, SQInteger header_ip,
 bool sqjit_backend_compile_loop(SQFunctionProto *proto, SQObjectPtr *entry_stack,
     SQClosure *closure, SQInteger start_ip, SQInteger header_ip,
     SQInteger end_ip, SQInteger exit_ip, SQJitProto *jit);
+const char *sqjit_diag_reject_category_name(SQJitRejectCategory category);
 bool sqjit_diag_trace_enabled();
 void sqjit_diag_record_reject(SQFunctionProto *proto, SQInteger ip, const char *reason);
 void sqjit_diag_mark_transient_reject();
