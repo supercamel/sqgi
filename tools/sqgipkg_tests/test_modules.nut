@@ -36,6 +36,12 @@ check("core deb arch alias", core.deb_arch_for_appimage_arch("x86_64") == "amd64
 check("core array_join", core.array_join(["a"], ["b"])[1] == "b")
 check("core sanitize_id", core.sanitize_id("My App!") == "my-app")
 check("core package_basename keeps printable names", core.package_basename("My/App") == "My-App")
+check("core relative_dest passes clean paths", core.relative_dest("usr/share/sqgi/app/main.nut") == "usr/share/sqgi/app/main.nut")
+check("core relative_dest collapses parent segments", core.relative_dest("usr/share/sqgi/app/test/../src/rfd/parser.nut") == "usr/share/sqgi/app/src/rfd/parser.nut")
+check("core relative_dest collapses current segments", core.relative_dest("usr/share/sqgi/app/./src/util.nut") == "usr/share/sqgi/app/src/util.nut")
+expect_error("core relative_dest rejects root escape", function() {
+    core.relative_dest("usr/../../etc/passwd")
+}, "escapes package root")
 check("core shell export expands in same command", core.run_shell_output(core.shell_export("SQGIPKG_TEST_VAR", "ok") + "printf '%s' \"$SQGIPKG_TEST_VAR\"") == "ok")
 local module_host_arch = core.normalize_appimage_arch(core.machine_arch())
 local shell_arch = core.elf_appimage_arch("/bin/sh")

@@ -418,19 +418,37 @@ class SqgiPkgCore {
         if (dest.len() == 0) this.fail("empty destination in include spec")
         if (GLib.path_is_absolute(dest)) this.fail("include destination must be relative: " + dest)
 
+        // Collapse "." and ".." segments so destinations derived from valid
+        // file-relative imports (e.g. "src/ui/../util.nut") resolve to the same
+        // location the runtime importer would use, instead of being rejected
+        // outright. A ".." that would climb above the package root is still an
+        // error, since that escapes the staging directory.
+        local parts = []
         local part = ""
         for (local i = 0; i <= dest.len(); i++) {
             local end = i == dest.len()
             local ch = end ? "/" : dest.slice(i, i + 1)
             if (ch == "/") {
-                if (part == "..") this.fail("include destination cannot contain '..': " + dest)
+                if (part == "" || part == ".") {
+                    // Drop empty and current-directory segments.
+                } else if (part == "..") {
+                    if (parts.len() == 0)
+                        this.fail("include destination escapes package root: " + dest)
+                    parts.pop()
+                } else {
+                    parts.push(part)
+                }
                 part = ""
             } else {
                 part += ch
             }
         }
 
-        return dest
+        if (parts.len() == 0) this.fail("include destination resolves to package root: " + dest)
+
+        local normalized = parts[0]
+        for (local i = 1; i < parts.len(); i++) normalized += "/" + parts[i]
+        return normalized
     }
 
     function shell_has_matches(pattern) {
