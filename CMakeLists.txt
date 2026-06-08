@@ -282,6 +282,7 @@ set_tests_properties(sqgi_test_json_fuzz PROPERTIES TIMEOUT 600 LABELS "slow;fuz
 add_sqgi_nut_test(sqgi_test_gvariant_classes            test_gvariant_classes.nut)
 add_sqgi_nut_test(sqgi_test_subclass_errors             test_subclass_errors.nut)
 add_sqgi_nut_test(sqgi_test_signals_extended            test_signals_extended.nut)
+add_sqgi_nut_test(sqgi_test_signal_async_connect        test_signal_async_connect.nut)
 add_sqgi_nut_test(sqgi_test_edge_cases                  test_edge_cases.nut)
 add_sqgi_nut_test(sqgi_test_coverage_extras             test_coverage_extras.nut)
 add_sqgi_nut_test(sqgi_test_gvalue_types                test_gvalue_types.nut)

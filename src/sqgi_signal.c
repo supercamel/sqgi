@@ -1,5 +1,6 @@
 #include "sqgi_signal.h"
 #include "sqgi_marshal.h"
+#include "sqgi_vm.h"
 
 #include <string.h>
 
@@ -209,14 +210,17 @@ gulong sqgi_signal_connect(HSQUIRRELVM v, GObject *obj, const char *signal,
     if (handler_idx < 0) handler_idx = sq_gettop(v) + handler_idx + 1;
 
     SqgiClosureData *data = g_new0(SqgiClosureData, 1);
-    data->v = v;
+    /* A signal connection can be created from an async coroutine VM thread.
+     * Persist the long-lived root VM so later emit/disconnect cannot touch a
+     * coroutine pointer that was freed after async completion. */
+    data->v = sqgi_root_vm(v);
     /* Capture the VM's owning thread + its thread-default main context so
      * signal callbacks dispatched from worker threads are routed back here. */
     data->vm_thread  = g_thread_self();
     data->vm_context = g_main_context_ref_thread_default();
     sq_resetobject(&data->handler);
     sq_getstackobj(v, handler_idx, &data->handler);
-    sq_addref(v, &data->handler);
+    sq_addref(data->v, &data->handler);
 
     GClosure *closure = g_closure_new_simple(sizeof(GClosure), data);
     g_closure_ref(closure);
