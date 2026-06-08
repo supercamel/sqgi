@@ -56,10 +56,11 @@ class SqgiPkgWindowsNsis extends Base.SqgiPkgWindowsStaging {
         return icon_abs
     }
 
-    function nsis_shortcut_target(opts, package_name) {
-        if (!this.windows_console_enabled(opts)) {
-            if (opts.entry_type == "sqgi")
-                return GLib.build_filenamev(["bin", "sqgi.exe"])
+    function nsis_shortcut_target(opts, package_name, windir) {
+        if (this.windows_gui_enabled(opts)) {
+            local exe = this.windows_exe_launcher_name(opts, package_name)
+            if (this.path_exists(GLib.build_filenamev([windir, exe])))
+                return exe
         }
         return this.windows_primary_launcher_name(opts, package_name)
     }
@@ -78,7 +79,7 @@ class SqgiPkgWindowsNsis extends Base.SqgiPkgWindowsStaging {
         local script = GLib.build_filenamev([opts.output_dir, package_name + ".nsi"])
         local installer = this.nsis_installer_name(opts, package_name)
         local source_glob = package_name + "/*"
-        local launcher = this.nsis_shortcut_target(opts, package_name)
+        local launcher = this.nsis_shortcut_target(opts, package_name, windir)
         local install_dir = this.nsis_install_dir(opts, package_name)
         local level = this.nsis_validate_execution_level(opts.windows.nsis_request_execution_level)
         local start_menu_folder = this.nsis_start_menu_folder(opts)
