@@ -814,21 +814,24 @@ check("windows materializes symlinks before NSIS",
     win_launcher.read_file(win_symlink_link) == "target")
 system("rm -rf " + win_launcher.shell_quote(win_launcher_dir))
 
-local nsis = Nsis.SqgiPkgWindowsNsis()
-check("nsis escape quotes", nsis.nsis_escape("a\"b") == "a$\\\"b")
-check("nsis keep vars", nsis.nsis_escape_keep_vars("$LOCALAPPDATA\\App") == "$LOCALAPPDATA\\App")
-local nsis_gui_script_opts = nsis.new_options()
-nsis_gui_script_opts.entry_type = "sqgi"
-nsis_gui_script_opts.windows.console = false
-check("nsis GUI script shortcuts target sqgi runtime",
-    nsis.nsis_shortcut_target(nsis_gui_script_opts, "WinSqurl") ==
-    GLib.build_filenamev(["bin", "sqgi.exe"]))
-local nsis_gui_native_opts = nsis.new_options()
-nsis_gui_native_opts.entry_type = "native"
-nsis_gui_native_opts.entry_windows = "/tmp/native-entry.exe"
-nsis_gui_native_opts.windows.console = false
-check("nsis GUI native shortcuts target env launcher",
-    nsis.nsis_shortcut_target(nsis_gui_native_opts, "WinNative") == "WinNative.bat")
+	local nsis = Nsis.SqgiPkgWindowsNsis()
+	check("nsis escape quotes", nsis.nsis_escape("a\"b") == "a$\\\"b")
+	check("nsis keep vars", nsis.nsis_escape_keep_vars("$LOCALAPPDATA\\App") == "$LOCALAPPDATA\\App")
+	local nsis_shortcut_dir = GLib.build_filenamev([GLib.get_tmp_dir(), "sqgipkg-nsis-shortcut-" + GLib.get_monotonic_time()])
+	nsis.mkdir_p(nsis_shortcut_dir)
+	local nsis_gui_script_opts = nsis.new_options()
+	nsis_gui_script_opts.entry_type = "sqgi"
+	nsis_gui_script_opts.windows.console = false
+	nsis.write_file(GLib.build_filenamev([nsis_shortcut_dir, "WinSqurl.exe"]), "launcher")
+	check("nsis GUI script shortcuts target GUI launcher",
+	    nsis.nsis_shortcut_target(nsis_gui_script_opts, "WinSqurl", nsis_shortcut_dir) == "WinSqurl.exe")
+	local nsis_gui_native_opts = nsis.new_options()
+	nsis_gui_native_opts.entry_type = "native"
+	nsis_gui_native_opts.entry_windows = "/tmp/native-entry.exe"
+	nsis_gui_native_opts.windows.console = false
+	check("nsis GUI native shortcuts target env launcher",
+	    nsis.nsis_shortcut_target(nsis_gui_native_opts, "WinNative", nsis_shortcut_dir) == "WinNative.bat")
+	system("rm -rf " + nsis.shell_quote(nsis_shortcut_dir))
 }
 
 run_late_packaging_module_tests(build, linux, host_arch, cross_arch)
