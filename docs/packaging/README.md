@@ -17,6 +17,7 @@ tree when you need the complete field reference.
 6. [Package Vala modules and native entry apps](06-vala-and-native-entry.md)
 7. [Package GTK themes and application settings](07-gtk-theming.md)
 8. [Build AppImages, Windows installers, and architecture matrices](08-targets-and-cross-builds.md)
+9. [Build release artifacts with GitHub Actions](09-github-actions-release.md)
 
 ## What sqgipkg Produces
 

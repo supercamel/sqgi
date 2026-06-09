@@ -6,7 +6,7 @@ the interpreter as the source of truth for semantics, error handling, debugging,
 and unsupported bytecode paths.
 
 For the current AArch64 cleanup checklist, benchmark gates, and pruning rules,
-see `docs/internals/jit-maintainability-todo.md`.
+see `jit-maintainability-todo.md`.
 
 ## Goals
 
