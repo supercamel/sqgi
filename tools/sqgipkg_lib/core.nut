@@ -1,5 +1,6 @@
 local GLib = import("GLib")
 local Gio = import("Gio")
+local Soup = import("Soup")
 
 class SqgiPkgCore {
     function fail(message) {
@@ -236,28 +237,96 @@ class SqgiPkgCore {
             this.appimagetool_asset_arch() + ".AppImage"
     }
 
-    function downloader_command(url, dest) {
+    function download_timeout_seconds() {
+        local value = GLib.getenv("SQGIPKG_DOWNLOAD_TIMEOUT")
+        if (value == null || value == "") return 300
+
+        try {
+            local seconds = value.tointeger()
+            if (seconds >= 0) return seconds
+        } catch (e) {}
+
+        this.fail("SQGIPKG_DOWNLOAD_TIMEOUT must be a non-negative integer")
+    }
+
+    function http_status_is_success(status) {
+        return status >= 200 && status < 300
+    }
+
+    function copy_file(source, dest) {
+        local in_file = Gio.File.new_for_path(source)
+        local out_file = Gio.File.new_for_path(dest)
+        in_file.copy(out_file, Gio.FileCopyFlags.overwrite, null, null)
+        return 0
+    }
+
+    function download_url_to_file(url, dest) {
         if (this.starts_with(url, "file://"))
-            return "cp " + this.shell_quote(url.slice(7)) + " " + this.shell_quote(dest)
-        if (this.executable_available("curl"))
-            return "curl -L --fail --show-error --output " + this.shell_quote(dest) + " " + this.shell_quote(url)
-        if (this.executable_available("wget"))
-            return "wget -O " + this.shell_quote(dest) + " " + this.shell_quote(url)
-        this.fail("cannot download URL: install curl or wget")
+            return this.copy_file(url.slice(7), dest)
+
+        local session = Soup.Session.new()
+        session.timeout = this.download_timeout_seconds()
+        session.user_agent = "sqgipkg"
+
+        local message = Soup.Message.new("GET", url)
+        local in_stream = session.send(message, null)
+        local status = message.get_status()
+        if (!this.http_status_is_success(status)) {
+            try { in_stream.close(null) } catch (_) {}
+            throw "HTTP status " + status + " while downloading " + url
+        }
+
+        local out_file = Gio.File.new_for_path(dest)
+        local out_stream = out_file.replace(null, false, Gio.FileCreateFlags.none, null)
+        local total = 0
+        local CHUNK_SIZE = 65536
+
+        try {
+            while (true) {
+                local chunk = in_stream.read_bytes(CHUNK_SIZE, null)
+                local n = chunk.get_size()
+                if (n == 0) break
+                out_stream.write(chunk.get_data(), null)
+                total += n
+            }
+        } catch (e) {
+            try { in_stream.close(null) } catch (_) {}
+            try { out_stream.close(null) } catch (_) {}
+            throw e
+        }
+
+        in_stream.close(null)
+        out_stream.close(null)
+        return total
+    }
+
+    function download_file(url, dest, description, force = false) {
+        if (force && this.path_exists(dest)) remove(dest)
+        if (this.path_exists(dest)) return
+
+        this.mkdir_p(this.dirname(dest))
+        local tmp = dest + ".download"
+        if (this.path_exists(tmp)) remove(tmp)
+
+        try {
+            this.download_url_to_file(url, tmp)
+        } catch (e) {
+            if (this.path_exists(tmp)) remove(tmp)
+            this.fail(description + " failed: " + e)
+        }
+
+        if (this.path_exists(dest)) remove(dest)
+        rename(tmp, dest)
     }
 
     function download_latest_appimagetool(cache_dir) {
         this.mkdir_p(cache_dir)
 
         local tool = GLib.build_filenamev([cache_dir, "appimagetool-" + this.appimagetool_asset_arch() + ".AppImage"])
-        local tmp = tool + ".download"
         local url = this.appimagetool_download_url()
 
         this.info("downloading latest appimagetool")
-        this.run_shell(this.downloader_command(url, tmp), "downloading appimagetool")
-        this.chmod_exec(tmp)
-        if (this.path_exists(tool)) remove(tool)
-        rename(tmp, tool)
+        this.download_file(url, tool, "downloading appimagetool", true)
         this.chmod_exec(tool)
 
         return tool

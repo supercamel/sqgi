@@ -903,6 +903,9 @@ Path to `appimagetool`.
 If not found, `sqgipkg` downloads the latest continuous AppImageTool build for
 the host architecture. This is the architecture of the tool that runs on the
 build machine, not necessarily the architecture of the AppImage being produced.
+Downloads are performed in-process with libsoup. Set
+`SQGIPKG_DOWNLOAD_TIMEOUT` to a non-negative number of seconds to adjust the
+network timeout; the default is `300`, and `0` disables the timeout.
 
 #### `appimage_arch`
 

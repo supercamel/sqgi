@@ -193,7 +193,7 @@ class SqgiPkgDoctor extends Base.SqgiPkgTemplates {
                 warnings.push("libsqgi.so.0 not found in build_dir yet: " + opts.build_dir)
         }
         if (this.executable_path(opts.appimagetool) == null)
-            warnings.push("appimagetool not found in PATH; build will download it if curl or wget is available")
+            warnings.push("appimagetool not found in PATH; build will download it with libsoup")
 
         foreach (warning in warnings)
             print("WARN: " + warning + "\n")

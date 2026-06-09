@@ -617,8 +617,13 @@ class SqgiPkgLinuxDeps extends Base.SqgiPkgStaging {
             if (this.path_exists(decompressed)) remove(decompressed)
 
             local url = this.linux_repo_target_url(target, format.suffix)
-            local download_status = system(this.downloader_command(url, compressed) + " >/dev/null 2>&1")
-            if (download_status != 0 || !this.path_exists(compressed)) continue
+            try {
+                this.download_url_to_file(url, compressed)
+            } catch (e) {
+                if (this.path_exists(compressed)) remove(compressed)
+                continue
+            }
+            if (!this.path_exists(compressed)) continue
 
             local command = format.tool + " -dc " + this.shell_quote(compressed) +
                 " > " + this.shell_quote(decompressed)
@@ -1146,12 +1151,8 @@ class SqgiPkgLinuxDeps extends Base.SqgiPkgStaging {
         if (!this.path_exists(archive)) {
             this.info("downloading Linux package " + package_name)
             if (metadata.download_url != null) {
-                local tmp = archive + ".download"
-                if (this.path_exists(tmp)) remove(tmp)
-                this.run_shell(this.downloader_command(metadata.download_url, tmp),
-                    "downloading Linux package " + package_name)
-                if (this.path_exists(archive)) remove(archive)
-                rename(tmp, archive)
+                this.download_file(metadata.download_url, archive,
+                    "downloading Linux package " + package_name, true)
             } else {
                 this.run_shell_in_dir("apt-get download " + this.shell_quote(metadata.download_package), cache_dir,
                     "downloading Linux package " + package_name)

@@ -37,17 +37,6 @@ class SqgiPkgWindowsMsys2 extends Base.SqgiPkgWindowsEnv {
             : opts.windows.package_cache
     }
 
-    function download_file(url, dest, description, force = false) {
-        if (force && this.path_exists(dest)) remove(dest)
-        if (this.path_exists(dest)) return
-        this.mkdir_p(this.dirname(dest))
-        local tmp = dest + ".download"
-        if (this.path_exists(tmp)) remove(tmp)
-        this.info("downloading " + url)
-        this.run_shell(this.downloader_command(url, tmp), description)
-        rename(tmp, dest)
-    }
-
     function read_pacman_desc(path) {
         local out = {}
         local key = null
