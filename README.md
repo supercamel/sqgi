@@ -20,6 +20,8 @@ native code:
 SQGI's goal is simple: **keep scripting pleasant while staying close to the
 native platform.**
 
+Join the community on Discord: https://discord.gg/ypd9THyv87
+
 ## Why SQGI?
 
 Native application development has a gap.
