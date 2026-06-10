@@ -22,7 +22,7 @@ native platform.**
 
 Read the docs: https://sqgi.readthedocs.io/en/latest/
 
-Join the community on Discord: https://discord.gg/ypd9THyv87
+Join the community on Discord: https://discord.gg/krVe8U9wGm
 
 ## Why SQGI?
 
