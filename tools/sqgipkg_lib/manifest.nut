@@ -172,6 +172,8 @@ class SqgiPkgManifest extends Base.SqgiPkgOptions {
         local build = this.table_get(linux, "build")
         local sysroot = this.table_get(linux, "sysroot")
         local deb = this.table_get(linux, "deb")
+        local suite = this.table_get(linux, "deb_suite")
+        if (suite == null) suite = this.table_get(linux, "suite")
         local package_cache = this.table_get(linux, "deb_package_cache")
         if (package_cache == null) package_cache = this.table_get(linux, "package_cache")
         local sysroot_cache = this.table_get(linux, "deb_sysroot_cache")
@@ -192,6 +194,7 @@ class SqgiPkgManifest extends Base.SqgiPkgOptions {
             if (sysroot_cache == null) sysroot_cache = this.table_get(deb, "sysroot_cache")
             if (download_packages == null) download_packages = this.table_get(deb, "download")
             if (refresh_packages == null) refresh_packages = this.table_get(deb, "refresh")
+            if (suite == null) suite = this.table_get(deb, "suite")
             this.append_values(opts.linux.deb.packages, this.manifest_string_list(this.table_get(deb, "packages")))
         }
 
@@ -204,6 +207,8 @@ class SqgiPkgManifest extends Base.SqgiPkgOptions {
             opts.linux.deb.sysroot_cache = this.manifest_path(base_dir, sysroot_cache)
         if (download_packages != null && opts.linux.deb.download_forced == null)
             opts.linux.deb.download = download_packages
+        if (suite != null && !opts.linux.deb.suite_forced && opts.linux.deb.suite == "")
+            opts.linux.deb.suite = suite
         if (!opts.linux.deb.refresh && refresh_packages != null)
             opts.linux.deb.refresh = refresh_packages
         if (copy_dependencies != null) opts.linux.copy_dependencies = copy_dependencies
@@ -546,6 +551,8 @@ class SqgiPkgManifest extends Base.SqgiPkgOptions {
         local entry_linux = this.table_get(item, "entry_linux")
         local copy_dependencies = this.table_get(item, "copy_dependencies")
         local deb = this.table_get(item, "deb")
+        local suite = this.table_get(item, "deb_suite")
+        if (suite == null) suite = this.table_get(item, "suite")
         local download_packages = this.table_get(item, "deb_download")
         if (download_packages == null) download_packages = this.table_get(item, "download_packages")
         local refresh_packages = this.table_get(item, "deb_refresh")
@@ -562,6 +569,7 @@ class SqgiPkgManifest extends Base.SqgiPkgOptions {
             if (refresh_packages == null) refresh_packages = this.table_get(deb, "refresh")
             if (package_cache == null) package_cache = this.table_get(deb, "package_cache")
             if (sysroot_cache == null) sysroot_cache = this.table_get(deb, "sysroot_cache")
+            if (suite == null) suite = this.table_get(deb, "suite")
             if (packages == null) packages = this.table_get(deb, "packages")
         }
         local package_arch = this.table_get(item, "package_arch")
@@ -576,6 +584,7 @@ class SqgiPkgManifest extends Base.SqgiPkgOptions {
             sysroot = sysroot == null ? "" : this.manifest_path(base_dir, sysroot),
             deb_package_cache = package_cache == null ? "" : this.manifest_path(base_dir, package_cache),
             deb_sysroot_cache = sysroot_cache == null ? "" : this.manifest_path(base_dir, sysroot_cache),
+            deb_suite = suite == null ? "" : suite,
             deb_download = download_packages == null ? null : download_packages,
             deb_refresh = refresh_packages == null ? null : refresh_packages,
             entry_linux = entry_linux == null ? "" : this.manifest_path(base_dir, entry_linux),

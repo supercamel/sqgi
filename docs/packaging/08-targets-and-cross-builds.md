@@ -90,6 +90,75 @@ manifest:
 }
 ```
 
+## Ubuntu Suite Selection
+
+When `linux.deb.download` is enabled, `sqgipkg` downloads packages from an
+Ubuntu suite. A suite is the Ubuntu codename, not the numeric version: use
+`noble` for Ubuntu 24.04, `jammy` for Ubuntu 22.04, and so on.
+
+By default, private Debian/Ubuntu sysroots use the host Ubuntu suite. Pin a
+shared suite for all Linux architectures with `linux.deb.suite`:
+
+```json
+{
+  "linux": {
+    "deb": {
+      "download": true,
+      "suite": "noble",
+      "packages": [
+        "libgtk-4-1",
+        "gir1.2-gtk-4.0"
+      ]
+    }
+  }
+}
+```
+
+Override it per architecture with `linux.arches[].deb.suite`:
+
+```json
+{
+  "linux": {
+    "arches": [
+      {
+        "arch": "x86_64",
+        "deb": {
+          "download": true,
+          "suite": "noble",
+          "packages": ["libgtk-4-1"]
+        }
+      },
+      {
+        "arch": "aarch64",
+        "deb": {
+          "download": true,
+          "suite": "noble",
+          "packages": ["libgtk-4-1"]
+        }
+      }
+    ]
+  }
+}
+```
+
+Force a suite for one build from the command line:
+
+```sh
+sqgipkg --target linux-sysroot --appimage-arch aarch64 \
+  --linux-deb-download --linux-deb-suite noble
+```
+
+`--linux-deb-suite` overrides manifest suite settings for every Linux
+architecture in that invocation. Leave it out when a manifest intentionally
+mixes suites per architecture. The selected suite is part of the generated
+repository-index and sysroot cache keys, so changing it creates a separate
+private sysroot instead of silently reusing packages from another Ubuntu
+release.
+
+This option selects the Debian/Ubuntu package source for the Linux sysroot. It
+does not change the host runner, host build tools, cross compiler, or Windows
+MSYS2 packages.
+
 When a target is not the host architecture, `sqgipkg` writes generated cross
 files under the target output directory and exports paths such as:
 

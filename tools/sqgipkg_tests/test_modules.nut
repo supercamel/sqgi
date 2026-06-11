@@ -68,6 +68,14 @@ class FakeCleanOptions {
 }
 options.apply_option_dict(clean_cli_opts, FakeCleanOptions())
 check("options clean flag", clean_cli_opts.clean)
+local suite_cli_opts = options.new_options()
+class FakeSuiteOptions {
+    function lookup_value(name, expected_type) {
+        return name == "linux-deb-suite" ? "resolute" : null
+    }
+}
+options.apply_option_dict(suite_cli_opts, FakeSuiteOptions())
+check("options linux deb suite", suite_cli_opts.linux.deb.suite == "resolute" && suite_cli_opts.linux.deb.suite_forced)
 
 local manifest = Manifest.SqgiPkgManifest()
 check("manifest string list scalar", manifest.manifest_string_list("gtk4")[0] == "gtk4")
@@ -79,6 +87,7 @@ local arch_config = manifest.manifest_linux_arch("/tmp/project", {
     meson_cross_file = "cross/aarch64.ini",
     deb = {
         download = true,
+        suite = "resolute",
         package_cache = ".cache/debs",
         sysroot_cache = ".cache/sysroots",
         packages = ["zlib1g"]
@@ -98,9 +107,18 @@ check("manifest linux arch meson cross path", arch_config.meson_cross_file == "/
 check("manifest linux arch deb download flag", arch_config.deb_download == true)
 check("manifest linux arch deb package cache path", arch_config.deb_package_cache == "/tmp/project/.cache/debs")
 check("manifest linux arch deb sysroot cache path", arch_config.deb_sysroot_cache == "/tmp/project/.cache/sysroots")
+check("manifest linux arch deb suite", arch_config.deb_suite == "resolute")
 check("manifest linux arch deb packages", arch_config.deb_packages[0] == "zlib1g")
 check("manifest linux arch native inheritance flag", arch_config.inherit_native_projects == false)
 check("manifest linux arch native project paths", arch_config.native_projects[0].libraries[0] == "/tmp/project/native/build/libdemo.so")
+local suite_manifest_opts = manifest.new_options()
+manifest.apply_linux_manifest(suite_manifest_opts, "/tmp/project", { deb = { suite = "resolute" } })
+check("manifest linux deb suite", suite_manifest_opts.linux.deb.suite == "resolute")
+local forced_suite_manifest_opts = manifest.new_options()
+forced_suite_manifest_opts.linux.deb.suite = "jammy"
+forced_suite_manifest_opts.linux.deb.suite_forced = true
+manifest.apply_linux_manifest(forced_suite_manifest_opts, "/tmp/project", { deb = { suite = "resolute" } })
+check("manifest keeps forced linux deb suite", forced_suite_manifest_opts.linux.deb.suite == "jammy")
 local forced_download_opts = manifest.new_options()
 forced_download_opts.linux.deb.download = false
 forced_download_opts.linux.deb.download_forced = false
@@ -241,6 +259,14 @@ check("linux repo targets use archive for amd64", repo_targets.len() == 16 && re
 repo_target_opts.appimage_arch = "aarch64"
 repo_targets = linux.linux_deb_repo_targets(repo_target_opts)
 check("linux repo targets use ports for arm64", repo_targets.len() == 16 && repo_targets[0].uri == "http://ports.ubuntu.com/ubuntu-ports")
+local suite_repo_target_opts = linux.new_options()
+suite_repo_target_opts.appimage_arch = "x86_64"
+suite_repo_target_opts.linux.deb.suite = "resolute"
+local suite_repo_targets = linux.linux_deb_repo_targets(suite_repo_target_opts)
+check("linux repo targets honor configured suite",
+    suite_repo_targets.len() == 16 && suite_repo_targets[0].suite == "resolute-updates")
+check("linux sysroot cache key honors configured suite",
+    linux.linux_sysroot_cache_key(suite_repo_target_opts).find("resolute") != null)
 local repo_fixture_dir = GLib.build_filenamev([GLib.get_tmp_dir(), "sqgipkg-repo-fixture-" + GLib.get_monotonic_time()])
 linux.mkdir_p(repo_fixture_dir)
 local repo_fixture = GLib.build_filenamev([repo_fixture_dir, "Packages"])
@@ -266,6 +292,37 @@ local deb_file = GLib.build_filenamev([deb_cache, "x11proto-dev_2023.2-1_all.deb
 system("rm -rf " + linux.shell_quote(deb_cache) + " && mkdir -p " + linux.shell_quote(deb_cache) + " && touch " + linux.shell_quote(deb_file))
 check("linux deb cache accepts arch all package", linux.linux_find_cached_deb(deb_cache, "x11proto-dev:arm64", "arm64", "missing.deb") == deb_file)
 system("rm -rf " + linux.shell_quote(deb_cache))
+class FakeLinuxDownload extends Linux.SqgiPkgLinuxDeps {
+    fresh_archive = ""
+
+    function linux_deb_archive_metadata(opts, package_name) {
+        return {
+            package_name = "demo",
+            version = "1",
+            architecture = "amd64",
+            filename = "pool/main/d/demo/demo_1_amd64.deb",
+            repo_uri = "file:///tmp",
+            basename = "demo_1_amd64.deb",
+            download_package = package_name,
+            download_url = "file://" + fresh_archive
+        }
+    }
+}
+local fake_download = FakeLinuxDownload()
+local fake_download_cache = GLib.build_filenamev([GLib.get_tmp_dir(), "sqgipkg-fake-download-cache-" + GLib.get_monotonic_time()])
+local fake_download_source = GLib.build_filenamev([GLib.get_tmp_dir(), "sqgipkg-fake-download-source-" + GLib.get_monotonic_time() + ".deb"])
+fake_download.mkdir_p(GLib.build_filenamev([fake_download_cache, "amd64"]))
+fake_download.write_file(GLib.build_filenamev([fake_download_cache, "amd64", "demo_0_amd64.deb"]), "stale\n")
+fake_download.write_file(fake_download_source, "fresh\n")
+fake_download.fresh_archive = fake_download_source
+local fake_download_opts = fake_download.new_options()
+fake_download_opts.appimage_arch = "x86_64"
+fake_download_opts.linux.deb.package_cache = fake_download_cache
+local fake_downloaded = fake_download.linux_download_deb(fake_download_opts, "demo:amd64")
+check("linux deb download uses exact metadata archive",
+    fake_download.basename(fake_downloaded) == "demo_1_amd64.deb" &&
+    fake_download.read_file(fake_downloaded) == "fresh\n")
+system("rm -rf " + fake_download.shell_quote(fake_download_cache) + " " + fake_download.shell_quote(fake_download_source))
 local sysroot_opts = linux.new_options()
 sysroot_opts.output_dir = "relative-linux-out"
 local generated_sysroot = linux.linux_download_sysroot_root(sysroot_opts)
@@ -277,6 +334,57 @@ check("linux generated sysroot honors custom cache", linux.starts_with(linux.lin
 local explicit_sysroot_opts = linux.new_options()
 explicit_sysroot_opts.linux.sysroot = GLib.build_filenamev([GLib.get_tmp_dir(), "sqgipkg-explicit-sysroot"])
 check("linux explicit sysroot bypasses cache", linux.linux_download_sysroot_root(explicit_sysroot_opts) == explicit_sysroot_opts.linux.sysroot)
+local usrmerge_sysroot = GLib.build_filenamev([GLib.get_tmp_dir(), "sqgipkg-usrmerge-sysroot-" + GLib.get_monotonic_time()])
+local usrmerge_legacy_lib = GLib.build_filenamev([usrmerge_sysroot, "lib", "x86_64-linux-gnu", "libdemo.so"])
+linux.mkdir_p(linux.dirname(usrmerge_legacy_lib))
+linux.write_file(usrmerge_legacy_lib, "demo\n")
+linux.normalize_linux_sysroot_usrmerge_links(usrmerge_sysroot)
+    check("linux sysroot usrmerge migrates legacy lib dir",
+        linux.run_shell_status("[ -L " + linux.shell_quote(GLib.build_filenamev([usrmerge_sysroot, "lib"])) + " ]") == 0 &&
+        linux.path_exists(GLib.build_filenamev([usrmerge_sysroot, "usr", "lib", "x86_64-linux-gnu", "libdemo.so"])))
+system("rm -rf " + linux.shell_quote(usrmerge_sysroot))
+local usrmerge_mixed_sysroot = GLib.build_filenamev([GLib.get_tmp_dir(), "sqgipkg-usrmerge-mixed-sysroot-" + GLib.get_monotonic_time()])
+local usrmerge_mixed_usr_lib = GLib.build_filenamev([usrmerge_mixed_sysroot, "usr", "lib", "x86_64-linux-gnu"])
+local usrmerge_mixed_lib = GLib.build_filenamev([usrmerge_mixed_sysroot, "lib", "x86_64-linux-gnu"])
+linux.mkdir_p(usrmerge_mixed_usr_lib)
+linux.mkdir_p(usrmerge_mixed_lib)
+linux.write_file(GLib.build_filenamev([usrmerge_mixed_usr_lib, "libc.so.6"]), "usr libc\n")
+linux.write_file(GLib.build_filenamev([usrmerge_mixed_lib, "liblegacy.so"]), "legacy\n")
+linux.run_shell(
+    "ln -s ../../usr/lib/x86_64-linux-gnu/libc.so.6 " +
+    linux.shell_quote(GLib.build_filenamev([usrmerge_mixed_lib, "libc.so.6"])),
+    "creating mixed usrmerge symlink fixture")
+linux.normalize_linux_sysroot_usrmerge_links(usrmerge_mixed_sysroot)
+check("linux sysroot usrmerge skips already mirrored symlinks",
+    linux.run_shell_status("[ -L " + linux.shell_quote(GLib.build_filenamev([usrmerge_mixed_sysroot, "lib"])) + " ]") == 0 &&
+    linux.path_exists(GLib.build_filenamev([usrmerge_mixed_sysroot, "usr", "lib", "x86_64-linux-gnu", "libc.so.6"])) &&
+    linux.path_exists(GLib.build_filenamev([usrmerge_mixed_sysroot, "usr", "lib", "x86_64-linux-gnu", "liblegacy.so"])))
+system("rm -rf " + linux.shell_quote(usrmerge_mixed_sysroot))
+if (linux.executable_available("dpkg-deb")) {
+    local usrmerge_deb_root = GLib.build_filenamev([GLib.get_tmp_dir(), "sqgipkg-usrmerge-deb-" + GLib.get_monotonic_time()])
+    local usrmerge_pkg_dir = GLib.build_filenamev([usrmerge_deb_root, "pkg"])
+    local usrmerge_extract_dir = GLib.build_filenamev([usrmerge_deb_root, "sysroot"])
+    local usrmerge_deb = GLib.build_filenamev([usrmerge_deb_root, "usrmerge-fixture.deb"])
+    linux.mkdir_p(GLib.build_filenamev([usrmerge_pkg_dir, "DEBIAN"]))
+    linux.write_file(GLib.build_filenamev([usrmerge_pkg_dir, "DEBIAN", "control"]),
+        "Package: sqgipkg-usrmerge-fixture\n" +
+        "Version: 1.0\n" +
+        "Architecture: amd64\n" +
+        "Maintainer: sqgipkg test <sqgipkg@example.invalid>\n" +
+        "Description: sqgipkg usrmerge fixture\n")
+    linux.mkdir_p(GLib.build_filenamev([usrmerge_pkg_dir, "lib", "x86_64-linux-gnu"]))
+    linux.write_file(GLib.build_filenamev([usrmerge_pkg_dir, "lib", "x86_64-linux-gnu", "libfixture.so"]), "fixture\n")
+    linux.run_shell("dpkg-deb --build " + linux.shell_quote(usrmerge_pkg_dir) + " " + linux.shell_quote(usrmerge_deb),
+        "creating usrmerge Debian fixture")
+    linux.extract_linux_deb_archive_to_sysroot(usrmerge_deb, usrmerge_extract_dir)
+    check("linux deb extraction keeps usrmerge lib symlink",
+        linux.run_shell_status("[ -L " + linux.shell_quote(GLib.build_filenamev([usrmerge_extract_dir, "lib"])) + " ]") == 0 &&
+        linux.path_exists(GLib.build_filenamev([usrmerge_extract_dir, "usr", "lib", "x86_64-linux-gnu", "libfixture.so"])) &&
+        linux.path_exists(GLib.build_filenamev([usrmerge_extract_dir, "lib", "x86_64-linux-gnu", "libfixture.so"])))
+    system("rm -rf " + linux.shell_quote(usrmerge_deb_root))
+} else {
+    print("SKIP: linux usrmerge deb extraction test (missing dpkg-deb)\n")
+}
 local compat_sysroot_opts = linux.new_options()
 compat_sysroot_opts.linux.sysroot = GLib.build_filenamev([GLib.get_tmp_dir(), "sqgipkg-compat-sysroot-" + GLib.get_monotonic_time()])
 linux.mkdir_p(GLib.build_filenamev([compat_sysroot_opts.linux.sysroot, "usr", "lib64"]))
@@ -295,6 +403,25 @@ local loader_link_output = linux.run_shell_output("readlink " + linux.shell_quot
 check("linux sysroot creates aarch64 loader compatibility link",
     loader_link_output != null && linux.split_lines(loader_link_output)[0] == "../usr/lib/ld-linux-aarch64.so.1")
 system("rm -rf " + linux.shell_quote(loader_sysroot_opts.linux.sysroot))
+local usrmerge_loader_sysroot_opts = linux.new_options()
+usrmerge_loader_sysroot_opts.appimage_arch = "aarch64"
+usrmerge_loader_sysroot_opts.linux.sysroot = GLib.build_filenamev([GLib.get_tmp_dir(), "sqgipkg-usrmerge-loader-sysroot-" + GLib.get_monotonic_time()])
+local usrmerge_loader_triplet_dir = GLib.build_filenamev([usrmerge_loader_sysroot_opts.linux.sysroot, "usr", "lib", "aarch64-linux-gnu"])
+linux.mkdir_p(usrmerge_loader_triplet_dir)
+linux.write_file(GLib.build_filenamev([usrmerge_loader_triplet_dir, "ld-linux-aarch64.so.1"]), "")
+linux.run_shell(
+    "ln -s usr/lib " + linux.shell_quote(GLib.build_filenamev([usrmerge_loader_sysroot_opts.linux.sysroot, "lib"])),
+    "creating usrmerge lib symlink fixture")
+linux.ensure_linux_sysroot_compat_links(usrmerge_loader_sysroot_opts)
+local usrmerge_loader_link = GLib.build_filenamev([usrmerge_loader_sysroot_opts.linux.sysroot, "lib", "ld-linux-aarch64.so.1"])
+local usrmerge_loader_link_output = linux.run_shell_output("readlink " + linux.shell_quote(usrmerge_loader_link))
+local usrmerge_loader_realpath = linux.run_shell_output("readlink -f " + linux.shell_quote(usrmerge_loader_link))
+check("linux usrmerge sysroot creates runnable loader compatibility link",
+    usrmerge_loader_link_output != null &&
+    linux.split_lines(usrmerge_loader_link_output)[0] == "aarch64-linux-gnu/ld-linux-aarch64.so.1" &&
+    usrmerge_loader_realpath != null &&
+    linux.split_lines(usrmerge_loader_realpath)[0] == GLib.build_filenamev([usrmerge_loader_triplet_dir, "ld-linux-aarch64.so.1"]))
+system("rm -rf " + linux.shell_quote(usrmerge_loader_sysroot_opts.linux.sysroot))
 local triplet_link_sysroot_opts = linux.new_options()
 triplet_link_sysroot_opts.appimage_arch = "x86_64"
 triplet_link_sysroot_opts.linux.sysroot = GLib.build_filenamev([GLib.get_tmp_dir(), "sqgipkg-triplet-link-sysroot-" + GLib.get_monotonic_time()])
@@ -386,6 +513,17 @@ local selected_cross_config = build.normalize_linux_arch_config(selected_cross_o
 local selected_cross_clone = build.clone_opts_for_linux_arch(selected_cross_opts, selected_cross_config, "/tmp/sqgipkg-selected-cross")
 check("build selected cross arch uses target build dir",
     selected_cross_clone.build_dir == "build-linux-" + cross_arch)
+local arch_suite_opts = build.new_options()
+arch_suite_opts.linux.deb.suite = "noble"
+local arch_suite_config = build.normalize_linux_arch_config(arch_suite_opts, { arch = host_arch, deb_suite = "resolute" })
+local arch_suite_clone = build.clone_opts_for_linux_arch(arch_suite_opts, arch_suite_config, "/tmp/sqgipkg-arch-suite")
+check("build linux arch deb suite overrides default", arch_suite_clone.linux.deb.suite == "resolute")
+local forced_arch_suite_opts = build.new_options()
+forced_arch_suite_opts.linux.deb.suite = "jammy"
+forced_arch_suite_opts.linux.deb.suite_forced = true
+local forced_arch_suite_config = build.normalize_linux_arch_config(forced_arch_suite_opts, { arch = host_arch, deb_suite = "resolute" })
+local forced_arch_suite_clone = build.clone_opts_for_linux_arch(forced_arch_suite_opts, forced_arch_suite_config, "/tmp/sqgipkg-forced-arch-suite")
+check("build linux arch keeps forced deb suite", forced_arch_suite_clone.linux.deb.suite == "jammy")
 local default_app_opts = build.new_options()
 default_app_opts.target = "appimage"
 default_app_opts.appimage_arch = host_arch
@@ -455,6 +593,7 @@ if (build.executable_available("git")) {
 } else {
     print("SKIP: sqgi source clone test (missing git)\n")
 }
+function run_linux_cross_env_module_tests(linux, host_arch, cross_arch) {
 local linux_opts = linux.new_options()
 linux_opts.output_dir = GLib.build_filenamev([GLib.get_tmp_dir(), "sqgipkg-module-cross-" + GLib.get_monotonic_time()])
 linux_opts.appimage_arch = cross_arch
@@ -527,6 +666,27 @@ check("linux build env exposes build dir", linux.linux_build_env_prefix(linux_op
 check("linux build env exposes install prefix", linux.linux_build_env_prefix(linux_opts).find("SQGI_LINUX_INSTALL_PREFIX=") != null)
 check("linux cmake toolchain uses target triplet", linux.read_file(generated_toolchain).find(linux.linux_current_triplet(linux_opts) + "-gcc") != null)
 system("rm -rf " + linux.shell_quote(linux_opts.output_dir))
+local sysrooted_native_opts = linux.new_options()
+sysrooted_native_opts.output_dir = GLib.build_filenamev([GLib.get_tmp_dir(), "sqgipkg-module-native-sysroot-out-" + GLib.get_monotonic_time()])
+sysrooted_native_opts.appimage_arch = host_arch
+sysrooted_native_opts.linux.sysroot = GLib.build_filenamev([GLib.get_tmp_dir(), "sqgipkg-module-native-sysroot-" + GLib.get_monotonic_time()])
+linux.prepare_linux_build_environment(sysrooted_native_opts)
+local sysrooted_native_env = linux.linux_build_env_prefix(sysrooted_native_opts)
+check("linux native sysroot build env sets compiler sysroot",
+    sysrooted_native_env.find("CFLAGS=") != null &&
+    sysrooted_native_env.find("CXXFLAGS=") != null &&
+    sysrooted_native_env.find("CPPFLAGS=") != null &&
+    sysrooted_native_env.find("LDFLAGS=") != null &&
+    sysrooted_native_env.find("--sysroot=" + linux.linux_current_sysroot(sysrooted_native_opts)) != null &&
+    sysrooted_native_env.find("-B" + GLib.build_filenamev([
+        linux.linux_current_sysroot(sysrooted_native_opts),
+        "usr",
+        "lib",
+        linux.linux_current_triplet(sysrooted_native_opts)
+    ]) + "/") != null)
+check("linux build env exposes sysroot Vala vapidir for native sysroot",
+    sysrooted_native_env.find("--vapidir=" + linux.linux_sysroot_vala_vapidir(sysrooted_native_opts)) != null)
+system("rm -rf " + linux.shell_quote(sysrooted_native_opts.output_dir) + " " + linux.shell_quote(sysrooted_native_opts.linux.sysroot))
 local sysrooted_cross_opts = linux.new_options()
 sysrooted_cross_opts.output_dir = GLib.build_filenamev([GLib.get_tmp_dir(), "sqgipkg-module-sysroot-cross-" + GLib.get_monotonic_time()])
 sysrooted_cross_opts.appimage_arch = cross_arch
@@ -540,6 +700,24 @@ sysrooted_cross_opts.linux_current <- {
     cmake_toolchain = "",
     meson_cross_file = ""
 }
+local sysrooted_pc_dir = GLib.build_filenamev([
+    sysrooted_cross_opts.linux.sysroot,
+    "usr",
+    "lib",
+    linux.linux_current_triplet(sysrooted_cross_opts),
+    "pkgconfig"
+])
+linux.mkdir_p(sysrooted_pc_dir)
+linux.write_file(GLib.build_filenamev([sysrooted_pc_dir, "gio-2.0.pc"]),
+    "prefix=/usr\n" +
+    "bindir=${prefix}/bin\n" +
+    "libdir=${prefix}/lib/" + linux.linux_current_triplet(sysrooted_cross_opts) + "\n" +
+    "glib_compile_resources=${bindir}/glib-compile-resources\n" +
+    "Name: GIO\n" +
+    "Description: test GIO\n" +
+    "Version: 2.88.0\n" +
+    "Libs: -L${libdir} -lgio-2.0\n" +
+    "Cflags:\n")
 linux.prepare_linux_build_environment(sysrooted_cross_opts)
 local sysrooted_cross_text = linux.read_file(linux.linux_meson_cross_file_path(sysrooted_cross_opts))
 local sysrooted_triplet = linux.linux_current_triplet(sysrooted_cross_opts)
@@ -555,7 +733,19 @@ check("linux meson cross uses qemu exe wrapper when available",
          sysrooted_cross_text.find(linux.qemu_user_binary_name(cross_arch) + "-wrapper.sh") != null))
 check("linux build env exposes qemu loader prefix for cross sysroot",
     linux.linux_build_env_prefix(sysrooted_cross_opts).find("QEMU_LD_PREFIX=") != null)
+local sysrooted_env = linux.linux_build_env_prefix(sysrooted_cross_opts)
+check("linux build env exposes sysroot Vala vapidir",
+    sysrooted_env.find("VALAFLAGS=") != null &&
+    sysrooted_env.find("--vapidir=" + linux.linux_sysroot_vala_vapidir(sysrooted_cross_opts)) != null)
+check("linux pkg-config libdir starts with overlay",
+    linux.starts_with(linux.linux_pkg_config_libdir(sysrooted_cross_opts),
+        linux.linux_pkg_config_overlay_dir(sysrooted_cross_opts) + ":"))
+local overlay_gio_pc = GLib.build_filenamev([linux.linux_pkg_config_overlay_dir(sysrooted_cross_opts), "gio-2.0.pc"])
+check("linux pkg-config overlay uses host glib resource tool",
+    linux.path_exists(overlay_gio_pc) &&
+    linux.read_file(overlay_gio_pc).find("glib_compile_resources=glib-compile-resources") != null)
 system("rm -rf " + linux.shell_quote(sysrooted_cross_opts.output_dir) + " " + linux.shell_quote(sysrooted_cross_opts.linux.sysroot))
+}
 
 function run_late_packaging_module_tests(build, linux, host_arch, cross_arch) {
 local native_install_opts = build.new_options()
@@ -719,6 +909,27 @@ check("msys2 url basename", msys2.url_basename("https://example.invalid/repo/pkg
 local win_opts = msys2.new_options()
 check("windows cross tools target x64", msys2.windows_cross_tool_names(win_opts)[0] == "x86_64-w64-mingw32-gcc")
 check("windows cross tool packages mention mingw64", msys2.windows_cross_tool_package_names(win_opts)[0] == "gcc-mingw-w64-x86-64")
+local win_vapi_root = GLib.build_filenamev([GLib.get_tmp_dir(), "sqgipkg-win-vapi-" + GLib.get_monotonic_time()])
+local win_vapi_opts = msys2.new_options()
+win_vapi_opts.target = "win-nsis"
+win_vapi_opts.output_dir = GLib.build_filenamev([win_vapi_root, "out"])
+win_vapi_opts.windows.msys2_root = GLib.build_filenamev([win_vapi_root, "root"])
+win_vapi_opts.windows.msys2_prefix = "mingw64"
+local win_vapi_prefix = msys2.windows_sysroot_prefix_dir(win_vapi_opts)
+local win_vapi_unversioned = GLib.build_filenamev([win_vapi_prefix, "share", "vala", "vapi"])
+local win_vapi_versioned = GLib.build_filenamev([win_vapi_prefix, "share", "vala-0.56", "vapi"])
+msys2.mkdir_p(win_vapi_unversioned)
+msys2.mkdir_p(win_vapi_versioned)
+local win_vapi_flags = msys2.windows_vala_flags(win_vapi_opts)
+local win_vapi_env = msys2.windows_env_prefix(win_vapi_opts)
+check("windows build env exposes target Vala vapidirs",
+    win_vapi_flags != null &&
+    msys2.starts_with(win_vapi_flags, "--vapidir=" + win_vapi_unversioned) &&
+    win_vapi_flags.find("--vapidir=" + win_vapi_versioned) != null &&
+    win_vapi_env.find("VALAFLAGS=") != null &&
+    win_vapi_env.find("--vapidir=" + win_vapi_unversioned) != null &&
+    win_vapi_env.find("--vapidir=" + win_vapi_versioned) != null)
+system("rm -rf " + msys2.shell_quote(win_vapi_root))
 check("windows classifies dwrite as system dll", msys2.windows_system_dll("DWrite.dll"))
 check("windows classifies bcryptprimitives as system dll", msys2.windows_system_dll("bcryptprimitives.dll"))
 check("windows classifies winhttp as system dll", msys2.windows_system_dll("WINHTTP.dll"))
@@ -810,20 +1021,24 @@ system("rm -rf " + win_launcher.shell_quote(win_launcher_dir))
 local nsis = Nsis.SqgiPkgWindowsNsis()
 check("nsis escape quotes", nsis.nsis_escape("a\"b") == "a$\\\"b")
 check("nsis keep vars", nsis.nsis_escape_keep_vars("$LOCALAPPDATA\\App") == "$LOCALAPPDATA\\App")
+local nsis_gui_script_dir = GLib.build_filenamev([GLib.get_tmp_dir(), "sqgipkg-nsis-gui-" + GLib.get_monotonic_time()])
+nsis.mkdir_p(nsis_gui_script_dir)
 local nsis_gui_script_opts = nsis.new_options()
 nsis_gui_script_opts.entry_type = "sqgi"
 nsis_gui_script_opts.windows.console = false
-check("nsis GUI script shortcuts target sqgi runtime",
-    nsis.nsis_shortcut_target(nsis_gui_script_opts, "WinSqurl") ==
-    GLib.build_filenamev(["bin", "sqgi.exe"]))
+check("nsis GUI script shortcuts target env launcher",
+    nsis.nsis_shortcut_target(nsis_gui_script_opts, "WinSqurl", nsis_gui_script_dir) ==
+    "WinSqurl.bat")
 local nsis_gui_native_opts = nsis.new_options()
 nsis_gui_native_opts.entry_type = "native"
 nsis_gui_native_opts.entry_windows = "/tmp/native-entry.exe"
 nsis_gui_native_opts.windows.console = false
 check("nsis GUI native shortcuts target env launcher",
-    nsis.nsis_shortcut_target(nsis_gui_native_opts, "WinNative") == "WinNative.bat")
+    nsis.nsis_shortcut_target(nsis_gui_native_opts, "WinNative", nsis_gui_script_dir) == "WinNative.bat")
+system("rm -rf " + nsis.shell_quote(nsis_gui_script_dir))
 }
 
+run_linux_cross_env_module_tests(linux, host_arch, cross_arch)
 run_late_packaging_module_tests(build, linux, host_arch, cross_arch)
 
 if (failures != 0) {

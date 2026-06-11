@@ -39,6 +39,8 @@ class SqgiPkgOptions extends Base.SqgiPkgCore {
                     packages = [],
                     package_cache = "",
                     sysroot_cache = "",
+                    suite = "",
+                    suite_forced = false,
                     download = false,
                     download_forced = null,
                     refresh = false
@@ -134,6 +136,7 @@ class SqgiPkgOptions extends Base.SqgiPkgCore {
             "--linux-deb-package",
             "--linux-deb-package-cache",
             "--linux-deb-sysroot-cache",
+            "--linux-deb-suite",
             "--linux-package",
             "--linux-sysroot",
             "--linux-package-cache",
@@ -261,6 +264,11 @@ class SqgiPkgOptions extends Base.SqgiPkgCore {
         if (v != null) opts.linux.deb.sysroot_cache = v
         v = this.option_value(option_dict, "linux-sysroot-cache")
         if (v != null) opts.linux.deb.sysroot_cache = v
+        v = this.option_value(option_dict, "linux-deb-suite")
+        if (v != null) {
+            opts.linux.deb.suite = v
+            opts.linux.deb.suite_forced = true
+        }
         v = this.option_value(option_dict, "smoke-test")
         if (v != null) opts.smoke_test_args = v
         v = this.option_value(option_dict, "init")

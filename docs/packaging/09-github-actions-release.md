@@ -35,6 +35,9 @@ For a native app, declare the executable paths instead of a Squirrel script:
     "windows": "build-windows-x86_64/my-gtk-app.exe"
   },
   "linux": {
+    "deb": {
+      "suite": "noble"
+    },
     "arches": [
       {
         "arch": "x86_64",
@@ -113,6 +116,13 @@ private sysroot. The Windows section downloads MSYS2 packages into a private
 Windows sysroot. Build commands receive target-specific variables such as
 `SQGI_LINUX_MESON_CROSS_FILE`, `SQGI_LINUX_SYSROOT`,
 `SQGI_WINDOWS_PREFIX`, and `SQGI_MESON_CROSS_FILE`.
+
+`linux.deb.suite` pins the Ubuntu package suite used for those private Linux
+sysroots. The value is the Ubuntu codename, not the numeric version: for
+example, use `noble` for Ubuntu 24.04. Pinning it in CI keeps package resolution
+stable even if the workflow runner image changes later. Use
+`linux.arches[].deb.suite` when one architecture needs a different suite, or
+`--linux-deb-suite SUITE` for a temporary command-line override.
 
 If your app builds helper libraries first, add them as `native_projects` or
 `windows.native_dependencies` with `stage: false`, install them into the target
@@ -226,6 +236,10 @@ want every main-branch push to produce downloadable artifacts.
 
 - Add the host development packages your build scripts need to the apt step.
 - Add target runtime and development packages to `linux.arches[].deb.packages`.
+- Pin `linux.deb.suite` to an Ubuntu codename such as `noble` when the package
+  sysroot should come from a specific Ubuntu release instead of the runner host.
+- Use `linux.arches[].deb.suite` for per-architecture package suites, or pass
+  `--linux-deb-suite SUITE` to force every Linux architecture for one build.
 - Add Windows runtime/build packages to `windows.packages`.
 - Keep Linux build directories architecture-specific.
 - Use `entry_linux` per architecture when cross builds produce different output

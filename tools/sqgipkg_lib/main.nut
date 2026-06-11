@@ -59,6 +59,8 @@ class SqgiPkg extends Base.SqgiPkgBuild {
             "Download cache for Debian/Ubuntu package archives", "DIR")
         this.app.add_main_option("linux-deb-sysroot-cache", 0, 0, GLib.OptionArg.string,
             "Cache directory for reusable extracted Debian/Ubuntu Linux sysroots", "DIR")
+        this.app.add_main_option("linux-deb-suite", 0, 0, GLib.OptionArg.string,
+            "Ubuntu suite codename to download packages from, e.g. noble for 24.04; defaults to host suite", "SUITE")
         this.app.add_main_option("refresh-linux-deb-packages", 0, 0, GLib.OptionArg.none,
             "Refresh cached Debian/Ubuntu package archives", null)
         this.app.add_main_option("no-linux-deb-download", 0, 0, GLib.OptionArg.none,

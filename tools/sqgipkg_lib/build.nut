@@ -284,6 +284,7 @@ class SqgiPkgBuild extends Base.SqgiPkgDoctor {
             sysroot = this.table_get(config, "sysroot", ""),
             deb_package_cache = this.table_get(config, "deb_package_cache", ""),
             deb_sysroot_cache = this.table_get(config, "deb_sysroot_cache", ""),
+            deb_suite = this.table_get(config, "deb_suite", ""),
             deb_download = deb_download,
             deb_refresh = deb_refresh,
             entry_linux = this.table_get(config, "entry_linux", ""),
@@ -333,6 +334,8 @@ class SqgiPkgBuild extends Base.SqgiPkgDoctor {
         out.linux.deb = clone opts.linux.deb
         if (config.deb_package_cache != "") out.linux.deb.package_cache = config.deb_package_cache
         if (config.deb_sysroot_cache != "") out.linux.deb.sysroot_cache = config.deb_sysroot_cache
+        if (config.deb_suite != "" && !out.linux.deb.suite_forced)
+            out.linux.deb.suite = config.deb_suite
         if (config.deb_download != null && out.linux.deb.download_forced == null)
             out.linux.deb.download = config.deb_download
         if (config.deb_refresh != null) out.linux.deb.refresh = config.deb_refresh

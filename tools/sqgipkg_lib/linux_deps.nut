@@ -104,23 +104,141 @@ class SqgiPkgLinuxDeps extends Base.SqgiPkgStaging {
         if (qemu == null) return ""
 
         local path = this.linux_qemu_wrapper_path(opts)
+        local sysroot = this.linux_current_sysroot(opts)
         this.mkdir_p(this.dirname(path))
         this.write_file(path,
             "#!/usr/bin/env bash\n" +
             "set -euo pipefail\n" +
-            "export QEMU_LD_PREFIX=" + this.shell_quote(this.linux_current_sysroot(opts)) + "\n" +
-            "exec " + this.shell_quote(qemu) + " \"$@\"\n")
+            "export QEMU_LD_PREFIX=" + this.shell_quote(sysroot) + "\n" +
+            "exec " + this.shell_quote(qemu) + " -L " + this.shell_quote(sysroot) + " \"$@\"\n")
         this.chmod_exec(path)
         return path
     }
 
     function linux_pkg_config_libdir(opts) {
+        local dirs = this.linux_pkg_config_sysroot_dirs(opts)
+        local libdir = dirs[0] + ":" + dirs[1]
+        if (this.linux_current_sysroot(opts) != "")
+            libdir = this.linux_pkg_config_overlay_dir(opts) + ":" + libdir
+        return libdir
+    }
+
+    function linux_pkg_config_sysroot_dirs(opts) {
         local triplet = this.linux_current_triplet(opts)
         local sysroot = this.linux_current_sysroot(opts)
         if (sysroot != "") sysroot = this.strip_trailing_slashes(sysroot)
 
         local root = sysroot == "" ? "" : sysroot
-        return root + "/usr/lib/" + triplet + "/pkgconfig:" + root + "/usr/share/pkgconfig"
+        return [root + "/usr/lib/" + triplet + "/pkgconfig", root + "/usr/share/pkgconfig"]
+    }
+
+    function linux_pkg_config_sysroot_libdir(opts) {
+        local dirs = this.linux_pkg_config_sysroot_dirs(opts)
+        return dirs[0] + ":" + dirs[1]
+    }
+
+    function linux_pkg_config_overlay_dir(opts) {
+        return GLib.build_filenamev([this.linux_cross_dir(opts), "pkgconfig"])
+    }
+
+    function linux_sysroot_vala_vapidir(opts) {
+        local sysroot = this.linux_current_sysroot(opts)
+        if (sysroot == "") return ""
+        return GLib.build_filenamev([sysroot, "usr", "share", "vala", "vapi"])
+    }
+
+    function linux_vala_flags(opts) {
+        local vapidir = this.linux_sysroot_vala_vapidir(opts)
+        if (vapidir == "") return null
+
+        return this.append_env_flag("VALAFLAGS", "--vapidir=" + vapidir)
+    }
+
+    function append_env_flag(name, flag) {
+        local flags = GLib.getenv(name)
+        if (flags == null) flags = ""
+        if (flags != "") flags += " "
+        return flags + flag
+    }
+
+    function linux_native_sysroot_ldflags(opts) {
+        local sysroot = this.linux_current_sysroot(opts)
+        if (sysroot == "") return ""
+
+        local triplet = this.linux_current_triplet(opts)
+        return "--sysroot=" + sysroot +
+            " -B" + GLib.build_filenamev([sysroot, "usr", "lib", triplet]) + "/" +
+            " -B" + GLib.build_filenamev([sysroot, "lib", triplet]) + "/"
+    }
+
+    function linux_pkg_config_tool_overrides(pc_name) {
+        if (pc_name == "gio-2.0.pc") {
+            return {
+                gio = "gio",
+                gio_querymodules = "gio-querymodules",
+                glib_compile_schemas = "glib-compile-schemas",
+                glib_compile_resources = "glib-compile-resources",
+                gdbus = "gdbus",
+                gdbus_codegen = "gdbus-codegen",
+                gresource = "gresource",
+                gsettings = "gsettings"
+            }
+        }
+        if (pc_name == "glib-2.0.pc") {
+            return {
+                glib_genmarshal = "glib-genmarshal",
+                gobject_query = "gobject-query",
+                glib_mkenums = "glib-mkenums"
+            }
+        }
+        if (pc_name == "gobject-introspection-1.0.pc") {
+            return {
+                g_ir_scanner = "g-ir-scanner",
+                g_ir_compiler = "g-ir-compiler",
+                g_ir_generate = "g-ir-generate"
+            }
+        }
+        return {}
+    }
+
+    function linux_rewrite_pkg_config_tool_variables(text, overrides) {
+        local out = ""
+        foreach (line in this.split_lines(text)) {
+            local replaced = false
+            foreach (name, value in overrides) {
+                if (this.starts_with(line, name + "=")) {
+                    out += name + "=" + value + "\n"
+                    replaced = true
+                    break
+                }
+            }
+            if (!replaced) out += line + "\n"
+        }
+        return out
+    }
+
+    function prepare_linux_pkg_config_overlay(opts) {
+        if (this.linux_current_sysroot(opts) == "") return
+
+        local overlay = this.linux_pkg_config_overlay_dir(opts)
+        this.mkdir_p(overlay)
+
+        foreach (pc_name in ["gio-2.0.pc", "glib-2.0.pc", "gobject-introspection-1.0.pc"]) {
+            local source = null
+            foreach (dir in this.linux_pkg_config_sysroot_dirs(opts)) {
+                local candidate = GLib.build_filenamev([dir, pc_name])
+                if (this.path_exists(candidate)) {
+                    source = candidate
+                    break
+                }
+            }
+            if (source == null) continue
+
+            local rewritten = this.linux_rewrite_pkg_config_tool_variables(
+                this.read_file(source),
+                this.linux_pkg_config_tool_overrides(pc_name))
+            this.write_file(GLib.build_filenamev([overlay, pc_name]), rewritten)
+        }
     }
 
     function write_linux_cmake_toolchain(opts, path) {
@@ -202,6 +320,7 @@ class SqgiPkgLinuxDeps extends Base.SqgiPkgStaging {
 
     function prepare_linux_build_environment(opts) {
         local cross = this.linux_current_is_cross(opts)
+        this.prepare_linux_pkg_config_overlay(opts)
         if (!cross) return
 
         local toolchain = this.linux_cmake_toolchain_path(opts)
@@ -304,6 +423,16 @@ class SqgiPkgLinuxDeps extends Base.SqgiPkgStaging {
             env += this.shell_export("PKG_CONFIG_PATH", "") +
                 this.shell_export("PKG_CONFIG_SYSROOT_DIR", sysroot) +
                 this.shell_export("PKG_CONFIG_LIBDIR", this.linux_pkg_config_libdir(opts))
+            local vala_flags = this.linux_vala_flags(opts)
+            if (vala_flags != null) env += this.shell_export("VALAFLAGS", vala_flags)
+            if (!this.linux_current_is_cross(opts)) {
+                local sysroot_flag = "--sysroot=" + sysroot
+                env += this.shell_export("CFLAGS", this.append_env_flag("CFLAGS", sysroot_flag)) +
+                    this.shell_export("CXXFLAGS", this.append_env_flag("CXXFLAGS", sysroot_flag)) +
+                    this.shell_export("CPPFLAGS", this.append_env_flag("CPPFLAGS", sysroot_flag)) +
+                    this.shell_export("LDFLAGS", this.append_env_flag("LDFLAGS",
+                        this.linux_native_sysroot_ldflags(opts)))
+            }
             if (this.linux_current_is_cross(opts))
                 env += this.shell_export("QEMU_LD_PREFIX", sysroot)
         }
@@ -534,7 +663,8 @@ class SqgiPkgLinuxDeps extends Base.SqgiPkgStaging {
 
     function linux_deb_repo_targets(opts) {
         local distro = this.linux_os_release_value("ID")
-        local release = this.linux_os_release_value("VERSION_CODENAME")
+        local release = this.table_get(opts.linux.deb, "suite", "")
+        if (release == "") release = this.linux_os_release_value("VERSION_CODENAME")
         if (release == "") release = this.linux_os_release_value("UBUNTU_CODENAME")
         if (release == "") return []
 
@@ -992,7 +1122,8 @@ class SqgiPkgLinuxDeps extends Base.SqgiPkgStaging {
         local distro = this.linux_os_release_value("ID")
         if (distro == "") distro = "apt"
 
-        local release = this.linux_os_release_value("VERSION_CODENAME")
+        local release = this.table_get(opts.linux.deb, "suite", "")
+        if (release == "") release = this.linux_os_release_value("VERSION_CODENAME")
         if (release == "") release = this.linux_os_release_value("UBUNTU_CODENAME")
         if (release == "") release = this.linux_os_release_value("VERSION_ID")
 
@@ -1140,8 +1271,6 @@ class SqgiPkgLinuxDeps extends Base.SqgiPkgStaging {
         local basename = metadata.basename
 
         local archive = GLib.build_filenamev([cache_dir, basename])
-        if (!this.path_exists(archive))
-            archive = this.linux_find_cached_deb(cache_dir, package_name, arch, archive)
         if (opts.linux.deb.refresh && this.path_exists(archive)) remove(archive)
         if (!this.path_exists(archive)) {
             this.info("downloading Linux package " + package_name)
@@ -1157,7 +1286,7 @@ class SqgiPkgLinuxDeps extends Base.SqgiPkgStaging {
                     "downloading Linux package " + package_name)
             }
         }
-        if (!this.path_exists(archive))
+        if (!this.path_exists(archive) && metadata.download_url == null)
             archive = this.linux_find_cached_deb(cache_dir, package_name, arch, archive)
         if (!this.path_exists(archive))
             this.fail("downloaded Linux package archive was not found: " + archive)
@@ -1248,6 +1377,67 @@ class SqgiPkgLinuxDeps extends Base.SqgiPkgStaging {
         this.write_file(GLib.build_filenamev([dir, "metadata"]), details)
     }
 
+    function linux_usrmerge_links() {
+        return [
+            ["bin", "usr/bin"],
+            ["lib", "usr/lib"],
+            ["lib64", "usr/lib64"],
+            ["sbin", "usr/sbin"]
+        ]
+    }
+
+    function normalize_linux_sysroot_usrmerge_links(sysroot) {
+        if (sysroot == "") return
+
+        foreach (entry in this.linux_usrmerge_links()) {
+            local link = GLib.build_filenamev([sysroot, entry[0]])
+            local target = GLib.build_filenamev([sysroot, entry[1]])
+            this.mkdir_p(target)
+
+            if (this.run_shell_status("[ -L " + this.shell_quote(link) + " ]") == 0)
+                continue
+
+            if (this.path_exists(link)) {
+                this.run_shell(
+                    "if [ -d " + this.shell_quote(link) + " ] && [ ! -L " + this.shell_quote(link) + " ]; then " +
+                    "(cd " + this.shell_quote(link) + " && tar -cf - .) | " +
+                    "tar -x --skip-old-files --warning=no-existing-file -f - -C " + this.shell_quote(target) + " && " +
+                    "rm -rf " + this.shell_quote(link) + "; " +
+                    "else exit 1; fi",
+                    "normalizing Linux sysroot usrmerge path")
+            }
+
+            if (!this.path_exists(link))
+                this.create_linux_sysroot_symlink(entry[1], link)
+        }
+    }
+
+    function linux_deb_extract_transform_args() {
+        local out = " --no-wildcards-match-slash"
+        foreach (entry in this.linux_usrmerge_links()) {
+            out += " --exclude=" + this.shell_quote("./" + entry[0] + "/")
+        }
+        foreach (entry in this.linux_usrmerge_links()) {
+            out += " --transform=" + this.shell_quote("s#^\\./" + entry[0] + "/#./" + entry[1] + "/#")
+        }
+        return out
+    }
+
+    function extract_linux_deb_archive_to_sysroot(archive, sysroot) {
+        this.mkdir_p(sysroot)
+        this.normalize_linux_sysroot_usrmerge_links(sysroot)
+
+        local tmp = GLib.build_filenamev([GLib.get_tmp_dir(), "sqgipkg-deb-data-" + GLib.get_monotonic_time() + ".tar"])
+        this.run_shell(
+            "status=0; " +
+            "dpkg-deb --fsys-tarfile " + this.shell_quote(archive) + " > " + this.shell_quote(tmp) + " && " +
+            "tar -x --keep-directory-symlink -f " + this.shell_quote(tmp) + " -C " + this.shell_quote(sysroot) +
+                this.linux_deb_extract_transform_args() + " || status=$?; " +
+            "rm -f " + this.shell_quote(tmp) + "; " +
+            "exit $status",
+            "extracting Linux Debian package")
+    }
+
     function extract_linux_deb_to_sysroot(opts, package_name) {
         local metadata = this.linux_deb_archive_metadata(opts, package_name)
         if (metadata == null)
@@ -1257,9 +1447,7 @@ class SqgiPkgLinuxDeps extends Base.SqgiPkgStaging {
         local file_list = this.linux_deb_archive_files(archive)
         local sysroot = this.linux_download_sysroot_root(opts)
 
-        this.mkdir_p(sysroot)
-        this.run_shell("dpkg-deb -x " + this.shell_quote(archive) + " " + this.shell_quote(sysroot),
-            "extracting Linux Debian package")
+        this.extract_linux_deb_archive_to_sysroot(archive, sysroot)
         this.write_linux_deb_sysroot_metadata(opts, package_name, file_list, metadata)
         this.info("installed Linux package into sysroot: " + package_name)
     }
@@ -1534,9 +1722,14 @@ class SqgiPkgLinuxDeps extends Base.SqgiPkgStaging {
     function create_linux_sysroot_symlink(target, link) {
         this.mkdir_p(this.dirname(link))
         this.run_shell(
+            "[ ! -L " + this.shell_quote(link) + " ] || rm -f " + this.shell_quote(link) + "; " +
             "ln -s " + this.shell_quote(target) + " " + this.shell_quote(link),
             "creating Linux sysroot compatibility link"
         )
+    }
+
+    function linux_sysroot_lib_is_usrmerge(sysroot) {
+        return this.run_shell_status("[ -L " + this.shell_quote(GLib.build_filenamev([sysroot, "lib"])) + " ]") == 0
     }
 
     function ensure_linux_sysroot_loader_link(opts, loader_name) {
@@ -1545,11 +1738,12 @@ class SqgiPkgLinuxDeps extends Base.SqgiPkgStaging {
         if (this.path_exists(link)) return
 
         local triplet = this.linux_current_triplet(opts)
+        local usrmerge_lib = this.linux_sysroot_lib_is_usrmerge(sysroot)
         foreach (entry in [
             { source = GLib.build_filenamev([sysroot, "usr", "lib", loader_name]),
-              target = "../usr/lib/" + loader_name },
+              target = usrmerge_lib ? loader_name : "../usr/lib/" + loader_name },
             { source = GLib.build_filenamev([sysroot, "usr", "lib", triplet, loader_name]),
-              target = "../usr/lib/" + triplet + "/" + loader_name }
+              target = usrmerge_lib ? (triplet + "/" + loader_name) : ("../usr/lib/" + triplet + "/" + loader_name) }
         ]) {
             if (this.path_exists(entry.source)) {
                 this.create_linux_sysroot_symlink(entry.target, link)

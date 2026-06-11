@@ -1024,6 +1024,76 @@ runtime/dev packages installed into the host root. `.deb` archives are cached
 separately under `~/.cache/sqgipkg/linux-debs/<deb-arch>/`, and repository
 indexes are cached under `~/.cache/sqgipkg/linux-repo-indexes/`.
 
+### Ubuntu package suite selection
+
+When `linux.deb.download` is enabled, `sqgipkg` downloads target packages from
+an Ubuntu suite. A suite is the Ubuntu codename, not the numeric version: use
+`noble` for Ubuntu 24.04, `jammy` for Ubuntu 22.04, and so on.
+
+By default, private Debian/Ubuntu sysroots use the host Ubuntu suite. Pin a
+shared suite for all Linux builds with `linux.deb.suite`:
+
+```json
+{
+  "linux": {
+    "deb": {
+      "download": true,
+      "suite": "noble",
+      "packages": [
+        "libgtk-4-1",
+        "gir1.2-gtk-4.0"
+      ]
+    }
+  }
+}
+```
+
+Override it per architecture with `linux.arches[].deb.suite`:
+
+```json
+{
+  "linux": {
+    "arches": [
+      {
+        "arch": "x86_64",
+        "deb": {
+          "download": true,
+          "suite": "noble",
+          "packages": ["libgtk-4-1"]
+        }
+      },
+      {
+        "arch": "aarch64",
+        "deb": {
+          "download": true,
+          "suite": "noble",
+          "packages": ["libgtk-4-1"]
+        }
+      }
+    ]
+  }
+}
+```
+
+Force a suite for one build from the command line:
+
+```sh
+sqgipkg --target linux-sysroot --appimage-arch aarch64 \
+  --linux-deb-download --linux-deb-suite noble
+```
+
+`--linux-deb-suite` overrides manifest suite settings for every Linux
+architecture in that invocation. Leave it out when a manifest intentionally
+mixes suites per architecture. The preferred manifest spelling is
+`linux.deb.suite` or `linux.arches[].deb.suite`; `deb_suite` and `suite` are
+accepted as compatibility aliases in the Linux object and Linux arch entries.
+
+The selected suite is part of the generated repository-index and sysroot cache
+keys, so changing it creates a separate private sysroot instead of silently
+reusing packages from another Ubuntu release. This option selects the
+Debian/Ubuntu package source for Linux sysroots; it does not change the host
+runner, host build tools, cross compiler, or Windows MSYS2 packages.
+
 This works for native and cross target architectures, so an x86_64 package can
 use an x86_64 sysroot instead of the host `/usr`, and an aarch64 package can use
 an aarch64 sysroot from the same manifest. The generated CMake/Meson files then
@@ -1077,6 +1147,7 @@ deb_download
 deb_refresh
 deb_package_cache
 deb_sysroot_cache
+deb_suite
 deb_packages
 cmake_toolchain
 meson_cross_file
@@ -2014,6 +2085,7 @@ AppImage options:
 --linux-deb-download
 --linux-deb-package-cache DIR
 --linux-deb-sysroot-cache DIR
+--linux-deb-suite SUITE
 --refresh-linux-deb-packages
 --no-linux-deb-download
 --linux-package PACKAGE

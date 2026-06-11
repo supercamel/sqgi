@@ -93,6 +93,42 @@ class SqgiPkgWindowsEnv extends Base.SqgiPkgAppImage {
         return GLib.build_filenamev([this.windows_cross_dir(opts), "g-ir-ldd-wrapper.sh"])
     }
 
+    function windows_vala_vapi_dirs(opts) {
+        local prefix_dir = this.windows_sysroot_prefix_dir(opts)
+        local share_dir = GLib.build_filenamev([prefix_dir, "share"])
+        local out = []
+
+        local unversioned = GLib.build_filenamev([share_dir, "vala", "vapi"])
+        if (this.path_exists(unversioned)) out.push(unversioned)
+
+        if (this.path_exists(share_dir)) {
+            local command = "find " + this.shell_quote(share_dir) +
+                " -maxdepth 2 -type d -name vapi | sort"
+            foreach (dir in this.optional_command_output(command)) {
+                if (!this.array_contains(out, dir)) out.push(dir)
+            }
+        }
+
+        return out
+    }
+
+    function windows_vala_flags(opts) {
+        local dirs = this.windows_vala_vapi_dirs(opts)
+        if (dirs.len() == 0) return null
+
+        local flags = ""
+        foreach (dir in dirs) {
+            if (flags != "") flags += " "
+            flags += "--vapidir=" + dir
+        }
+
+        local existing = GLib.getenv("VALAFLAGS")
+        if (existing != null && existing != "")
+            flags += " " + existing
+
+        return flags
+    }
+
     function windows_effective_gtk_theme(opts) {
         return opts.windows.gtk_theme != "" ? opts.windows.gtk_theme : opts.gtk_theme
     }
@@ -462,6 +498,8 @@ class SqgiPkgWindowsEnv extends Base.SqgiPkgAppImage {
             this.shell_export("SQGI_WINDOWS_PREFIX_DIR", prefix_dir) +
             this.shell_export("SQGI_WINDOWS_SYSROOT_PREFIX", prefix_dir) +
             this.shell_export("SQGI_WINDOWS_GUI", this.windows_gui_cmake_value(opts))
+        local vala_flags = this.windows_vala_flags(opts)
+        if (vala_flags != null) env += this.shell_export("VALAFLAGS", vala_flags)
         if (include_source)
             env += this.shell_export("SQGI_SOURCE_DIR", this.ensure_sqgi_source(opts))
         return env

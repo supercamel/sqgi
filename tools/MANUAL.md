@@ -776,6 +776,60 @@ For a repeatable multi-arch manifest, use `linux.arches`:
 }
 ```
 
+When `linux.deb.download` is enabled, `sqgipkg` downloads target packages from
+an Ubuntu suite. A suite is the Ubuntu codename, not the numeric version: use
+`noble` for Ubuntu 24.04, `jammy` for Ubuntu 22.04, and so on.
+
+By default, private Debian/Ubuntu sysroots use the host Ubuntu suite. Pin a
+shared suite for all Linux builds with `linux.deb.suite`:
+
+```json
+{
+  "linux": {
+    "deb": {
+      "download": true,
+      "suite": "noble",
+      "packages": [
+        "libgtk-4-1",
+        "gir1.2-gtk-4.0"
+      ]
+    }
+  }
+}
+```
+
+Use `linux.arches[].deb.suite` when a matrix entry needs its own suite:
+
+```json
+{
+  "linux": {
+    "arches": [
+      {
+        "arch": "aarch64",
+        "deb": {
+          "download": true,
+          "suite": "noble",
+          "packages": ["libgtk-4-1"]
+        }
+      }
+    ]
+  }
+}
+```
+
+For a one-off test, force the suite from the command line:
+
+```sh
+sqgipkg --target linux-sysroot --appimage-arch aarch64 \
+  --linux-deb-download --linux-deb-suite noble
+```
+
+`--linux-deb-suite` overrides manifest suite settings for every Linux
+architecture in that invocation. Leave it out when the manifest intentionally
+mixes suites per architecture. Changing the suite creates a separate cached
+repository/sysroot, so `jammy`, `noble`, and future suites do not silently share
+downloaded package state.
+
 Prepare only the Linux sysroot and generated cross files:
 
 ```sh
