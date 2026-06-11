@@ -930,6 +930,19 @@ check("windows build env exposes target Vala vapidirs",
     win_vapi_env.find("--vapidir=" + win_vapi_unversioned) != null &&
     win_vapi_env.find("--vapidir=" + win_vapi_versioned) != null)
 system("rm -rf " + msys2.shell_quote(win_vapi_root))
+local win_auto_pixbuf_opts = msys2.new_options()
+win_auto_pixbuf_opts.target = "win-nsis"
+win_auto_pixbuf_opts.report.used_gdk_pixbuf = true
+msys2.apply_windows_package_defaults(win_auto_pixbuf_opts)
+check("windows auto packages include gdk-pixbuf2 for GdkPixbuf imports",
+    win_auto_pixbuf_opts.windows.packages.find(msys2.msys2_pkg(win_auto_pixbuf_opts, "gdk-pixbuf2")) != null)
+local win_auto_gtk_opts = msys2.new_options()
+win_auto_gtk_opts.target = "win-nsis"
+win_auto_gtk_opts.report.used_gtk = true
+msys2.apply_windows_package_defaults(win_auto_gtk_opts)
+check("windows auto packages include gdk-pixbuf2 for GTK imports",
+    win_auto_gtk_opts.windows.packages.find(msys2.msys2_pkg(win_auto_gtk_opts, "gtk4")) != null &&
+    win_auto_gtk_opts.windows.packages.find(msys2.msys2_pkg(win_auto_gtk_opts, "gdk-pixbuf2")) != null)
 check("windows classifies dwrite as system dll", msys2.windows_system_dll("DWrite.dll"))
 check("windows classifies bcryptprimitives as system dll", msys2.windows_system_dll("bcryptprimitives.dll"))
 check("windows classifies winhttp as system dll", msys2.windows_system_dll("WINHTTP.dll"))
@@ -969,6 +982,57 @@ check("windows stages gstreamer runtime helpers",
 check("windows stages openssl providers",
     msys2.windows_package_dest("mingw64/lib/ossl-modules/legacy.dll", "mingw64") ==
     GLib.build_filenamev(["lib", "ossl-modules", "legacy.dll"]))
+check("windows stages gdk-pixbuf loader cache",
+    msys2.windows_package_dest("mingw64/lib/gdk-pixbuf-2.0/2.10.0/loaders.cache", "mingw64") ==
+    GLib.build_filenamev(["lib", "gdk-pixbuf-2.0", "2.10.0", "loaders.cache"]))
+
+local win_cache = Nsis.SqgiPkgWindowsNsis()
+local win_cache_root = GLib.build_filenamev([GLib.get_tmp_dir(), "sqgipkg-win-pixbuf-cache-" + GLib.get_monotonic_time()])
+local win_cache_loader_dir = GLib.build_filenamev([win_cache_root, "lib", "gdk-pixbuf-2.0", "2.10.0", "loaders"])
+win_cache.mkdir_p(win_cache_loader_dir)
+win_cache.write_file(GLib.build_filenamev([win_cache_loader_dir, "libpixbufloader-png.dll"]), "png")
+win_cache.write_file(GLib.build_filenamev([win_cache_loader_dir, "pixbufloader_svg.dll"]), "svg")
+win_cache.write_file(GLib.build_filenamev([win_cache_loader_dir, "libpixbufloader-custom.dll"]), "custom")
+local win_cache_opts = win_cache.new_options()
+win_cache_opts.windows.msys2_root = GLib.build_filenamev([win_cache_root, "_missing-msys2"])
+win_cache.ensure_windows_gdk_pixbuf_loader_cache(win_cache_opts, win_cache_root)
+local win_cache_path = GLib.build_filenamev([win_cache_root, "lib", "gdk-pixbuf-2.0", "2.10.0", "loaders.cache"])
+local win_cache_text = win_cache.read_file(win_cache_path)
+check("windows synthesizes gdk-pixbuf loader cache",
+    win_cache.path_exists(win_cache_path) &&
+    win_cache_text.find("\"lib/gdk-pixbuf-2.0/2.10.0/loaders/libpixbufloader-png.dll\"") != null &&
+    win_cache_text.find("\"lib/gdk-pixbuf-2.0/2.10.0/loaders/pixbufloader_svg.dll\"") != null)
+check("windows synthesized gdk-pixbuf cache warns on unknown loaders",
+    win_cache_opts.report.warnings.len() == 1 &&
+    win_cache_opts.report.warnings[0].find("libpixbufloader-custom.dll") != null)
+system("rm -rf " + win_cache.shell_quote(win_cache_root))
+
+local win_source_cache_root = GLib.build_filenamev([GLib.get_tmp_dir(), "sqgipkg-win-source-pixbuf-cache-" + GLib.get_monotonic_time()])
+local win_source_msys2_cache_dir = GLib.build_filenamev([win_source_cache_root, "_msys2", "mingw64", "lib", "gdk-pixbuf-2.0", "2.10.0"])
+local win_source_app = GLib.build_filenamev([win_source_cache_root, "app"])
+local win_source_loader_dir = GLib.build_filenamev([win_source_app, "lib", "gdk-pixbuf-2.0", "2.10.0", "loaders"])
+win_cache.mkdir_p(win_source_msys2_cache_dir)
+win_cache.mkdir_p(win_source_loader_dir)
+win_cache.write_file(GLib.build_filenamev([win_source_loader_dir, "libpixbufloader-png.dll"]), "png")
+win_cache.write_file(GLib.build_filenamev([win_source_msys2_cache_dir, "loaders.cache"]),
+    "# header\n" +
+    "\"C:\\msys64\\mingw64\\lib\\gdk-pixbuf-2.0\\2.10.0\\loaders\\libpixbufloader-png.dll\"\n" +
+    "\"png\" 5 \"gdk-pixbuf\" \"PNG\" \"LGPL\"\n" +
+    "\n" +
+    "\"C:\\msys64\\mingw64\\lib\\gdk-pixbuf-2.0\\2.10.0\\loaders\\libpixbufloader-missing.dll\"\n" +
+    "\"missing\" 1 \"gdk-pixbuf\" \"Missing\" \"LGPL\"\n" +
+    "\n")
+local win_source_cache_opts = win_cache.new_options()
+win_source_cache_opts.windows.msys2_root = GLib.build_filenamev([win_source_cache_root, "_msys2"])
+win_source_cache_opts.windows.msys2_prefix = "mingw64"
+win_cache.ensure_windows_gdk_pixbuf_loader_cache(win_source_cache_opts, win_source_app)
+local win_source_cache_text = win_cache.read_file(GLib.build_filenamev([win_source_app, "lib", "gdk-pixbuf-2.0", "2.10.0", "loaders.cache"]))
+check("windows rewrites source gdk-pixbuf loader cache to relative paths",
+    win_source_cache_text.find("\"lib/gdk-pixbuf-2.0/2.10.0/loaders/libpixbufloader-png.dll\"") != null &&
+    win_source_cache_text.find("C:\\msys64") == null &&
+    win_source_cache_text.find("libpixbufloader-missing.dll") == null)
+system("rm -rf " + win_cache.shell_quote(win_source_cache_root))
+
 local win_runtime_root = GLib.build_filenamev([GLib.get_tmp_dir(), "sqgipkg-win-runtime-" + GLib.get_monotonic_time()])
 local win_runtime_app = GLib.build_filenamev([GLib.get_tmp_dir(), "sqgipkg-win-app-" + GLib.get_monotonic_time()])
 local win_runtime_prefix = GLib.build_filenamev([win_runtime_root, "mingw64"])
@@ -1007,6 +1071,10 @@ check("windows launcher pins gstreamer runtime paths",
     win_launcher_text.find("GST_REGISTRY") != null)
 check("windows launcher pins schema path",
     win_launcher_text.find("GSETTINGS_SCHEMA_DIR=%HERE%share\\glib-2.0\\schemas") != null)
+check("windows launcher uses packaged gdk-pixbuf cache fallback",
+    win_launcher_text.find("GDK_PIXBUF_BUNDLE_MODULE_FILE=%HERE%lib\\gdk-pixbuf-2.0\\2.10.0\\loaders.cache") != null &&
+    win_launcher_text.find("GDK_PIXBUF_RUNTIME_MODULE_FILE=%LOCALAPPDATA%\\sqgi\\WinNative-gdk-pixbuf-loaders.cache") != null &&
+    win_launcher_text.find("%%~zC GTR 0") != null)
 local win_symlink_target = GLib.build_filenamev([win_launcher_dir, "target.txt"])
 local win_symlink_link = GLib.build_filenamev([win_launcher_dir, "link.txt"])
 win_launcher.write_file(win_symlink_target, "target")

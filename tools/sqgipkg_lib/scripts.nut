@@ -325,6 +325,9 @@ class SqgiPkgScripts extends Base.SqgiPkgManifest {
         if (opts.report.used_gtk)
             this.append_unique(opts.windows.packages, this.msys2_pkg(opts, "gtk4"))
 
+        if (opts.report.used_gtk || opts.report.used_gdk_pixbuf)
+            this.append_unique(opts.windows.packages, this.msys2_pkg(opts, "gdk-pixbuf2"))
+
         if (opts.report.used_gst) {
             this.append_unique(opts.windows.packages, this.msys2_pkg(opts, "gstreamer"))
             this.append_unique(opts.windows.packages, this.msys2_pkg(opts, "gst-plugins-base"))
