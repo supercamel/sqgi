@@ -220,6 +220,27 @@ Build an NSIS installer:
 sqgipkg --target win-nsis
 ```
 
+If the app uses bundled fonts by family name, add `windows.fonts` so the NSIS
+installer registers them with Windows for the current user:
+
+```json
+{
+  "windows": {
+    "fonts": [
+      {
+        "path": "data/fonts/RedactedScript-Regular.ttf",
+        "registry_name": "Redacted Script Regular (TrueType)"
+      }
+    ]
+  }
+}
+```
+
+The portable `win-dir` output stages these files under `share/fonts/`. The
+`win-nsis` target additionally installs them under
+`%LOCALAPPDATA%\Microsoft\Windows\Fonts`, writes the `HKCU` Fonts registry
+entry, and refreshes the Windows font list.
+
 ## NSIS Customization
 
 ```json
@@ -228,6 +249,8 @@ sqgipkg --target win-nsis
     "nsis_options": {
       "installer_name": "MyApp-Setup.exe",
       "install_dir": "$LOCALAPPDATA\\MyApp",
+      "header_image": "assets/nsis-header.bmp",
+      "welcome_image": "assets/nsis-welcome.bmp",
       "desktop_shortcut": true,
       "start_menu_shortcut": true,
       "start_menu_folder": "MyApp",
@@ -239,6 +262,9 @@ sqgipkg --target win-nsis
 
 When `makensis` is not available, `sqgipkg` still writes the `.nsi` script beside
 the staged Windows directory.
+
+`win-nsis` uses NSIS Modern UI 2 by default. `header_image` sets the wizard
+header bitmap and `welcome_image` sets the welcome/finish bitmap.
 
 ## Smoke Tests And Reports
 

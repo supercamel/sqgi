@@ -23,8 +23,17 @@ class SqgiPkgWindowsStaging extends Base.SqgiPkgWindowsMsys2 {
             this.copy_windows_typelib(opts, path, windir)
         foreach (spec in opts.windows.files)
             this.copy_file_spec(opts, spec, windir)
+        foreach (font in opts.windows.fonts)
+            this.copy_windows_font(opts, font, windir)
         foreach (package_name in opts.windows.packages)
             this.stage_msys2_package(opts, windir, package_name)
+    }
+
+    function copy_windows_font(opts, font, windir) {
+        local path = this.table_get(font, "path", "")
+        if (path == "") this.fail("Windows font entry missing path")
+        this.copy_to_dir(path, windir, GLib.build_filenamev(["share", "fonts"]), "Windows font")
+        this.report_inc(opts, "fonts")
     }
 
     function stage_app_scripts(opts, appdir, staged_scripts) {

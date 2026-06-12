@@ -56,6 +56,13 @@ class SqgiPkgWindowsNsis extends Base.SqgiPkgWindowsStaging {
         return icon_abs
     }
 
+    function nsis_compile_asset_path(path, label) {
+        if (path == "") return ""
+        local asset_abs = this.abs_path(path)
+        if (!this.path_exists(asset_abs)) this.fail(label + " not found: " + path)
+        return asset_abs
+    }
+
     function nsis_shortcut_target(opts, package_name, windir) {
         if (this.windows_gui_enabled(opts)) {
             local exe = this.windows_exe_launcher_name(opts, package_name)
@@ -74,6 +81,61 @@ class SqgiPkgWindowsNsis extends Base.SqgiPkgWindowsStaging {
         return text + "\n"
     }
 
+    function nsis_font_file_name(font) {
+        return this.basename(this.table_get(font, "path", ""))
+    }
+
+    function nsis_font_registry_name(font) {
+        return this.table_get(font, "registry_name", "")
+    }
+
+    function nsis_font_target_path(font) {
+        return "$LOCALAPPDATA\\Microsoft\\Windows\\Fonts\\" + this.nsis_font_file_name(font)
+    }
+
+    function nsis_font_broadcast_line() {
+        return "  System::Call 'user32::SendMessageTimeoutW(p 0xffff, i 0x001D, p 0, p 0, i 0x0002, i 5000, *p .r0)'\n"
+    }
+
+    function nsis_install_fonts_lines(opts) {
+        if (opts.windows.fonts.len() == 0) return ""
+
+        local text = "  CreateDirectory \"$LOCALAPPDATA\\Microsoft\\Windows\\Fonts\"\n"
+        foreach (font in opts.windows.fonts) {
+            local file_name = this.nsis_font_file_name(font)
+            local registry_name = this.nsis_font_registry_name(font)
+            if (file_name == "" || registry_name == "") continue
+
+            local target = this.nsis_font_target_path(font)
+            text += "  CopyFiles /SILENT \"$INSTDIR\\share\\fonts\\" + this.nsis_escape(file_name) +
+                "\" \"" + this.nsis_escape_keep_vars(target) + "\"\n" +
+                "  WriteRegStr HKCU \"Software\\Microsoft\\Windows NT\\CurrentVersion\\Fonts\" \"" +
+                this.nsis_escape(registry_name) + "\" \"" + this.nsis_escape_keep_vars(target) + "\"\n" +
+                "  System::Call 'gdi32::AddFontResourceW(w \"" + this.nsis_escape_keep_vars(target) + "\") i .r0'\n"
+        }
+        text += this.nsis_font_broadcast_line()
+        return text
+    }
+
+    function nsis_uninstall_fonts_lines(opts) {
+        if (opts.windows.fonts.len() == 0) return ""
+
+        local text = ""
+        foreach (font in opts.windows.fonts) {
+            local file_name = this.nsis_font_file_name(font)
+            local registry_name = this.nsis_font_registry_name(font)
+            if (file_name == "" || registry_name == "") continue
+
+            local target = this.nsis_font_target_path(font)
+            text += "  System::Call 'gdi32::RemoveFontResourceW(w \"" + this.nsis_escape_keep_vars(target) + "\") i .r0'\n" +
+                "  DeleteRegValue HKCU \"Software\\Microsoft\\Windows NT\\CurrentVersion\\Fonts\" \"" +
+                this.nsis_escape(registry_name) + "\"\n" +
+                "  Delete \"" + this.nsis_escape_keep_vars(target) + "\"\n"
+        }
+        text += this.nsis_font_broadcast_line()
+        return text
+    }
+
     function write_nsis_script(opts, windir) {
         local package_name = this.package_basename(opts.name)
         local script = GLib.build_filenamev([opts.output_dir, package_name + ".nsi"])
@@ -85,30 +147,44 @@ class SqgiPkgWindowsNsis extends Base.SqgiPkgWindowsStaging {
         local start_menu_folder = this.nsis_start_menu_folder(opts)
         local icon_abs = this.maybe_stage_nsis_icon(opts, windir)
         local has_icon = icon_abs != ""
-        local has_license = opts.windows.nsis_license != ""
-
-        if (has_license && !this.path_exists(opts.windows.nsis_license))
-            this.fail("NSIS license file not found: " + opts.windows.nsis_license)
+        local license_abs = this.nsis_compile_asset_path(opts.windows.nsis_license, "NSIS license file")
+        local header_image_abs = this.nsis_compile_asset_path(opts.windows.nsis_header_image, "NSIS header image")
+        local welcome_image_abs = this.nsis_compile_asset_path(opts.windows.nsis_welcome_image, "NSIS welcome image")
+        local has_license = license_abs != ""
 
         local text = "Unicode true\n" +
+            "!include MUI2.nsh\n" +
             "Name \"" + this.nsis_escape(opts.name) + "\"\n" +
             "OutFile \"" + this.nsis_escape(installer) + "\"\n" +
             "InstallDir \"" + this.nsis_escape_keep_vars(install_dir) + "\"\n" +
-            "RequestExecutionLevel " + level + "\n"
+            "RequestExecutionLevel " + level + "\n" +
+            "!define MUI_ABORTWARNING\n"
 
-        if (has_icon) {
-            text += "Icon \"" + this.nsis_escape(icon_abs) + "\"\n" +
-                    "UninstallIcon \"" + this.nsis_escape(icon_abs) + "\"\n"
-        }
+        if (has_icon)
+            text += "!define MUI_ICON \"" + this.nsis_escape(icon_abs) + "\"\n" +
+                    "!define MUI_UNICON \"" + this.nsis_escape(icon_abs) + "\"\n"
+        if (header_image_abs != "")
+            text += "!define MUI_HEADERIMAGE\n" +
+                    "!define MUI_HEADERIMAGE_BITMAP \"" + this.nsis_escape(header_image_abs) + "\"\n"
+        if (welcome_image_abs != "")
+            text += "!define MUI_WELCOMEFINISHPAGE_BITMAP \"" + this.nsis_escape(welcome_image_abs) + "\"\n"
 
-        text += "\n"
+        text += "\n" +
+            "!insertmacro MUI_PAGE_WELCOME\n"
         if (has_license)
-            text += "LicenseData \"" + this.nsis_escape(opts.windows.nsis_license) + "\"\nPage license\n"
-        text += "Page directory\nPage instfiles\nUninstPage uninstConfirm\nUninstPage instfiles\n\n"
+            text += "!insertmacro MUI_PAGE_LICENSE \"" + this.nsis_escape(license_abs) + "\"\n"
+        text += "!insertmacro MUI_PAGE_DIRECTORY\n" +
+            "!insertmacro MUI_PAGE_INSTFILES\n" +
+            "!insertmacro MUI_PAGE_FINISH\n" +
+            "!insertmacro MUI_UNPAGE_CONFIRM\n" +
+            "!insertmacro MUI_UNPAGE_INSTFILES\n" +
+            "!insertmacro MUI_LANGUAGE \"English\"\n\n"
 
         text += "Section \"Install\"\n" +
             "  SetOutPath \"$INSTDIR\"\n" +
             "  File /r \"" + this.nsis_escape(source_glob) + "\"\n"
+
+        text += this.nsis_install_fonts_lines(opts)
 
         if (opts.windows.nsis_desktop_shortcut) {
             text += this.nsis_create_shortcut_line(
@@ -150,6 +226,7 @@ class SqgiPkgWindowsNsis extends Base.SqgiPkgWindowsStaging {
         }
         if (opts.windows.nsis_uninstall_registry)
             text += "  DeleteRegKey HKCU \"Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\" + this.nsis_escape(package_name) + "\"\n"
+        text += this.nsis_uninstall_fonts_lines(opts)
         text += "  RMDir /r \"$INSTDIR\"\n" +
             "SectionEnd\n"
 

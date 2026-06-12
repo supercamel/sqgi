@@ -76,6 +76,29 @@ class FakeSuiteOptions {
 }
 options.apply_option_dict(suite_cli_opts, FakeSuiteOptions())
 check("options linux deb suite", suite_cli_opts.linux.deb.suite == "resolute" && suite_cli_opts.linux.deb.suite_forced)
+local win_font_cli_opts = options.new_options()
+class FakeWindowsFontOptions {
+    function lookup_value(name, expected_type) {
+        return name == "windows-font" ? ["data/RedactedScript-Regular.ttf=Redacted Script Regular (TrueType)"] : null
+    }
+}
+options.apply_option_dict(win_font_cli_opts, FakeWindowsFontOptions())
+check("options windows font spec",
+    win_font_cli_opts.windows.fonts.len() == 1 &&
+    win_font_cli_opts.windows.fonts[0].path == "data/RedactedScript-Regular.ttf" &&
+    win_font_cli_opts.windows.fonts[0].registry_name == "Redacted Script Regular (TrueType)")
+local nsis_image_cli_opts = options.new_options()
+class FakeNsisImageOptions {
+    function lookup_value(name, expected_type) {
+        if (name == "nsis-header-image") return "assets/nsis-header.bmp"
+        if (name == "nsis-welcome-image") return "assets/nsis-welcome.bmp"
+        return null
+    }
+}
+options.apply_option_dict(nsis_image_cli_opts, FakeNsisImageOptions())
+check("options NSIS image paths",
+    nsis_image_cli_opts.windows.nsis_header_image == "assets/nsis-header.bmp" &&
+    nsis_image_cli_opts.windows.nsis_welcome_image == "assets/nsis-welcome.bmp")
 
 local manifest = Manifest.SqgiPkgManifest()
 check("manifest string list scalar", manifest.manifest_string_list("gtk4")[0] == "gtk4")
@@ -124,6 +147,32 @@ forced_download_opts.linux.deb.download = false
 forced_download_opts.linux.deb.download_forced = false
 manifest.apply_linux_manifest(forced_download_opts, "/tmp/project", { deb = { download = true } })
 check("manifest keeps no linux deb download override", forced_download_opts.linux.deb.download == false)
+local windows_font_manifest_opts = manifest.new_options()
+manifest.apply_windows_manifest(windows_font_manifest_opts, "/tmp/project", {
+    fonts = [
+        {
+            path = "data/RedactedScript-Regular.ttf",
+            registry_name = "Redacted Script Regular (TrueType)"
+        },
+        "data/InterVariable.ttf=Inter Variable (TrueType)"
+    ]
+})
+check("manifest windows fonts",
+    windows_font_manifest_opts.windows.fonts.len() == 2 &&
+    windows_font_manifest_opts.windows.fonts[0].path == "/tmp/project/data/RedactedScript-Regular.ttf" &&
+    windows_font_manifest_opts.windows.fonts[0].registry_name == "Redacted Script Regular (TrueType)" &&
+    windows_font_manifest_opts.windows.fonts[1].path == "/tmp/project/data/InterVariable.ttf" &&
+    windows_font_manifest_opts.windows.fonts[1].registry_name == "Inter Variable (TrueType)")
+local nsis_image_manifest_opts = manifest.new_options()
+manifest.apply_windows_manifest(nsis_image_manifest_opts, "/tmp/project", {
+    nsis_options = {
+        header_image = "assets/nsis-header.bmp",
+        welcome_image = "assets/nsis-welcome.bmp"
+    }
+})
+check("manifest NSIS image paths",
+    nsis_image_manifest_opts.windows.nsis_header_image == "/tmp/project/assets/nsis-header.bmp" &&
+    nsis_image_manifest_opts.windows.nsis_welcome_image == "/tmp/project/assets/nsis-welcome.bmp")
 local linux_sysroot_opts = manifest.new_options()
 linux_sysroot_opts.target = "linux-sysroot"
 manifest.validate_options(linux_sysroot_opts)
@@ -1104,6 +1153,77 @@ nsis_gui_native_opts.windows.console = false
 check("nsis GUI native shortcuts target env launcher",
     nsis.nsis_shortcut_target(nsis_gui_native_opts, "WinNative", nsis_gui_script_dir) == "WinNative.bat")
 system("rm -rf " + nsis.shell_quote(nsis_gui_script_dir))
+
+local nsis_mui_dir = GLib.build_filenamev([GLib.get_tmp_dir(), "sqgipkg-nsis-mui-" + GLib.get_monotonic_time()])
+local nsis_mui_windir = GLib.build_filenamev([nsis_mui_dir, "MuiApp"])
+local nsis_mui_header = GLib.build_filenamev([nsis_mui_dir, "header.bmp"])
+local nsis_mui_welcome = GLib.build_filenamev([nsis_mui_dir, "welcome.bmp"])
+local nsis_mui_license = GLib.build_filenamev([nsis_mui_dir, "LICENSE.txt"])
+nsis.mkdir_p(nsis_mui_windir)
+nsis.write_file(nsis_mui_header, "fake header")
+nsis.write_file(nsis_mui_welcome, "fake welcome")
+nsis.write_file(nsis_mui_license, "fake license")
+local nsis_mui_opts = nsis.new_options()
+nsis_mui_opts.name = "MuiApp"
+nsis_mui_opts.output_dir = nsis_mui_dir
+nsis_mui_opts.windows.nsis_license = nsis_mui_license
+nsis_mui_opts.windows.nsis_header_image = nsis_mui_header
+nsis_mui_opts.windows.nsis_welcome_image = nsis_mui_welcome
+nsis_mui_opts.windows.nsis_desktop_shortcut = false
+nsis_mui_opts.windows.nsis_start_menu_shortcut = false
+local nsis_mui_script = nsis.write_nsis_script(nsis_mui_opts, nsis_mui_windir)
+local nsis_mui_text = nsis.read_file(nsis_mui_script)
+check("nsis uses MUI2 pages by default",
+    nsis_mui_text.find("!include MUI2.nsh") != null &&
+    nsis_mui_text.find("!insertmacro MUI_PAGE_WELCOME") != null &&
+    nsis_mui_text.find("!insertmacro MUI_PAGE_LICENSE \"" + nsis_mui_license + "\"") != null &&
+    nsis_mui_text.find("!insertmacro MUI_PAGE_DIRECTORY") != null &&
+    nsis_mui_text.find("!insertmacro MUI_PAGE_INSTFILES") != null &&
+    nsis_mui_text.find("!insertmacro MUI_PAGE_FINISH") != null &&
+    nsis_mui_text.find("!insertmacro MUI_UNPAGE_CONFIRM") != null &&
+    nsis_mui_text.find("!insertmacro MUI_UNPAGE_INSTFILES") != null &&
+    nsis_mui_text.find("!insertmacro MUI_LANGUAGE \"English\"") != null &&
+    nsis_mui_text.find("Page directory") == null &&
+    nsis_mui_text.find("UninstPage") == null)
+check("nsis writes MUI2 image defines",
+    nsis_mui_text.find("!define MUI_HEADERIMAGE") != null &&
+    nsis_mui_text.find("!define MUI_HEADERIMAGE_BITMAP \"" + nsis_mui_header + "\"") != null &&
+    nsis_mui_text.find("!define MUI_WELCOMEFINISHPAGE_BITMAP \"" + nsis_mui_welcome + "\"") != null)
+system("rm -rf " + nsis.shell_quote(nsis_mui_dir))
+
+local nsis_font_dir = GLib.build_filenamev([GLib.get_tmp_dir(), "sqgipkg-nsis-font-" + GLib.get_monotonic_time()])
+local nsis_font_windir = GLib.build_filenamev([nsis_font_dir, "FontApp"])
+local nsis_font_source = GLib.build_filenamev([nsis_font_dir, "RedactedScript-Regular.ttf"])
+nsis.mkdir_p(nsis_font_windir)
+nsis.write_file(nsis_font_source, "fake font")
+local nsis_font_opts = nsis.new_options()
+nsis_font_opts.name = "FontApp"
+nsis_font_opts.output_dir = nsis_font_dir
+nsis_font_opts.windows.nsis_desktop_shortcut = false
+nsis_font_opts.windows.nsis_start_menu_shortcut = false
+nsis_font_opts.windows.fonts = [
+    {
+        path = nsis_font_source,
+        registry_name = "Redacted Script Regular (TrueType)"
+    }
+]
+nsis.copy_windows_font(nsis_font_opts, nsis_font_opts.windows.fonts[0], nsis_font_windir)
+check("windows font staging copies into share fonts",
+    nsis_font_opts.report.fonts == 1 &&
+    nsis.path_exists(GLib.build_filenamev([nsis_font_windir, "share", "fonts", "RedactedScript-Regular.ttf"])))
+local nsis_font_script = nsis.write_nsis_script(nsis_font_opts, nsis_font_windir)
+local nsis_font_text = nsis.read_file(nsis_font_script)
+check("nsis installs and registers Windows fonts",
+    nsis_font_text.find("CreateDirectory \"$LOCALAPPDATA\\Microsoft\\Windows\\Fonts\"") != null &&
+    nsis_font_text.find("CopyFiles /SILENT \"$INSTDIR\\share\\fonts\\RedactedScript-Regular.ttf\" \"$LOCALAPPDATA\\Microsoft\\Windows\\Fonts\\RedactedScript-Regular.ttf\"") != null &&
+    nsis_font_text.find("WriteRegStr HKCU \"Software\\Microsoft\\Windows NT\\CurrentVersion\\Fonts\" \"Redacted Script Regular (TrueType)\" \"$LOCALAPPDATA\\Microsoft\\Windows\\Fonts\\RedactedScript-Regular.ttf\"") != null &&
+    nsis_font_text.find("AddFontResourceW") != null &&
+    nsis_font_text.find("SendMessageTimeoutW") != null)
+check("nsis unregisters Windows fonts",
+    nsis_font_text.find("RemoveFontResourceW") != null &&
+    nsis_font_text.find("DeleteRegValue HKCU \"Software\\Microsoft\\Windows NT\\CurrentVersion\\Fonts\" \"Redacted Script Regular (TrueType)\"") != null &&
+    nsis_font_text.find("Delete \"$LOCALAPPDATA\\Microsoft\\Windows\\Fonts\\RedactedScript-Regular.ttf\"") != null)
+system("rm -rf " + nsis.shell_quote(nsis_font_dir))
 }
 
 run_linux_cross_env_module_tests(linux, host_arch, cross_arch)

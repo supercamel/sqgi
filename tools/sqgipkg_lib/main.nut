@@ -131,6 +131,8 @@ class SqgiPkg extends Base.SqgiPkgBuild {
             "MSYS2 MinGW prefix for Windows packaging, usually mingw64 or clang64", "PREFIX")
         this.app.add_main_option("windows-package", 0, 0, GLib.OptionArg.string_array,
             "Copy runtime files from an installed MSYS2 package", "PACKAGE")
+        this.app.add_main_option("windows-font", 0, 0, GLib.OptionArg.string_array,
+            "Stage and register a Windows font for NSIS installers, PATH=REGISTRY_NAME", "SPEC")
         this.app.add_main_option("msys2-repo-url", 0, 0, GLib.OptionArg.string,
             "MSYS2 repository URL used to download Windows packages", "URL")
         this.app.add_main_option("msys2-package-cache", 0, 0, GLib.OptionArg.string,
@@ -169,6 +171,10 @@ class SqgiPkg extends Base.SqgiPkgBuild {
             "License file displayed by the NSIS installer", "FILE")
         this.app.add_main_option("nsis-icon", 0, 0, GLib.OptionArg.string,
             "ICO file used for the installer and shortcuts", "FILE")
+        this.app.add_main_option("nsis-header-image", 0, 0, GLib.OptionArg.string,
+            "MUI2 header bitmap used by the NSIS installer", "FILE")
+        this.app.add_main_option("nsis-welcome-image", 0, 0, GLib.OptionArg.string,
+            "MUI2 welcome and finish bitmap used by the NSIS installer", "FILE")
         this.app.add_main_option("nsis-no-desktop-shortcut", 0, 0, GLib.OptionArg.none,
             "Do not create a desktop shortcut in the NSIS installer", null)
         this.app.add_main_option("nsis-no-start-menu-shortcut", 0, 0, GLib.OptionArg.none,

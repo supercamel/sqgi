@@ -72,6 +72,7 @@ class SqgiPkgAppImage extends Base.SqgiPkgLinuxDeps {
         print("  gsettings schemas: " + opts.report.gsettings_schemas + "\n")
         print("  gio modules: " + opts.report.gio_modules + "\n")
         print("  gdk-pixbuf loaders: " + opts.report.gdk_pixbuf_loaders + "\n")
+        print("  fonts: " + opts.report.fonts + "\n")
 
         if (opts.report.warnings.len() > 0) {
             print("  warnings:\n")

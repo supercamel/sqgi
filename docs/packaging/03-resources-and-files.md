@@ -93,6 +93,19 @@ For Windows-specific destinations, use `windows.files`:
 }
 ```
 
+For Windows fonts, prefer `windows.fonts` instead of a plain file copy. It
+stages the font into the bundle and lets `win-nsis` register it per-user:
+
+```json
+{
+  "windows": {
+    "fonts": [
+      "data/fonts/RedactedScript-Regular.ttf=Redacted Script Regular (TrueType)"
+    ]
+  }
+}
+```
+
 ## Use includes For Mixed Extras
 
 `includes` can copy non-script files or add optional scripts:
@@ -133,4 +146,3 @@ The build report also counts scripts, resources, manual files, libraries,
 typelibs, GTK data, schemas, plugins, and warnings.
 
 Next: [bundle runtime libraries and GI data](04-runtime-libraries-and-gi-data.md).
-

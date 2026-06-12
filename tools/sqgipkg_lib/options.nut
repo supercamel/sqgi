@@ -92,6 +92,7 @@ class SqgiPkgOptions extends Base.SqgiPkgCore {
                 libraries = [],
                 typelibs = [],
                 files = [],
+                fonts = [],
                 native_dependencies = [],
                 native_projects = [],
                 gtk_theme = "",
@@ -105,6 +106,8 @@ class SqgiPkgOptions extends Base.SqgiPkgCore {
                 nsis_request_execution_level = "user",
                 nsis_license = "",
                 nsis_icon = "",
+                nsis_header_image = "",
+                nsis_welcome_image = "",
                 nsis_desktop_shortcut = true,
                 nsis_start_menu_shortcut = true,
                 nsis_start_menu_folder = "",
@@ -163,6 +166,7 @@ class SqgiPkgOptions extends Base.SqgiPkgCore {
             "--msys2-root",
             "--msys2-prefix",
             "--windows-package",
+            "--windows-font",
             "--msys2-repo-url",
             "--msys2-package-cache",
             "--win-cmake-toolchain",
@@ -176,6 +180,8 @@ class SqgiPkgOptions extends Base.SqgiPkgCore {
             "--nsis-request-execution-level",
             "--nsis-license",
             "--nsis-icon",
+            "--nsis-header-image",
+            "--nsis-welcome-image",
             "--nsis-start-menu-folder"
         ], arg)
     }
@@ -215,6 +221,22 @@ class SqgiPkgOptions extends Base.SqgiPkgCore {
         if (value == null) return []
         if (typeof(value) == "array") return value
         return [value]
+    }
+
+    function windows_font_spec(spec) {
+        local parts = this.split_once(spec, "=")
+        if (parts[1] == null) this.fail("--windows-font requires PATH=REGISTRY_NAME")
+        return {
+            path = parts[0],
+            registry_name = parts[1]
+        }
+    }
+
+    function windows_font_specs(values) {
+        local out = []
+        foreach (value in values)
+            out.push(this.windows_font_spec(value))
+        return out
     }
 
     function apply_option_dict(opts, option_dict) {
@@ -311,6 +333,10 @@ class SqgiPkgOptions extends Base.SqgiPkgCore {
         if (v != null) opts.windows.nsis_license = v
         v = this.option_value(option_dict, "nsis-icon")
         if (v != null) opts.windows.nsis_icon = v
+        v = this.option_value(option_dict, "nsis-header-image")
+        if (v != null) opts.windows.nsis_header_image = v
+        v = this.option_value(option_dict, "nsis-welcome-image")
+        if (v != null) opts.windows.nsis_welcome_image = v
         v = this.option_value(option_dict, "nsis-start-menu-folder")
         if (v != null) opts.windows.nsis_start_menu_folder = v
 
@@ -373,6 +399,7 @@ class SqgiPkgOptions extends Base.SqgiPkgCore {
         this.append_values(opts.gio_modules, this.option_values(option_dict, "gio-module"))
         this.append_values(opts.gdk_pixbuf_loaders, this.option_values(option_dict, "gdk-pixbuf-loader"))
         this.append_values(opts.windows.packages, this.option_values(option_dict, "windows-package"))
+        this.append_values(opts.windows.fonts, this.windows_font_specs(this.option_values(option_dict, "windows-font")))
     }
 
     function parse_args(args, option_dict) {

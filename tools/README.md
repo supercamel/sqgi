@@ -1634,6 +1634,32 @@ Exact manual copies for Windows staging.
 ]
 ```
 
+### `windows.fonts`
+
+Fonts that should be bundled and registered by the generated NSIS installer.
+Each font is staged into `share/fonts/`; `win-nsis` then installs it per-user
+under `%LOCALAPPDATA%\Microsoft\Windows\Fonts`, writes the matching `HKCU`
+Windows font registry value, calls `AddFontResourceW`, and broadcasts a font
+change message.
+
+```json
+"fonts": [
+  {
+    "path": "data/fonts/RedactedScript-Regular.ttf",
+    "registry_name": "Redacted Script Regular (TrueType)"
+  },
+  "data/fonts/InterVariable.ttf=Inter Variable (TrueType)"
+]
+```
+
+The registry name must match the Windows Fonts registry value for the face, for
+example `Family Regular (TrueType)` or `Family Variable (TrueType)`. The CLI
+form is:
+
+```sh
+--windows-font "data/fonts/RedactedScript-Regular.ttf=Redacted Script Regular (TrueType)"
+```
+
 ### `windows.native_dependencies` / `windows.build_dependencies`
 
 Private Windows build dependencies that must be available before the main Windows
@@ -1893,6 +1919,8 @@ Installer customization lives here:
     "request_execution_level": "user",
     "license": "LICENSE.txt",
     "icon": "assets/app.ico",
+    "header_image": "assets/nsis-header.bmp",
+    "welcome_image": "assets/nsis-welcome.bmp",
     "desktop_shortcut": true,
     "start_menu_shortcut": true,
     "start_menu_folder": "NativeVala",
@@ -1910,10 +1938,16 @@ Supported options:
 | `request_execution_level` | NSIS execution level, usually `user` or `admin`. |
 | `license` | License file shown during install. |
 | `icon` | Installer/shortcut icon file, typically `.ico`. |
+| `header_image` | Modern UI 2 header bitmap used on wizard pages, typically `.bmp`. |
+| `welcome_image` | Modern UI 2 welcome/finish bitmap, typically `.bmp`. |
 | `desktop_shortcut` | Create a desktop shortcut. |
 | `start_menu_shortcut` | Create Start Menu shortcuts. |
 | `start_menu_folder` | Start Menu folder name. |
 | `uninstall_registry` | Write HKCU uninstall registry metadata. |
+
+`win-nsis` uses NSIS Modern UI 2 by default. The image fields are passed to
+`makensis` at compile time; they are not installed into the application
+directory.
 
 Matching CLI flags:
 
@@ -1923,6 +1957,8 @@ Matching CLI flags:
 --nsis-request-execution-level LEVEL
 --nsis-license FILE
 --nsis-icon FILE
+--nsis-header-image FILE
+--nsis-welcome-image FILE
 --nsis-no-desktop-shortcut
 --nsis-no-start-menu-shortcut
 --nsis-start-menu-folder NAME
@@ -2136,6 +2172,8 @@ NSIS options:
 --nsis-request-execution-level LEVEL
 --nsis-license FILE
 --nsis-icon FILE
+--nsis-header-image FILE
+--nsis-welcome-image FILE
 --nsis-no-desktop-shortcut
 --nsis-no-start-menu-shortcut
 --nsis-start-menu-folder NAME
@@ -2233,6 +2271,8 @@ sqgipkg --manifest sqgipkg.json --smoke-test "--analyse --timeout=2"
       "install_dir": "$LOCALAPPDATA\\NativeVala",
       "request_execution_level": "user",
       "icon": "assets/app.ico",
+      "header_image": "assets/nsis-header.bmp",
+      "welcome_image": "assets/nsis-welcome.bmp",
       "desktop_shortcut": true,
       "start_menu_shortcut": true,
       "start_menu_folder": "NativeVala",

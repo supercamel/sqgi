@@ -460,9 +460,17 @@ Useful Windows manifest fields:
     "packages": [
       "mingw-w64-x86_64-gtk4"
     ],
+    "fonts": [
+      {
+        "path": "data/fonts/RedactedScript-Regular.ttf",
+        "registry_name": "Redacted Script Regular (TrueType)"
+      }
+    ],
     "nsis_options": {
       "installer_name": "WindowsDemo-Setup.exe",
       "install_dir": "$LOCALAPPDATA\\WindowsDemo",
+      "header_image": "assets/nsis-header.bmp",
+      "welcome_image": "assets/nsis-welcome.bmp",
       "desktop_shortcut": true,
       "start_menu_shortcut": true,
       "start_menu_folder": "SQGI"
@@ -489,6 +497,22 @@ cross-built `sqgi.exe` uses the Windows GUI subsystem. NSIS shortcuts then
 point directly at `bin\sqgi.exe` instead of the batch file. The SQGI runtime
 detects the packaged layout, sets the same runtime paths, and starts
 `share\sqgi\app\main.cnut` when launched without arguments.
+
+Use `windows.fonts` for bundled fonts that must be visible to Windows and GTK by
+font family name. `sqgipkg` stages each listed font into `share/fonts/`, and
+`win-nsis` installs it per-user under `%LOCALAPPDATA%\Microsoft\Windows\Fonts`,
+registers the `HKCU` Windows font value, and refreshes the Windows font list.
+The string form is also supported:
+
+```json
+"fonts": [
+  "data/fonts/InterVariable.ttf=Inter Variable (TrueType)"
+]
+```
+
+`win-nsis` uses NSIS Modern UI 2 by default. Use
+`windows.nsis_options.header_image` for the wizard header bitmap and
+`windows.nsis_options.welcome_image` for the welcome/finish bitmap.
 
 Console behavior is automatic by default. Force a visible console for debugging:
 

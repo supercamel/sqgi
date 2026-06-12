@@ -273,6 +273,7 @@ class SqgiPkgManifest extends Base.SqgiPkgOptions {
         this.append_values(opts.windows.libraries, this.manifest_paths(base_dir, this.table_get(windows, "libraries")))
         this.append_values(opts.windows.typelibs, this.manifest_paths(base_dir, this.table_get(windows, "typelibs")))
         this.append_values(opts.windows.files, this.manifest_files(base_dir, this.table_get(windows, "files")))
+        this.append_values(opts.windows.fonts, this.manifest_windows_fonts(base_dir, this.table_get(windows, "fonts")))
         this.append_values(opts.windows.native_dependencies, this.manifest_native_projects(base_dir, native_dependencies))
         this.append_values(opts.windows.native_projects, this.manifest_native_projects(base_dir, this.table_get(windows, "native_projects")))
     }
@@ -320,6 +321,9 @@ class SqgiPkgManifest extends Base.SqgiPkgOptions {
         local request_execution_level = this.table_get(nsis_options, "request_execution_level")
         local license = this.table_get(nsis_options, "license")
         local icon = this.table_get(nsis_options, "icon")
+        local header_image = this.table_get(nsis_options, "header_image")
+        local welcome_image = this.table_get(nsis_options, "welcome_image")
+        if (welcome_image == null) welcome_image = this.table_get(nsis_options, "welcome_finish_image")
         local desktop_shortcut = this.table_get(nsis_options, "desktop_shortcut")
         local start_menu_shortcut = this.table_get(nsis_options, "start_menu_shortcut")
         local start_menu_folder = this.table_get(nsis_options, "start_menu_folder")
@@ -330,6 +334,8 @@ class SqgiPkgManifest extends Base.SqgiPkgOptions {
         if (request_execution_level != null) opts.windows.nsis_request_execution_level = request_execution_level
         if (license != null) opts.windows.nsis_license = this.manifest_path(base_dir, license)
         if (icon != null) opts.windows.nsis_icon = this.manifest_path(base_dir, icon)
+        if (header_image != null) opts.windows.nsis_header_image = this.manifest_path(base_dir, header_image)
+        if (welcome_image != null) opts.windows.nsis_welcome_image = this.manifest_path(base_dir, welcome_image)
         if (desktop_shortcut != null) opts.windows.nsis_desktop_shortcut = desktop_shortcut
         if (start_menu_shortcut != null) opts.windows.nsis_start_menu_shortcut = start_menu_shortcut
         if (start_menu_folder != null) opts.windows.nsis_start_menu_folder = start_menu_folder
@@ -402,6 +408,34 @@ class SqgiPkgManifest extends Base.SqgiPkgOptions {
                 if (dest == null) this.fail("manifest file object requires dest")
                 src = this.manifest_path(base_dir, src)
                 out.push(src + "=" + dest)
+            }
+        }
+        return out
+    }
+
+    function manifest_windows_fonts(base_dir, values) {
+        if (values == null) return []
+
+        local out = []
+        local items = (typeof(values) == "array") ? values : [values]
+        foreach (item in items) {
+            if (typeof(item) == "string") {
+                local parts = this.split_once(item, "=")
+                if (parts[1] == null) this.fail("manifest windows.fonts string requires PATH=REGISTRY_NAME")
+                out.push({
+                    path = this.manifest_path(base_dir, parts[0]),
+                    registry_name = parts[1]
+                })
+            } else {
+                local src = this.table_get(item, "path")
+                local registry_name = this.table_get(item, "registry_name")
+                if (registry_name == null) registry_name = this.table_get(item, "name")
+                if (src == null) this.fail("manifest windows.fonts object requires path")
+                if (registry_name == null) this.fail("manifest windows.fonts object requires registry_name")
+                out.push({
+                    path = this.manifest_path(base_dir, src),
+                    registry_name = registry_name
+                })
             }
         }
         return out

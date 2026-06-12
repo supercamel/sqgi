@@ -152,6 +152,23 @@ class SqgiPkgDoctor extends Base.SqgiPkgTemplates {
             errors = this.doctor_path(errors, "GIO module", path)
         foreach (path in opts.gdk_pixbuf_loaders)
             errors = this.doctor_path(errors, "gdk-pixbuf loader", path)
+        if (opts.windows.nsis_license != "")
+            errors = this.doctor_path(errors, "NSIS license", opts.windows.nsis_license)
+        if (opts.windows.nsis_icon != "")
+            errors = this.doctor_path(errors, "NSIS icon", opts.windows.nsis_icon)
+        if (opts.windows.nsis_header_image != "")
+            errors = this.doctor_path(errors, "NSIS header image", opts.windows.nsis_header_image)
+        if (opts.windows.nsis_welcome_image != "")
+            errors = this.doctor_path(errors, "NSIS welcome image", opts.windows.nsis_welcome_image)
+        foreach (font in opts.windows.fonts) {
+            local path = this.table_get(font, "path", "")
+            local registry_name = this.table_get(font, "registry_name", "")
+            errors = this.doctor_path(errors, "Windows font", path)
+            if (registry_name == "") {
+                print("ERROR: Windows font requires registry_name: " + path + "\n")
+                errors = errors + 1
+            }
+        }
 
         foreach (project in opts.native_projects) {
             errors = this.doctor_path(errors, "native project directory", project.dir)

@@ -398,6 +398,7 @@ class SqgiPkgCore {
             gtk_data = 0,
             gio_modules = 0,
             gdk_pixbuf_loaders = 0,
+            fonts = 0,
             used_gtk = false,
             used_gst = false,
             used_gdk_pixbuf = false,
