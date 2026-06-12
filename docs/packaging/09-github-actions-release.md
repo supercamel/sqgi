@@ -94,7 +94,6 @@ For a native app, declare the executable paths instead of a Squirrel script:
     "gdk_backend": "win32",
     "build_dir": "build-windows-x86_64",
     "packages": [
-      "mingw-w64-x86_64-vala",
       "mingw-w64-x86_64-gtk4"
     ],
     "native_projects": [
@@ -240,7 +239,8 @@ want every main-branch push to produce downloadable artifacts.
   sysroot should come from a specific Ubuntu release instead of the runner host.
 - Use `linux.arches[].deb.suite` for per-architecture package suites, or pass
   `--linux-deb-suite SUITE` to force every Linux architecture for one build.
-- Add Windows runtime/build packages to `windows.packages`.
+- Add Windows runtime packages to `windows.packages` and build-only packages to
+  `windows.build_packages`.
 - Keep Linux build directories architecture-specific.
 - Use `entry_linux` per architecture when cross builds produce different output
   paths.

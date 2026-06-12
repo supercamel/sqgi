@@ -43,15 +43,13 @@ local worker = MyVala.Worker.new()
 print(worker.greet("SQGI") + "\n")
 ```
 
-For Windows cross builds, add Vala to the MSYS2 package list:
+For Windows cross builds, `sqgipkg` installs Vala automatically as a build
+package. It does not need to be listed in `windows.packages`.
 
 ```json
 {
   "windows": {
-    "msys2_prefix": "mingw64",
-    "packages": [
-      "mingw-w64-x86_64-vala"
-    ]
+    "msys2_prefix": "mingw64"
   }
 }
 ```
@@ -153,4 +151,3 @@ Use `stage: false` when the dependency is only needed in the build sysroot. Set
 runtime payloads directly.
 
 Next: [package GTK themes and application settings](07-gtk-theming.md).
-

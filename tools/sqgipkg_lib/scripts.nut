@@ -310,8 +310,29 @@ class SqgiPkgScripts extends Base.SqgiPkgManifest {
         return this.msys2_package_prefix(opts) + "-" + name
     }
 
+    function windows_project_has_build_steps(project) {
+        return project.build.len() > 0 || project.install.len() > 0
+    }
+
+    function windows_needs_default_vala(opts) {
+        if (opts.windows.build.len() > 0) return true
+
+        foreach (project in opts.windows.native_dependencies) {
+            if (this.windows_project_has_build_steps(project)) return true
+        }
+        foreach (project in opts.windows.native_projects) {
+            if (this.windows_project_has_build_steps(project)) return true
+        }
+
+        return false
+    }
+
     function apply_windows_package_defaults(opts) {
         if (!this.starts_with(opts.target, "win-")) return
+
+        if (this.windows_needs_default_vala(opts))
+            this.append_unique(opts.windows.build_packages, this.msys2_pkg(opts, "vala"))
+
         if (!opts.windows.auto_packages) return
 
         this.append_unique(opts.windows.packages, this.msys2_pkg(opts, "glib2"))

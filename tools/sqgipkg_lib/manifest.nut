@@ -231,6 +231,7 @@ class SqgiPkgManifest extends Base.SqgiPkgOptions {
         local download_packages = this.table_get(windows, "download_packages")
         local refresh_packages = this.table_get(windows, "refresh_packages")
         local auto_packages = this.table_get(windows, "auto_packages")
+        local build_packages = this.table_get(windows, "build_packages")
         local console = this.table_get(windows, "console")
         local nsis = this.table_get(windows, "nsis")
         local gtk_theme = this.table_get(windows, "gtk_theme")
@@ -269,6 +270,7 @@ class SqgiPkgManifest extends Base.SqgiPkgOptions {
         if (gdk_backend != null) opts.windows.gdk_backend = gdk_backend
         if (nsis_options != null) this.apply_nsis_options_manifest(opts, base_dir, nsis_options)
 
+        this.append_values(opts.windows.build_packages, build_packages)
         this.append_values(opts.windows.packages, this.table_get(windows, "packages"))
         this.append_values(opts.windows.libraries, this.manifest_paths(base_dir, this.table_get(windows, "libraries")))
         this.append_values(opts.windows.typelibs, this.manifest_paths(base_dir, this.table_get(windows, "typelibs")))

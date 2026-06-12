@@ -57,6 +57,7 @@ local options = Options.SqgiPkgOptions()
 check("options positional script first", options.extract_script_arg(["main.nut", "--name", "Demo"]) == "main.nut")
 check("options positional script after options", options.extract_script_arg(["--name", "Demo", "--target=appimage", "main.nut"]) == "main.nut")
 check("options repeated value skip", options.extract_script_arg(["--script-dir", ".", "main.nut"]) == "main.nut")
+check("options windows build package value skip", options.extract_script_arg(["--windows-build-package", "mingw-w64-x86_64-gettext-tools", "main.nut"]) == "main.nut")
 expect_error("options rejects multiple scripts", function() {
     options.extract_script_arg(["a.nut", "b.nut"])
 }, "only one script")
@@ -87,6 +88,16 @@ check("options windows font spec",
     win_font_cli_opts.windows.fonts.len() == 1 &&
     win_font_cli_opts.windows.fonts[0].path == "data/RedactedScript-Regular.ttf" &&
     win_font_cli_opts.windows.fonts[0].registry_name == "Redacted Script Regular (TrueType)")
+local win_build_package_cli_opts = options.new_options()
+class FakeWindowsBuildPackageOptions {
+    function lookup_value(name, expected_type) {
+        return name == "windows-build-package" ? ["mingw-w64-x86_64-gettext-tools"] : null
+    }
+}
+options.apply_option_dict(win_build_package_cli_opts, FakeWindowsBuildPackageOptions())
+check("options windows build package",
+    win_build_package_cli_opts.windows.build_packages.len() == 1 &&
+    win_build_package_cli_opts.windows.build_packages[0] == "mingw-w64-x86_64-gettext-tools")
 local nsis_image_cli_opts = options.new_options()
 class FakeNsisImageOptions {
     function lookup_value(name, expected_type) {
@@ -163,6 +174,16 @@ check("manifest windows fonts",
     windows_font_manifest_opts.windows.fonts[0].registry_name == "Redacted Script Regular (TrueType)" &&
     windows_font_manifest_opts.windows.fonts[1].path == "/tmp/project/data/InterVariable.ttf" &&
     windows_font_manifest_opts.windows.fonts[1].registry_name == "Inter Variable (TrueType)")
+local windows_build_package_manifest_opts = manifest.new_options()
+manifest.apply_windows_manifest(windows_build_package_manifest_opts, "/tmp/project", {
+    build_packages = ["mingw-w64-x86_64-gettext-tools"],
+    packages = ["mingw-w64-x86_64-gtk4"]
+})
+check("manifest windows build packages",
+    windows_build_package_manifest_opts.windows.build_packages.len() == 1 &&
+    windows_build_package_manifest_opts.windows.build_packages[0] == "mingw-w64-x86_64-gettext-tools" &&
+    windows_build_package_manifest_opts.windows.packages.len() == 1 &&
+    windows_build_package_manifest_opts.windows.packages[0] == "mingw-w64-x86_64-gtk4")
 local nsis_image_manifest_opts = manifest.new_options()
 manifest.apply_windows_manifest(nsis_image_manifest_opts, "/tmp/project", {
     nsis_options = {
@@ -983,8 +1004,19 @@ local win_auto_pixbuf_opts = msys2.new_options()
 win_auto_pixbuf_opts.target = "win-nsis"
 win_auto_pixbuf_opts.report.used_gdk_pixbuf = true
 msys2.apply_windows_package_defaults(win_auto_pixbuf_opts)
+check("windows auto runtime packages do not imply Vala",
+    win_auto_pixbuf_opts.windows.build_packages.find(msys2.msys2_pkg(win_auto_pixbuf_opts, "vala")) == null &&
+    win_auto_pixbuf_opts.windows.packages.find(msys2.msys2_pkg(win_auto_pixbuf_opts, "vala")) == null)
 check("windows auto packages include gdk-pixbuf2 for GdkPixbuf imports",
     win_auto_pixbuf_opts.windows.packages.find(msys2.msys2_pkg(win_auto_pixbuf_opts, "gdk-pixbuf2")) != null)
+local win_no_auto_opts = msys2.new_options()
+win_no_auto_opts.target = "win-nsis"
+win_no_auto_opts.windows.auto_packages = false
+win_no_auto_opts.windows.build = ["ninja"]
+msys2.apply_windows_package_defaults(win_no_auto_opts)
+check("windows build commands include Vala without auto runtime packages",
+    win_no_auto_opts.windows.build_packages.find(msys2.msys2_pkg(win_no_auto_opts, "vala")) != null &&
+    win_no_auto_opts.windows.packages.len() == 0)
 local win_auto_gtk_opts = msys2.new_options()
 win_auto_gtk_opts.target = "win-nsis"
 win_auto_gtk_opts.report.used_gtk = true

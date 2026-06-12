@@ -678,15 +678,13 @@ typelib, then stage both.
 }
 ```
 
-For Windows cross builds, add Vala to the MSYS2 package list:
+For Windows cross builds, `sqgipkg` installs Vala automatically as a build
+package. It does not need to be listed in `windows.packages`.
 
 ```json
 {
   "windows": {
-    "msys2_prefix": "mingw64",
-    "packages": [
-      "mingw-w64-x86_64-vala"
-    ]
+    "msys2_prefix": "mingw64"
   }
 }
 ```

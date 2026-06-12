@@ -1350,9 +1350,6 @@ Do not mix compiler CRT families and dependency package families.
   "script_dirs": ["."],
   "windows": {
     "msys2_prefix": "mingw64",
-    "packages": [
-      "mingw-w64-x86_64-vala"
-    ],
     "build": [
       "cmake -E rm -rf \"$SQGI_WINDOWS_BUILD_DIR\"",
       "cmake -S \"$SQGI_SOURCE_DIR\" -B \"$SQGI_WINDOWS_BUILD_DIR\" -G Ninja -DCMAKE_TOOLCHAIN_FILE=\"$SQGI_WIN_CMAKE_TOOLCHAIN\" -DCMAKE_BUILD_TYPE=Release",
@@ -1572,6 +1569,26 @@ CLI:
 ```sh
 --windows-console
 --no-windows-console
+```
+
+### `windows.build_packages`
+
+MSYS2 packages installed into the Windows sysroot for build-time use, but not
+staged as runtime package payload.
+
+```json
+"build_packages": [
+  "mingw-w64-x86_64-gettext-tools"
+]
+```
+
+Vala is always installed as a build package for Windows targets, so Vala
+projects usually do not need to list `mingw-w64-x86_64-vala` themselves.
+
+CLI:
+
+```sh
+--windows-build-package mingw-w64-x86_64-gettext-tools
 ```
 
 ### `windows.packages`
@@ -1974,13 +1991,13 @@ The working Windows native extension shape is:
 4. Stage the `.typelib` under `lib/girepository-1.0/`.
 5. Let recursive DLL resolution copy transitive dependencies.
 
-A Vala package normally needs the Vala package in the MSYS2 sysroot:
+A Vala package normally needs Vala vapis in the MSYS2 sysroot. `sqgipkg`
+installs the Vala package automatically as a Windows build package, so it does
+not need to be listed in `windows.packages`.
 
 ```json
 "windows": {
-  "packages": [
-    "mingw-w64-x86_64-vala"
-  ]
+  "msys2_prefix": "mingw64"
 }
 ```
 
@@ -2226,7 +2243,6 @@ sqgipkg --manifest sqgipkg.json --smoke-test "--analyse --timeout=2"
   "windows": {
     "msys2_prefix": "mingw64",
     "packages": [
-      "mingw-w64-x86_64-vala",
       "mingw-w64-x86_64-gtk4"
     ],
     "build": [

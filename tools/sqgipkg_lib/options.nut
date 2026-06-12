@@ -79,6 +79,7 @@ class SqgiPkgOptions extends Base.SqgiPkgCore {
                 build = [],
                 msys2_root = "",
                 msys2_prefix = "mingw64",
+                build_packages = [],
                 packages = [],
                 repo_url = "",
                 package_cache = "",
@@ -165,6 +166,7 @@ class SqgiPkgOptions extends Base.SqgiPkgCore {
             "--gdk-backend",
             "--msys2-root",
             "--msys2-prefix",
+            "--windows-build-package",
             "--windows-package",
             "--windows-font",
             "--msys2-repo-url",
@@ -398,6 +400,7 @@ class SqgiPkgOptions extends Base.SqgiPkgCore {
         this.append_values(opts.gtk_data, this.option_values(option_dict, "gtk-data"))
         this.append_values(opts.gio_modules, this.option_values(option_dict, "gio-module"))
         this.append_values(opts.gdk_pixbuf_loaders, this.option_values(option_dict, "gdk-pixbuf-loader"))
+        this.append_values(opts.windows.build_packages, this.option_values(option_dict, "windows-build-package"))
         this.append_values(opts.windows.packages, this.option_values(option_dict, "windows-package"))
         this.append_values(opts.windows.fonts, this.windows_font_specs(this.option_values(option_dict, "windows-font")))
     }

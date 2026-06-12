@@ -354,7 +354,8 @@ class SqgiPkgWindowsEnv extends Base.SqgiPkgAppImage {
 
         local sysroot = this.windows_sysroot_root(opts)
         local prefix_dir = this.windows_sysroot_prefix_dir(opts)
-        local needs_sysroot = opts.windows.packages.len() > 0 ||
+        local needs_sysroot = opts.windows.build_packages.len() > 0 ||
+            opts.windows.packages.len() > 0 ||
             opts.windows.build.len() > 0 ||
             opts.windows.native_dependencies.len() > 0 ||
             opts.windows.native_projects.len() > 0

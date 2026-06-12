@@ -129,6 +129,8 @@ class SqgiPkg extends Base.SqgiPkgBuild {
             "MSYS2 root used for Windows packaging", "DIR")
         this.app.add_main_option("msys2-prefix", 0, 0, GLib.OptionArg.string,
             "MSYS2 MinGW prefix for Windows packaging, usually mingw64 or clang64", "PREFIX")
+        this.app.add_main_option("windows-build-package", 0, 0, GLib.OptionArg.string_array,
+            "Install an MSYS2 package for Windows builds without staging it", "PACKAGE")
         this.app.add_main_option("windows-package", 0, 0, GLib.OptionArg.string_array,
             "Copy runtime files from an installed MSYS2 package", "PACKAGE")
         this.app.add_main_option("windows-font", 0, 0, GLib.OptionArg.string_array,

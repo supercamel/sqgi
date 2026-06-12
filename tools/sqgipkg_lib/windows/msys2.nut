@@ -210,9 +210,9 @@ class SqgiPkgWindowsMsys2 extends Base.SqgiPkgWindowsEnv {
         this.info("installed MSYS2 package into sysroot: " + entry.name)
     }
 
-    function ensure_msys2_packages(opts) {
+    function ensure_msys2_package_list(opts, packages, append_runtime_packages) {
         if (!this.starts_with(opts.target, "win-")) return
-        if (opts.windows.packages.len() == 0) return
+        if (packages.len() == 0) return
 
         if (opts.windows.msys2_root == "")
             opts.windows.msys2_root = GLib.build_filenamev([opts.output_dir, "_msys2-" + opts.windows.msys2_prefix])
@@ -220,7 +220,7 @@ class SqgiPkgWindowsMsys2 extends Base.SqgiPkgWindowsEnv {
         if (!opts.windows.download_packages) return
 
         local missing = []
-        foreach (package_name in opts.windows.packages) {
+        foreach (package_name in packages) {
             if (!this.msys2_installed(opts, package_name))
                 missing.push(package_name)
         }
@@ -238,9 +238,14 @@ class SqgiPkgWindowsMsys2 extends Base.SqgiPkgWindowsEnv {
         foreach (entry in ordered) {
             if (!this.msys2_installed(opts, entry.name))
                 this.extract_msys2_package(opts, repo_url, entry)
-            if (!this.array_contains(opts.windows.packages, entry.name))
+            if (append_runtime_packages && !this.array_contains(opts.windows.packages, entry.name))
                 opts.windows.packages.push(entry.name)
         }
+    }
+
+    function ensure_msys2_packages(opts) {
+        this.ensure_msys2_package_list(opts, opts.windows.build_packages, false)
+        this.ensure_msys2_package_list(opts, opts.windows.packages, true)
     }
 
     function normalize_package_entry(entry) {
