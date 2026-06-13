@@ -205,7 +205,28 @@ check("manifest Windows console setting", windows_console_opts.windows.console =
 local linux = Linux.SqgiPkgLinuxDeps()
 check("linux system library filter", linux.linux_system_library("libc.so.6"))
 check("linux keeps gtk library", !linux.linux_system_library("libgtk-4.so.1"))
-check("linux gobject introspection dev package", linux.linux_pkg_config_module_package("gobject-introspection-1.0") == "libgirepository-1.0-dev")
+check("linux gobject introspection dev package", linux.linux_pkg_config_module_package("gobject-introspection-1.0") == "libgirepository1.0-dev")
+class FakeLinuxPackageAvailability extends Linux.SqgiPkgLinuxDeps {
+    available = null
+
+    constructor() {
+        available = {}
+    }
+
+    function linux_deb_package_available(opts, package_name) {
+        return this.table_get(available, package_name, false)
+    }
+}
+local gi_pkg_linux = FakeLinuxPackageAvailability()
+local gi_pkg_opts = gi_pkg_linux.new_options()
+gi_pkg_linux.available["libgirepository1.0-dev"] <- true
+check("linux gobject introspection dev package uses available Ubuntu name",
+    gi_pkg_linux.linux_pkg_config_module_package("gobject-introspection-1.0", gi_pkg_opts) == "libgirepository1.0-dev")
+local gi_fallback_linux = FakeLinuxPackageAvailability()
+local gi_fallback_opts = gi_fallback_linux.new_options()
+gi_fallback_linux.available["libgirepository-1.0-dev"] <- true
+check("linux gobject introspection dev package falls back to legacy name",
+    gi_fallback_linux.linux_pkg_config_module_package("gobject-introspection-1.0", gi_fallback_opts) == "libgirepository-1.0-dev")
 linux.apt_depends_cache = {}
 linux.apt_depends_cache["cachedpkg:arm64"] <- "cached depends\n"
 check("linux apt depends cache hit", linux.linux_apt_package_depends("cachedpkg:arm64") == "cached depends\n")

@@ -474,26 +474,40 @@ class SqgiPkgLinuxDeps extends Base.SqgiPkgStaging {
         return out
     }
 
-    function linux_pkg_config_module_package(module) {
+    function linux_pkg_config_module_package_candidates(module) {
         if (module == "glib-2.0" || module == "gobject-2.0" || module == "gio-2.0")
-            return "libglib2.0-dev"
+            return ["libglib2.0-dev"]
         if (module == "gobject-introspection-1.0")
-            return "libgirepository-1.0-dev"
+            return ["libgirepository1.0-dev", "libgirepository-1.0-dev"]
         if (module == "libffi")
-            return "libffi-dev"
+            return ["libffi-dev"]
         if (module == "cairo")
-            return "libcairo2-dev"
+            return ["libcairo2-dev"]
         if (module == "gtk4")
-            return "libgtk-4-dev"
+            return ["libgtk-4-dev"]
         if (module == "gstreamer-1.0")
-            return "libgstreamer1.0-dev"
+            return ["libgstreamer1.0-dev"]
         if (module == "gstreamer-base-1.0")
-            return "libgstreamer-plugins-base1.0-dev"
+            return ["libgstreamer-plugins-base1.0-dev"]
         if (module == "gdk-pixbuf-2.0")
-            return "libgdk-pixbuf-2.0-dev"
+            return ["libgdk-pixbuf-2.0-dev"]
         if (module == "libsoup-3.0")
-            return "libsoup-3.0-dev"
-        return null
+            return ["libsoup-3.0-dev"]
+        return []
+    }
+
+    function linux_pkg_config_module_package(module, opts = null) {
+        local candidates = this.linux_pkg_config_module_package_candidates(module)
+        if (candidates.len() == 0) return null
+
+        if (opts != null) {
+            foreach (package_name in candidates) {
+                if (this.linux_deb_package_available(opts, package_name))
+                    return package_name
+            }
+        }
+
+        return candidates[0]
     }
 
     function linux_auto_runtime_packages_enabled(opts) {
@@ -1661,7 +1675,7 @@ class SqgiPkgLinuxDeps extends Base.SqgiPkgStaging {
 
         if (this.linux_has_cross_build_work(opts)) {
             foreach (module in this.linux_required_pkg_config_modules(opts))
-                this.linux_append_install_package(out, this.linux_pkg_config_module_package(module), this.linux_current_deb_arch(opts))
+                this.linux_append_install_package(out, this.linux_pkg_config_module_package(module, opts), this.linux_current_deb_arch(opts))
         }
 
         return out
@@ -1933,7 +1947,7 @@ class SqgiPkgLinuxDeps extends Base.SqgiPkgStaging {
                         if (line != "" && !this.array_contains(pkg_config_errors, module + ": " + line))
                             pkg_config_errors.push(module + ": " + line)
                     }
-                    this.linux_append_install_package(install_packages, this.linux_pkg_config_module_package(module), deb_arch)
+                    this.linux_append_install_package(install_packages, this.linux_pkg_config_module_package(module, opts), deb_arch)
                 }
             }
         }
