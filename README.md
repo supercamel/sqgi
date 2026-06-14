@@ -1,5 +1,9 @@
 # SQGI
 
+<p align="center">
+  <img src="images/sqgi_logo.png" alt="SQGI logo" width="180">
+</p>
+
 **A small Squirrel runtime for building native cross-platform applications.**
 
 SQGI lets you write native desktop, media, network, and system tools in a
