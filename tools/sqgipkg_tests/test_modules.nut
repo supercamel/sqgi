@@ -821,6 +821,9 @@ check("linux meson cross uses sysrooted c compiler",
     sysrooted_cross_text.find("c = ['" + sysrooted_triplet + "-gcc', '--sysroot=" + linux.linux_current_sysroot(sysrooted_cross_opts) + "']") != null)
 check("linux meson cross uses sysrooted c++ compiler",
     sysrooted_cross_text.find("cpp = ['" + sysrooted_triplet + "-g++', '--sysroot=" + linux.linux_current_sysroot(sysrooted_cross_opts) + "']") != null)
+check("linux meson cross supports old and new pkg-config binary keys",
+    sysrooted_cross_text.find("pkg-config = 'pkg-config'") != null &&
+    sysrooted_cross_text.find("pkgconfig = 'pkg-config'") != null)
 check("linux meson cross pins host g-ir-compiler when available",
     linux.executable_path("g-ir-compiler") == null || sysrooted_cross_text.find("g-ir-compiler = '") != null)
 check("linux meson cross uses qemu exe wrapper when available",

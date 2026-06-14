@@ -304,6 +304,7 @@ class SqgiPkgLinuxDeps extends Base.SqgiPkgStaging {
             "ar = '" + triplet + "-ar'\n" +
             "strip = '" + triplet + "-strip'\n" +
             "pkg-config = 'pkg-config'\n" +
+            "pkgconfig = 'pkg-config'\n" +
             gir_compiler_binary +
             exe_wrapper +
             "\n" +

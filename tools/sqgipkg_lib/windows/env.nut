@@ -326,6 +326,7 @@ class SqgiPkgWindowsEnv extends Base.SqgiPkgAppImage {
             "strip = 'x86_64-w64-mingw32-strip'\n" +
             "windres = 'x86_64-w64-mingw32-windres'\n" +
             "pkg-config = 'pkg-config'\n" +
+            "pkgconfig = 'pkg-config'\n" +
             binary_overrides +
             "\n" +
             "[properties]\n" +

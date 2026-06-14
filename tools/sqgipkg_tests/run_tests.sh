@@ -878,6 +878,7 @@ TOOLCHAIN_FILE="${WIN_OUT}/_cross/mingw64/toolchain-mingw64.cmake"
 assert_file "${CROSS_FILE}"
 assert_file "${TOOLCHAIN_FILE}"
 assert_contains "${CROSS_FILE}" "pkg-config = 'pkg-config'"
+assert_contains "${CROSS_FILE}" "pkgconfig = 'pkg-config'"
 assert_contains "${TOOLCHAIN_FILE}" "set(SQGI_WINDOWS_GUI ON"
 if command -v g-ir-scanner >/dev/null 2>&1; then
   assert_file "${WIN_OUT}/_cross/mingw64/g-ir-scanner-wrapper.sh"
