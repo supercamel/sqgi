@@ -39,8 +39,7 @@ class SqgiPkgCore {
     }
 
     function chmod_exec(path) {
-        local rc = GLib.chmod(path, 493)
-        if (rc != 0) this.fail("failed to make executable: " + path)
+        this.run_shell("chmod 755 " + this.shell_quote(path), "make executable: " + path)
     }
 
     function replace_char(value, needle, replacement) {
