@@ -4,16 +4,18 @@
   <img src="images/sqgi_logo.png" alt="SQGI logo" width="180">
 </p>
 
-**A small Squirrel runtime for building native cross-platform applications.**
+**SQGI is one of the fastest ways to build and deploy small native
+cross-platform GTK/GI apps: write the app, push a tag, get Linux AppImages and
+a Windows installer from CI.**
 
-SQGI lets you write native desktop, media, network, and system tools in a
-compact scripting language while calling real platform libraries directly.
-It exposes the GObject ecosystem through GObject Introspection, so scripts can
-use GTK, Gio, GStreamer, libsoup, WebKit, GdkPixbuf, Cairo, and other native
-libraries without hand-written bindings for every API.
+It gives you a compact Squirrel runtime with direct access to real platform
+libraries through GObject Introspection. That means you can write desktop,
+media, network, and system tools using GTK, Gio, GStreamer, libsoup,
+GdkPixbuf, Cairo, and other native libraries without hand-written bindings for
+every API.
 
-It is designed for the space between heavyweight app platforms and low-level
-native code:
+The result is a practical middle path between heavyweight app platforms and
+low-level native code:
 
 - lighter than Electron
 - friendlier than writing everything in C or C++
@@ -21,8 +23,8 @@ native code:
 - easier to extend than a sealed scripting sandbox
 - practical to package as AppImages, Windows directories, or NSIS installers
 
-SQGI's goal is simple: **keep scripting pleasant while staying close to the
-native platform.**
+SQGI's goal is simple: **keep scripting pleasant, stay close to the native
+platform, and make shipping feel like part of the workflow.**
 
 Read the docs: https://sqgi.readthedocs.io/en/latest/
 
