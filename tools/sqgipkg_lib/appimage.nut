@@ -323,6 +323,7 @@ class SqgiPkgAppImage extends Base.SqgiPkgLinuxDeps {
             this.bash_export_line("GDK_BACKEND", opts.gdk_backend) +
             "export GI_TYPELIB_PATH=\"${HERE}/usr/lib/girepository-1.0${GI_TYPELIB_PATH:+:${GI_TYPELIB_PATH}}\"\n" +
             "export GSETTINGS_SCHEMA_DIR=\"${HERE}/usr/share/glib-2.0/schemas\"\n" +
+            "export GIO_MODULE_DIR=\"${HERE}/usr/lib/gio/modules\"\n" +
             "export GIO_EXTRA_MODULES=\"${HERE}/usr/lib/gio/modules${GIO_EXTRA_MODULES:+:${GIO_EXTRA_MODULES}}\"\n" +
             "export GDK_PIXBUF_MODULEDIR=\"${HERE}/usr/lib/gdk-pixbuf-2.0/2.10.0/loaders\"\n" +
             "export GDK_PIXBUF_MODULE_FILE=\"${HERE}/usr/lib/gdk-pixbuf-2.0/2.10.0/loaders.cache\"\n" +
