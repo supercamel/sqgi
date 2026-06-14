@@ -13,6 +13,8 @@ information.
   it, including async and GObject integration.
 - [API reference](api/README.md): look up SQGI runtime helpers such as
   `import`, `sqgi.Task`, `sqgi.sleep`, JSON helpers, and GObject helpers.
+- [GI reference](gi_docs/index.md): browse generated SQGI-facing maps for
+  installed GObject Introspection namespaces and their import names.
 - [Recipes](recipes/glib.md): practical cookbooks for GLib, Gio, GTK 4,
   GStreamer, libsoup, and GdkPixbuf.
 - [Packaging tutorials](packaging/README.md): package scripts, resources,
