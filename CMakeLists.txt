@@ -360,6 +360,15 @@ set_tests_properties(sqgi_test_cli_dash_e_syntax_error PROPERTIES
 )
 
 add_test(
+    NAME sqgi_test_cli_gerror_report
+    COMMAND bash ${CMAKE_SOURCE_DIR}/test/test_cli_gerror_report.sh ${CMAKE_BINARY_DIR}/sqgi
+)
+set_tests_properties(sqgi_test_cli_gerror_report PROPERTIES
+    ENVIRONMENT "${SQGI_TEST_ENV}"
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+)
+
+add_test(
     NAME sqgi_test_shebang
     COMMAND bash ${CMAKE_SOURCE_DIR}/test/test_shebang.sh ${CMAKE_BINARY_DIR}/sqgi
 )

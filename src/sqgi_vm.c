@@ -32,6 +32,32 @@ static void sq_errorfunc(HSQUIRRELVM v, const SQChar *fmt, ...)
     va_end(args);
 }
 
+static SQInteger sqgi_errorhandler(HSQUIRRELVM v)
+{
+    SQPRINTFUNCTION pf = sq_geterrorfunc(v);
+    if (!pf) return 0;
+
+    const SQChar *message = NULL;
+    SQInteger top = sq_gettop(v);
+    if (sq_gettop(v) >= 2 &&
+        SQ_SUCCEEDED(sq_tostring(v, 2)) &&
+        SQ_SUCCEEDED(sq_getstring(v, -1, &message)) &&
+        message) {
+        pf(v, "\nAN ERROR HAS OCCURRED [%s]\n", message);
+    } else {
+        pf(v, "\nAN ERROR HAS OCCURRED [unknown]\n");
+    }
+    sq_settop(v, top);
+    sqstd_printcallstack(v);
+    return 0;
+}
+
+static void sqgi_seterrorhandlers(HSQUIRRELVM v)
+{
+    sq_newclosure(v, sqgi_errorhandler, 0);
+    sq_seterrorhandler(v);
+}
+
 /* ── Public API ──────────────────────────────────────────────────────────── */
 
 HSQUIRRELVM sqgi_vm_new(void)
@@ -76,6 +102,8 @@ HSQUIRRELVM sqgi_vm_new(void)
 
     /* Register native cairo classes (foreign GI records). */
     sqgi_cairo_register(v);
+
+    sqgi_seterrorhandlers(v);
 
     return v;
 }
