@@ -504,7 +504,9 @@ assert_contains "${WORK_DIR}/demo-stat-run.out" "standard::name"
 pass "real AppImage for demo/gio/stat.nut"
 
 MANIFEST_APP_DIR="${WORK_DIR}/manifest-app"
-mkdir -p "${MANIFEST_APP_DIR}/data"
+mkdir -p "${MANIFEST_APP_DIR}/data" \
+  "${MANIFEST_APP_DIR}/data/locale/en/LC_MESSAGES" \
+  "${MANIFEST_APP_DIR}/data/icons"
 cat >"${MANIFEST_APP_DIR}/main.nut" <<'EOF'
 local GLib = import("GLib")
 local Gio = import("Gio")
@@ -514,6 +516,8 @@ local text = (typeof(data) == "array") ? data[0] : data
 print("manual payload: " + text)
 EOF
 printf 'manifest file works\n' >"${MANIFEST_APP_DIR}/data/payload.txt"
+printf 'locale rule works\n' >"${MANIFEST_APP_DIR}/data/locale/en/LC_MESSAGES/app.mo"
+printf 'icon rule works\n' >"${MANIFEST_APP_DIR}/data/icons/16.png"
 cat >"${MANIFEST_APP_DIR}/sqgipkg.json" <<'EOF'
 {
   "script": "main.nut",
@@ -523,6 +527,16 @@ cat >"${MANIFEST_APP_DIR}/sqgipkg.json" <<'EOF'
     {
       "path": "data/payload.txt",
       "dest": "usr/share/sqgi/app/manual/payload.txt"
+    },
+    {
+      "from": "data/locale",
+      "to": "usr/share/sqgi/app/locale",
+      "include": "*/LC_MESSAGES/app.mo"
+    },
+    {
+      "from": "data/icons",
+      "match": "^(\\d+)\\.png$",
+      "dest": "usr/share/sqgi/app/icons/$1x$1/app.png"
     }
   ]
 }
@@ -572,6 +586,8 @@ run_sqgipkg \
 
 assert_file "${MANIFEST_FILES_OUT}/ManifestFiles.AppDir/usr/share/sqgi/app/main.cnut"
 assert_file "${MANIFEST_FILES_OUT}/ManifestFiles.AppDir/usr/share/sqgi/app/manual/payload.txt"
+assert_file "${MANIFEST_FILES_OUT}/ManifestFiles.AppDir/usr/share/sqgi/app/locale/en/LC_MESSAGES/app.mo"
+assert_file "${MANIFEST_FILES_OUT}/ManifestFiles.AppDir/usr/share/sqgi/app/icons/16x16/app.png"
 assert_elf_arch "${MANIFEST_FILES_OUT}/ManifestFiles.AppImage" "${HOST_APPIMAGE_ARCH}"
 assert_appdir_elf_arches "${MANIFEST_FILES_OUT}/ManifestFiles.AppDir" "${HOST_APPIMAGE_ARCH}"
 run_appimage "${MANIFEST_FILES_OUT}/ManifestFiles.AppImage" >"${WORK_DIR}/manifest-files-run.out"

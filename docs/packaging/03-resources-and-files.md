@@ -93,6 +93,41 @@ For Windows-specific destinations, use `windows.files`:
 }
 ```
 
+When many files share the same layout, `files` also accepts rule objects.
+Rules are expanded when the files are staged, so they can match outputs created
+by earlier build or native project steps.
+
+Copy a matching tree while preserving paths below `from`:
+
+```json
+{
+  "files": [
+    {
+      "from": "build/po",
+      "to": "usr/share/locale",
+      "include": "*/LC_MESSAGES/example.mo"
+    }
+  ]
+}
+```
+
+Use `match` and `$1`-style captures when the destination needs a transform:
+
+```json
+{
+  "files": [
+    {
+      "from": "data/icons/hicolor",
+      "match": "^(\\d+)\\.png$",
+      "dest": "usr/share/icons/hicolor/$1x$1/apps/example.png"
+    }
+  ]
+}
+```
+
+Rule globs support `*`, `?`, and `**`. Add `exclude` for skipped paths, or
+`optional: true` when a rule may match nothing.
+
 For Windows fonts, prefer `windows.fonts` instead of a plain file copy. It
 stages the font into the bundle and lets `win-nsis` register it per-user:
 

@@ -422,7 +422,73 @@ class SqgiPkgManifest extends Base.SqgiPkgOptions {
         return categories
     }
 
-    function manifest_files(base_dir, values) {
+    function manifest_file_base_path(source_base_dir, path) {
+        return GLib.path_is_absolute(path)
+            ? path
+            : GLib.build_filenamev([source_base_dir, path])
+    }
+
+    function manifest_file_string_list(value) {
+        if (value == null) return []
+        if (typeof(value) == "array") {
+            foreach (item in value) {
+                if (typeof(item) != "string")
+                    this.fail("file rule patterns must be strings")
+            }
+            return value
+        }
+        if (typeof(value) != "string") this.fail("file rule pattern must be a string or string array")
+        return [value]
+    }
+
+    function manifest_file_rule(source_base_dir, item, label) {
+        local from = this.table_get(item, "from")
+        if (from == null) from = this.table_get(item, "dir")
+        if (from == null) this.fail(label + " rule requires from")
+        if (typeof(from) != "string") this.fail(label + " rule from must be a string")
+
+        local to = this.table_get(item, "to")
+        local dest = this.table_get(item, "dest")
+        if (to != null && typeof(to) != "string") this.fail(label + " rule to must be a string")
+        if (dest != null && typeof(dest) != "string") this.fail(label + " rule dest must be a string")
+        if (to == null && dest == null) this.fail(label + " rule requires to or dest")
+        if (to != null && dest != null) this.fail(label + " rule cannot use both to and dest")
+
+        local include = this.table_get(item, "include")
+        if (include == null) include = this.table_get(item, "includes")
+        if (include == null) include = this.table_get(item, "glob")
+        if (include == null) include = this.table_get(item, "globs")
+        local exclude = this.table_get(item, "exclude")
+        if (exclude == null) exclude = this.table_get(item, "excludes")
+
+        local match = this.table_get(item, "match")
+        if (match == null) match = this.table_get(item, "regex")
+        if (match != null && typeof(match) != "string") this.fail(label + " rule match must be a string")
+        if (match != null) {
+            try {
+                regexp(match)
+            } catch (e) {
+                this.fail(label + " rule match regex is invalid: " + e)
+            }
+        }
+
+        local optional = this.table_get(item, "optional", false)
+        if (typeof(optional) != "bool") this.fail(label + " rule optional must be true or false")
+
+        return {
+            kind = "file_rule",
+            from = this.strip_trailing_slashes(this.manifest_file_base_path(source_base_dir, from)),
+            to = to,
+            dest = dest,
+            include = include == null ? ["**"] : this.manifest_file_string_list(include),
+            exclude = this.manifest_file_string_list(exclude),
+            match = match == null ? "" : match,
+            optional = optional,
+            label = label
+        }
+    }
+
+    function manifest_file_specs(base_dir, source_base_dir, values, label) {
         if (values == null) return []
 
         local out = []
@@ -430,19 +496,28 @@ class SqgiPkgManifest extends Base.SqgiPkgOptions {
         foreach (item in items) {
             if (typeof(item) == "string") {
                 local parts = this.split_once(item, "=")
-                if (parts[1] == null) this.fail("manifest file string requires PATH=DEST")
-                local src = this.manifest_path(base_dir, parts[0])
+                if (parts[1] == null) this.fail(label + " string requires PATH=DEST")
+                local src = this.manifest_file_base_path(source_base_dir, parts[0])
                 out.push(src + "=" + parts[1])
             } else {
+                if (this.table_get(item, "from") != null || this.table_get(item, "dir") != null) {
+                    out.push(this.manifest_file_rule(source_base_dir, item, label))
+                    continue
+                }
                 local src = this.table_get(item, "path")
                 local dest = this.table_get(item, "dest")
-                if (src == null) this.fail("manifest file object requires path")
-                if (dest == null) this.fail("manifest file object requires dest")
-                src = this.manifest_path(base_dir, src)
+                if (src == null) src = this.table_get(item, "src")
+                if (src == null) this.fail(label + " object requires path")
+                if (dest == null) this.fail(label + " object requires dest")
+                src = this.manifest_file_base_path(source_base_dir, src)
                 out.push(src + "=" + dest)
             }
         }
         return out
+    }
+
+    function manifest_files(base_dir, values) {
+        return this.manifest_file_specs(base_dir, base_dir, values, "manifest file")
     }
 
     function manifest_windows_fonts(base_dir, values) {
@@ -497,30 +572,12 @@ class SqgiPkgManifest extends Base.SqgiPkgOptions {
     }
 
     function manifest_native_project_files(base_dir, project_dir, values) {
-        if (values == null) return []
-
-        local out = []
-        local items = (typeof(values) == "array") ? values : [values]
-        foreach (item in items) {
-            if (typeof(item) == "string") {
-                local parts = this.split_once(item, "=")
-                if (parts[1] == null) this.fail("native project file string requires PATH=DEST")
-                local src = GLib.path_is_absolute(parts[0])
-                    ? parts[0]
-                    : GLib.build_filenamev([project_dir == null ? base_dir : project_dir, parts[0]])
-                out.push(src + "=" + parts[1])
-            } else {
-                local src = this.table_get(item, "path")
-                local dest = this.table_get(item, "dest")
-                if (src == null) this.fail("native project file object requires path")
-                if (dest == null) this.fail("native project file object requires dest")
-                src = GLib.path_is_absolute(src)
-                    ? src
-                    : GLib.build_filenamev([project_dir == null ? base_dir : project_dir, src])
-                out.push(src + "=" + dest)
-            }
-        }
-        return out
+        return this.manifest_file_specs(
+            base_dir,
+            project_dir == null ? base_dir : project_dir,
+            values,
+            "native project file"
+        )
     }
 
     function git_repo_basename(repo) {

@@ -22,6 +22,42 @@ class SqgiPkgDoctor extends Base.SqgiPkgTemplates {
         }
     }
 
+    function doctor_file_spec(errors, warnings, spec, label, outputs_may_be_missing) {
+        if (this.file_spec_is_rule(spec)) {
+            try {
+                foreach (expanded in this.expand_file_rule(spec))
+                    errors = this.doctor_file_spec(errors, warnings, expanded, label, outputs_may_be_missing)
+            } catch (e) {
+                local message = "" + e
+                local missing_output = message.find("source not found") != null ||
+                    message.find("matched no files") != null
+                if (outputs_may_be_missing && missing_output) {
+                    warnings.push(label + " rule outputs not found yet: " + spec.from)
+                } else {
+                    print("ERROR: " + message + "\n")
+                    errors++
+                }
+            }
+            return errors
+        }
+
+        local parts = this.split_once(spec, "=")
+        if (outputs_may_be_missing) {
+            if (this.path_exists(parts[0])) print("OK: " + label + " output: " + parts[0] + "\n")
+            else warnings.push(label + " output not found yet: " + parts[0])
+        } else {
+            errors = this.doctor_path(errors, label, parts[0])
+        }
+
+        if (parts[1] == null) {
+            print("ERROR: " + label + " entry requires PATH=DEST\n")
+            errors++
+        } else {
+            errors = this.doctor_dest(errors, label, parts[1])
+        }
+        return errors
+    }
+
     function doctor_script(errors, opts, label, path) {
         local src_abs = this.abs_path(path)
         errors = this.doctor_path(errors, label, src_abs)
@@ -119,14 +155,7 @@ class SqgiPkgDoctor extends Base.SqgiPkgTemplates {
         }
 
         foreach (spec in opts.files) {
-            local parts = this.split_once(spec, "=")
-            errors = this.doctor_path(errors, "file", parts[0])
-            if (parts[1] == null) {
-                print("ERROR: file entry requires PATH=DEST\n")
-                errors = errors + 1
-            } else {
-                errors = this.doctor_dest(errors, "file", parts[1])
-            }
+            errors = this.doctor_file_spec(errors, warnings, spec, "file", false)
         }
 
         foreach (spec in opts.includes) {
@@ -186,15 +215,8 @@ class SqgiPkgDoctor extends Base.SqgiPkgTemplates {
                 if (this.path_exists(path)) print("OK: native GI typelib output: " + path + "\n")
                 else warnings.push("native GI typelib output not found yet: " + path)
             }
-            foreach (spec in project.files) {
-                local parts = this.split_once(spec, "=")
-                if (this.path_exists(parts[0])) print("OK: native file output: " + parts[0] + "\n")
-                else warnings.push("native file output not found yet: " + parts[0])
-                if (parts[1] == null)
-                    errors = errors + 1
-                else
-                    errors = this.doctor_dest(errors, "native file", parts[1])
-            }
+            foreach (spec in project.files)
+                errors = this.doctor_file_spec(errors, warnings, spec, "native file", true)
         }
 
         errors = this.doctor_linux_arches(errors, warnings, opts)

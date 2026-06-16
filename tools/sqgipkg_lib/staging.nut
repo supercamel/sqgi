@@ -149,7 +149,216 @@ class SqgiPkgStaging extends Base.SqgiPkgScripts {
         }
     }
 
+    function file_spec_is_rule(spec) {
+        return typeof(spec) == "table" && this.table_get(spec, "kind", "") == "file_rule"
+    }
+
+    function path_has_prefix(path, prefix) {
+        if (path == prefix) return true
+        return this.starts_with(path, prefix + "/")
+    }
+
+    function file_rule_relative_path(rule, path) {
+        local root = this.strip_trailing_slashes(rule.from)
+        if (path == root) return this.basename(path)
+        if (!this.path_has_prefix(path, root))
+            this.fail(rule.label + " rule produced path outside source root: " + path)
+        return path.slice(root.len() + 1)
+    }
+
+    function list_file_rule_sources(rule) {
+        local root = rule.from
+        if (!this.path_exists(root)) {
+            if (rule.optional) return []
+            this.fail(rule.label + " rule source not found: " + root)
+        }
+
+        if (this.run_shell_status("[ -d " + this.shell_quote(root) + " ]") != 0)
+            return [root]
+
+        local tmp = GLib.build_filenamev([GLib.get_tmp_dir(), "sqgipkg-file-rule-" + GLib.get_monotonic_time()])
+        this.run_shell(
+            "find " + this.shell_quote(root) + " -type f -print | sort > " + this.shell_quote(tmp),
+            "listing " + rule.label + " rule"
+        )
+        local files = this.split_lines(this.read_file(tmp))
+        remove(tmp)
+        return files
+    }
+
+    function glob_segment_match(pattern, text) {
+        local p = 0
+        local t = 0
+        local star = -1
+        local retry = 0
+
+        while (t < text.len()) {
+            if (p < pattern.len() && pattern.slice(p, p + 1) == "\\") {
+                if (p + 1 >= pattern.len()) return false
+                if (text.slice(t, t + 1) == pattern.slice(p + 1, p + 2)) {
+                    p += 2
+                    t++
+                    continue
+                }
+            } else if (p < pattern.len() &&
+                (pattern.slice(p, p + 1) == "?" || pattern.slice(p, p + 1) == text.slice(t, t + 1))) {
+                p++
+                t++
+                continue
+            } else if (p < pattern.len() && pattern.slice(p, p + 1) == "*") {
+                star = p
+                retry = t
+                p++
+                continue
+            } else if (star != -1) {
+                p = star + 1
+                retry++
+                t = retry
+                continue
+            }
+            return false
+        }
+
+        while (p < pattern.len() && pattern.slice(p, p + 1) == "*") p++
+        return p == pattern.len()
+    }
+
+    function path_glob_match_parts(pattern_parts, path_parts, pi, si) {
+        if (pi == pattern_parts.len()) return si == path_parts.len()
+
+        local part = pattern_parts[pi]
+        if (part == "**") {
+            if (pi + 1 == pattern_parts.len()) return true
+            for (local next = si; next <= path_parts.len(); next++) {
+                if (this.path_glob_match_parts(pattern_parts, path_parts, pi + 1, next))
+                    return true
+            }
+            return false
+        }
+
+        if (si >= path_parts.len()) return false
+        if (!this.glob_segment_match(part, path_parts[si])) return false
+        return this.path_glob_match_parts(pattern_parts, path_parts, pi + 1, si + 1)
+    }
+
+    function path_glob_match(pattern, path) {
+        return this.path_glob_match_parts(this.split_path(pattern), this.split_path(path), 0, 0)
+    }
+
+    function file_rule_matches_globs(patterns, rel) {
+        foreach (pattern in patterns) {
+            if (this.path_glob_match(pattern, rel)) return true
+        }
+        return false
+    }
+
+    function file_rule_regex_captures(rule, rel) {
+        if (rule.match == "") return null
+
+        local rx = regexp(rule.match)
+        if (!rx.match(rel)) return false
+
+        local captures = []
+        foreach (capture in rx.capture(rel))
+            captures.push(rel.slice(capture.begin, capture.end))
+        return captures
+    }
+
+    function file_rule_dirname(rel) {
+        local slash = null
+        for (local i = rel.len() - 1; i >= 0; i--) {
+            if (rel.slice(i, i + 1) == "/") {
+                slash = i
+                break
+            }
+        }
+        if (slash == null) return ""
+        return rel.slice(0, slash)
+    }
+
+    function file_rule_template_value(name, rel) {
+        if (name == "rel") return rel
+        if (name == "basename") return this.basename(rel)
+        if (name == "dirname") return this.file_rule_dirname(rel)
+        this.fail("unknown file rule template placeholder: {" + name + "}")
+    }
+
+    function file_rule_render_template(rule, template, rel, captures) {
+        local out = ""
+        for (local i = 0; i < template.len(); i++) {
+            local ch = template.slice(i, i + 1)
+            if (ch == "$") {
+                if (i + 1 >= template.len()) {
+                    out += ch
+                    continue
+                }
+                local next = template.slice(i + 1, i + 2)
+                if (next == "$") {
+                    out += "$"
+                    i++
+                    continue
+                }
+                local code = next[0]
+                if (code >= '0' && code <= '9') {
+                    if (captures == null)
+                        this.fail(rule.label + " rule dest references captures but has no match regex")
+                    local index = code - '0'
+                    if (index >= captures.len())
+                        this.fail(rule.label + " rule dest references missing capture $" + next)
+                    out += captures[index]
+                    i++
+                    continue
+                }
+                out += ch
+            } else if (ch == "{") {
+                local end = null
+                for (local j = i + 1; j < template.len(); j++) {
+                    if (template.slice(j, j + 1) == "}") {
+                        end = j
+                        break
+                    }
+                }
+                if (end == null) {
+                    out += ch
+                    continue
+                }
+                out += this.file_rule_template_value(template.slice(i + 1, end), rel)
+                i = end
+            } else {
+                out += ch
+            }
+        }
+        return out
+    }
+
+    function expand_file_rule(rule) {
+        local out = []
+        foreach (src in this.list_file_rule_sources(rule)) {
+            local rel = this.file_rule_relative_path(rule, src)
+            if (!this.file_rule_matches_globs(rule.include, rel)) continue
+            if (rule.exclude.len() > 0 && this.file_rule_matches_globs(rule.exclude, rel)) continue
+
+            local captures = this.file_rule_regex_captures(rule, rel)
+            if (captures == false) continue
+
+            local dest = rule.dest == null
+                ? GLib.build_filenamev([rule.to, rel])
+                : this.file_rule_render_template(rule, rule.dest, rel, captures)
+            out.push(src + "=" + this.relative_dest(dest))
+        }
+
+        if (out.len() == 0 && !rule.optional)
+            this.fail(rule.label + " rule matched no files: " + rule.from)
+        return out
+    }
+
     function copy_file_spec(opts, spec, appdir) {
+        if (this.file_spec_is_rule(spec)) {
+            foreach (expanded in this.expand_file_rule(spec))
+                this.copy_file_spec(opts, expanded, appdir)
+            return
+        }
+
         local parts = this.split_once(spec, "=")
         local src = parts[0]
         local dest = parts[1]

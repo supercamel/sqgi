@@ -131,6 +131,7 @@ check("options NSIS image paths",
     nsis_image_cli_opts.windows.nsis_welcome_image == "assets/nsis-welcome.bmp")
 
 local manifest = Manifest.SqgiPkgManifest()
+local staging = Build.SqgiPkgBuild()
 check("manifest string list scalar", manifest.manifest_string_list("gtk4")[0] == "gtk4")
 check("manifest command list array", manifest.manifest_command_list(["ninja"])[0] == "ninja")
 check("manifest relative path", manifest.manifest_path("/tmp/project", "data/file.txt") == "/tmp/project/data/file.txt")
@@ -171,6 +172,76 @@ check("appimage desktop icon uses app id",
     core.path_exists(GLib.build_filenamev([desktop_appdir, "org.example.DesktopDemo.png"])) &&
     core.path_exists(GLib.build_filenamev([desktop_appdir, "usr", "share", "icons", "hicolor", "256x256", "apps", "org.example.DesktopDemo.png"])))
 core.run_shell("rm -rf " + core.shell_quote(desktop_project), "removing desktop fixture")
+local file_rule_project = GLib.build_filenamev([GLib.get_tmp_dir(), "sqgipkg-file-rule-project-" + GLib.get_monotonic_time()])
+core.mkdir_p(GLib.build_filenamev([file_rule_project, "po", "cs", "LC_MESSAGES"]))
+core.mkdir_p(GLib.build_filenamev([file_rule_project, "po", "de", "LC_MESSAGES"]))
+core.mkdir_p(GLib.build_filenamev([file_rule_project, "icons"]))
+core.write_file(GLib.build_filenamev([file_rule_project, "po", "cs", "LC_MESSAGES", "app.mo"]), "cs\n")
+core.write_file(GLib.build_filenamev([file_rule_project, "po", "de", "LC_MESSAGES", "app.mo"]), "de\n")
+core.write_file(GLib.build_filenamev([file_rule_project, "po", "de", "LC_MESSAGES", "skip.txt"]), "skip\n")
+core.write_file(GLib.build_filenamev([file_rule_project, "icons", "16.png"]), "png\n")
+core.write_file(GLib.build_filenamev([file_rule_project, "icons", "scalable.svg"]), "svg\n")
+local tree_rule = manifest.manifest_files(file_rule_project, [
+    {
+        from = "po",
+        to = "usr/share/locale",
+        include = "*/LC_MESSAGES/app.mo"
+    }
+])[0]
+local tree_expanded = staging.expand_file_rule(tree_rule)
+check("manifest file rule expands preserved tree",
+    tree_expanded.len() == 2 &&
+    tree_expanded[0] == GLib.build_filenamev([file_rule_project, "po", "cs", "LC_MESSAGES", "app.mo"]) + "=usr/share/locale/cs/LC_MESSAGES/app.mo" &&
+    tree_expanded[1] == GLib.build_filenamev([file_rule_project, "po", "de", "LC_MESSAGES", "app.mo"]) + "=usr/share/locale/de/LC_MESSAGES/app.mo")
+local regex_rule = manifest.manifest_files(file_rule_project, [
+    {
+        from = "icons",
+        match = "^(\\d+)\\.png$",
+        dest = "usr/share/icons/hicolor/$1x$1/apps/app.png"
+    }
+])[0]
+local regex_expanded = staging.expand_file_rule(regex_rule)
+check("manifest file rule expands regex captures",
+    regex_expanded.len() == 1 &&
+    regex_expanded[0] == GLib.build_filenamev([file_rule_project, "icons", "16.png"]) + "=usr/share/icons/hicolor/16x16/apps/app.png")
+local placeholder_rule = manifest.manifest_files(file_rule_project, [
+    {
+        from = "icons",
+        include = "*.svg",
+        dest = "usr/share/icons/{basename}"
+    }
+])[0]
+local placeholder_expanded = staging.expand_file_rule(placeholder_rule)
+check("manifest file rule expands path placeholders",
+    placeholder_expanded.len() == 1 &&
+    placeholder_expanded[0] == GLib.build_filenamev([file_rule_project, "icons", "scalable.svg"]) + "=usr/share/icons/scalable.svg")
+local native_rule = manifest.manifest_native_project_files("/tmp/base", file_rule_project, [
+    {
+        from = "icons",
+        to = "share/icons",
+        include = "*.png"
+    }
+])[0]
+check("manifest native file rule base path", native_rule.from == GLib.build_filenamev([file_rule_project, "icons"]))
+local optional_rule = manifest.manifest_files(file_rule_project, [
+    {
+        from = "missing",
+        to = "usr/share/missing",
+        optional = true
+    }
+])[0]
+check("manifest optional missing file rule is empty", staging.expand_file_rule(optional_rule).len() == 0)
+expect_error("manifest file rule no matches errors", function() {
+    local no_match_rule = manifest.manifest_files(file_rule_project, [
+        {
+            from = "icons",
+            to = "usr/share/icons",
+            include = "*.missing"
+        }
+    ])[0]
+    staging.expand_file_rule(no_match_rule)
+}, "matched no files")
+core.run_shell("rm -rf " + core.shell_quote(file_rule_project), "removing file rule test project")
 local arch_config = manifest.manifest_linux_arch("/tmp/project", {
     arch = "arm64",
     cmake_toolchain = "cross/toolchain.cmake",
