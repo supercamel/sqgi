@@ -159,6 +159,19 @@ Install:
 sudo cmake --install build --prefix /usr/local
 ```
 
+On MSYS2, use a MinGW-style shell such as UCRT64 or MINGW64. The helper script
+installs the matching CMake, Ninja, compiler, and GLib/GI dependencies:
+
+```sh
+./tools/install-msys2-prereqs.sh ucrt64
+
+cmake -S . -B build-ucrt64 -G Ninja \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_INSTALL_PREFIX=/ucrt64
+cmake --build build-ucrt64
+cmake --install build-ucrt64
+```
+
 This installs:
 
 - `sqgi`
