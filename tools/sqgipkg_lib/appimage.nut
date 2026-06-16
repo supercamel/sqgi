@@ -373,6 +373,7 @@ class SqgiPkgAppImage extends Base.SqgiPkgLinuxDeps {
             "Icon=" + app_id + "\n" +
             "Categories=" + categories + "\n" +
             "Terminal=" + terminal + "\n" +
+            "StartupNotify=true\n" +
             "StartupWMClass=" + app_id + "\n")
     }
 

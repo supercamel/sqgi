@@ -167,6 +167,7 @@ check("appimage desktop file uses app id",
     desktop_app_id == "org.example.DesktopDemo" &&
     desktop_text.find("Icon=org.example.DesktopDemo\n") != null &&
     desktop_text.find("Terminal=false\n") != null &&
+    desktop_text.find("StartupNotify=true\n") != null &&
     desktop_text.find("StartupWMClass=org.example.DesktopDemo\n") != null)
 check("appimage desktop icon uses app id",
     core.path_exists(GLib.build_filenamev([desktop_appdir, "org.example.DesktopDemo.png"])) &&
