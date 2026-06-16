@@ -41,6 +41,28 @@ dist-linux-x86_64/HelloSqgi.AppImage
 If `script` is omitted and `main.nut` exists beside the manifest, `sqgipkg` uses
 `main.nut` automatically.
 
+## Desktop Identity
+
+GUI apps should use the same desktop application id as their `Gio.Application`
+or `Gtk.Application` id. This lets Linux shells match the running window to the
+AppImage desktop file and icon:
+
+```json
+{
+  "name": "HelloSqgi",
+  "app_id": "org.example.HelloSqgi",
+  "icon": "assets/hello.png",
+  "desktop_terminal": false,
+  "desktop_categories": [
+    "Utility"
+  ]
+}
+```
+
+If `app_id` is omitted, `sqgipkg` keeps the older behavior and derives a
+sanitized id from `name`. If `icon` is omitted, `sqgipkg` writes its default
+placeholder icon.
+
 ## Local Imports Are Followed
 
 Suppose the app grows:
@@ -134,4 +156,3 @@ sqgipkg --init native-vala
 ```
 
 Next: [add resources and exact files](03-resources-and-files.md).
-

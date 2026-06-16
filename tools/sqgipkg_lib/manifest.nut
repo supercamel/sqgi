@@ -67,6 +67,11 @@ class SqgiPkgManifest extends Base.SqgiPkgOptions {
         local entry = this.table_get(manifest, "entry")
         local script = this.table_get(manifest, "script")
         local name = this.table_get(manifest, "name")
+        local app_id = this.table_get(manifest, "app_id")
+        local icon = this.table_get(manifest, "icon")
+        local desktop_icon = this.table_get(manifest, "desktop_icon")
+        local desktop_categories = this.table_get(manifest, "desktop_categories")
+        local desktop_terminal = this.table_get(manifest, "desktop_terminal")
         local target = this.table_get(manifest, "target")
         local build_dir = this.table_get(manifest, "build_dir")
         local output_dir = this.table_get(manifest, "output")
@@ -89,6 +94,11 @@ class SqgiPkgManifest extends Base.SqgiPkgOptions {
         if (entry != null) this.apply_entry_manifest(opts, base_dir, entry)
         if (opts.script == "" && script != null) opts.script = this.manifest_path(base_dir, script)
         if (opts.name == "" && name != null) opts.name = name
+        if (opts.app_id == "" && app_id != null) opts.app_id = app_id
+        if (opts.desktop_icon == "" && desktop_icon != null) opts.desktop_icon = this.manifest_path(base_dir, desktop_icon)
+        if (opts.desktop_icon == "" && icon != null) opts.desktop_icon = this.manifest_path(base_dir, icon)
+        if (desktop_categories != null) opts.desktop_categories = this.manifest_desktop_categories(desktop_categories)
+        if (!opts.desktop_terminal_forced && desktop_terminal != null) opts.desktop_terminal = desktop_terminal
         if (opts.target == "" && target != null) opts.target = target
         if (!opts.build_dir_forced && build_dir != null) {
             opts.build_dir = this.manifest_path(base_dir, build_dir)
@@ -390,6 +400,26 @@ class SqgiPkgManifest extends Base.SqgiPkgOptions {
             }
         }
         return out
+    }
+
+    function manifest_desktop_categories(value) {
+        local categories = ""
+
+        if (typeof(value) == "string") {
+            categories = value
+        } else if (typeof(value) == "array") {
+            foreach (item in value) {
+                if (typeof(item) != "string")
+                    this.fail("manifest desktop_categories entries must be strings")
+                if (item != "") categories += item + ";"
+            }
+        } else {
+            this.fail("manifest desktop_categories must be a string or string array")
+        }
+
+        if (categories == "") return "Utility;"
+        if (!this.ends_with(categories, ";")) categories += ";"
+        return categories
     }
 
     function manifest_files(base_dir, values) {

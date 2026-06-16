@@ -4,7 +4,7 @@ local Base = import("doctor.nut")
 
 class SqgiPkgBuild extends Base.SqgiPkgDoctor {
     function stage_appdir(opts) {
-        local app_id = this.sanitize_id(opts.name)
+        local app_id = this.desktop_app_id(opts)
         local package_name = this.package_basename(opts.name)
         local appdir = GLib.build_filenamev([opts.output_dir, package_name + ".AppDir"])
 
@@ -26,8 +26,8 @@ class SqgiPkgBuild extends Base.SqgiPkgDoctor {
         this.postprocess_extra_files(appdir)
         this.write_linux_gtk_settings(opts, appdir)
         this.write_apprun(opts, appdir, entry_rel)
-        this.write_desktop_file(appdir, app_id, opts.name)
-        this.write_icon(appdir, app_id)
+        this.write_desktop_file(appdir, app_id, opts.name, opts)
+        this.write_icon(appdir, app_id, opts.desktop_icon)
 
         return appdir
     }

@@ -95,6 +95,8 @@ class SqgiPkg extends Base.SqgiPkgBuild {
             "Add a project .nut script or PATH=DEST script module", "SPEC")
         this.app.add_main_option("script-dir", 0, 0, GLib.OptionArg.string_array,
             "Recursively add .nut scripts from a project directory", "DIR")
+        this.app.add_main_option("app-id", 0, 0, GLib.OptionArg.string,
+            "Desktop application id for AppImage metadata, e.g. org.example.App", "ID")
         this.app.add_main_option("file", 0, 0, GLib.OptionArg.string_array,
             "Copy PATH=DEST into the AppDir without special handling", "SPEC")
         this.app.add_main_option("library", 0, 0, GLib.OptionArg.string_array,
@@ -125,6 +127,14 @@ class SqgiPkg extends Base.SqgiPkgBuild {
             "Set gtk-application-prefer-dark-theme=true in bundled GTK settings.ini", null)
         this.app.add_main_option("gdk-backend", 0, 0, GLib.OptionArg.string,
             "Set GDK_BACKEND in launchers", "BACKEND")
+        this.app.add_main_option("desktop-icon", 0, 0, GLib.OptionArg.string,
+            "Image file used for the AppImage desktop icon", "PATH")
+        this.app.add_main_option("desktop-categories", 0, 0, GLib.OptionArg.string,
+            "Semicolon-separated desktop categories for the AppImage .desktop file", "LIST")
+        this.app.add_main_option("desktop-terminal", 0, 0, GLib.OptionArg.none,
+            "Set Terminal=true in the AppImage .desktop file", null)
+        this.app.add_main_option("desktop-no-terminal", 0, 0, GLib.OptionArg.none,
+            "Set Terminal=false in the AppImage .desktop file", null)
         this.app.add_main_option("msys2-root", 0, 0, GLib.OptionArg.string,
             "MSYS2 root used for Windows packaging", "DIR")
         this.app.add_main_option("msys2-prefix", 0, 0, GLib.OptionArg.string,

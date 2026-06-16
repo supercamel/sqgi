@@ -152,6 +152,8 @@ class SqgiPkgDoctor extends Base.SqgiPkgTemplates {
             errors = this.doctor_path(errors, "GIO module", path)
         foreach (path in opts.gdk_pixbuf_loaders)
             errors = this.doctor_path(errors, "gdk-pixbuf loader", path)
+        if (opts.desktop_icon != "")
+            errors = this.doctor_path(errors, "desktop icon", opts.desktop_icon)
         if (opts.windows.nsis_license != "")
             errors = this.doctor_path(errors, "NSIS license", opts.windows.nsis_license)
         if (opts.windows.nsis_icon != "")

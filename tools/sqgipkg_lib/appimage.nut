@@ -344,18 +344,80 @@ class SqgiPkgAppImage extends Base.SqgiPkgLinuxDeps {
         this.chmod_exec(path)
     }
 
-    function write_desktop_file(appdir, app_id, app_name) {
+    function desktop_app_id(opts) {
+        local app_id = opts.app_id != "" ? opts.app_id : this.sanitize_id(opts.name)
+        this.validate_desktop_id(app_id)
+        return app_id
+    }
+
+    function validate_desktop_id(app_id) {
+        if (app_id == "") this.fail("desktop app id cannot be empty")
+        for (local i = 0; i < app_id.len(); i++) {
+            local ch = app_id.slice(i, i + 1)
+            local c = ch[0]
+            if (ch == "/" || c < 32 || c == 127)
+                this.fail("desktop app id cannot contain slashes or control characters: " + app_id)
+        }
+    }
+
+    function write_desktop_file(appdir, app_id, app_name, opts) {
+        local terminal = opts.desktop_terminal ? "true" : "false"
+        local categories = opts.desktop_categories
+        if (categories == "") categories = "Utility;"
+        if (!this.ends_with(categories, ";")) categories += ";"
         this.write_file(GLib.build_filenamev([appdir, app_id + ".desktop"]),
             "[Desktop Entry]\n" +
             "Type=Application\n" +
             "Name=" + app_name + "\n" +
             "Exec=AppRun\n" +
             "Icon=" + app_id + "\n" +
-            "Categories=Utility;\n" +
-            "Terminal=true\n")
+            "Categories=" + categories + "\n" +
+            "Terminal=" + terminal + "\n" +
+            "StartupWMClass=" + app_id + "\n")
     }
 
-    function write_icon(appdir, app_id) {
+    function desktop_icon_extension(path) {
+        local name = this.basename(path)
+        local dot = null
+
+        for (local i = name.len() - 1; i >= 0; i--) {
+            if (name.slice(i, i + 1) == ".") {
+                dot = i
+                break
+            }
+        }
+
+        if (dot == null || dot == 0 || dot == name.len() - 1)
+            this.fail("desktop icon must have a file extension: " + path)
+
+        local ext = name.slice(dot + 1).tolower()
+        if (ext != "png" && ext != "svg" && ext != "svgz" && ext != "xpm")
+            this.fail("desktop icon must be png, svg, svgz or xpm: " + path)
+
+        return ext
+    }
+
+    function copy_desktop_icon(appdir, app_id, icon_path) {
+        local src = this.abs_path(icon_path)
+        if (!this.path_exists(src)) this.fail("desktop icon not found: " + icon_path)
+
+        local ext = this.desktop_icon_extension(src)
+        local size = (ext == "svg" || ext == "svgz") ? "scalable" : "256x256"
+        local root_icon = GLib.build_filenamev([appdir, app_id + "." + ext])
+        local icon_dir = GLib.build_filenamev([appdir, "usr", "share", "icons", "hicolor", size, "apps"])
+        this.mkdir_p(icon_dir)
+
+        this.run_shell("cp " + this.shell_quote(src) + " " + this.shell_quote(root_icon), "copying desktop icon")
+        this.run_shell("cp " + this.shell_quote(src) + " " +
+            this.shell_quote(GLib.build_filenamev([icon_dir, app_id + "." + ext])), "copying desktop icon")
+    }
+
+    function write_icon(appdir, app_id, icon_path) {
+        if (icon_path != "") {
+            this.copy_desktop_icon(appdir, app_id, icon_path)
+            return
+        }
+
         local icon_dir = GLib.build_filenamev([appdir, "usr", "share", "icons", "hicolor", "scalable", "apps"])
         this.mkdir_p(icon_dir)
 

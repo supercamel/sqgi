@@ -82,6 +82,20 @@ class FakeSuiteOptions {
 }
 options.apply_option_dict(suite_cli_opts, FakeSuiteOptions())
 check("options linux deb suite", suite_cli_opts.linux.deb.suite == "resolute" && suite_cli_opts.linux.deb.suite_forced)
+local desktop_cli_opts = options.new_options()
+class FakeDesktopOptions {
+    function lookup_value(name, expected_type) {
+        if (name == "app-id") return "org.example.Demo"
+        if (name == "desktop-icon") return "icons/demo.png"
+        if (name == "desktop-categories") return "Utility;GTK;"
+        return null
+    }
+}
+options.apply_option_dict(desktop_cli_opts, FakeDesktopOptions())
+check("options desktop identity",
+    desktop_cli_opts.app_id == "org.example.Demo" &&
+    desktop_cli_opts.desktop_icon == "icons/demo.png" &&
+    desktop_cli_opts.desktop_categories == "Utility;GTK;")
 local win_font_cli_opts = options.new_options()
 class FakeWindowsFontOptions {
     function lookup_value(name, expected_type) {
@@ -120,6 +134,43 @@ local manifest = Manifest.SqgiPkgManifest()
 check("manifest string list scalar", manifest.manifest_string_list("gtk4")[0] == "gtk4")
 check("manifest command list array", manifest.manifest_command_list(["ninja"])[0] == "ninja")
 check("manifest relative path", manifest.manifest_path("/tmp/project", "data/file.txt") == "/tmp/project/data/file.txt")
+local desktop_project = GLib.build_filenamev([GLib.get_tmp_dir(), "sqgipkg-desktop-fixture-" + GLib.get_monotonic_time()])
+core.mkdir_p(GLib.build_filenamev([desktop_project, "images"]))
+core.write_file(GLib.build_filenamev([desktop_project, "images", "demo.png"]), "png\n")
+core.write_file(GLib.build_filenamev([desktop_project, "main.nut"]), "print(\"hi\\n\")\n")
+core.write_file(GLib.build_filenamev([desktop_project, "sqgipkg.json"]), sqgi.json.stringify({
+    name = "DesktopDemo",
+    app_id = "org.example.DesktopDemo",
+    icon = "images/demo.png",
+    desktop_terminal = false,
+    desktop_categories = ["Utility", "GTK"],
+    script = "main.nut",
+}, 2))
+local desktop_manifest_opts = manifest.new_options()
+desktop_manifest_opts.manifest = GLib.build_filenamev([desktop_project, "sqgipkg.json"])
+manifest.apply_manifest(desktop_manifest_opts)
+check("manifest desktop identity",
+    desktop_manifest_opts.app_id == "org.example.DesktopDemo" &&
+    desktop_manifest_opts.desktop_icon == GLib.build_filenamev([desktop_project, "images", "demo.png"]) &&
+    desktop_manifest_opts.desktop_terminal == false &&
+    desktop_manifest_opts.desktop_categories == "Utility;GTK;")
+local desktop_appdir = GLib.build_filenamev([desktop_project, "DesktopDemo.AppDir"])
+core.mkdir_p(desktop_appdir)
+local desktop_build = Build.SqgiPkgBuild()
+local desktop_app_id = desktop_build.desktop_app_id(desktop_manifest_opts)
+desktop_build.write_desktop_file(desktop_appdir, desktop_app_id, desktop_manifest_opts.name, desktop_manifest_opts)
+desktop_build.write_icon(desktop_appdir, desktop_app_id, desktop_manifest_opts.desktop_icon)
+local desktop_file = GLib.build_filenamev([desktop_appdir, "org.example.DesktopDemo.desktop"])
+local desktop_text = core.read_file(desktop_file)
+check("appimage desktop file uses app id",
+    desktop_app_id == "org.example.DesktopDemo" &&
+    desktop_text.find("Icon=org.example.DesktopDemo\n") != null &&
+    desktop_text.find("Terminal=false\n") != null &&
+    desktop_text.find("StartupWMClass=org.example.DesktopDemo\n") != null)
+check("appimage desktop icon uses app id",
+    core.path_exists(GLib.build_filenamev([desktop_appdir, "org.example.DesktopDemo.png"])) &&
+    core.path_exists(GLib.build_filenamev([desktop_appdir, "usr", "share", "icons", "hicolor", "256x256", "apps", "org.example.DesktopDemo.png"])))
+core.run_shell("rm -rf " + core.shell_quote(desktop_project), "removing desktop fixture")
 local arch_config = manifest.manifest_linux_arch("/tmp/project", {
     arch = "arm64",
     cmake_toolchain = "cross/toolchain.cmake",

@@ -12,6 +12,7 @@ class SqgiPkgOptions extends Base.SqgiPkgCore {
             manifest = "",
             manifest_dir = "",
             name = "",
+            app_id = "",
             target = "",
             build_dir = "build",
             build_dir_forced = false,
@@ -74,6 +75,10 @@ class SqgiPkgOptions extends Base.SqgiPkgCore {
             gtk_font_name = "",
             gtk_prefer_dark = false,
             gdk_backend = "",
+            desktop_icon = "",
+            desktop_categories = "Utility;",
+            desktop_terminal = true,
+            desktop_terminal_forced = false,
             windows = {
                 build_dir = "",
                 build = [],
@@ -123,6 +128,7 @@ class SqgiPkgOptions extends Base.SqgiPkgCore {
 
         return this.array_contains([
             "--name", "-n",
+            "--app-id",
             "--manifest", "-m",
             "--target", "-t",
             "--build-dir",
@@ -164,6 +170,8 @@ class SqgiPkgOptions extends Base.SqgiPkgCore {
             "--gtk-icon-theme",
             "--gtk-font-name",
             "--gdk-backend",
+            "--desktop-icon",
+            "--desktop-categories",
             "--msys2-root",
             "--msys2-prefix",
             "--windows-build-package",
@@ -246,6 +254,8 @@ class SqgiPkgOptions extends Base.SqgiPkgCore {
 
         v = this.option_value(option_dict, "name")
         if (v != null) opts.name = v
+        v = this.option_value(option_dict, "app-id")
+        if (v != null) opts.app_id = v
         v = this.option_value(option_dict, "manifest")
         if (v != null) opts.manifest = v
         v = this.option_value(option_dict, "target")
@@ -305,6 +315,10 @@ class SqgiPkgOptions extends Base.SqgiPkgCore {
         if (v != null) opts.gtk_font_name = v
         v = this.option_value(option_dict, "gdk-backend")
         if (v != null) opts.gdk_backend = v
+        v = this.option_value(option_dict, "desktop-icon")
+        if (v != null) opts.desktop_icon = v
+        v = this.option_value(option_dict, "desktop-categories")
+        if (v != null) opts.desktop_categories = v
         v = this.option_value(option_dict, "msys2-root")
         if (v != null) opts.windows.msys2_root = v
         v = this.option_value(option_dict, "msys2-prefix")
@@ -368,6 +382,14 @@ class SqgiPkgOptions extends Base.SqgiPkgCore {
         if (this.option_present(option_dict, "smoke-test-isolated")) opts.smoke_test_isolated = true
         if (this.option_present(option_dict, "no-compile-scripts")) opts.compile_scripts = false
         if (this.option_present(option_dict, "gtk-prefer-dark")) opts.gtk_prefer_dark = true
+        if (this.option_present(option_dict, "desktop-terminal")) {
+            opts.desktop_terminal = true
+            opts.desktop_terminal_forced = true
+        }
+        if (this.option_present(option_dict, "desktop-no-terminal")) {
+            opts.desktop_terminal = false
+            opts.desktop_terminal_forced = true
+        }
         if (this.option_present(option_dict, "refresh-msys2-packages")) opts.windows.refresh_packages = true
         if (this.option_present(option_dict, "no-msys2-download")) opts.windows.download_packages = false
         if (this.option_present(option_dict, "no-windows-auto-packages")) opts.windows.auto_packages = false
