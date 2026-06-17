@@ -125,7 +125,7 @@ public:
                     }
                     Error(_SC("expected '%s'"), etypename);
                 }
-                Error(_SC("expected '%c'"), tok);
+                Error(_SC("expected '%c'"), (int)tok);
             }
         }
         SQObjectPtr ret;
