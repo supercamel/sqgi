@@ -117,6 +117,7 @@ class SqgiPkgOptions extends Base.SqgiPkgCore {
                 nsis_desktop_shortcut = true,
                 nsis_start_menu_shortcut = true,
                 nsis_start_menu_folder = "",
+                nsis_autostart = false,
                 nsis_uninstall_registry = true
             }
         }
@@ -404,6 +405,7 @@ class SqgiPkgOptions extends Base.SqgiPkgCore {
         if (this.option_present(option_dict, "windows-prefer-dark")) opts.windows.gtk_prefer_dark = true
         if (this.option_present(option_dict, "nsis-no-desktop-shortcut")) opts.windows.nsis_desktop_shortcut = false
         if (this.option_present(option_dict, "nsis-no-start-menu-shortcut")) opts.windows.nsis_start_menu_shortcut = false
+        if (this.option_present(option_dict, "nsis-autostart")) opts.windows.nsis_autostart = true
 
         foreach (arch in this.option_values(option_dict, "linux-arch"))
             opts.linux.arches.push({ arch = arch })

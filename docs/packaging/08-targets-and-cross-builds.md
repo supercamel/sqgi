@@ -254,6 +254,7 @@ entry, and refreshes the Windows font list.
       "desktop_shortcut": true,
       "start_menu_shortcut": true,
       "start_menu_folder": "MyApp",
+      "autostart": true,
       "request_execution_level": "user"
     }
   }
@@ -265,6 +266,8 @@ the staged Windows directory.
 
 `win-nsis` uses NSIS Modern UI 2 by default. `header_image` sets the wizard
 header bitmap and `welcome_image` sets the welcome/finish bitmap.
+When `autostart` is true, the installer creates a current-user Startup shortcut
+and the uninstaller removes it.
 
 ## Smoke Tests And Reports
 

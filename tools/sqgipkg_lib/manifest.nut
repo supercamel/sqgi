@@ -339,6 +339,7 @@ class SqgiPkgManifest extends Base.SqgiPkgOptions {
         local desktop_shortcut = this.table_get(nsis_options, "desktop_shortcut")
         local start_menu_shortcut = this.table_get(nsis_options, "start_menu_shortcut")
         local start_menu_folder = this.table_get(nsis_options, "start_menu_folder")
+        local autostart = this.table_get(nsis_options, "autostart")
         local uninstall_registry = this.table_get(nsis_options, "uninstall_registry")
 
         if (installer_name != null) opts.windows.nsis_installer_name = installer_name
@@ -351,6 +352,7 @@ class SqgiPkgManifest extends Base.SqgiPkgOptions {
         if (desktop_shortcut != null) opts.windows.nsis_desktop_shortcut = desktop_shortcut
         if (start_menu_shortcut != null) opts.windows.nsis_start_menu_shortcut = start_menu_shortcut
         if (start_menu_folder != null) opts.windows.nsis_start_menu_folder = start_menu_folder
+        if (autostart != null) opts.windows.nsis_autostart = autostart
         if (uninstall_registry != null) opts.windows.nsis_uninstall_registry = uninstall_registry
     }
 

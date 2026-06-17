@@ -129,6 +129,14 @@ options.apply_option_dict(nsis_image_cli_opts, FakeNsisImageOptions())
 check("options NSIS image paths",
     nsis_image_cli_opts.windows.nsis_header_image == "assets/nsis-header.bmp" &&
     nsis_image_cli_opts.windows.nsis_welcome_image == "assets/nsis-welcome.bmp")
+local nsis_autostart_cli_opts = options.new_options()
+class FakeNsisAutostartOptions {
+    function lookup_value(name, expected_type) {
+        return name == "nsis-autostart" ? true : null
+    }
+}
+options.apply_option_dict(nsis_autostart_cli_opts, FakeNsisAutostartOptions())
+check("options NSIS autostart flag", nsis_autostart_cli_opts.windows.nsis_autostart == true)
 
 local manifest = Manifest.SqgiPkgManifest()
 local staging = Build.SqgiPkgBuild()
@@ -316,12 +324,14 @@ local nsis_image_manifest_opts = manifest.new_options()
 manifest.apply_windows_manifest(nsis_image_manifest_opts, "/tmp/project", {
     nsis_options = {
         header_image = "assets/nsis-header.bmp",
-        welcome_image = "assets/nsis-welcome.bmp"
+        welcome_image = "assets/nsis-welcome.bmp",
+        autostart = true
     }
 })
 check("manifest NSIS image paths",
     nsis_image_manifest_opts.windows.nsis_header_image == "/tmp/project/assets/nsis-header.bmp" &&
-    nsis_image_manifest_opts.windows.nsis_welcome_image == "/tmp/project/assets/nsis-welcome.bmp")
+    nsis_image_manifest_opts.windows.nsis_welcome_image == "/tmp/project/assets/nsis-welcome.bmp" &&
+    nsis_image_manifest_opts.windows.nsis_autostart == true)
 local linux_sysroot_opts = manifest.new_options()
 linux_sysroot_opts.target = "linux-sysroot"
 manifest.validate_options(linux_sysroot_opts)
@@ -1374,6 +1384,23 @@ check("nsis writes MUI2 image defines",
     nsis_mui_text.find("!define MUI_HEADERIMAGE_BITMAP \"" + nsis_mui_header + "\"") != null &&
     nsis_mui_text.find("!define MUI_WELCOMEFINISHPAGE_BITMAP \"" + nsis_mui_welcome + "\"") != null)
 system("rm -rf " + nsis.shell_quote(nsis_mui_dir))
+
+local nsis_autostart_dir = GLib.build_filenamev([GLib.get_tmp_dir(), "sqgipkg-nsis-autostart-" + GLib.get_monotonic_time()])
+local nsis_autostart_windir = GLib.build_filenamev([nsis_autostart_dir, "StartupApp"])
+nsis.mkdir_p(nsis_autostart_windir)
+local nsis_autostart_opts = nsis.new_options()
+nsis_autostart_opts.name = "StartupApp"
+nsis_autostart_opts.output_dir = nsis_autostart_dir
+nsis_autostart_opts.windows.nsis_desktop_shortcut = false
+nsis_autostart_opts.windows.nsis_start_menu_shortcut = false
+nsis_autostart_opts.windows.nsis_autostart = true
+local nsis_autostart_script = nsis.write_nsis_script(nsis_autostart_opts, nsis_autostart_windir)
+local nsis_autostart_text = nsis.read_file(nsis_autostart_script)
+check("nsis creates Startup shortcut for autostart",
+    nsis_autostart_text.find("CreateDirectory \"$SMSTARTUP\"") != null &&
+    nsis_autostart_text.find("CreateShortcut \"$SMSTARTUP\\StartupApp.lnk\" \"$INSTDIR\\StartupApp.bat\"") != null &&
+    nsis_autostart_text.find("Delete \"$SMSTARTUP\\StartupApp.lnk\"") != null)
+system("rm -rf " + nsis.shell_quote(nsis_autostart_dir))
 
 local nsis_font_dir = GLib.build_filenamev([GLib.get_tmp_dir(), "sqgipkg-nsis-font-" + GLib.get_monotonic_time()])
 local nsis_font_windir = GLib.build_filenamev([nsis_font_dir, "FontApp"])

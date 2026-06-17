@@ -205,6 +205,15 @@ class SqgiPkgWindowsNsis extends Base.SqgiPkgWindowsStaging {
                     "\"$INSTDIR\\Uninstall.exe\"\n"
         }
 
+        if (opts.windows.nsis_autostart) {
+            text += "  CreateDirectory \"$SMSTARTUP\"\n" +
+                    this.nsis_create_shortcut_line(
+                        "$SMSTARTUP\\" + this.nsis_escape(opts.name) + ".lnk",
+                        launcher,
+                        has_icon
+                    )
+        }
+
         text += "  WriteUninstaller \"$INSTDIR\\Uninstall.exe\"\n"
 
         if (opts.windows.nsis_uninstall_registry) {
@@ -224,6 +233,8 @@ class SqgiPkgWindowsNsis extends Base.SqgiPkgWindowsStaging {
                     "  Delete \"$SMPROGRAMS\\" + this.nsis_escape(start_menu_folder) + "\\Uninstall " + this.nsis_escape(opts.name) + ".lnk\"\n" +
                     "  RMDir \"$SMPROGRAMS\\" + this.nsis_escape(start_menu_folder) + "\"\n"
         }
+        if (opts.windows.nsis_autostart)
+            text += "  Delete \"$SMSTARTUP\\" + this.nsis_escape(opts.name) + ".lnk\"\n"
         if (opts.windows.nsis_uninstall_registry)
             text += "  DeleteRegKey HKCU \"Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\" + this.nsis_escape(package_name) + "\"\n"
         text += this.nsis_uninstall_fonts_lines(opts)

@@ -473,7 +473,8 @@ Useful Windows manifest fields:
       "welcome_image": "assets/nsis-welcome.bmp",
       "desktop_shortcut": true,
       "start_menu_shortcut": true,
-      "start_menu_folder": "SQGI"
+      "start_menu_folder": "SQGI",
+      "autostart": false
     }
   }
 }
@@ -513,6 +514,8 @@ The string form is also supported:
 `win-nsis` uses NSIS Modern UI 2 by default. Use
 `windows.nsis_options.header_image` for the wizard header bitmap and
 `windows.nsis_options.welcome_image` for the welcome/finish bitmap.
+Set `windows.nsis_options.autostart` to `true` to create a current-user
+Startup shortcut during install and remove it during uninstall.
 
 Console behavior is automatic by default. Force a visible console for debugging:
 

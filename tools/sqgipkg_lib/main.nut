@@ -193,6 +193,8 @@ class SqgiPkg extends Base.SqgiPkgBuild {
             "Do not create Start Menu shortcuts in the NSIS installer", null)
         this.app.add_main_option("nsis-start-menu-folder", 0, 0, GLib.OptionArg.string,
             "Start Menu folder for NSIS shortcuts", "NAME")
+        this.app.add_main_option("nsis-autostart", 0, 0, GLib.OptionArg.none,
+            "Create a current-user Startup shortcut in the NSIS installer", null)
 
         this.app.connect("command-line", function(command_line) {
             try {

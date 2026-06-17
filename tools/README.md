@@ -44,7 +44,7 @@ If you are learning `sqgipkg` from scratch, start with the tutorial-style
 - Generated CMake and Meson cross files for Ubuntu/MinGW Windows builds.
 - Automatic `PKG_CONFIG_*` isolation for Windows cross-builds.
 - Windows GTK runtime settings/launcher environment support.
-- NSIS installer customization: installer name, install directory, icon, license page, shortcuts, Start Menu folder, execution level, and uninstall registry entry.
+- NSIS installer customization: installer name, install directory, icon, license page, shortcuts, Start Menu folder, autostart, execution level, and uninstall registry entry.
 - Doctor mode for manifest/path/portability checks.
 - AppImage smoke tests, including isolated GStreamer plugin tests and QEMU-backed
   cross-architecture Linux smoke tests when a target sysroot is available.
