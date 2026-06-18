@@ -30,21 +30,6 @@ Read the docs: https://sqgi.readthedocs.io/en/latest/
 
 Join the community on Discord: https://discord.gg/krVe8U9wGm
 
-## Why SQGI?
-
-Native application development has a gap.
-
-C and C++ are powerful, but slow to iterate in. JavaScript and Python are
-pleasant, but distributing native desktop apps can become heavy or awkward. GJS
-has excellent GNOME integration, but it is not a great Windows deployment story.
-Lua is small and embeddable, but its syntax and ecosystem are not everyone's
-preference.
-
-SQGI aims at a practical niche:
-
-> Build small-to-medium native applications with a familiar scripting language,
-> direct access to mature native libraries, async/await, native extension
-> support, and a packaging tool that can actually ship the result.
 
 ## What You Can Build
 
