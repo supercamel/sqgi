@@ -33,6 +33,34 @@ static void sqgi_trace_gi_import(const char *namespace_name, gint index,
     fflush(stderr);
 }
 
+static char *sqgi_gi_namespace_error_message(const char *namespace_name,
+                                             const char *version)
+{
+    GString *msg = g_string_new(NULL);
+    const char *typelib_path = getenv("GI_TYPELIB_PATH");
+    const char *path = getenv("PATH");
+    GSList *search_path = g_irepository_get_search_path();
+
+    g_string_append_printf(msg,
+                           "failed to load GI namespace '%s' version '%s': "
+                           "g_irepository_require returned no typelib and no GError",
+                           sqgi_safe_str(namespace_name),
+                           version ? version : "<default>");
+    g_string_append_printf(msg, "; GI_TYPELIB_PATH=%s",
+                           typelib_path && typelib_path[0] ? typelib_path : "<unset>");
+    g_string_append(msg, "; GI search path=");
+    if (!search_path) {
+        g_string_append(msg, "<empty>");
+    } else {
+        for (GSList *node = search_path; node; node = node->next) {
+            if (node != search_path) g_string_append_c(msg, G_SEARCHPATH_SEPARATOR);
+            g_string_append(msg, node->data ? (const char *)node->data : "<null>");
+        }
+    }
+    g_string_append_printf(msg, "; PATH=%s", path && path[0] ? path : "<unset>");
+    return g_string_free(msg, FALSE);
+}
+
 typedef struct {
     HSQUIRRELVM v;
     HSQOBJECT fn;
@@ -1463,8 +1491,9 @@ SQRESULT sqgi_gi_load_namespace(HSQUIRRELVM v, const char *namespace_name,
     GITypelib *typelib = g_irepository_require(repo, namespace_name, version,
                                                (GIRepositoryLoadFlags)0, &error);
     if (!typelib) {
-        SQRESULT res = sqgi_gerror_throw(v, error,
-                                        "unknown error loading namespace");
+        char *fallback = sqgi_gi_namespace_error_message(namespace_name, version);
+        SQRESULT res = sqgi_gerror_throw(v, error, fallback);
+        g_free(fallback);
         SQGI_STACK_CHECK_END(v, 0);
         return res;
     }

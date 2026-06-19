@@ -39,10 +39,45 @@ static SQInteger sqgi_errorhandler(HSQUIRRELVM v)
 
     const SQChar *message = NULL;
     SQInteger top = sq_gettop(v);
-    if (sq_gettop(v) >= 2 &&
-        SQ_SUCCEEDED(sq_tostring(v, 2)) &&
-        SQ_SUCCEEDED(sq_getstring(v, -1, &message)) &&
-        message) {
+    char structured[1024];
+    structured[0] = '\0';
+
+    for (SQInteger idx = top >= 2 ? 2 : 1; idx >= 1 && !structured[0]; idx--) {
+        SQInteger saved = sq_gettop(v);
+        const SQChar *domain = NULL;
+        const SQChar *msg = NULL;
+        SQInteger code = 0;
+
+        sq_pushstring(v, "message", -1);
+        if (SQ_SUCCEEDED(sq_get(v, idx))) {
+            sq_getstring(v, -1, &msg);
+            sq_poptop(v);
+        }
+        sq_pushstring(v, "domain", -1);
+        if (SQ_SUCCEEDED(sq_get(v, idx))) {
+            sq_getstring(v, -1, &domain);
+            sq_poptop(v);
+        }
+        sq_pushstring(v, "code", -1);
+        if (SQ_SUCCEEDED(sq_get(v, idx))) {
+            sq_getinteger(v, -1, &code);
+            sq_poptop(v);
+        }
+        if (msg && msg[0]) {
+            if (domain && domain[0]) {
+                snprintf(structured, sizeof(structured), "%s:%lld: %s",
+                         domain, (long long)code, msg);
+            } else {
+                snprintf(structured, sizeof(structured), "%s", msg);
+            }
+        }
+        sq_settop(v, saved);
+    }
+
+    if (structured[0]) {
+        pf(v, "\nAN ERROR HAS OCCURRED [%s]\n", structured);
+    } else if ((top >= 2 && SQ_SUCCEEDED(sq_tostring(v, 2)) && SQ_SUCCEEDED(sq_getstring(v, -1, &message)) && message) ||
+        (top >= 1 && SQ_SUCCEEDED(sq_tostring(v, 1)) && SQ_SUCCEEDED(sq_getstring(v, -1, &message)) && message)) {
         pf(v, "\nAN ERROR HAS OCCURRED [%s]\n", message);
     } else {
         pf(v, "\nAN ERROR HAS OCCURRED [unknown]\n");
