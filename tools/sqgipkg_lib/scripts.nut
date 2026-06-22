@@ -336,9 +336,9 @@ class SqgiPkgScripts extends Base.SqgiPkgManifest {
         if (!opts.windows.auto_packages) return
 
         this.append_unique(opts.windows.packages, this.msys2_pkg(opts, "glib2"))
-        this.append_unique(opts.windows.packages, this.msys2_pkg(opts, "gobject-introspection"))
         // Build-time GI provides headers/tools; runtime GI provides the DLL name
         // older consumers still link against (libgirepository-1.0-1.dll).
+        this.append_unique(opts.windows.build_packages, this.msys2_pkg(opts, "gobject-introspection"))
         this.append_unique(opts.windows.packages, this.msys2_pkg(opts, "gobject-introspection-runtime"))
         this.append_unique(opts.windows.packages, this.msys2_pkg(opts, "libffi"))
         this.append_unique(opts.windows.packages, this.msys2_pkg(opts, "cairo"))

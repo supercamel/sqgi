@@ -1169,6 +1169,10 @@ msys2.apply_windows_package_defaults(win_auto_pixbuf_opts)
 check("windows auto runtime packages do not imply Vala",
     win_auto_pixbuf_opts.windows.build_packages.find(msys2.msys2_pkg(win_auto_pixbuf_opts, "vala")) == null &&
     win_auto_pixbuf_opts.windows.packages.find(msys2.msys2_pkg(win_auto_pixbuf_opts, "vala")) == null)
+check("windows auto packages keep GI tooling build-only",
+    win_auto_pixbuf_opts.windows.build_packages.find(msys2.msys2_pkg(win_auto_pixbuf_opts, "gobject-introspection")) != null &&
+    win_auto_pixbuf_opts.windows.packages.find(msys2.msys2_pkg(win_auto_pixbuf_opts, "gobject-introspection")) == null &&
+    win_auto_pixbuf_opts.windows.packages.find(msys2.msys2_pkg(win_auto_pixbuf_opts, "gobject-introspection-runtime")) != null)
 check("windows auto packages include gdk-pixbuf2 for GdkPixbuf imports",
     win_auto_pixbuf_opts.windows.packages.find(msys2.msys2_pkg(win_auto_pixbuf_opts, "gdk-pixbuf2")) != null)
 local win_no_auto_opts = msys2.new_options()
