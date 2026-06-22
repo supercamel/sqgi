@@ -424,7 +424,7 @@ For libsoup, the usual portable path is package-based:
   },
   "windows": {
     "packages": [
-      "mingw-w64-x86_64-libsoup"
+      "mingw-w64-x86_64-libsoup3"
     ]
   }
 }

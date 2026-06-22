@@ -356,6 +356,9 @@ class SqgiPkgScripts extends Base.SqgiPkgManifest {
             if (opts.report.used_gtk)
                 this.append_unique(opts.windows.packages, this.msys2_pkg(opts, "gst-plugin-gtk"))
         }
+
+        if (opts.report.used_soup)
+            this.append_unique(opts.windows.packages, this.msys2_pkg(opts, "libsoup3"))
     }
 
 }

@@ -1186,6 +1186,12 @@ msys2.apply_windows_package_defaults(win_auto_gtk_opts)
 check("windows auto packages include gdk-pixbuf2 for GTK imports",
     win_auto_gtk_opts.windows.packages.find(msys2.msys2_pkg(win_auto_gtk_opts, "gtk4")) != null &&
     win_auto_gtk_opts.windows.packages.find(msys2.msys2_pkg(win_auto_gtk_opts, "gdk-pixbuf2")) != null)
+local win_auto_soup_opts = msys2.new_options()
+win_auto_soup_opts.target = "win-nsis"
+win_auto_soup_opts.report.used_soup = true
+msys2.apply_windows_package_defaults(win_auto_soup_opts)
+check("windows auto packages include libsoup3 for Soup imports",
+    win_auto_soup_opts.windows.packages.find(msys2.msys2_pkg(win_auto_soup_opts, "libsoup3")) != null)
 check("windows classifies dwrite as system dll", msys2.windows_system_dll("DWrite.dll"))
 check("windows classifies bcryptprimitives as system dll", msys2.windows_system_dll("bcryptprimitives.dll"))
 check("windows classifies winhttp as system dll", msys2.windows_system_dll("WINHTTP.dll"))
