@@ -30,6 +30,8 @@ function expect_error(name, fn, needle) {
 }
 
 local core = Core.SqgiPkgCore()
+local module_host_arch = core.normalize_appimage_arch(core.machine_arch())
+function run_early_module_tests(core, module_host_arch) {
 check("core split_once", core.split_once("src=dest", "=")[1] == "dest")
 check("core appimage arch alias", core.normalize_appimage_arch("arm64") == "aarch64")
 check("core deb arch alias", core.deb_arch_for_appimage_arch("x86_64") == "amd64")
@@ -48,7 +50,6 @@ core.write_file(chmod_fixture, "#!/bin/sh\nexit 0\n")
 core.chmod_exec(chmod_fixture)
 check("core chmod_exec makes file executable", core.run_shell_status("[ -x " + core.shell_quote(chmod_fixture) + " ]") == 0)
 remove(chmod_fixture)
-local module_host_arch = core.normalize_appimage_arch(core.machine_arch())
 local shell_arch = core.elf_appimage_arch("/bin/sh")
 check("core elf arch detects host shell", shell_arch == null || shell_arch == module_host_arch)
 if (shell_arch != null) {
@@ -353,6 +354,21 @@ class FakeLinuxPackageAvailability extends Linux.SqgiPkgLinuxDeps {
 
     function linux_deb_package_available(opts, package_name) {
         return this.table_get(available, package_name, false)
+    }
+}
+class FakeLinuxDependencyClosure extends Linux.SqgiPkgLinuxDeps {
+    package_depends = null
+
+    constructor() {
+        package_depends = {}
+    }
+
+    function linux_deb_package_available(opts, package_name) {
+        return package_name in package_depends
+    }
+
+    function linux_deb_package_depends(opts, package_name) {
+        return this.table_get(package_depends, package_name, null)
     }
 }
 local gi_pkg_linux = FakeLinuxPackageAvailability()
@@ -686,6 +702,40 @@ local package_stage_appdir = GLib.build_filenamev([GLib.get_tmp_dir(), "sqgipkg-
 linux.stage_linux_package(package_stage_opts, package_stage_appdir, "libdemo")
 check("linux package staging copies from generated sysroot",
     linux.path_exists(GLib.build_filenamev([package_stage_appdir, "usr", "lib", "libdemo.so.1"])))
+local closure_linux = FakeLinuxDependencyClosure()
+local closure_opts = closure_linux.new_options()
+closure_opts.appimage_arch = "x86_64"
+closure_opts.linux.deb.download = true
+closure_opts.linux.deb.packages = ["gir1.2-gtk-4.0"]
+closure_opts.linux.sysroot = GLib.build_filenamev([GLib.get_tmp_dir(), "sqgipkg-closure-sysroot-" + GLib.get_monotonic_time()])
+closure_linux.package_depends["gir1.2-gtk-4.0:amd64"] <- "gir1.2-gtk-4.0\n  Depends: gir1.2-pango-1.0\n"
+closure_linux.package_depends["gir1.2-pango-1.0:amd64"] <- "gir1.2-pango-1.0\n  Depends: libpangocairo-1.0-0\n"
+closure_linux.package_depends["libpangocairo-1.0-0:amd64"] <- "libpangocairo-1.0-0\n"
+local closure_typelib_dir = GLib.build_filenamev([closure_opts.linux.sysroot, "usr", "lib", "x86_64-linux-gnu", "girepository-1.0"])
+closure_linux.mkdir_p(closure_typelib_dir)
+closure_linux.write_file(GLib.build_filenamev([closure_typelib_dir, "Gtk-4.0.typelib"]), "gtk\n")
+closure_linux.write_file(GLib.build_filenamev([closure_typelib_dir, "PangoCairo-1.0.typelib"]), "pangocairo\n")
+local closure_lib_dir = GLib.build_filenamev([closure_opts.linux.sysroot, "usr", "lib", "x86_64-linux-gnu"])
+closure_linux.write_file(GLib.build_filenamev([closure_lib_dir, "libpangocairo-1.0.so.0"]), "pangocairo lib\n")
+local closure_gtk_meta = closure_linux.linux_deb_sysroot_package_metadata(closure_opts, "gir1.2-gtk-4.0:amd64")
+closure_linux.mkdir_p(closure_gtk_meta)
+closure_linux.write_file(GLib.build_filenamev([closure_gtk_meta, "files"]),
+    "/usr/lib/x86_64-linux-gnu/girepository-1.0/Gtk-4.0.typelib\n")
+local closure_pango_meta = closure_linux.linux_deb_sysroot_package_metadata(closure_opts, "gir1.2-pango-1.0:amd64")
+closure_linux.mkdir_p(closure_pango_meta)
+closure_linux.write_file(GLib.build_filenamev([closure_pango_meta, "files"]),
+    "/usr/lib/x86_64-linux-gnu/girepository-1.0/PangoCairo-1.0.typelib\n")
+local closure_lib_meta = closure_linux.linux_deb_sysroot_package_metadata(closure_opts, "libpangocairo-1.0-0:amd64")
+closure_linux.mkdir_p(closure_lib_meta)
+closure_linux.write_file(GLib.build_filenamev([closure_lib_meta, "files"]),
+    "/usr/lib/x86_64-linux-gnu/libpangocairo-1.0.so.0\n")
+local closure_appdir = GLib.build_filenamev([GLib.get_tmp_dir(), "sqgipkg-closure-appdir-" + GLib.get_monotonic_time()])
+closure_linux.stage_linux_packages(closure_opts, closure_appdir)
+check("linux package staging includes downloaded dependency typelibs",
+    closure_linux.path_exists(GLib.build_filenamev([closure_appdir, "usr", "lib", "girepository-1.0", "Gtk-4.0.typelib"])) &&
+    closure_linux.path_exists(GLib.build_filenamev([closure_appdir, "usr", "lib", "girepository-1.0", "PangoCairo-1.0.typelib"])) &&
+    closure_linux.path_exists(GLib.build_filenamev([closure_appdir, "usr", "lib", "libpangocairo-1.0.so.0"])))
+system("rm -rf " + closure_linux.shell_quote(closure_opts.linux.sysroot) + " " + closure_linux.shell_quote(closure_appdir))
 check("linux package staging preserves GStreamer plugin dir",
     linux.linux_package_dest_for_file(package_stage_opts, "/usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstfake.so") ==
     GLib.build_filenamev(["usr", "lib", "gstreamer-1.0", "libgstfake.so"]))
@@ -730,8 +780,11 @@ check("linux import defaults include GStreamer runtime packages",
 check("linux import defaults include Soup runtime packages",
     auto_runtime_opts.linux.deb.packages.find("libsoup-3.0-0") != null &&
     auto_runtime_opts.linux.deb.packages.find("gir1.2-soup-3.0") != null)
+}
+run_early_module_tests(core, module_host_arch)
 local host_arch = module_host_arch
 local cross_arch = host_arch == "aarch64" ? "x86_64" : "aarch64"
+local linux = Linux.SqgiPkgLinuxDeps()
 local build = Build.SqgiPkgBuild()
 check("build package path normalizes Debian dot entries",
     build.normalize_package_path("/./usr/lib/x86_64-linux-gnu/libdemo.so.1") ==

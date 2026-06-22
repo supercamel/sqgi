@@ -792,14 +792,40 @@ mkdir -p "${WIN_PROJECT}" "${WIN_BUILD}" \
   "${WIN_MSYS2}/mingw64/bin" \
   "${WIN_MSYS2}/mingw64/lib/girepository-1.0" \
   "${WIN_MSYS2}/mingw64/share/glib-2.0/schemas" \
+  "${WIN_MSYS2}/var/lib/pacman/local/mingw-w64-x86_64-gtk4-4.22.0-1" \
+  "${WIN_MSYS2}/var/lib/pacman/local/mingw-w64-x86_64-pango-1.57.0-1" \
   "${WIN_MSYS2}/var/lib/pacman/local/mingw-w64-x86_64-glib2-2.80.0-1" \
   "${WIN_MSYS2}/var/lib/pacman/local/mingw-w64-x86_64-faketype-1.0-1"
 printf 'fake exe\n' >"${WIN_BUILD}/sqgi.exe"
 printf 'fake dll\n' >"${WIN_BUILD}/libsqgi-0.dll"
 printf 'glib dll\n' >"${WIN_MSYS2}/mingw64/bin/libglib-2.0-0.dll"
 printf 'gio typelib\n' >"${WIN_MSYS2}/mingw64/lib/girepository-1.0/Gio-2.0.typelib"
+printf 'gtk typelib\n' >"${WIN_MSYS2}/mingw64/lib/girepository-1.0/Gtk-4.0.typelib"
+printf 'pango typelib\n' >"${WIN_MSYS2}/mingw64/lib/girepository-1.0/Pango-1.0.typelib"
+printf 'pangocairo typelib\n' >"${WIN_MSYS2}/mingw64/lib/girepository-1.0/PangoCairo-1.0.typelib"
 printf 'transitive typelib\n' >"${WIN_MSYS2}/mingw64/lib/girepository-1.0/FakeType-1.0.typelib"
 printf '<schemalist/>\n' >"${WIN_MSYS2}/mingw64/share/glib-2.0/schemas/org.example.gschema.xml"
+cat >"${WIN_MSYS2}/var/lib/pacman/local/mingw-w64-x86_64-gtk4-4.22.0-1/desc" <<EOF
+%NAME%
+mingw-w64-x86_64-gtk4
+
+%DEPENDS%
+mingw-w64-x86_64-glib2>=2.80
+mingw-w64-x86_64-pango>=1.57
+EOF
+cat >"${WIN_MSYS2}/var/lib/pacman/local/mingw-w64-x86_64-gtk4-4.22.0-1/files" <<EOF
+%FILES%
+mingw64/lib/girepository-1.0/Gtk-4.0.typelib
+EOF
+cat >"${WIN_MSYS2}/var/lib/pacman/local/mingw-w64-x86_64-pango-1.57.0-1/desc" <<EOF
+%NAME%
+mingw-w64-x86_64-pango
+EOF
+cat >"${WIN_MSYS2}/var/lib/pacman/local/mingw-w64-x86_64-pango-1.57.0-1/files" <<EOF
+%FILES%
+mingw64/lib/girepository-1.0/Pango-1.0.typelib
+mingw64/lib/girepository-1.0/PangoCairo-1.0.typelib
+EOF
 cat >"${WIN_MSYS2}/var/lib/pacman/local/mingw-w64-x86_64-glib2-2.80.0-1/desc" <<EOF
 %NAME%
 mingw-w64-x86_64-glib2
@@ -867,7 +893,7 @@ cat >"${WIN_PROJECT}/sqgipkg.json" <<EOF
     "auto_packages": false,
     "gdk_backend": "win32",
     "packages": [
-      "mingw-w64-x86_64-glib2"
+      "mingw-w64-x86_64-gtk4"
     ]
   }
 }
@@ -884,6 +910,9 @@ assert_file "${WINDIR}/bin/sqgi.exe"
 assert_file "${WINDIR}/bin/libsqgi-0.dll"
 assert_file "${WINDIR}/bin/libglib-2.0-0.dll"
 assert_file "${WINDIR}/lib/girepository-1.0/Gio-2.0.typelib"
+assert_file "${WINDIR}/lib/girepository-1.0/Gtk-4.0.typelib"
+assert_file "${WINDIR}/lib/girepository-1.0/Pango-1.0.typelib"
+assert_file "${WINDIR}/lib/girepository-1.0/PangoCairo-1.0.typelib"
 assert_file "${WINDIR}/lib/girepository-1.0/FakeType-1.0.typelib"
 assert_file "${WINDIR}/share/glib-2.0/schemas/org.example.gschema.xml"
 assert_file "${WINDIR}/share/sqgi/app/main.cnut"
@@ -1228,13 +1257,17 @@ run_sqgipkg \
   --manifest "${ROOT_DIR}/demo/gtk4/image_viewer.sqgipkg.json" \
   --output "${MANIFEST_DEMO_OUT}" \
   --appimagetool "${APPIMAGETOOL}" \
+  --linux-deb-download \
   --keep-appdir \
   >"${WORK_DIR}/manifest-image-viewer-package.out"
 
 assert_file "${MANIFEST_DEMO_OUT}/ImageViewer.AppDir/usr/share/sqgi/app/resources/assets/blaue_blume_600.jpg"
+assert_file "${MANIFEST_DEMO_OUT}/ImageViewer.AppDir/usr/lib/girepository-1.0/Gtk-4.0.typelib"
+assert_file "${MANIFEST_DEMO_OUT}/ImageViewer.AppDir/usr/lib/girepository-1.0/Pango-1.0.typelib"
+assert_file "${MANIFEST_DEMO_OUT}/ImageViewer.AppDir/usr/lib/girepository-1.0/PangoCairo-1.0.typelib"
 assert_elf_arch "${MANIFEST_DEMO_OUT}/ImageViewer.AppImage" "${HOST_APPIMAGE_ARCH}"
 assert_appdir_elf_arches "${MANIFEST_DEMO_OUT}/ImageViewer.AppDir" "${HOST_APPIMAGE_ARCH}"
-run_appimage "${MANIFEST_DEMO_OUT}/ImageViewer.AppImage" --timeout=1 >"${WORK_DIR}/manifest-image-viewer-run.out"
+run_appimage "${MANIFEST_DEMO_OUT}/ImageViewer.AppImage" --check >"${WORK_DIR}/manifest-image-viewer-run.out"
 assert_contains "${WORK_DIR}/manifest-image-viewer-run.out" "image_viewer: loaded"
 assert_contains "${WORK_DIR}/manifest-image-viewer-run.out" "resources/assets/blaue_blume_600.jpg"
 pass "manifest AppImage for demo/gtk4/image_viewer.nut"
@@ -1252,8 +1285,8 @@ assert_elf_arch "${GTK_THEMES_OUT}/GtkWidgetThemes.AppImage" "${HOST_APPIMAGE_AR
 assert_appdir_elf_arches "${GTK_THEMES_OUT}/GtkWidgetThemes.AppDir" "${HOST_APPIMAGE_ARCH}"
 assert_contains "${GTK_THEMES_OUT}/GtkWidgetThemes.AppDir/usr/etc/gtk-4.0/settings.ini" "gtk-theme-name=SQGI-Violet-Dark"
 assert_contains "${GTK_THEMES_OUT}/GtkWidgetThemes.AppDir/AppRun" 'APPDIR'
-run_appimage "${GTK_THEMES_OUT}/GtkWidgetThemes.AppImage" --auto >"${WORK_DIR}/gtk-themes-run.out" 2>&1
-assert_contains "${WORK_DIR}/gtk-themes-run.out" "window.close-request"
+run_appimage "${GTK_THEMES_OUT}/GtkWidgetThemes.AppImage" --check >"${WORK_DIR}/gtk-themes-run.out" 2>&1
+assert_contains "${WORK_DIR}/gtk-themes-run.out" "gtk_themes: bundled theme found"
 assert_contains "${WORK_DIR}/gtk-themes-run.out" "Gtk Application exited with code 0"
 if grep -Fq "Theme parser error" "${WORK_DIR}/gtk-themes-run.out"; then
   sed -n '1,160p' "${WORK_DIR}/gtk-themes-run.out" >&2

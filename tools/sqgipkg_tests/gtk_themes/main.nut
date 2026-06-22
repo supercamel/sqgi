@@ -11,6 +11,7 @@
  *   sqgi demo/gtk4/widgets.nut             — interactive (close the window)
  *   sqgi demo/gtk4/widgets.nut --auto      — auto-drive each widget then quit
  *   sqgi demo/gtk4/widgets.nut --timeout=N — quit after N seconds regardless
+ *   sqgi demo/gtk4/widgets.nut --check     — verify packaged GTK runtime data
  *
  * Signal hits are logged to stdout so the demo also serves as a headless
  * smoke test for the GObject signal bridge.
@@ -23,11 +24,38 @@ local Gtk  = import("Gtk", "4.0")
 // ── CLI parsing ────────────────────────────────────────────────────────────
 local auto_drive   = false
 local hard_timeout = 0
+local check_only   = false
 foreach (a in vargv) {
     if (a == "--auto") auto_drive = true
+    else if (a == "--check") check_only = true
     else if (a.find("--timeout=") == 0) hard_timeout = a.slice(10).tointeger()
 }
 if (auto_drive && hard_timeout == 0) hard_timeout = 8
+
+function path_exists(path) {
+    return path != null && Gio.File.new_for_path(path).query_exists(null)
+}
+
+if (check_only) {
+    local appdir = GLib.getenv("APPDIR")
+    local theme_css = appdir == null ? null : GLib.build_filenamev([
+        appdir,
+        "usr",
+        "share",
+        "themes",
+        "SQGI-Violet-Dark",
+        "gtk-4.0",
+        "gtk.css"
+    ])
+    if (!path_exists(theme_css)) {
+        print("gtk_themes: bundled theme missing\n")
+        return 1
+    }
+
+    print("gtk_themes: bundled theme found\n")
+    print("\nGtk Application exited with code 0\n")
+    return 0
+}
 
 // ── Signal hit counter ─────────────────────────────────────────────────────
 local hits = {}

@@ -6,6 +6,7 @@
  * Usage:
  *   sqgi demo/gtk4/image_viewer.nut
  *   sqgi demo/gtk4/image_viewer.nut --timeout=3
+ *   sqgi demo/gtk4/image_viewer.nut --check
  *
  * Package:
  *   sqgipkg --manifest demo/gtk4/image_viewer.sqgipkg.json
@@ -16,8 +17,10 @@ local Gio  = import("Gio")
 local Gtk  = import("Gtk", "4.0")
 
 local hard_timeout = 0
+local check_only = false
 foreach (a in vargv) {
     if (a.find("--timeout=") == 0) hard_timeout = a.slice(10).tointeger()
+    else if (a == "--check") check_only = true
 }
 
 function path_exists(path) {
@@ -41,6 +44,11 @@ local image_path = first_existing([
 if (image_path == null) {
     print("image_viewer: could not find blaue_blume_600.jpg\n")
     return 1
+}
+
+if (check_only) {
+    print("image_viewer: loaded " + image_path + "\n")
+    return 0
 }
 
 local app = Gtk.Application.new("org.sqgi.gtk4.image_viewer",

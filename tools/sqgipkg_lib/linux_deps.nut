@@ -1669,6 +1669,17 @@ class SqgiPkgLinuxDeps extends Base.SqgiPkgStaging {
         ordered.push(package_name)
     }
 
+    function resolve_linux_deb_packages(opts, packages) {
+        local resolved = {}
+        local visiting = {}
+        local ordered = []
+
+        foreach (package_name in packages)
+            this.resolve_linux_deb_package(opts, package_name, resolved, visiting, ordered)
+
+        return ordered
+    }
+
     function linux_deb_sysroot_seed_packages(opts) {
         local out = []
         foreach (package_name in opts.linux.deb.packages)
@@ -1692,13 +1703,9 @@ class SqgiPkgLinuxDeps extends Base.SqgiPkgStaging {
         local sysroot = this.linux_download_sysroot_root(opts)
         this.info("Linux Debian sysroot: " + sysroot)
 
-        local resolved = {}
-        local visiting = {}
-        local ordered = []
         this.info("resolving Debian sysroot packages for " + this.linux_current_arch(opts) +
             " from " + this.join_strings(seeds, ", "))
-        foreach (package_name in seeds)
-            this.resolve_linux_deb_package(opts, package_name, resolved, visiting, ordered)
+        local ordered = this.resolve_linux_deb_packages(opts, seeds)
         this.info("Debian sysroot package closure for " + this.linux_current_arch(opts) +
             ": " + ordered.len() + " package(s)")
 
@@ -2058,7 +2065,41 @@ class SqgiPkgLinuxDeps extends Base.SqgiPkgStaging {
         }
     }
 
-    function stage_linux_package(opts, appdir, package_name) {
+    function linux_dependency_package_dest_selected(dest_rel, include_libraries) {
+        dest_rel = this.relative_dest(dest_rel)
+        local lib_prefix = GLib.build_filenamev(["usr", "lib"]) + "/"
+        if (include_libraries && this.starts_with(dest_rel, lib_prefix)) {
+            local lib_name = dest_rel.slice(lib_prefix.len())
+            if (lib_name.find("/") == null &&
+                    (this.ends_with(lib_name, ".so") || lib_name.find(".so.") != null) &&
+                    !this.linux_system_library(lib_name))
+                return true
+        }
+        if (this.starts_with(dest_rel, GLib.build_filenamev(["usr", "lib", "girepository-1.0"]) + "/"))
+            return this.ends_with(dest_rel, ".typelib")
+        if (this.starts_with(dest_rel, GLib.build_filenamev(["usr", "share", "glib-2.0", "schemas"]) + "/"))
+            return this.ends_with(dest_rel, ".xml")
+        if (this.starts_with(dest_rel, GLib.build_filenamev(["usr", "lib", "gio", "modules"]) + "/"))
+            return this.ends_with(dest_rel, ".so")
+        if (this.starts_with(dest_rel, GLib.build_filenamev(["usr", "lib", "gdk-pixbuf-2.0"]) + "/"))
+            return true
+        if (this.starts_with(dest_rel, GLib.build_filenamev(["usr", "lib", "gstreamer-1.0"]) + "/"))
+            return this.ends_with(dest_rel, ".so")
+        if (this.starts_with(dest_rel, GLib.build_filenamev(["usr", "lib", "gstreamer1.0"]) + "/"))
+            return true
+        if (this.starts_with(dest_rel, GLib.build_filenamev(["usr", "share", "mime"]) + "/"))
+            return true
+        return false
+    }
+
+    function linux_package_dest_for_staging(opts, path, dependency_package, dependency_libraries) {
+        local dest = this.linux_package_dest_for_file(opts, path)
+        if (dest == null) return null
+        if (dependency_package && !this.linux_dependency_package_dest_selected(dest, dependency_libraries)) return null
+        return dest
+    }
+
+    function stage_linux_package(opts, appdir, package_name, dependency_package = false, dependency_libraries = false) {
         local package_for_arch = this.linux_package_name_for_arch(opts, package_name)
         local file_list = this.linux_deb_sysroot_package_files(opts, package_for_arch)
         if (file_list == null) {
@@ -2079,7 +2120,7 @@ class SqgiPkgLinuxDeps extends Base.SqgiPkgStaging {
             if (!this.path_exists(src)) continue
             if (this.run_shell_status("[ -f " + this.shell_quote(src) + " ]") != 0) continue
 
-            local dest = this.linux_package_dest_for_file(opts, path)
+            local dest = this.linux_package_dest_for_staging(opts, path, dependency_package, dependency_libraries)
             if (dest == null) continue
 
             this.copy_file_to_appdir_dest(src, appdir, dest, "Linux package file")
@@ -2087,15 +2128,44 @@ class SqgiPkgLinuxDeps extends Base.SqgiPkgStaging {
             copied++
         }
 
-        if (copied == 0)
+        if (copied == 0 && !dependency_package)
             this.report_warn(opts, "Linux package had no selected runtime files: " + package_for_arch)
-        else
+        else if (copied > 0)
             this.info("copied " + copied + " file(s) from " + package_for_arch)
     }
 
     function stage_linux_packages(opts, appdir) {
-        foreach (package_name in opts.linux.deb.packages)
-            this.stage_linux_package(opts, appdir, package_name)
+        local packages = opts.linux.deb.packages
+        local explicit_packages = {}
+        local dependency_library_packages = {}
+        if (opts.linux.deb.download) {
+            foreach (package_name in packages)
+                explicit_packages[this.linux_package_name_for_arch(opts, package_name)] <- true
+        }
+        if (opts.linux.deb.download && packages.len() > 0)
+            packages = this.resolve_linux_deb_packages(opts, packages)
+
+        if (opts.linux.deb.download) {
+            foreach (package_name in packages) {
+                local package_for_arch = this.linux_package_name_for_arch(opts, package_name)
+                local package_base = this.split_once(package_for_arch, ":")[0]
+                if (!this.starts_with(package_base, "gir1.2-")) continue
+
+                local output = this.linux_deb_package_depends(opts, package_for_arch)
+                if (output == null) continue
+                foreach (dep in this.linux_deb_dependency_packages_from_output(opts, output))
+                    dependency_library_packages[this.linux_package_name_for_arch(opts, dep)] <- true
+            }
+        }
+
+        foreach (package_name in packages) {
+            local package_for_arch = this.linux_package_name_for_arch(opts, package_name)
+            local dependency_package = opts.linux.deb.download &&
+                !this.table_get(explicit_packages, package_for_arch, false)
+            this.stage_linux_package(opts, appdir, package_name,
+                dependency_package,
+                dependency_package && this.table_get(dependency_library_packages, package_for_arch, false))
+        }
     }
 
     function linux_system_library(name) {
