@@ -119,7 +119,9 @@ class SqgiPkgWindowsMsys2 extends Base.SqgiPkgWindowsEnv {
         if (this.table_get(resolved, package_name, false)) return
         if (this.table_get(visiting, package_name, false)) return
 
-        local entry = this.table_get(index, package_name)
+        local entry = this.msys2_local_package_entry(opts, package_name)
+        if (entry == null && index != null)
+            entry = this.table_get(index, package_name)
         if (entry == null) {
             this.report_warn(opts, "MSYS2 dependency not found in repo metadata: " + package_name)
             return
@@ -136,20 +138,75 @@ class SqgiPkgWindowsMsys2 extends Base.SqgiPkgWindowsEnv {
         ordered.push(entry)
     }
 
-    function msys2_installed(opts, package_name) {
+    function msys2_package_metadata_dirs(opts, package_name) {
         local root = opts.windows.msys2_root
-        if (root == "") return false
+        if (root == "") return []
         local db = GLib.build_filenamev([root, "var", "lib", "pacman", "local"])
-        if (!this.path_exists(db)) return false
+        if (!this.path_exists(db)) return []
 
         local candidates = this.list_command_output(
             "find " + this.shell_quote(db) + " -maxdepth 1 -type d -name " + this.shell_quote(package_name + "-*") + " | sort",
             "checking MSYS2 package metadata"
         )
+        local matches = []
         foreach (candidate in candidates) {
             if (this.msys2_metadata_name(candidate) == package_name)
+                matches.push(candidate)
+        }
+        return matches
+    }
+
+    function msys2_local_package_entry(opts, package_name) {
+        local matches = this.msys2_package_metadata_dirs(opts, package_name)
+        if (matches.len() == 0) return null
+
+        local desc_path = GLib.build_filenamev([matches[matches.len() - 1], "desc"])
+        if (!this.path_exists(desc_path)) return null
+
+        local desc = this.read_pacman_desc(desc_path)
+        local name = this.first_desc_value(desc, "NAME")
+        if (name == null) name = package_name
+        return {
+            name = name,
+            filename = this.first_desc_value(desc, "FILENAME"),
+            depends = this.table_get(desc, "DEPENDS", [])
+        }
+    }
+
+    function msys2_installed(opts, package_name) {
+        return this.msys2_package_metadata_dirs(opts, package_name).len() > 0
+    }
+
+    function msys2_resolve_package_list(opts, packages, index) {
+        local resolved = {}
+        local visiting = {}
+        local ordered = []
+
+        foreach (package_name in packages)
+            this.resolve_msys2_package(opts, index, package_name, resolved, visiting, ordered)
+
+        return {
+            resolved = resolved,
+            ordered = ordered
+        }
+    }
+
+    function msys2_needs_repo_resolution(opts, packages, resolved_result) {
+        foreach (package_name in packages) {
+            if (!this.msys2_installed(opts, package_name))
                 return true
         }
+
+        foreach (entry in resolved_result.ordered) {
+            foreach (dep in entry.depends) {
+                local dep_name = this.strip_dependency_version(dep)
+                if (dep_name.len() == 0) continue
+                if (!this.table_get(resolved_result.resolved, dep_name, false) &&
+                        !this.msys2_installed(opts, dep_name))
+                    return true
+            }
+        }
+
         return false
     }
 
@@ -217,29 +274,25 @@ class SqgiPkgWindowsMsys2 extends Base.SqgiPkgWindowsEnv {
         if (opts.windows.msys2_root == "")
             opts.windows.msys2_root = GLib.build_filenamev([opts.output_dir, "_msys2-" + opts.windows.msys2_prefix])
 
+        local resolved_result = this.msys2_resolve_package_list(opts, packages, null)
+        if (opts.windows.download_packages && this.msys2_needs_repo_resolution(opts, packages, resolved_result)) {
+            local index = this.load_msys2_repo_index(opts)
+            resolved_result = this.msys2_resolve_package_list(opts, packages, index)
+        }
+
+        if (append_runtime_packages) {
+            foreach (entry in resolved_result.ordered) {
+                if (!this.array_contains(opts.windows.packages, entry.name))
+                    opts.windows.packages.push(entry.name)
+            }
+        }
+
         if (!opts.windows.download_packages) return
 
-        local missing = []
-        foreach (package_name in packages) {
-            if (!this.msys2_installed(opts, package_name))
-                missing.push(package_name)
-        }
-        if (missing.len() == 0) return
-
         local repo_url = this.msys2_repo_url(opts)
-        local index = this.load_msys2_repo_index(opts)
-        local resolved = {}
-        local visiting = {}
-        local ordered = []
-
-        foreach (package_name in missing)
-            this.resolve_msys2_package(opts, index, package_name, resolved, visiting, ordered)
-
-        foreach (entry in ordered) {
+        foreach (entry in resolved_result.ordered) {
             if (!this.msys2_installed(opts, entry.name))
                 this.extract_msys2_package(opts, repo_url, entry)
-            if (append_runtime_packages && !this.array_contains(opts.windows.packages, entry.name))
-                opts.windows.packages.push(entry.name)
         }
     }
 
@@ -335,15 +388,7 @@ class SqgiPkgWindowsMsys2 extends Base.SqgiPkgWindowsEnv {
         local db = GLib.build_filenamev([root, "var", "lib", "pacman", "local"])
         if (!this.path_exists(db)) this.fail("MSYS2 pacman database not found: " + db)
 
-        local candidates = this.list_command_output(
-            "find " + this.shell_quote(db) + " -maxdepth 1 -type d -name " + this.shell_quote(package_name + "-*") + " | sort",
-            "listing MSYS2 package metadata"
-        )
-        local matches = []
-        foreach (candidate in candidates) {
-            if (this.msys2_metadata_name(candidate) == package_name)
-                matches.push(candidate)
-        }
+        local matches = this.msys2_package_metadata_dirs(opts, package_name)
         if (matches.len() == 0)
             this.fail("MSYS2 package is not installed in " + root + ": " + package_name)
 

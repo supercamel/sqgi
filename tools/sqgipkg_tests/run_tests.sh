@@ -792,15 +792,20 @@ mkdir -p "${WIN_PROJECT}" "${WIN_BUILD}" \
   "${WIN_MSYS2}/mingw64/bin" \
   "${WIN_MSYS2}/mingw64/lib/girepository-1.0" \
   "${WIN_MSYS2}/mingw64/share/glib-2.0/schemas" \
-  "${WIN_MSYS2}/var/lib/pacman/local/mingw-w64-x86_64-glib2-2.80.0-1"
+  "${WIN_MSYS2}/var/lib/pacman/local/mingw-w64-x86_64-glib2-2.80.0-1" \
+  "${WIN_MSYS2}/var/lib/pacman/local/mingw-w64-x86_64-faketype-1.0-1"
 printf 'fake exe\n' >"${WIN_BUILD}/sqgi.exe"
 printf 'fake dll\n' >"${WIN_BUILD}/libsqgi-0.dll"
 printf 'glib dll\n' >"${WIN_MSYS2}/mingw64/bin/libglib-2.0-0.dll"
 printf 'gio typelib\n' >"${WIN_MSYS2}/mingw64/lib/girepository-1.0/Gio-2.0.typelib"
+printf 'transitive typelib\n' >"${WIN_MSYS2}/mingw64/lib/girepository-1.0/FakeType-1.0.typelib"
 printf '<schemalist/>\n' >"${WIN_MSYS2}/mingw64/share/glib-2.0/schemas/org.example.gschema.xml"
 cat >"${WIN_MSYS2}/var/lib/pacman/local/mingw-w64-x86_64-glib2-2.80.0-1/desc" <<EOF
 %NAME%
 mingw-w64-x86_64-glib2
+
+%DEPENDS%
+mingw-w64-x86_64-faketype>=1.0
 EOF
 cat >"${WIN_MSYS2}/var/lib/pacman/local/mingw-w64-x86_64-glib2-2.80.0-1/files" <<EOF
 %FILES%
@@ -808,6 +813,14 @@ mingw64/bin/libglib-2.0-0.dll
 mingw64/lib/girepository-1.0/Gio-2.0.typelib
 mingw64/share/glib-2.0/schemas/org.example.gschema.xml
 mingw64/include/glib-2.0/glib.h
+EOF
+cat >"${WIN_MSYS2}/var/lib/pacman/local/mingw-w64-x86_64-faketype-1.0-1/desc" <<EOF
+%NAME%
+mingw-w64-x86_64-faketype
+EOF
+cat >"${WIN_MSYS2}/var/lib/pacman/local/mingw-w64-x86_64-faketype-1.0-1/files" <<EOF
+%FILES%
+mingw64/lib/girepository-1.0/FakeType-1.0.typelib
 EOF
 cat >"${WIN_PROJECT}/main.nut" <<'EOF'
 local Gtk = import("Gtk", "4.0")
@@ -871,6 +884,7 @@ assert_file "${WINDIR}/bin/sqgi.exe"
 assert_file "${WINDIR}/bin/libsqgi-0.dll"
 assert_file "${WINDIR}/bin/libglib-2.0-0.dll"
 assert_file "${WINDIR}/lib/girepository-1.0/Gio-2.0.typelib"
+assert_file "${WINDIR}/lib/girepository-1.0/FakeType-1.0.typelib"
 assert_file "${WINDIR}/share/glib-2.0/schemas/org.example.gschema.xml"
 assert_file "${WINDIR}/share/sqgi/app/main.cnut"
 assert_file "${WINDIR}/share/sqgi/app/main.nut"
