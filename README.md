@@ -122,7 +122,52 @@ app.run(0, null)
 
 ## Quick Start
 
-Build from source on Ubuntu/Debian-style systems:
+### Windows with Ooblerg
+
+The easiest way to try SQGI on Windows is through Ooblerg.
+
+1. Go to https://ooblerg.xyz/ and install the Ooblerg app.
+2. Open Ooblerg and install `sqgi`.
+3. Install any native libraries your script needs, such as `gtk4`, `gstreamer`,
+   `libsoup`, or `gdk-pixbuf`.
+4. Open a terminal after Ooblerg has updated your `PATH`.
+5. Write a `.nut` file in any text editor, such as VS Code or Notepad.
+6. Run it with `sqgi`.
+
+For example, save this as `hello.nut`:
+
+```squirrel
+#!/usr/bin/env sqgi
+
+local Gtk = import("Gtk", "4.0")
+
+local app = Gtk.Application.new("org.example.sqgi.hello", 0)
+
+app.connect("activate", function() {
+    local win = Gtk.ApplicationWindow.new(app)
+    win.title = "Hello SQGI"
+    win.set_default_size(360, 180)
+
+    local button = Gtk.Button.new_with_label("Hello from SQGI")
+    win.set_child(button)
+    win.present()
+})
+
+app.run(0, null)
+```
+
+Then run:
+
+```bat
+sqgi hello.nut
+```
+
+That is it: install SQGI and the libraries you want, edit `.nut` files in a
+normal editor, and run them from a normal Windows command line.
+
+### Build from source on Linux
+
+On Ubuntu/Debian-style systems:
 
 ```sh
 git clone https://github.com/supercamel/sqgi.git
@@ -144,6 +189,8 @@ Install:
 sudo cmake --install build --prefix /usr/local
 ```
 
+### Build from source on MSYS2
+
 On MSYS2, use a MinGW-style shell such as UCRT64 or MINGW64. The helper script
 installs the matching CMake, Ninja, compiler, and GLib/GI dependencies:
 
@@ -157,15 +204,6 @@ cmake --build build-ucrt64
 cmake --install build-ucrt64
 ```
 
-This installs:
-
-- `sqgi`
-- `sqgipkg`
-- `libsqgi.so`
-- public headers under `include/sqgi/`
-- `sqgi.pc` for `pkg-config`
-- `sqgipkg` runtime modules under `share/sqgi/sqgipkg_lib/`
-- `sqgipkg` starter templates under `share/sqgi/sqgipkg_templates/`
 
 ## Import Native Libraries
 
