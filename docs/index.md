@@ -15,6 +15,8 @@ information.
   `import`, `sqgi.Task`, `sqgi.sleep`, JSON helpers, and GObject helpers.
 * [GI reference](gi_docs/index.md): browse generated SQGI-facing maps for
   installed GObject Introspection namespaces and their import names.
+* [Static analysis](sqgicheck.md): check Squirrel syntax, GI API use,
+  properties, signals, and local imports without executing the program.
 * [Recipes](recipes/glib.md): practical cookbooks for GLib, Gio, GTK 4,
   GStreamer, libsoup, and GdkPixbuf.
 * [Packaging tutorials](packaging/README.md): package scripts, resources,
@@ -97,6 +99,7 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j"$(nproc)"
 
 build/sqgi --version
+build/sqgicheck --version
 ```
 
 Run a script from the source checkout:

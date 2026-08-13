@@ -128,8 +128,8 @@ class VGet {
                     local chunk = in_stream.read_bytes(CHUNK_SIZE, null)
                     local n = chunk.get_size()
                     if (n == 0) {
-                        try { out_stream.close_sync(null) } catch (_) {}
-                        try { in_stream.close_sync(null)  } catch (_) {}
+                        try { out_stream.close(null) } catch (_) {}
+                        try { in_stream.close(null)  } catch (_) {}
                         print("Downloaded " + bytes_written + " of " +
                               (bytes_total >= 0 ? bytes_total : bytes_written) +
                               " bytes.\n")
@@ -149,8 +149,8 @@ class VGet {
                 }
                 return true
             } catch (e) {
-                try { out_stream.close_sync(null) } catch (_) {}
-                try { in_stream.close_sync(null)  } catch (_) {}
+                try { out_stream.close(null) } catch (_) {}
+                try { in_stream.close(null)  } catch (_) {}
                 task.reject(e)
                 return false
             }

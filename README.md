@@ -62,6 +62,8 @@ SQGI is useful for:
 - **Portable packaging**: `sqgipkg` can bundle scripts, resources, typelibs,
   plugins, native libraries, private Linux/Windows dependency sysroots,
   AppImages, Windows app directories, and NSIS installers.
+- **Static analysis**: `sqgicheck` catches syntax errors and definite GI API,
+  arity, property, signal, and local-import mistakes without running the app.
 - **AI-friendly workflow**: the runtime is small, the language is familiar, and
   the underlying libraries are well-documented, which makes SQGI practical for
   AI-assisted development.
@@ -181,6 +183,7 @@ cmake --build build -j"$(nproc)"
 
 build/sqgi --version
 build/sqgi demo/gio/file_read.nut README.md
+build/sqgicheck demo/gio/file_read.nut
 ```
 
 Install:
@@ -204,6 +207,16 @@ cmake --build build-ucrt64
 cmake --install build-ucrt64
 ```
 
+This installs:
+
+- `sqgi`
+- `sqgipkg`
+- `sqgicheck`
+- `libsqgi.so`
+- public headers under `include/sqgi/`
+- `sqgi.pc` for `pkg-config`
+- `sqgipkg` runtime modules under `share/sqgi/sqgipkg_lib/`
+- `sqgipkg` starter templates under `share/sqgi/sqgipkg_templates/`
 
 ## Import Native Libraries
 
@@ -222,6 +235,27 @@ SQGI uses GI metadata at runtime, so broad native APIs become available without
 binding generation. The runtime handles common GI shapes including methods,
 constructors, properties, signals, callbacks, out parameters, errors, and native
 ownership conventions.
+
+## Check Source Without Running It
+
+`sqgicheck` compiles source with SQGI's bundled Squirrel compiler, then
+abstractly interprets its bytecode against the same GI metadata used by the
+runtime. It does not execute the checked program.
+
+```sh
+sqgicheck main.nut
+sqgicheck --format=json main.nut
+sqgicheck --summary main.nut
+sqgicheck --no-recursive main.nut
+```
+
+Literal local imports such as `import("lib/helpers.nut")` are checked
+recursively by default, and statically known exported tables, functions, and
+classes flow into their importers. `--summary` reports checked files and
+operations skipped because a value was unknown. A clean check exits with
+status 0; diagnostics exit with status 1; invalid command-line usage exits
+with status 2. See the
+[sqgicheck guide](docs/sqgicheck.md) for the checks and limitations.
 
 ## Async / Await
 
@@ -501,6 +535,12 @@ Run packaging tests:
 
 ```sh
 bash tools/sqgipkg_tests/run_tests.sh build/sqgi
+```
+
+Run static-analysis tests:
+
+```sh
+ctest --test-dir build -R sqgicheck --output-on-failure
 ```
 
 ## Status

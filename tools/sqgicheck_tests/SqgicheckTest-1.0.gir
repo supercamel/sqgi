@@ -1,0 +1,266 @@
+<?xml version="1.0"?>
+<repository version="1.2"
+    xmlns="http://www.gtk.org/introspection/core/1.0"
+    xmlns:c="http://www.gtk.org/introspection/c/1.0"
+    xmlns:glib="http://www.gtk.org/introspection/glib/1.0">
+  <include name="GObject" version="2.0"/>
+  <namespace name="SqgicheckTest" version="1.0"
+      c:identifier-prefixes="SqgicheckTest"
+      c:symbol-prefixes="sqgicheck_test">
+
+    <callback name="ReadyCallback" c:type="SqgicheckTestReadyCallback">
+      <return-value transfer-ownership="none">
+        <type name="none" c:type="void"/>
+      </return-value>
+      <parameters>
+        <parameter name="result" transfer-ownership="none">
+          <type name="gint" c:type="gint"/>
+        </parameter>
+        <parameter name="user_data" transfer-ownership="none" nullable="1">
+          <type name="gpointer" c:type="gpointer"/>
+        </parameter>
+      </parameters>
+    </callback>
+
+    <enumeration name="Mode" c:type="SqgicheckTestMode">
+      <member name="fast" value="0" c:identifier="SQGICHECK_TEST_MODE_FAST"/>
+      <member name="slow" value="1" c:identifier="SQGICHECK_TEST_MODE_SLOW"/>
+    </enumeration>
+    <bitfield name="Options" c:type="SqgicheckTestOptions">
+      <member name="none" value="0" c:identifier="SQGICHECK_TEST_OPTIONS_NONE"/>
+      <member name="verbose" value="1" c:identifier="SQGICHECK_TEST_OPTIONS_VERBOSE"/>
+    </bitfield>
+    <constant name="ANSWER" value="42" c:type="SQGICHECK_TEST_ANSWER">
+      <type name="gint" c:type="gint"/>
+    </constant>
+
+    <record name="Point" c:type="SqgicheckTestPoint"
+        glib:type-name="SqgicheckTestPoint"
+        glib:get-type="sqgicheck_test_point_get_type">
+      <field name="x" writable="1"><type name="gint" c:type="gint"/></field>
+      <field name="y" writable="1"><type name="gint" c:type="gint"/></field>
+      <constructor name="new" c:identifier="sqgicheck_test_point_new">
+        <return-value transfer-ownership="full">
+          <type name="Point" c:type="SqgicheckTestPoint*"/>
+        </return-value>
+        <parameters>
+          <parameter name="x" transfer-ownership="none">
+            <type name="gint" c:type="gint"/>
+          </parameter>
+          <parameter name="y" transfer-ownership="none">
+            <type name="gint" c:type="gint"/>
+          </parameter>
+        </parameters>
+      </constructor>
+      <method name="length" c:identifier="sqgicheck_test_point_length">
+        <return-value transfer-ownership="none">
+          <type name="gdouble" c:type="gdouble"/>
+        </return-value>
+        <parameters>
+          <instance-parameter name="self" transfer-ownership="none">
+            <type name="Point" c:type="SqgicheckTestPoint*"/>
+          </instance-parameter>
+        </parameters>
+      </method>
+    </record>
+
+    <interface name="Named" c:type="SqgicheckTestNamed"
+        glib:type-name="SqgicheckTestNamed"
+        glib:get-type="sqgicheck_test_named_get_type">
+      <method name="get_name" c:identifier="sqgicheck_test_named_get_name">
+        <return-value transfer-ownership="none">
+          <type name="utf8" c:type="const gchar*"/>
+        </return-value>
+        <parameters>
+          <instance-parameter name="self" transfer-ownership="none">
+            <type name="Named" c:type="SqgicheckTestNamed*"/>
+          </instance-parameter>
+        </parameters>
+      </method>
+      <glib:signal name="renamed" when="last">
+        <return-value transfer-ownership="none">
+          <type name="none" c:type="void"/>
+        </return-value>
+      </glib:signal>
+    </interface>
+
+    <class name="Parent" c:type="SqgicheckTestParent"
+        glib:type-name="SqgicheckTestParent"
+        glib:get-type="sqgicheck_test_parent_get_type">
+      <method name="parent_method"
+          c:identifier="sqgicheck_test_parent_method">
+        <return-value transfer-ownership="none">
+          <type name="gint" c:type="gint"/>
+        </return-value>
+        <parameters>
+          <instance-parameter name="self" transfer-ownership="none">
+            <type name="Parent" c:type="SqgicheckTestParent*"/>
+          </instance-parameter>
+        </parameters>
+      </method>
+      <property name="parent-prop" writable="1" transfer-ownership="none">
+        <type name="gint" c:type="gint"/>
+      </property>
+      <glib:signal name="parent-signal" when="last">
+        <return-value transfer-ownership="none">
+          <type name="none" c:type="void"/>
+        </return-value>
+      </glib:signal>
+    </class>
+
+    <class name="Widget" c:type="SqgicheckTestWidget" parent="Parent"
+        glib:type-name="SqgicheckTestWidget"
+        glib:get-type="sqgicheck_test_widget_get_type">
+      <implements name="Named"/>
+      <constructor name="new" c:identifier="sqgicheck_test_widget_new">
+        <return-value transfer-ownership="full">
+          <type name="Widget" c:type="SqgicheckTestWidget*"/>
+        </return-value>
+        <parameters>
+          <parameter name="label" transfer-ownership="none">
+            <type name="utf8" c:type="const gchar*"/>
+          </parameter>
+        </parameters>
+      </constructor>
+      <method name="run" c:identifier="sqgicheck_test_widget_run">
+        <return-value transfer-ownership="none">
+          <type name="gint" c:type="gint"/>
+        </return-value>
+        <parameters>
+          <instance-parameter name="self" transfer-ownership="none">
+            <type name="Widget" c:type="SqgicheckTestWidget*"/>
+          </instance-parameter>
+          <parameter name="count" transfer-ownership="none">
+            <type name="gint" c:type="gint"/>
+          </parameter>
+        </parameters>
+      </method>
+      <method name="work_async" c:identifier="sqgicheck_test_widget_work_async">
+        <return-value transfer-ownership="none">
+          <type name="none" c:type="void"/>
+        </return-value>
+        <parameters>
+          <instance-parameter name="self" transfer-ownership="none">
+            <type name="Widget" c:type="SqgicheckTestWidget*"/>
+          </instance-parameter>
+          <parameter name="callback" transfer-ownership="none" closure="1">
+            <type name="ReadyCallback" c:type="SqgicheckTestReadyCallback"/>
+          </parameter>
+          <parameter name="user_data" transfer-ownership="none" nullable="1">
+            <type name="gpointer" c:type="gpointer"/>
+          </parameter>
+        </parameters>
+      </method>
+      <method name="work_finish" c:identifier="sqgicheck_test_widget_work_finish">
+        <return-value transfer-ownership="none">
+          <type name="gint" c:type="gint"/>
+        </return-value>
+        <parameters>
+          <instance-parameter name="self" transfer-ownership="none">
+            <type name="Widget" c:type="SqgicheckTestWidget*"/>
+          </instance-parameter>
+        </parameters>
+      </method>
+      <method name="callback_full" c:identifier="sqgicheck_test_widget_callback_full">
+        <return-value transfer-ownership="none">
+          <type name="none" c:type="void"/>
+        </return-value>
+        <parameters>
+          <instance-parameter name="self" transfer-ownership="none">
+            <type name="Widget" c:type="SqgicheckTestWidget*"/>
+          </instance-parameter>
+          <parameter name="callback" transfer-ownership="none" closure="1" destroy="2">
+            <type name="ReadyCallback" c:type="SqgicheckTestReadyCallback"/>
+          </parameter>
+          <parameter name="user_data" transfer-ownership="none" nullable="1">
+            <type name="gpointer" c:type="gpointer"/>
+          </parameter>
+          <parameter name="destroy_notify" transfer-ownership="none" nullable="1">
+            <type name="GLib.DestroyNotify" c:type="GDestroyNotify"/>
+          </parameter>
+        </parameters>
+      </method>
+      <property name="title" writable="1" transfer-ownership="none">
+        <type name="utf8" c:type="gchar*"/>
+      </property>
+      <glib:signal name="ready" when="last">
+        <return-value transfer-ownership="none">
+          <type name="none" c:type="void"/>
+        </return-value>
+      </glib:signal>
+    </class>
+
+    <function name="scalar" c:identifier="sqgicheck_test_scalar">
+      <return-value transfer-ownership="none">
+        <type name="gint" c:type="gint"/>
+      </return-value>
+      <parameters>
+        <parameter name="value" transfer-ownership="none">
+          <type name="gint" c:type="gint"/>
+        </parameter>
+      </parameters>
+    </function>
+    <function name="make_widget" c:identifier="sqgicheck_test_make_widget">
+      <return-value transfer-ownership="full">
+        <type name="Widget" c:type="SqgicheckTestWidget*"/>
+      </return-value>
+    </function>
+    <function name="get_mode" c:identifier="sqgicheck_test_get_mode">
+      <return-value transfer-ownership="none">
+        <type name="Mode" c:type="SqgicheckTestMode"/>
+      </return-value>
+    </function>
+    <function name="get_point" c:identifier="sqgicheck_test_get_point">
+      <return-value transfer-ownership="full">
+        <type name="Point" c:type="SqgicheckTestPoint*"/>
+      </return-value>
+    </function>
+    <function name="get_callback" c:identifier="sqgicheck_test_get_callback">
+      <return-value transfer-ownership="none" nullable="1">
+        <type name="ReadyCallback" c:type="SqgicheckTestReadyCallback"/>
+      </return-value>
+    </function>
+    <function name="split" c:identifier="sqgicheck_test_split">
+      <return-value transfer-ownership="none">
+        <type name="gboolean" c:type="gboolean"/>
+      </return-value>
+      <parameters>
+        <parameter name="input" transfer-ownership="none">
+          <type name="utf8" c:type="const gchar*"/>
+        </parameter>
+        <parameter name="left" direction="out" caller-allocates="0"
+            transfer-ownership="full">
+          <type name="utf8" c:type="gchar**"/>
+        </parameter>
+      </parameters>
+    </function>
+    <function name="sum" c:identifier="sqgicheck_test_sum">
+      <return-value transfer-ownership="none">
+        <type name="gint" c:type="gint"/>
+      </return-value>
+      <parameters>
+        <parameter name="values" transfer-ownership="none">
+          <array length="1" zero-terminated="0" c:type="const gint*">
+            <type name="gint" c:type="gint"/>
+          </array>
+        </parameter>
+        <parameter name="length" transfer-ownership="none">
+          <type name="gint" c:type="gint"/>
+        </parameter>
+      </parameters>
+    </function>
+    <function name="with_callback" c:identifier="sqgicheck_test_with_callback">
+      <return-value transfer-ownership="none">
+        <type name="none" c:type="void"/>
+      </return-value>
+      <parameters>
+        <parameter name="callback" transfer-ownership="none" closure="1">
+          <type name="ReadyCallback" c:type="SqgicheckTestReadyCallback"/>
+        </parameter>
+        <parameter name="user_data" transfer-ownership="none" nullable="1">
+          <type name="gpointer" c:type="gpointer"/>
+        </parameter>
+      </parameters>
+    </function>
+  </namespace>
+</repository>

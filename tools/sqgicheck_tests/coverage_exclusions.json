@@ -1,0 +1,582 @@
+{
+  "version": 1,
+  "reviewed": "2026-08-12",
+  "lines": [
+    {
+      "file": "tools/sqgicheck/metadata.cpp",
+      "line": 227,
+      "source": "return Value::unknown();",
+      "reason": "A valid GI interface return always has a referenced GIBaseInfo; only corrupt repository metadata can make it null.",
+      "mitigation": "The deterministic fixture covers callback, enum, struct, object, scalar, out-argument, and async returns; unknown-type and missing-callable boundaries are unit-tested."
+    },
+    {
+      "file": "tools/sqgicheck/metadata.cpp",
+      "line": 232,
+      "source": "return Value::unknown();",
+      "reason": "A valid named GI interface record always supplies both namespace and type name; this is a malformed-typelib guard.",
+      "mitigation": "A generated typelib plus GLib/Gio and optional installed typelibs exercise all supported return categories under ASan/UBSan."
+    }
+  ],
+  "branches": [
+    {
+      "file": "tools/sqgicheck/analyzer.cpp",
+      "line": 396,
+      "source": "if (arguments.empty() || arguments[0].kind != ValueKind::String)",
+      "uncovered": 1,
+      "reason": "The empty-vector outcome is unreachable after the import arity guard; zero arguments returns earlier with SQGI103.",
+      "mitigation": "Zero, non-string, literal, versioned, and too-many import arguments are all tested."
+    },
+    {
+      "file": "tools/sqgicheck/analyzer.cpp",
+      "line": 477,
+      "source": "!arguments.empty() && arguments[0].kind == ValueKind::String) {",
+      "uncovered": 1,
+      "reason": "GCC emits one duplicate arc for the chained get/set_property predicate.",
+      "mitigation": "get_property/set_property with valid, invalid, and non-string names are tested."
+    },
+    {
+      "file": "tools/sqgicheck/analyzer.cpp",
+      "line": 481,
+      "source": "!arguments.empty() && arguments[0].kind == ValueKind::String) {",
+      "uncovered": 1,
+      "reason": "GCC emits one duplicate arc for the chained connect/emit predicate.",
+      "mitigation": "connect/emit with valid, invalid, detailed, and non-string signal names are tested."
+    },
+    {
+      "file": "tools/sqgicheck/analyzer.cpp",
+      "line": 488,
+      "source": "callable.member_name == \"new_object\" && arguments.size() >= 2 &&",
+      "uncovered": 1,
+      "reason": "GCC emits a duplicate std::string comparison arc.",
+      "mitigation": "Valid new_object, invalid-property new_object, wrong-type new_object, and unrelated SQGI helpers are tested."
+    },
+    {
+      "file": "tools/sqgicheck/analyzer.cpp",
+      "line": 508,
+      "source": "int index = sq_type(outer._src) == OT_INTEGER ?",
+      "uncovered": 1,
+      "reason": "The bundled compiler only serializes integer outer indices; a non-integer source means corrupt compiler-owned AST data.",
+      "mitigation": "Local, transitive, mutated, out-of-range, and negative outer captures are fault-injected and tested."
+    },
+    {
+      "file": "tools/sqgicheck/analyzer.cpp",
+      "line": 510,
+      "source": "if (outer._type == otLOCAL && index >= 0 &&",
+      "uncovered": 1,
+      "reason": "GCC emits a duplicate conjunction arc around the compiler-invariant local capture index.",
+      "mitigation": "Valid local captures and out-of-range local capture fallback are tested."
+    },
+    {
+      "file": "tools/sqgicheck/analyzer.cpp",
+      "line": 513,
+      "source": "} else if (outer._type == otOUTER && index >= 0 &&",
+      "uncovered": 2,
+      "reason": "GCC emits duplicate conjunction arcs; the compiler does not produce negative transitive indices.",
+      "mitigation": "Valid transitive captures and unknown fallback through fault-injected captures are tested."
+    },
+    {
+      "file": "tools/sqgicheck/analyzer.cpp",
+      "line": 528,
+      "source": "if (std::find(contexts.begin(), contexts.end(), outer_values) != contexts.end())",
+      "uncovered": 1,
+      "reason": "The bundled compiler emits one closure instruction per prototype, so identical closure/context revisits cannot arise from valid bytecode.",
+      "mitigation": "Repeated closure contexts with different captures, nested closures, cycles, and 500 repeated generated analyses are tested."
+    },
+    {
+      "file": "tools/sqgicheck/analyzer.cpp",
+      "line": 554,
+      "source": "if (index == 0xFF || index < 0 ||",
+      "uncovered": 1,
+      "reason": "GCC emits a duplicate disjunction arc for the destination-register sentinel/bounds guard.",
+      "mitigation": "Normal, 0xFF, negative-derived, and out-of-range destinations occur across real and mutated opcodes."
+    },
+    {
+      "file": "tools/sqgicheck/analyzer.cpp",
+      "line": 639,
+      "source": "if (arg1 >= 0 && static_cast<size_t>(arg1) < state.outers.size())",
+      "uncovered": 1,
+      "reason": "GCC emits a duplicate conjunction arc for GETOUTER bounds.",
+      "mitigation": "Valid, negative, and out-of-range GETOUTER instructions are tested by compiler output and fault injection."
+    },
+    {
+      "file": "tools/sqgicheck/analyzer.cpp",
+      "line": 645,
+      "source": "if (arg1 >= 0 && static_cast<size_t>(arg1) < state.outers.size())",
+      "uncovered": 3,
+      "reason": "Two source outcomes are covered; GCC emits four extra conjunction/assignment cleanup arcs.",
+      "mitigation": "Valid and out-of-range SETOUTER instructions are explicitly fault-injected; outer merge behavior is regression-tested."
+    },
+    {
+      "file": "tools/sqgicheck/analyzer.cpp",
+      "line": 652,
+      "source": "if (arg1 >= 0 && arg1 < prototype->_nfunctions &&",
+      "uncovered": 1,
+      "reason": "GCC emits a duplicate conjunction arc for the compiler-owned child index.",
+      "mitigation": "Valid and out-of-range closure child indices are tested."
+    },
+    {
+      "file": "tools/sqgicheck/analyzer.cpp",
+      "line": 653,
+      "source": "sq_type(prototype->_functions[arg1]) == OT_FUNCPROTO) {",
+      "uncovered": 1,
+      "reason": "The bundled compiler's _functions array is typed to OT_FUNCPROTO; a different tag requires memory corruption.",
+      "mitigation": "Bad child index fallback is fault-injected, and ASan/UBSan exercises all closure cases."
+    },
+    {
+      "file": "tools/sqgicheck/analyzer.cpp",
+      "line": 770,
+      "source": "if (target >= 0 && target < instruction_count &&",
+      "uncovered": 2,
+      "reason": "Duplicate successor and negative jump destinations cannot be emitted by the bundled compiler; out-of-range positive and all valid control-flow forms are covered.",
+      "mitigation": "A corrupted positive jump is fault-injected; jumps, conditions, loops, foreach, try/catch, return, and tail-call successors are tested."
+    },
+    {
+      "file": "tools/sqgicheck/analyzer.cpp",
+      "line": 827,
+      "source": "result_.return_value = found_return ? returned : Value::scalar();",
+      "uncovered": 1,
+      "reason": "The bundled compiler always emits a reachable return instruction, including an implicit return for source without one; the fallback handles corrupt compiler-owned bytecode.",
+      "mitigation": "Explicit, implicit, early, branch, scalar, table, class, and incompatible return values are tested, including multi-module propagation and fuzz-generated programs."
+    },
+    {
+      "file": "tools/sqgicheck/analyzer.cpp",
+      "line": 829,
+      "source": "if (!collecting_diagnostics_) return;",
+      "uncovered": 1,
+      "reason": "Nested prototypes are intentionally deferred during transfer; only the false outcome reaches the post-convergence emission pass.",
+      "mitigation": "Nested, transitive, captured, repeated-context, and mutated closures all validate the two-phase analysis contract."
+    },
+    {
+      "file": "tools/sqgicheck/analyzer.cpp",
+      "line": 881,
+      "source": "if (arg1 >= 0 && arg1 < prototype->_nfunctions &&",
+      "uncovered": 1,
+      "reason": "GCC emits a duplicate conjunction arc in the post-convergence closure pass.",
+      "mitigation": "Valid and out-of-range closure indices are covered in both transfer and emission passes."
+    },
+    {
+      "file": "tools/sqgicheck/analyzer.cpp",
+      "line": 882,
+      "source": "sq_type(prototype->_functions[arg1]) == OT_FUNCPROTO) {",
+      "uncovered": 1,
+      "reason": "The compiler-owned child table cannot contain a non-prototype tag in valid bytecode.",
+      "mitigation": "Index corruption is tested and the closure graph runs under ASan/UBSan."
+    },
+    {
+      "file": "tools/sqgicheck/analyzer.cpp",
+      "line": 891,
+      "source": "}",
+      "uncovered": 4,
+      "reason": "GCC attaches four std::vector/Value temporary-cleanup arcs to the closing brace of the diagnostic pass.",
+      "mitigation": "The pass runs over every opcode family, and the entire suite is built with -fno-exceptions plus ASan/UBSan."
+    },
+    {
+      "file": "tools/sqgicheck/metadata.cpp",
+      "line": 62,
+      "source": "if (value) g_base_info_unref(value);",
+      "uncovered": 1,
+      "reason": "The null unique_ptr deleter path is suppressed by std::unique_ptr; the deleter is only called for non-null values.",
+      "mitigation": "Null and non-null InfoPtr construction and thousands of GI info lifetimes run under ASan/LSan."
+    },
+    {
+      "file": "tools/sqgicheck/metadata.cpp",
+      "line": 133,
+      "source": "if (length_index >= 0 && length_index < count)",
+      "uncovered": 1,
+      "reason": "A valid GIR array-length annotation cannot reference an index beyond its callable parameter list.",
+      "mitigation": "No-length and valid hidden-length arrays are covered by real typelibs and the generated sum fixture."
+    },
+    {
+      "file": "tools/sqgicheck/metadata.cpp",
+      "line": 138,
+      "source": "if (interface_info &&",
+      "uncovered": 1,
+      "reason": "A valid GI_TYPE_TAG_INTERFACE argument always has a referenced interface GIBaseInfo.",
+      "mitigation": "Callback and ordinary interface arguments are covered in the generated fixture."
+    },
+    {
+      "file": "tools/sqgicheck/metadata.cpp",
+      "line": 144,
+      "source": "if (closure_index >= 0 && closure_index < count)",
+      "uncovered": 1,
+      "reason": "A nonnegative GIR closure index outside the parameter list is invalid metadata.",
+      "mitigation": "Absent and valid closure indices are tested with with_callback and callback_full."
+    },
+    {
+      "file": "tools/sqgicheck/metadata.cpp",
+      "line": 146,
+      "source": "if (destroy_index >= 0 && destroy_index < count)",
+      "uncovered": 1,
+      "reason": "A nonnegative GIR destroy index outside the parameter list is invalid metadata.",
+      "mitigation": "Absent and valid destroy indices are tested with callback_full."
+    },
+    {
+      "file": "tools/sqgicheck/metadata.cpp",
+      "line": 205,
+      "source": "if (callable.constructor && !callable.type_name.empty()) {",
+      "uncovered": 1,
+      "reason": "GCC emits a duplicate conjunction/return-value cleanup arc.",
+      "mitigation": "Constructors, nonconstructors, and missing-type callables all have explicit call-result tests."
+    },
+    {
+      "file": "tools/sqgicheck/metadata.cpp",
+      "line": 226,
+      "source": "if (!interface_info)",
+      "uncovered": 1,
+      "reason": "A valid interface return has a referenced GIBaseInfo; only corrupt metadata reaches this guard.",
+      "mitigation": "Generated callback/enum/object/interface/struct returns and conservative unknown returns are covered."
+    },
+    {
+      "file": "tools/sqgicheck/metadata.cpp",
+      "line": 231,
+      "source": "if (!namespace_name || !type_name)",
+      "uncovered": 2,
+      "reason": "Valid named GI interface records always expose both strings; GCC counts each impossible null operand.",
+      "mitigation": "Generated and system typelib interface returns are exercised under sanitizers."
+    },
+    {
+      "file": "tools/sqgicheck/metadata.cpp",
+      "line": 238,
+      "source": "kind == GI_INFO_TYPE_STRUCT || kind == GI_INFO_TYPE_BOXED) {",
+      "uncovered": 1,
+      "reason": "GCC emits one duplicate disjunction arc across the supported object/interface/struct/boxed categories.",
+      "mitigation": "Object and struct returns are deterministic; Gio covers interface returns and installed typelibs cover boxed values when present."
+    },
+    {
+      "file": "tools/sqgicheck/metadata.cpp",
+      "line": 278,
+      "source": "result.error = error && error->message ? error->message :",
+      "uncovered": 1,
+      "reason": "g_irepository_require documents and returns a populated GError on failure.",
+      "mitigation": "Missing namespace and wrong-version errors are tested in both metadata and CLI layers."
+    },
+    {
+      "file": "tools/sqgicheck/metadata.cpp",
+      "line": 279,
+      "source": "\"typelib could not be loaded\";",
+      "uncovered": 1,
+      "reason": "This is the literal fallback arm of the same GIRepository GError contract; gcov attributes it a separate branch line.",
+      "mitigation": "Missing namespace and wrong-version errors are tested in both metadata and CLI layers."
+    },
+    {
+      "file": "tools/sqgicheck/metadata.cpp",
+      "line": 280,
+      "source": "if (error) g_error_free(error);",
+      "uncovered": 1,
+      "reason": "The same GIRepository failure contract guarantees non-null GError here.",
+      "mitigation": "Multiple namespace/version failures run under ASan/LSan."
+    },
+    {
+      "file": "tools/sqgicheck/metadata.cpp",
+      "line": 333,
+      "source": "if (callable.member_name == \"new_object\" && !arguments.empty() &&",
+      "uncovered": 1,
+      "reason": "GCC emits a duplicate std::string/conjunction arc.",
+      "mitigation": "new_object with known type, unknown type, and ordinary SQGI helpers are tested."
+    },
+    {
+      "file": "tools/sqgicheck/metadata.cpp",
+      "line": 436,
+      "source": "};",
+      "uncovered": 1,
+      "reason": "GCC attaches a static unordered_map initialization/destruction arc to the initializer closing line.",
+      "mitigation": "Every SQGI builtin family plus missing-name candidate generation is exercised under ASan/LSan."
+    },
+    {
+      "file": "tools/sqgicheck/metadata.cpp",
+      "line": 464,
+      "source": "};",
+      "uncovered": 1,
+      "reason": "GCC attaches a static std::set initialization/destruction arc to the initializer closing line.",
+      "mitigation": "Known and unknown system namespace members are tested."
+    },
+    {
+      "file": "tools/sqgicheck/metadata.cpp",
+      "line": 516,
+      "source": "if (candidate && runtime_exposes_info(candidate.get())) {",
+      "uncovered": 1,
+      "reason": "GIRepository indices below get_n_infos return non-null GIBaseInfo; the null arm is a corrupt-repository guard.",
+      "mitigation": "Exposed and runtime-hidden categories are enumerated in the deterministic fixture."
+    },
+    {
+      "file": "tools/sqgicheck/metadata.cpp",
+      "line": 518,
+      "source": "if (candidate_name) result.candidates.emplace_back(candidate_name);",
+      "uncovered": 1,
+      "reason": "Namespace infos exposed by the runtime are named by the GI metadata contract.",
+      "mitigation": "Candidate enumeration and typo suggestions are verified for deterministic and Gio namespaces."
+    },
+    {
+      "file": "tools/sqgicheck/metadata.cpp",
+      "line": 568,
+      "source": "if (!method) return nullptr;",
+      "uncovered": 1,
+      "reason": "GI method indices below their reported counts return non-null method records.",
+      "mitigation": "Object, parent, interface, and struct method scans cover positive and no-match behavior."
+    },
+    {
+      "file": "tools/sqgicheck/metadata.cpp",
+      "line": 573,
+      "source": "if (method_name && name == method_name && (!instance || !constructor)) {",
+      "uncovered": 1,
+      "reason": "GI method records returned by valid typelibs always have a name.",
+      "mitigation": "Static/instance methods, constructors, misses, and inherited/interface traversal are tested."
+    },
+    {
+      "file": "tools/sqgicheck/metadata.cpp",
+      "line": 574,
+      "source": "if (async_wrapper) {",
+      "uncovered": 1,
+      "reason": "Internal callers always request the async-wrapper result flag; a null pointer is defensive API-local code.",
+      "mitigation": "Ordinary, async wrapper, raw async alias, and finish-pair absence are exercised."
+    },
+    {
+      "file": "tools/sqgicheck/metadata.cpp",
+      "line": 575,
+      "source": "*async_wrapper = !raw_alias && ends_with(requested, \"_async\") &&",
+      "uncovered": 1,
+      "reason": "GCC emits one duplicate chained-conjunction arc.",
+      "mitigation": "Normal methods, wrapper methods, raw aliases, and a finish-paired generated async method cover the source outcomes."
+    },
+    {
+      "file": "tools/sqgicheck/metadata.cpp",
+      "line": 611,
+      "source": "} else if (kind == GI_INFO_TYPE_STRUCT) {",
+      "uncovered": 1,
+      "reason": "GCC emits a branch at the terminal else-if even though object/interface/struct/all-other outcomes are traversed.",
+      "mitigation": "Widget, Named, Point, and enum candidates exercise all dispatch categories."
+    },
+    {
+      "file": "tools/sqgicheck/metadata.cpp",
+      "line": 634,
+      "source": "if (!method) return;",
+      "uncovered": 1,
+      "reason": "Valid GI method-count indices never yield null records.",
+      "mitigation": "Method candidate scans execute for object/interface/struct typelibs under sanitizers."
+    },
+    {
+      "file": "tools/sqgicheck/metadata.cpp",
+      "line": 639,
+      "source": "if (name && (!instance || !constructor)) {",
+      "uncovered": 1,
+      "reason": "Valid GI method records are named; static and instance/constructor cases cover the remaining predicate.",
+      "mitigation": "Missing-method candidate lists assert constructor filtering and async raw aliases."
+    },
+    {
+      "file": "tools/sqgicheck/metadata.cpp",
+      "line": 664,
+      "source": "} else if (kind == GI_INFO_TYPE_STRUCT) {",
+      "uncovered": 1,
+      "reason": "GCC emits a terminal else-if arc after all semantic kind outcomes.",
+      "mitigation": "Object, interface, and Point struct method candidates are explicitly tested."
+    },
+    {
+      "file": "tools/sqgicheck/metadata.cpp",
+      "line": 682,
+      "source": "};",
+      "uncovered": 1,
+      "reason": "GCC attaches a static unordered_map/vector initialization/destruction arc to the Cairo overlay initializer.",
+      "mitigation": "Cairo Context, Pattern, Surface, function overlays, and missing overlay members are tested when the typelib is installed."
+    },
+    {
+      "file": "tools/sqgicheck/metadata.cpp",
+      "line": 684,
+      "source": "if (type != overlay_members.end() &&",
+      "uncovered": 1,
+      "reason": "GCC emits a duplicate map-iterator/conjunction arc.",
+      "mitigation": "Known Cairo overlay member, known type/missing member, and non-overlay type cases are tested when cairo is installed."
+    },
+    {
+      "file": "tools/sqgicheck/metadata.cpp",
+      "line": 694,
+      "source": "if (!type) return LookupResult();",
+      "uncovered": 1,
+      "reason": "This line's missing arc is unique_ptr cleanup instrumentation; both found and missing type paths execute.",
+      "mitigation": "Known object/struct/interface and explicitly unknown GI types are tested."
+    },
+    {
+      "file": "tools/sqgicheck/metadata.cpp",
+      "line": 699,
+      "source": "};",
+      "uncovered": 1,
+      "reason": "GCC attaches a static unordered_map initialization/destruction arc to the instance-helper initializer.",
+      "mitigation": "Every helper and a missing helper are exercised with valid/invalid argument shapes."
+    },
+    {
+      "file": "tools/sqgicheck/metadata.cpp",
+      "line": 723,
+      "source": "if (g_base_info_get_type(type.get()) == GI_INFO_TYPE_STRUCT &&",
+      "uncovered": 1,
+      "reason": "GCC emits a duplicate conjunction arc after object-property and struct-field outcomes.",
+      "mitigation": "Object property, struct field, and missing non-call member cases are tested."
+    },
+    {
+      "file": "tools/sqgicheck/metadata.cpp",
+      "line": 754,
+      "source": "if (!candidate) continue;",
+      "uncovered": 1,
+      "reason": "Valid GI enum values always have names.",
+      "mitigation": "Enum and flags candidate/value scans are deterministic and sanitizer-covered."
+    },
+    {
+      "file": "tools/sqgicheck/metadata.cpp",
+      "line": 760,
+      "source": "}",
+      "uncovered": 1,
+      "reason": "GCC attaches an InfoPtr/Value loop-temporary cleanup arc to the enum-loop closing brace.",
+      "mitigation": "Found and missing enum/flags members iterate the complete deterministic value lists under ASan/LSan."
+    },
+    {
+      "file": "tools/sqgicheck/metadata.cpp",
+      "line": 777,
+      "source": "if (ends_with(name, \"_async_raw\")) name.resize(name.size() - 4);",
+      "uncovered": 1,
+      "reason": "GCC assigns an extra std::string resize/cleanup arc; normal and _async_raw names both execute.",
+      "mitigation": "work_async and work_async_raw call-result tests verify both source outcomes."
+    },
+    {
+      "file": "tools/sqgicheck/metadata.cpp",
+      "line": 784,
+      "source": "if (!type || g_base_info_get_type(type) != GI_INFO_TYPE_OBJECT)",
+      "uncovered": 1,
+      "reason": "GCC emits a duplicate disjunction arc; null, non-object, and object cases all execute.",
+      "mitigation": "Unknown type, Point struct, and Widget object property queries are tested."
+    },
+    {
+      "file": "tools/sqgicheck/metadata.cpp",
+      "line": 793,
+      "source": "if (!candidate) continue;",
+      "uncovered": 1,
+      "reason": "Properties in valid GI object metadata always have names.",
+      "mitigation": "Own, inherited, missing, and no-candidate-output property scans are tested."
+    },
+    {
+      "file": "tools/sqgicheck/metadata.cpp",
+      "line": 796,
+      "source": "}",
+      "uncovered": 1,
+      "reason": "GCC attaches an InfoPtr loop-temporary cleanup arc to the property-loop closing brace.",
+      "mitigation": "Own/inherited found and missing property scans execute under ASan/LSan."
+    },
+    {
+      "file": "tools/sqgicheck/metadata.cpp",
+      "line": 806,
+      "source": "if (!type) return false;",
+      "uncovered": 1,
+      "reason": "The missing gcov arc is unique_ptr/control cleanup; null and non-null type paths both execute.",
+      "mitigation": "Unknown, object, interface-recursive, parent-recursive, and non-object signal queries are tested."
+    },
+    {
+      "file": "tools/sqgicheck/metadata.cpp",
+      "line": 815,
+      "source": "if (!candidate) continue;",
+      "uncovered": 1,
+      "reason": "Signals in valid GI object metadata always have names.",
+      "mitigation": "Own, inherited, interface, notify, detailed, and missing signals are tested."
+    },
+    {
+      "file": "tools/sqgicheck/metadata.cpp",
+      "line": 818,
+      "source": "}",
+      "uncovered": 1,
+      "reason": "GCC attaches an InfoPtr loop-temporary cleanup arc to the object-signal loop closing brace.",
+      "mitigation": "Object signal found/missing scans and recursive interface/parent scans execute under ASan/LSan."
+    },
+    {
+      "file": "tools/sqgicheck/metadata.cpp",
+      "line": 833,
+      "source": "if (!candidate) continue;",
+      "uncovered": 1,
+      "reason": "Signals in valid GI interface metadata always have names.",
+      "mitigation": "The Named.renamed interface signal is reached through Widget and asserted."
+    },
+    {
+      "file": "tools/sqgicheck/metadata.cpp",
+      "line": 836,
+      "source": "}",
+      "uncovered": 1,
+      "reason": "GCC attaches an InfoPtr loop-temporary cleanup arc to the interface-signal loop closing brace.",
+      "mitigation": "Interface signal found and missing scans execute under ASan/LSan."
+    },
+    {
+      "file": "tools/sqgicheck/metadata.cpp",
+      "line": 849,
+      "source": "if (!candidate) continue;",
+      "uncovered": 1,
+      "reason": "Fields in valid GI struct metadata always have names.",
+      "mitigation": "Point.x/y field scans and missing-field behavior are tested."
+    },
+    {
+      "file": "tools/sqgicheck/metadata.cpp",
+      "line": 850,
+      "source": "if (candidates) candidates->emplace_back(candidate);",
+      "uncovered": 1,
+      "reason": "find_field is used internally with a candidate vector; the null pointer form is not part of the public provider boundary.",
+      "mitigation": "Public property/signal APIs separately test null candidate vectors, and struct field found/missing scans are covered."
+    },
+    {
+      "file": "tools/sqgicheck/metadata.cpp",
+      "line": 852,
+      "source": "}",
+      "uncovered": 1,
+      "reason": "GCC attaches an InfoPtr loop-temporary cleanup arc to the struct-field loop closing brace.",
+      "mitigation": "Struct field found and missing scans execute under ASan/LSan."
+    },
+    {
+      "file": "tools/sqgicheck/project.cpp",
+      "line": 25,
+      "source": "*error = gerror && gerror->message ? gerror->message :",
+      "uncovered": 1,
+      "reason": "g_file_get_contents guarantees a populated GError on failure when one is requested.",
+      "mitigation": "Missing and empty paths with and without an error destination are tested."
+    },
+    {
+      "file": "tools/sqgicheck/project.cpp",
+      "line": 26,
+      "source": "\"could not read file\";",
+      "uncovered": 1,
+      "reason": "This is the literal fallback arm of the same GLib GError contract; gcov attributes it a separate branch line.",
+      "mitigation": "Missing and empty paths with and without an error destination are tested."
+    },
+    {
+      "file": "tools/sqgicheck/project.cpp",
+      "line": 28,
+      "source": "if (gerror) g_error_free(gerror);",
+      "uncovered": 1,
+      "reason": "The same GLib failure contract guarantees non-null GError here.",
+      "mitigation": "Repeated filesystem failures run under ASan/LSan."
+    },
+    {
+      "file": "tools/sqgicheck/project.cpp",
+      "line": 46,
+      "source": "std::string result = canonical ? canonical : path;",
+      "uncovered": 2,
+      "reason": "g_canonicalize_filename returns newly allocated non-null storage for valid string inputs; GCC also emits a temporary cleanup arc.",
+      "mitigation": "Absolute/relative, empty base, dot, and dot-dot paths are tested in real and memory filesystems."
+    },
+    {
+      "file": "tools/sqgicheck/project.cpp",
+      "line": 54,
+      "source": "std::string result = directory ? directory : \".\";",
+      "uncovered": 1,
+      "reason": "g_path_get_dirname returns allocated non-null storage for valid strings.",
+      "mitigation": "Root and nested directory resolution are exercised by real and memory import tests."
+    },
+    {
+      "file": "tools/sqgicheck/project.cpp",
+      "line": 134,
+      "source": "append_file_error(from ? from_path : canonical,",
+      "uncovered": 3,
+      "reason": "An active cycle can only be reached by a recursive import, so from is necessarily non-null; GCC counts each ternary operand.",
+      "mitigation": "Self and multi-file cycles assert importing path, line, column, code, message, and help."
+    },
+    {
+      "file": "tools/sqgicheck/project.cpp",
+      "line": 187,
+      "source": "if (resolved.empty() || !files_.exists(resolved)) {",
+      "uncovered": 1,
+      "reason": "FileSystem::canonicalize has a non-empty-path contract for a non-empty import reference, so only the missing-file operand can fail.",
+      "mitigation": "CWD, importer, share, absolute, missing, empty-share, and existing/missing-share candidates are tested."
+    }
+  ]
+}

@@ -17,6 +17,16 @@ if(SQGI_ENABLE_ASAN)
     add_link_options(-fsanitize=address,undefined)
 endif()
 
+# Checker-owned coverage is kept separate from the bundled compiler/runtime so
+# its release gate measures sqgicheck behavior instead of third-party code.
+option(SQGICHECK_ENABLE_COVERAGE
+    "Instrument sqgicheck targets for GCC line/branch coverage" OFF)
+option(SQGICHECK_ENABLE_MUTATION_TESTS
+    "Build deliberate sqgicheck mutants and verify the suite kills them" OFF)
+if(SQGICHECK_ENABLE_COVERAGE AND NOT CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    message(FATAL_ERROR "SQGICHECK_ENABLE_COVERAGE requires GCC/g++")
+endif()
+
 # ── Optional Squirrel bytecode JIT ────────────────────────────────────────────
 #
 # The JIT is experimental and defaults off. When disabled, no JIT sources are
@@ -46,6 +56,12 @@ add_subdirectory(Squirrel3)
 # ── System Dependencies ───────────────────────────────────────────────────────
 find_package(PkgConfig REQUIRED)
 find_package(Threads REQUIRED)
+find_program(G_IR_COMPILER_EXECUTABLE NAMES g-ir-compiler)
+if((SQGICHECK_ENABLE_COVERAGE OR SQGICHECK_ENABLE_MUTATION_TESTS) AND
+   NOT G_IR_COMPILER_EXECUTABLE)
+    message(FATAL_ERROR
+        "sqgicheck coverage/mutation tests require g-ir-compiler for their fixture typelib")
+endif()
 
 # Use imported pkg-config targets instead of hand-splicing *_LIBRARIES.
 # This preserves -L search paths and any extra linker flags, which matters
@@ -187,6 +203,120 @@ if(SQGI_MINGW_RUNTIME_LINK_OPTIONS)
     target_link_options(sqgi PRIVATE ${SQGI_MINGW_RUNTIME_LINK_OPTIONS})
 endif()
 
+# ── sqgicheck static-analysis engine and executable ─────────────────────────
+#
+# sqgicheck compiles source through the same bundled Squirrel compiler as the
+# runtime, then abstractly interprets the resulting bytecode. Keeping the
+# engine in a small static library lets the native unit tests exercise the exact
+# implementation used by the installed command.
+add_library(sqgicheck-core STATIC
+    tools/sqgicheck/analyzer.cpp
+    tools/sqgicheck/metadata.cpp
+    tools/sqgicheck/project.cpp
+)
+target_include_directories(sqgicheck-core
+    PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/tools/sqgicheck
+    PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/Squirrel3/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/Squirrel3/squirrel
+)
+target_link_libraries(sqgicheck-core PUBLIC ${SQGI_DEPS})
+if(SQGICHECK_ENABLE_COVERAGE)
+    target_compile_options(sqgicheck-core PRIVATE
+        --coverage -O0 -g -fno-exceptions -fno-inline
+    )
+    target_link_options(sqgicheck-core INTERFACE --coverage)
+endif()
+
+if(SQGICHECK_ENABLE_MUTATION_TESTS)
+    function(add_sqgicheck_core_mutant mutant definition)
+        add_library(sqgicheck-mutant-${mutant}-core STATIC
+            tools/sqgicheck/analyzer.cpp
+            tools/sqgicheck/metadata.cpp
+            tools/sqgicheck/project.cpp
+        )
+        target_include_directories(sqgicheck-mutant-${mutant}-core
+            PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/tools/sqgicheck
+            PRIVATE
+                ${CMAKE_CURRENT_SOURCE_DIR}/Squirrel3/include
+                ${CMAKE_CURRENT_SOURCE_DIR}/Squirrel3/squirrel
+        )
+        target_link_libraries(sqgicheck-mutant-${mutant}-core PUBLIC ${SQGI_DEPS})
+        target_compile_definitions(sqgicheck-mutant-${mutant}-core PRIVATE
+            ${definition})
+
+        add_executable(sqgicheck-mutant-${mutant}-test
+            test/cpp/test_sqgicheck.cpp
+            $<TARGET_OBJECTS:sqgi-core>
+        )
+        if(G_IR_COMPILER_EXECUTABLE)
+            add_dependencies(sqgicheck-mutant-${mutant}-test
+                sqgicheck-test-typelib)
+            target_compile_definitions(sqgicheck-mutant-${mutant}-test PRIVATE
+                SQGICHECK_HAS_TEST_TYPELIB=1)
+        endif()
+        target_include_directories(sqgicheck-mutant-${mutant}-test PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/Squirrel3/include
+            ${CMAKE_CURRENT_SOURCE_DIR}/Squirrel3/squirrel
+        )
+        target_link_libraries(sqgicheck-mutant-${mutant}-test PRIVATE
+            sqgicheck-mutant-${mutant}-core)
+    endfunction()
+
+    add_sqgicheck_core_mutant(arity SQGICHECK_MUTATE_ARITY_BOUNDARY)
+    add_sqgicheck_core_mutant(merge SQGICHECK_MUTATE_STATE_MERGE)
+    add_sqgicheck_core_mutant(precedence SQGICHECK_MUTATE_RESOLUTION_PRECEDENCE)
+    add_sqgicheck_core_mutant(metadata SQGICHECK_MUTATE_METADATA_CATEGORY)
+
+    add_executable(sqgicheck-mutant-exit
+        tools/sqgicheck/main.cpp
+        $<TARGET_OBJECTS:sqgi-core>
+    )
+    target_compile_definitions(sqgicheck-mutant-exit PRIVATE
+        SQGI_VERSION="${PROJECT_VERSION}"
+        SQGICHECK_MUTATE_EXIT_STATUS)
+    target_link_libraries(sqgicheck-mutant-exit PRIVATE sqgicheck-core)
+
+    add_custom_target(sqgicheck-mutation
+        COMMAND bash ${CMAKE_SOURCE_DIR}/tools/sqgicheck_tests/mutation.sh
+            $<TARGET_FILE:sqgicheck-mutant-arity-test>
+            $<TARGET_FILE:sqgicheck-mutant-merge-test>
+            $<TARGET_FILE:sqgicheck-mutant-precedence-test>
+            $<TARGET_FILE:sqgicheck-mutant-metadata-test>
+            $<TARGET_FILE:sqgicheck-mutant-exit>
+        DEPENDS
+            sqgicheck-mutant-arity-test
+            sqgicheck-mutant-merge-test
+            sqgicheck-mutant-precedence-test
+            sqgicheck-mutant-metadata-test
+            sqgicheck-mutant-exit
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+        COMMENT "Verifying that sqgicheck tests kill all deliberate mutants"
+    )
+endif()
+
+add_executable(sqgicheck-bin
+    tools/sqgicheck/main.cpp
+    $<TARGET_OBJECTS:sqgi-core>
+)
+set_target_properties(sqgicheck-bin PROPERTIES
+    OUTPUT_NAME sqgicheck
+)
+target_link_libraries(sqgicheck-bin PRIVATE sqgicheck-core)
+target_compile_definitions(sqgicheck-bin PRIVATE
+    SQGI_VERSION="${PROJECT_VERSION}"
+)
+if(SQGICHECK_ENABLE_COVERAGE)
+    target_compile_options(sqgicheck-bin PRIVATE
+        --coverage -O0 -g -fno-exceptions -fno-inline
+    )
+    target_link_options(sqgicheck-bin PRIVATE --coverage)
+endif()
+if(SQGI_MINGW_RUNTIME_LINK_OPTIONS)
+    target_link_options(sqgicheck-bin PRIVATE ${SQGI_MINGW_RUNTIME_LINK_OPTIONS})
+endif()
+
 # ── sqgi executable ────────────────────────────────────────────────────────────
 add_executable(sqgi-bin src/main.c $<TARGET_OBJECTS:sqgi-core>)
 set_target_properties(sqgi-bin PROPERTIES
@@ -226,8 +356,11 @@ enable_testing()
 set(SQGI_TEST_ENV
     "LD_LIBRARY_PATH=${CMAKE_BINARY_DIR}/Squirrel3/squirrel:${CMAKE_BINARY_DIR}/Squirrel3/sqstdlib:${CMAKE_BINARY_DIR}"
     "SQGI_BIN=${CMAKE_BINARY_DIR}/sqgi"
-    "LSAN_OPTIONS=suppressions=${CMAKE_SOURCE_DIR}/.github/lsan.supp:print_suppressions=0"
     "ASAN_OPTIONS=detect_leaks=1:halt_on_error=1:abort_on_error=0")
+if(EXISTS "${CMAKE_SOURCE_DIR}/.github/lsan.supp")
+    list(APPEND SQGI_TEST_ENV
+        "LSAN_OPTIONS=suppressions=${CMAKE_SOURCE_DIR}/.github/lsan.supp:print_suppressions=0")
+endif()
 
 # Under ASan, the heavy fuzz/soak tests dominate run time (json_fuzz ~6 min,
 # marshal_fuzz ~75s) without finding much beyond what a single iteration
@@ -255,6 +388,7 @@ add_sqgi_nut_test(sqgi_test_import_nut                  test_import_nut.nut)
 add_sqgi_nut_test(sqgi_test_async                       test_async.nut)
 add_sqgi_nut_test(sqgi_test_async_jsstyle               test_async_jsstyle.nut)
 add_sqgi_nut_test(sqgi_test_async_reentrancy            test_async_reentrancy.nut)
+add_sqgi_nut_test(sqgi_test_async_stack_balance         test_async_stack_balance.nut)
 add_sqgi_nut_test(sqgi_test_newthread                   test_newthread.nut)
 add_sqgi_nut_test(sqgi_test_vget_download               test_vget_download.nut)
 add_sqgi_nut_test(sqgi_test_application                 test_application.nut)
@@ -387,6 +521,96 @@ set_tests_properties(sqgi_test_sqgipkg PROPERTIES
     TIMEOUT 300
 )
 
+# sqgicheck has deterministic engine/unit coverage plus an end-to-end CLI
+# suite for argument parsing, exit status, recursive imports, and install.
+set(SQGICHECK_TEST_TYPELIB_DIR
+    ${CMAKE_CURRENT_BINARY_DIR}/sqgicheck-test-typelib)
+set(SQGICHECK_TEST_TYPELIB
+    ${SQGICHECK_TEST_TYPELIB_DIR}/SqgicheckTest-1.0.typelib)
+if(G_IR_COMPILER_EXECUTABLE)
+    add_custom_command(
+        OUTPUT ${SQGICHECK_TEST_TYPELIB}
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${SQGICHECK_TEST_TYPELIB_DIR}
+        COMMAND ${G_IR_COMPILER_EXECUTABLE}
+                ${CMAKE_SOURCE_DIR}/tools/sqgicheck_tests/SqgicheckTest-1.0.gir
+                --output=${SQGICHECK_TEST_TYPELIB}
+        DEPENDS tools/sqgicheck_tests/SqgicheckTest-1.0.gir
+        VERBATIM
+    )
+    add_custom_target(sqgicheck-test-typelib DEPENDS ${SQGICHECK_TEST_TYPELIB})
+endif()
+
+add_executable(sqgi_test_cpp_sqgicheck
+    test/cpp/test_sqgicheck.cpp
+    $<TARGET_OBJECTS:sqgi-core>
+)
+if(G_IR_COMPILER_EXECUTABLE)
+    add_dependencies(sqgi_test_cpp_sqgicheck sqgicheck-test-typelib)
+    target_compile_definitions(sqgi_test_cpp_sqgicheck PRIVATE
+        SQGICHECK_HAS_TEST_TYPELIB=1)
+endif()
+target_link_libraries(sqgi_test_cpp_sqgicheck PRIVATE sqgicheck-core)
+target_include_directories(sqgi_test_cpp_sqgicheck PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/Squirrel3/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/Squirrel3/squirrel
+)
+if(SQGICHECK_ENABLE_COVERAGE)
+    target_compile_options(sqgi_test_cpp_sqgicheck PRIVATE
+        --coverage -O0 -g -fno-exceptions -fno-inline
+    )
+    target_link_options(sqgi_test_cpp_sqgicheck PRIVATE --coverage)
+endif()
+add_test(NAME sqgi_test_cpp_sqgicheck COMMAND sqgi_test_cpp_sqgicheck)
+set_tests_properties(sqgi_test_cpp_sqgicheck PROPERTIES
+    ENVIRONMENT "${SQGI_TEST_ENV};GI_TYPELIB_PATH=${SQGICHECK_TEST_TYPELIB_DIR}:$ENV{GI_TYPELIB_PATH};LSAN_OPTIONS=suppressions=${CMAKE_SOURCE_DIR}/tools/sqgicheck_tests/lsan.supp:print_suppressions=0"
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    TIMEOUT 30
+)
+
+add_test(
+    NAME sqgi_test_sqgicheck_cli
+    COMMAND bash ${CMAKE_SOURCE_DIR}/tools/sqgicheck_tests/run_tests.sh
+            ${CMAKE_BINARY_DIR}/sqgicheck
+)
+set_tests_properties(sqgi_test_sqgicheck_cli PROPERTIES
+    ENVIRONMENT "${SQGI_TEST_ENV};GI_TYPELIB_PATH=${SQGICHECK_TEST_TYPELIB_DIR}:$ENV{GI_TYPELIB_PATH};LSAN_OPTIONS=suppressions=${CMAKE_SOURCE_DIR}/tools/sqgicheck_tests/lsan.supp:print_suppressions=0"
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    TIMEOUT 60
+)
+
+add_test(
+    NAME sqgi_test_sqgicheck_corpus
+    COMMAND bash ${CMAKE_SOURCE_DIR}/tools/sqgicheck_tests/corpus.sh
+            ${CMAKE_BINARY_DIR}/sqgicheck ${CMAKE_SOURCE_DIR}
+)
+set_tests_properties(sqgi_test_sqgicheck_corpus PROPERTIES
+    ENVIRONMENT "${SQGI_TEST_ENV};LSAN_OPTIONS=suppressions=${CMAKE_SOURCE_DIR}/tools/sqgicheck_tests/lsan.supp:print_suppressions=0"
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    TIMEOUT 60
+)
+
+add_test(
+    NAME sqgi_test_sqgicheck_install
+    COMMAND bash ${CMAKE_SOURCE_DIR}/tools/sqgicheck_tests/install.sh
+            ${CMAKE_BINARY_DIR} ${CMAKE_SOURCE_DIR}
+)
+set_tests_properties(sqgi_test_sqgicheck_install PROPERTIES
+    ENVIRONMENT "${SQGI_TEST_ENV};LSAN_OPTIONS=suppressions=${CMAKE_SOURCE_DIR}/tools/sqgicheck_tests/lsan.supp:print_suppressions=0"
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    RUN_SERIAL TRUE
+    TIMEOUT 60
+)
+
+if(SQGICHECK_ENABLE_COVERAGE)
+    add_custom_target(sqgicheck-coverage
+        COMMAND bash ${CMAKE_SOURCE_DIR}/tools/sqgicheck_tests/coverage.sh
+                ${CMAKE_BINARY_DIR}
+        DEPENDS sqgi sqgi-bin sqgicheck-bin sqgi_test_cpp_sqgicheck
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+        COMMENT "Running sqgicheck tests and enforcing coverage thresholds"
+    )
+endif()
+
 # ── In-tree C tests (test/c/) ────────────────────────────────────────────────
 # These exercise internal libsqgi paths that pure-Squirrel tests cannot reach,
 # such as cross-thread signal marshalling. Each test is a standalone C binary
@@ -436,7 +660,7 @@ set_tests_properties(sqgi_test_cli_dash_e PROPERTIES
 
 add_custom_target(check
     COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure
-    DEPENDS sqgi-bin
+    DEPENDS sqgi-bin sqgicheck-bin sqgi_test_cpp_sqgicheck
     COMMENT "Running SQGI test suite"
 )
 
@@ -464,6 +688,10 @@ install(TARGETS sqgi
 )
 
 install(TARGETS sqgi-bin
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+)
+
+install(TARGETS sqgicheck-bin
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
 

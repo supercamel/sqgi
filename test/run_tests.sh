@@ -4,12 +4,13 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BUILD_DIR="${ROOT_DIR}/build"
 SQGI_BIN="${BUILD_DIR}/sqgi"
+SQGICHECK_BIN="${BUILD_DIR}/sqgicheck"
 
 if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
   cat <<'EOF'
 Usage: test/run_tests.sh [--no-build]
 
-Runs all .nut tests with the local sqgi binary.
+Runs the runtime, sqgipkg, and sqgicheck tests with local binaries.
 By default, configures/builds first.
 EOF
   exit 0
@@ -32,6 +33,11 @@ if [[ ! -x "${SQGI_BIN}" ]]; then
   echo "Run: cmake -S . -B build && cmake --build build" >&2
   exit 1
 fi
+if [[ ! -x "${SQGICHECK_BIN}" ]]; then
+  echo "ERROR: sqgicheck binary not found at ${SQGICHECK_BIN}" >&2
+  echo "Run: cmake -S . -B build && cmake --build build" >&2
+  exit 1
+fi
 
 export LD_LIBRARY_PATH="${BUILD_DIR}/Squirrel3/squirrel:${BUILD_DIR}/Squirrel3/sqstdlib:${BUILD_DIR}${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
 
@@ -44,6 +50,7 @@ TESTS=(
   "test_async.nut"
   "test_async_jsstyle.nut"
   "test_async_reentrancy.nut"
+  "test_async_stack_balance.nut"
   "test_application.nut"
   "test_application_command_line.nut"
   "test_vget_download.nut"
@@ -88,6 +95,16 @@ if bash "${ROOT_DIR}/tools/sqgipkg_tests/run_tests.sh" "${SQGI_BIN}"; then
   PASS_COUNT=$((PASS_COUNT + 1))
 else
   echo "FAIL: tools/sqgipkg_tests/run_tests.sh"
+  FAIL_COUNT=$((FAIL_COUNT + 1))
+fi
+echo
+
+echo "==> Running tools/sqgicheck_tests/run_tests.sh"
+if bash "${ROOT_DIR}/tools/sqgicheck_tests/run_tests.sh" "${SQGICHECK_BIN}"; then
+  echo "PASS: tools/sqgicheck_tests/run_tests.sh"
+  PASS_COUNT=$((PASS_COUNT + 1))
+else
+  echo "FAIL: tools/sqgicheck_tests/run_tests.sh"
   FAIL_COUNT=$((FAIL_COUNT + 1))
 fi
 echo

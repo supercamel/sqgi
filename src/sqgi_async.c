@@ -39,6 +39,7 @@ static void    sqgi_task_init     (HSQUIRRELVM v, SQInteger idx);
 static SQBool  sqgi_idx_is_task   (HSQUIRRELVM v, SQInteger idx);
 static void    sqgi_task_settle   (HSQUIRRELVM v, SQInteger task_idx, SQInteger value_idx, SQBool is_error);
 static void    sqgi_async_check_complete(HSQUIRRELVM thread_v);
+static void    sqgi_async_finish_wakeup(HSQUIRRELVM thread_v);
 
 /* Hidden delegate carrying t.resolve/t.reject/t.then/t.catch methods. */
 static HSQOBJECT g_task_delegate;
@@ -188,7 +189,7 @@ static gboolean sqgi_wake_idle_cb(gpointer user_data)
                 sqgi_async_binding_free(b);
             }
         } else {
-            sqgi_async_check_complete(coro);
+            sqgi_async_finish_wakeup(coro);
         }
     }
 
@@ -782,7 +783,7 @@ static gboolean sqgi_await_timeout_cb(gpointer user_data)
                 sqgi_async_binding_free(b);
             }
         } else {
-            sqgi_async_check_complete(coro);
+            sqgi_async_finish_wakeup(coro);
         }
     }
 
@@ -877,6 +878,21 @@ static void sqgi_async_check_complete(HSQUIRRELVM thread_v)
     sq_pop(v, 2);
 
     sqgi_async_binding_free(b);
+}
+
+static void sqgi_async_finish_wakeup(HSQUIRRELVM thread_v)
+{
+    /* With retval = SQTrue, sq_wakeupvm always pushes Execute's return object.
+     * It is the async body's final result when the thread becomes idle, but is
+     * only a temporary value when execution immediately suspends at another
+     * await. Keeping those temporary values grows _top once per wake and
+     * eventually makes SQVM::Push write past the thread's fixed-size stack. */
+    if (sq_getvmstate(thread_v) == SQ_VMSTATE_SUSPENDED) {
+        sq_pop(thread_v, 1);
+        return;
+    }
+
+    sqgi_async_check_complete(thread_v);
 }
 
 static SQInteger sq_fn___async_run(HSQUIRRELVM v)
