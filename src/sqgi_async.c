@@ -41,9 +41,65 @@ static void    sqgi_task_settle   (HSQUIRRELVM v, SQInteger task_idx, SQInteger 
 static void    sqgi_async_check_complete(HSQUIRRELVM thread_v);
 static void    sqgi_async_finish_wakeup(HSQUIRRELVM thread_v);
 
-/* Hidden delegate carrying t.resolve/t.reject/t.then/t.catch methods. */
-static HSQOBJECT g_task_delegate;
-static SQBool    g_task_delegate_inited = SQFalse;
+/* Registry entries belong to the shared state, never to the process. */
+#define ASYNC_STATE_KEY "sqgi_async_state"
+#define TASK_DELEGATE_KEY "sqgi_task_delegate"
+typedef struct {
+    GHashTable *bindings;
+    GHashTable *sources;
+} SqgiAsyncState;
+
+static SqgiAsyncState *sqgi_async_state(HSQUIRRELVM v)
+{
+    SQInteger top = sq_gettop(v);
+    SQUserPointer state = NULL;
+    sq_pushregistrytable(v);
+    sq_pushstring(v, ASYNC_STATE_KEY, -1);
+    if (SQ_SUCCEEDED(sq_rawget(v, -2))) sq_getuserpointer(v, -1, &state);
+    sq_settop(v, top);
+    return state;
+}
+
+typedef struct {
+    SqgiAsyncState *state;
+    GSource *source;
+    GSourceFunc callback;
+    gpointer data;
+    GDestroyNotify destroy;
+} SqgiAsyncSource;
+
+static gboolean sqgi_async_source_dispatch(gpointer data)
+{
+    SqgiAsyncSource *source = data;
+    return source->callback(source->data);
+}
+
+static void sqgi_async_source_destroy(gpointer data)
+{
+    SqgiAsyncSource *source = data;
+    g_hash_table_remove(source->state->sources, source->source);
+    if (source->destroy) source->destroy(source->data);
+    g_free(source);
+}
+
+static guint sqgi_async_source_add(HSQUIRRELVM v, GSource *source,
+                                  GSourceFunc callback, gpointer data,
+                                  GDestroyNotify destroy)
+{
+    SqgiAsyncSource *owned = g_new0(SqgiAsyncSource, 1);
+    owned->state = sqgi_async_state(v);
+    owned->source = source;
+    owned->callback = callback;
+    owned->data = data;
+    owned->destroy = destroy;
+    g_hash_table_add(owned->state->sources, source);
+    g_source_set_callback(source, sqgi_async_source_dispatch, owned,
+                          sqgi_async_source_destroy);
+    /* Preserve the public source_remove(id) contract on the default context. */
+    guint id = g_source_attach(source, NULL);
+    g_source_unref(source);
+    return id;
+}
 
 /* HSQOBJECT(thread) → SQVM pointer. */
 static inline HSQUIRRELVM sqgi_obj_thread(HSQOBJECT *obj)
@@ -55,30 +111,55 @@ static inline HSQUIRRELVM sqgi_obj_thread(HSQOBJECT *obj)
 
 typedef struct {
     HSQUIRRELVM parent_v;
+    HSQUIRRELVM child_v;
     HSQOBJECT   thread_ref;
     HSQOBJECT   task_ref;
 } SqgiAsyncBinding;
 
-static GHashTable *g_async_bindings = NULL; /* HSQUIRRELVM → SqgiAsyncBinding* */
-
 static void sqgi_async_binding_install(HSQUIRRELVM child_v, SqgiAsyncBinding *b)
 {
-    if (!g_async_bindings) g_async_bindings = g_hash_table_new(g_direct_hash, g_direct_equal);
-    g_hash_table_insert(g_async_bindings, child_v, b);
+    b->child_v = child_v;
+    g_hash_table_insert(sqgi_async_state(child_v)->bindings, child_v, b);
 }
 
 static SqgiAsyncBinding* sqgi_async_binding_get(HSQUIRRELVM child_v)
 {
-    return g_async_bindings ? g_hash_table_lookup(g_async_bindings, child_v) : NULL;
+    SqgiAsyncState *state = sqgi_async_state(child_v);
+    return state ? g_hash_table_lookup(state->bindings, child_v) : NULL;
 }
 
 static void sqgi_async_binding_free(SqgiAsyncBinding *b)
 {
     if (!b) return;
+    g_hash_table_remove(sqgi_async_state(b->parent_v)->bindings, b->child_v);
     sq_release(b->parent_v, &b->task_ref);
     sq_release(b->parent_v, &b->thread_ref);
-    g_hash_table_remove(g_async_bindings, b);
     g_free(b);
+}
+
+void sqgi_async_shutdown(HSQUIRRELVM v)
+{
+    SqgiAsyncState *state = sqgi_async_state(v);
+    if (!state) return;
+    GHashTableIter iter;
+    gpointer source, binding;
+    while (g_hash_table_size(state->sources)) {
+        g_hash_table_iter_init(&iter, state->sources);
+        g_hash_table_iter_next(&iter, &source, NULL);
+        g_source_destroy(source);
+    }
+    while (g_hash_table_size(state->bindings)) {
+        g_hash_table_iter_init(&iter, state->bindings);
+        g_hash_table_iter_next(&iter, NULL, &binding);
+        sqgi_async_binding_free(binding);
+    }
+    g_hash_table_destroy(state->sources);
+    g_hash_table_destroy(state->bindings);
+    g_free(state);
+    sq_pushregistrytable(v);
+    sq_pushstring(v, ASYNC_STATE_KEY, -1);
+    sq_rawdeleteslot(v, -2, SQFalse);
+    sq_pop(v, 1);
 }
 
 /* ── Task helpers ────────────────────────────────────────────────────────── */
@@ -133,10 +214,11 @@ static void sqgi_task_init(HSQUIRRELVM v, SQInteger idx)
     sq_pushstring(v, "__waiters", -1);    sq_newarray(v, 0);       sq_rawset(v, -3);
     sq_pushstring(v, "__rejection_handled", -1); sq_pushbool(v, SQFalse); sq_rawset(v, -3);
 
-    if (g_task_delegate_inited) {
-        sq_pushobject(v, g_task_delegate);
-        sq_setdelegate(v, -2);
-    }
+    sq_pushregistrytable(v);
+    sq_pushstring(v, TASK_DELEGATE_KEY, -1);
+    sq_rawget(v, -2);
+    sq_remove(v, -2);
+    sq_setdelegate(v, -2);
     sq_settop(v, top);
 }
 
@@ -155,6 +237,14 @@ typedef struct {
     HSQOBJECT   value;        /* result or error to push */
     SQBool      is_error;
 } SqgiWakeJob;
+
+static void sqgi_wake_destroy(gpointer user_data)
+{
+    SqgiWakeJob *j = user_data;
+    sq_release(j->parent_v, &j->thread_ref);
+    sq_release(j->parent_v, &j->value);
+    g_free(j);
+}
 
 static gboolean sqgi_wake_idle_cb(gpointer user_data)
 {
@@ -193,9 +283,6 @@ static gboolean sqgi_wake_idle_cb(gpointer user_data)
         }
     }
 
-    sq_release(j->parent_v, &j->thread_ref);
-    sq_release(j->parent_v, &j->value);
-    g_free(j);
     return G_SOURCE_REMOVE;
 }
 
@@ -212,7 +299,8 @@ static void sqgi_wake_schedule(HSQUIRRELVM v, HSQOBJECT *thread_ref, HSQOBJECT *
     j->is_error   = is_error;
     sq_addref(rv, &j->thread_ref);
     sq_addref(rv, &j->value);
-    g_idle_add(sqgi_wake_idle_cb, j);
+    sqgi_async_source_add(rv, g_idle_source_new(), sqgi_wake_idle_cb, j,
+                          sqgi_wake_destroy);
 }
 
 /* Continuation job for t.then / t.catch. */
@@ -224,6 +312,17 @@ typedef struct {
     HSQOBJECT   value;
     SQBool      is_error;
 } SqgiThenJob;
+
+static void sqgi_then_destroy(gpointer user_data)
+{
+    SqgiThenJob *j = user_data;
+    HSQUIRRELVM v = j->parent_v;
+    sq_release(v, &j->handler_succ);
+    sq_release(v, &j->handler_rej);
+    sq_release(v, &j->downstream);
+    sq_release(v, &j->value);
+    g_free(j);
+}
 
 static gboolean sqgi_then_idle_cb(gpointer user_data)
 {
@@ -269,11 +368,6 @@ static gboolean sqgi_then_idle_cb(gpointer user_data)
         }
     }
 
-    sq_release(v, &j->handler_succ);
-    sq_release(v, &j->handler_rej);
-    sq_release(v, &j->downstream);
-    sq_release(v, &j->value);
-    g_free(j);
     return G_SOURCE_REMOVE;
 }
 
@@ -283,6 +377,13 @@ typedef struct {
     HSQUIRRELVM parent_v;
     HSQOBJECT   task_ref;
 } SqgiUnhandledJob;
+
+static void sqgi_unhandled_destroy(gpointer ud)
+{
+    SqgiUnhandledJob *j = ud;
+    sq_release(j->parent_v, &j->task_ref);
+    g_free(j);
+}
 
 static gboolean sqgi_unhandled_idle_cb(gpointer ud)
 {
@@ -305,8 +406,6 @@ static gboolean sqgi_unhandled_idle_cb(gpointer ud)
         sq_pop(v, 2);
     }
     sq_settop(v, top);
-    sq_release(v, &j->task_ref);
-    g_free(j);
     return G_SOURCE_REMOVE;
 }
 
@@ -397,7 +496,8 @@ static void sqgi_task_settle(HSQUIRRELVM v, SQInteger task_idx, SQInteger value_
             }
             j->value = value_obj;
             sq_addref(rv, &j->value);
-            g_idle_add(sqgi_then_idle_cb, j);
+            sqgi_async_source_add(rv, g_idle_source_new(), sqgi_then_idle_cb,
+                                  j, sqgi_then_destroy);
         } else {
             sq_pop(v, 1); /* unknown kind */
         }
@@ -426,7 +526,8 @@ static void sqgi_task_settle(HSQUIRRELVM v, SQInteger task_idx, SQInteger value_
             sq_resetobject(&uj->task_ref);
             sq_getstackobj(v, task_idx, &uj->task_ref);
             sq_addref(rv, &uj->task_ref);
-            g_idle_add(sqgi_unhandled_idle_cb, uj);
+            sqgi_async_source_add(rv, g_idle_source_new(), sqgi_unhandled_idle_cb,
+                                  uj, sqgi_unhandled_destroy);
         }
     }
 }
@@ -490,7 +591,8 @@ static SQInteger sqgi_register_then(HSQUIRRELVM v, SQInteger task_idx,
         }
         sq_getstackobj(v, down_idx, &j->downstream); sq_addref(rv, &j->downstream);
         j->value = value; sq_addref(rv, &j->value);
-        g_idle_add(sqgi_then_idle_cb, j);
+        sqgi_async_source_add(rv, g_idle_source_new(), sqgi_then_idle_cb,
+                              j, sqgi_then_destroy);
         return SQ_OK;
     }
 
@@ -592,8 +694,8 @@ static SQInteger sq_fn_task_cancel_m(HSQUIRRELVM v)
 
 static void sqgi_task_delegate_init(HSQUIRRELVM v)
 {
-    if (g_task_delegate_inited) return;
-
+    sq_pushregistrytable(v);
+    sq_pushstring(v, TASK_DELEGATE_KEY, -1);
     sq_newtable(v);
 
     sq_pushstring(v, "resolve", -1);
@@ -621,12 +723,8 @@ static void sqgi_task_delegate_init(HSQUIRRELVM v)
     sq_setnativeclosurename(v, -1, "Task.cancel");
     sq_newslot(v, -3, SQFalse);
 
-    sq_resetobject(&g_task_delegate);
-    sq_getstackobj(v, -1, &g_task_delegate);
-    sq_addref(v, &g_task_delegate);
+    sq_rawset(v, -3);
     sq_pop(v, 1);
-
-    g_task_delegate_inited = SQTrue;
 }
 
 /* ── timeout_add / source_remove ────────────────────────────────────────── */
@@ -680,8 +778,8 @@ static SQInteger sq_fn_timeout_add(HSQUIRRELVM v)
     sq_getstackobj(v, 3, &d->fn);
     sq_addref(rv, &d->fn);
 
-    guint id = g_timeout_add_full(G_PRIORITY_DEFAULT, (guint)ms,
-                                  sqgi_timeout_cb, d, sqgi_timeout_destroy);
+    guint id = sqgi_async_source_add(rv, g_timeout_source_new((guint)ms),
+                                     sqgi_timeout_cb, d, sqgi_timeout_destroy);
     sq_pushinteger(v, (SQInteger)id);
     return 1;
 }
@@ -738,8 +836,8 @@ static SQInteger sq_fn_sleep(HSQUIRRELVM v)
     sq_getstackobj(v, -1, &d->task_ref);
     sq_addref(rv, &d->task_ref);
 
-    guint sid = g_timeout_add_full(G_PRIORITY_DEFAULT, (guint)ms,
-                                   sqgi_sleep_cb, d, sqgi_sleep_destroy);
+    guint sid = sqgi_async_source_add(rv, g_timeout_source_new((guint)ms),
+                                      sqgi_sleep_cb, d, sqgi_sleep_destroy);
 
     /* Record source id so task.cancel() can remove it. */
     sq_pushstring(v, "__source_id", -1);
@@ -756,6 +854,13 @@ typedef struct {
     HSQOBJECT   thread_ref;
     gint64      start_us;
 } SqgiAwaitTimeoutData;
+
+static void sqgi_await_timeout_destroy(gpointer user_data)
+{
+    SqgiAwaitTimeoutData *d = user_data;
+    sq_release(d->v, &d->thread_ref);
+    g_free(d);
+}
 
 static gboolean sqgi_await_timeout_cb(gpointer user_data)
 {
@@ -787,8 +892,6 @@ static gboolean sqgi_await_timeout_cb(gpointer user_data)
         }
     }
 
-    sq_release(d->v, &d->thread_ref);
-    g_free(d);
     return G_SOURCE_REMOVE;
 }
 
@@ -805,7 +908,8 @@ static SQInteger sqgi_suspend_for_timeout(HSQUIRRELVM v, SQInteger ms)
     sq_addref(rv, &d->thread_ref);
     sq_pop(v, 1);
 
-    g_timeout_add((guint)ms, sqgi_await_timeout_cb, d);
+    sqgi_async_source_add(rv, g_timeout_source_new((guint)ms),
+                          sqgi_await_timeout_cb, d, sqgi_await_timeout_destroy);
     return sq_suspendvm(v);
 }
 
@@ -1085,6 +1189,14 @@ static SQInteger sq_fn_bytes_from_array(HSQUIRRELVM v)
 
 void sqgi_async_register(HSQUIRRELVM v)
 {
+    SqgiAsyncState *state = g_new0(SqgiAsyncState, 1);
+    state->bindings = g_hash_table_new(g_direct_hash, g_direct_equal);
+    state->sources = g_hash_table_new(g_direct_hash, g_direct_equal);
+    sq_pushregistrytable(v);
+    sq_pushstring(v, ASYNC_STATE_KEY, -1);
+    sq_pushuserpointer(v, state);
+    sq_rawset(v, -3);
+    sq_pop(v, 1);
     sqgi_task_delegate_init(v);
 
     sq_pushroottable(v);

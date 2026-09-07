@@ -13,6 +13,50 @@ typedef struct {
     GMainContext  *vm_context;    /* main context to dispatch back to */
 } SqgiClosureData;
 
+#define SIGNALS_KEY "sqgi_signal_connections"
+static GHashTable *sqgi_signal_connections(HSQUIRRELVM v, gboolean create)
+{
+    SQInteger top = sq_gettop(v);
+    SQUserPointer connections = NULL;
+    sq_pushregistrytable(v);
+    sq_pushstring(v, SIGNALS_KEY, -1);
+    if (SQ_SUCCEEDED(sq_rawget(v, -2))) sq_getuserpointer(v, -1, &connections);
+    sq_settop(v, top);
+    if (!connections && create) {
+        connections = g_hash_table_new(g_direct_hash, g_direct_equal);
+        sq_pushregistrytable(v);
+        sq_pushstring(v, SIGNALS_KEY, -1);
+        sq_pushuserpointer(v, connections);
+        sq_rawset(v, -3);
+        sq_pop(v, 1);
+    }
+    return connections;
+}
+
+void sqgi_signal_shutdown(HSQUIRRELVM v)
+{
+    GHashTable *connections = sqgi_signal_connections(v, FALSE);
+    if (!connections) return;
+    GArray *handlers = g_array_new(FALSE, FALSE, sizeof(HSQOBJECT));
+    GHashTableIter iter;
+    gpointer key;
+    g_hash_table_iter_init(&iter, connections);
+    while (g_hash_table_iter_next(&iter, &key, NULL)) {
+        SqgiClosureData *data = key;
+        data->v = NULL;
+        g_array_append_val(handlers, data->handler);
+        sq_resetobject(&data->handler);
+    }
+    g_hash_table_destroy(connections);
+    sq_pushregistrytable(v);
+    sq_pushstring(v, SIGNALS_KEY, -1);
+    sq_rawdeleteslot(v, -2, SQFalse);
+    sq_pop(v, 1);
+    for (guint i = 0; i < handlers->len; i++)
+        sq_release(v, &g_array_index(handlers, HSQOBJECT, i));
+    g_array_free(handlers, TRUE);
+}
+
 /* VM pointers marked as closing to avoid callbacks into dead Squirrel states.
  * Protected by a mutex so signal teardown on a worker thread doesn't race
  * with VM shutdown on the main thread. */
@@ -103,7 +147,7 @@ static gboolean sqgi_signal_marshal_job_run(gpointer user_data)
 {
     SqgiMarshalJob *job = (SqgiMarshalJob *)user_data;
 
-    if (!sqgi_signal_vm_is_closing(job->cd->v)) {
+    if (job->cd->v && !sqgi_signal_vm_is_closing(job->cd->v)) {
         sqgi_signal_marshal_direct(job->cd, job->return_value,
                                   job->n_params, job->params);
     }
@@ -128,7 +172,7 @@ static void sqgi_signal_marshal(GClosure     *closure,
 
     SqgiClosureData *data = (SqgiClosureData *)closure->data;
 
-    if (sqgi_signal_vm_is_closing(data->v)) {
+    if (!data->v || sqgi_signal_vm_is_closing(data->v)) {
         return; /* VM gone — drop the signal silently */
     }
 
@@ -189,7 +233,11 @@ static void sqgi_closure_invalidate(gpointer user_data, GClosure *closure)
      * the closure can be invalidated after the VM has already dropped the
      * tracked reference. Avoid triggering Squirrel RefTable assertions by
      * releasing only when the object is still tracked. */
-    if (!sqgi_signal_vm_is_closing(data->v) &&
+    if (data->v) {
+        GHashTable *connections = sqgi_signal_connections(data->v, FALSE);
+        if (connections) g_hash_table_remove(connections, data);
+    }
+    if (data->v && !sqgi_signal_vm_is_closing(data->v) &&
         sq_getrefcount(data->v, &data->handler) > 0) {
         sq_release(data->v, &data->handler);
     }
@@ -221,6 +269,7 @@ gulong sqgi_signal_connect(HSQUIRRELVM v, GObject *obj, const char *signal,
     sq_resetobject(&data->handler);
     sq_getstackobj(v, handler_idx, &data->handler);
     sq_addref(data->v, &data->handler);
+    g_hash_table_add(sqgi_signal_connections(data->v, TRUE), data);
 
     GClosure *closure = g_closure_new_simple(sizeof(GClosure), data);
     g_closure_ref(closure);

@@ -33,6 +33,8 @@ extern "C" {
  * worker threads will crash. This matches existing SQGI thread-safety.
  */
 void sqgi_subclass_register_helpers(HSQUIRRELVM v);
+/* Restore native parent behavior for permanent GTypes before closing v. */
+void sqgi_subclass_shutdown(HSQUIRRELVM v);
 
 #ifdef __cplusplus
 }

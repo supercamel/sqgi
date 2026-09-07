@@ -52,6 +52,11 @@ endif()
 set(DISABLE_STATIC ON CACHE BOOL "" FORCE)
 set(SQ_DISABLE_INSTALLER ON CACHE BOOL "" FORCE)
 add_subdirectory(Squirrel3)
+if(SQ_ENABLE_JIT)
+    # All consumers of sqgi-core's internal headers must share its layouts.
+    # The independent bundled libsquirrel target above remains interpreter-only.
+    add_compile_definitions(SQ_ENABLE_JIT)
+endif()
 
 # ── System Dependencies ───────────────────────────────────────────────────────
 find_package(PkgConfig REQUIRED)
@@ -389,6 +394,8 @@ add_sqgi_nut_test(sqgi_test_async                       test_async.nut)
 add_sqgi_nut_test(sqgi_test_async_jsstyle               test_async_jsstyle.nut)
 add_sqgi_nut_test(sqgi_test_async_reentrancy            test_async_reentrancy.nut)
 add_sqgi_nut_test(sqgi_test_async_stack_balance         test_async_stack_balance.nut)
+add_sqgi_nut_test(sqgi_test_callback_async_lifetime     test_callback_async_lifetime.nut)
+add_sqgi_nut_test(sqgi_test_numeric_arrays              test_numeric_arrays.nut)
 add_sqgi_nut_test(sqgi_test_newthread                   test_newthread.nut)
 add_sqgi_nut_test(sqgi_test_vget_download               test_vget_download.nut)
 add_sqgi_nut_test(sqgi_test_application                 test_application.nut)
@@ -411,6 +418,7 @@ set_tests_properties(sqgi_test_marshal_fuzz PROPERTIES TIMEOUT 300 LABELS "slow;
 add_sqgi_nut_test(sqgi_test_soak                        test_soak.nut)
 set_tests_properties(sqgi_test_soak PROPERTIES LABELS "slow")
 add_sqgi_nut_test(sqgi_test_json                        test_json.nut)
+add_sqgi_nut_test(sqgi_test_json_instance_cycles        test_json_instance_cycles.nut)
 add_sqgi_nut_test(sqgi_test_json_fuzz                   test_json_fuzz.nut)
 set_tests_properties(sqgi_test_json_fuzz PROPERTIES TIMEOUT 600 LABELS "slow;fuzz")
 add_sqgi_nut_test(sqgi_test_gvariant_classes            test_gvariant_classes.nut)
@@ -428,6 +436,10 @@ add_sqgi_nut_test(sqgi_test_boxed_record_constructor    test_boxed_record_constr
 add_sqgi_nut_test(sqgi_test_math_extended               test_math_extended.nut)
 add_sqgi_nut_test(sqgi_test_system_module               test_system_module.nut)
 add_sqgi_nut_test(sqgi_test_jit_math                    test_jit_math.nut)
+add_sqgi_nut_test(sqgi_test_jit_loop_regressions        test_jit_loop_regressions.nut)
+set_tests_properties(sqgi_test_jit_loop_regressions PROPERTIES
+    LABELS "jit"
+    ENVIRONMENT "${SQGI_TEST_ENV};SQGI_JIT=1;SQGI_JIT_THRESHOLD=1")
 add_sqgi_nut_test(sqgi_test_jit_math_runtime            test_jit_math.nut)
 add_sqgi_nut_test(sqgi_test_jit_fastpath                test_jit_fastpath.nut)
 add_sqgi_nut_test(sqgi_test_jit_fastpath_runtime        test_jit_fastpath.nut)
@@ -624,7 +636,7 @@ function(add_sqgi_c_test test_name source_file)
         ${CMAKE_CURRENT_SOURCE_DIR}/Squirrel3/include
         ${CMAKE_CURRENT_SOURCE_DIR}/Squirrel3/squirrel
     )
-    add_test(NAME ${test_name} COMMAND ${test_name})
+    add_test(NAME ${test_name} COMMAND ${test_name} ${ARGN})
     set_tests_properties(${test_name} PROPERTIES
         ENVIRONMENT "${SQGI_TEST_ENV}"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
@@ -636,8 +648,16 @@ add_sqgi_c_test(sqgi_test_c_signal_crossthread test/c/test_signal_crossthread.c)
 add_sqgi_c_test(sqgi_test_c_signal_crossthread_sync test/c/test_signal_crossthread_sync.c)
 add_sqgi_c_test(sqgi_test_c_signal_vm_closing test/c/test_signal_vm_closing.c)
 add_sqgi_c_test(sqgi_test_c_gvalue_branches test/c/test_gvalue_branches.c)
+add_sqgi_c_test(sqgi_test_c_list_ownership test/c/test_list_ownership.c)
 add_sqgi_c_test(sqgi_test_c_squirrel_core_hardening test/c/test_squirrel_core_hardening.c)
 add_sqgi_c_test(sqgi_test_cpp_sqvector test/cpp/test_sqvector.cpp)
+add_sqgi_c_test(sqgi_test_c_vm_lifecycle test/c/test_vm_lifecycle.c recreate)
+add_test(NAME sqgi_test_c_vm_lifecycle_pending COMMAND sqgi_test_c_vm_lifecycle pending)
+set_tests_properties(sqgi_test_c_vm_lifecycle_pending PROPERTIES
+    ENVIRONMENT "${SQGI_TEST_ENV}" TIMEOUT 30)
+add_test(NAME sqgi_test_c_vm_lifecycle_subclass COMMAND sqgi_test_c_vm_lifecycle subclass)
+set_tests_properties(sqgi_test_c_vm_lifecycle_subclass PROPERTIES
+    ENVIRONMENT "${SQGI_TEST_ENV}" TIMEOUT 30)
 if(SQ_ENABLE_JIT AND CMAKE_SYSTEM_NAME STREQUAL "Linux" AND
     CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64|ARM64)$")
     add_sqgi_c_test(sqgi_test_cpp_sqjit_aarch64_emit test/cpp/test_sqjit_aarch64_emit.cpp)

@@ -2409,6 +2409,8 @@ static bool sqjit_next_consumes_load_as_immediate(SQFunctionProto *proto, SQInte
     }
 }
 
+static bool sqjit_loop_instruction_writes_slot(const SQInstruction &inst, SQInteger slot);
+
 bool sqjit_backend_compile_proto(SQFunctionProto *proto, SQObjectPtr *entry_stack,
     SQClosure *closure, SQJitNative *native)
 {
@@ -3161,6 +3163,24 @@ bool sqjit_backend_compile_proto(SQFunctionProto *proto, SQObjectPtr *entry_stac
     };
 
     for(SQInteger ip = 0; ip < proto->_ninstructions; ip++) {
+        // A value initialized before a loop is not constant in its body when
+        // the backedge can change it (notably an array index incremented at
+        // the end). Materialize the initial value before the jump target.
+        for(SQInteger back = ip; back < proto->_ninstructions; back++) {
+            const SQInstruction &branch = proto->_instructions[back];
+            if((branch.op != _OP_JMP && branch.op != _OP_JZ && branch.op != _OP_JCMP) ||
+                back + 1 + sqjit_signed_arg1(branch) != ip) continue;
+            for(SQInteger slot = 0; slot < proto->_stacksize; slot++) {
+                if(!known_const[slot]) continue;
+                bool written = false;
+                for(SQInteger body = ip; body <= back && !written; body++)
+                    written = sqjit_loop_instruction_writes_slot(proto->_instructions[body], slot);
+                if(!written) continue;
+                if(slot_kind[slot] == SQ_JIT_SLOT_INT && !ensure_int_slot(slot)) return false;
+                if(slot_kind[slot] == SQ_JIT_SLOT_FLOAT && !ensure_float_slot(slot)) return false;
+                known_const[slot] = false;
+            }
+        }
         ip_to_offset[ip] = buf.size;
         const SQInstruction &inst = proto->_instructions[ip];
 
@@ -3882,6 +3902,16 @@ static bool sqjit_loop_instruction_writes_slot(const SQInstruction &inst, SQInte
         default:
             return false;
     }
+}
+
+static void sqjit_helper_store_stack_integer(SQObjectPtr *stack, SQInteger slot, const SQInteger *value)
+{
+    stack[slot] = *value;
+}
+
+static void sqjit_helper_store_stack_float(SQObjectPtr *stack, SQInteger slot, const SQFloat *value)
+{
+    stack[slot] = *value;
 }
 
 static bool sqjit_loop_slot_is_live_out(SQFunctionProto *proto, SQInteger exit_ip, SQInteger slot)
@@ -5063,16 +5093,25 @@ bool sqjit_backend_compile_loop(SQFunctionProto *proto, SQObjectPtr *entry_stack
             }
             continue;
         }
-        if(slot_kind[n] == SQ_JIT_SLOT_FLOAT) {
-            if(!sqjit_native_emit_store_stack_float_from_local(&buf, n, n)) {
-                return false;
-            }
+        if(slot_kind[n] != SQ_JIT_SLOT_FLOAT && slot_kind[n] != SQ_JIT_SLOT_INT) {
+            if(sqjit_loop_slot_is_live_out(proto, exit_ip, n)) return false;
+            continue;
         }
-        else {
-            if(!sqjit_native_emit_mov_rax_mem(&buf, n) ||
-                !sqjit_native_emit_store_stack_integer_from_rax(&buf, n)) {
-                return false;
-            }
+        // Stack slots can still own objects from earlier interpreter work.
+        // Assignment must release those references before changing the tag.
+        // Integer locals may reside in a callee-saved register; spill before
+        // passing their address to the assignment helper.
+        if(slot_kind[n] == SQ_JIT_SLOT_INT &&
+            (!sqjit_native_emit_mov_rax_mem(&buf, n) ||
+             !sqjit_native_emit_mov_local_mem_rax(&buf, n))) return false;
+        if(!sqjit_native_emit_mov_rdi_r13(&buf) ||
+            !sqjit_native_emit_mov_rsi_i64(&buf, n) ||
+            !sqjit_native_emit_lea_rdx_mem(&buf, n) ||
+            !sqjit_native_emit_mov_rax_ptr(&buf, slot_kind[n] == SQ_JIT_SLOT_FLOAT ?
+                (const void *)sqjit_helper_store_stack_float :
+                (const void *)sqjit_helper_store_stack_integer) ||
+            !sqjit_native_emit_call_rax(&buf)) {
+            return false;
         }
     }
     if(!sqjit_native_emit_mov_rax_imm64(&buf, exit_ip) ||

@@ -5,6 +5,7 @@
 #include "sqgi_gerror.h"
 #include "sqgi_cairo.h"
 #include "sqgi_signal.h"
+#include "sqgi_vm.h"
 
 #include <string.h>
 #include <stdio.h>
@@ -85,6 +86,52 @@ typedef struct {
     SqgiCallbackData *cb_data;
 } SqgiCallbackBinding;
 
+#define CALLBACKS_KEY "sqgi_native_callbacks"
+static GHashTable *sqgi_callback_table(HSQUIRRELVM v, gboolean create)
+{
+    SQInteger top = sq_gettop(v);
+    SQUserPointer table = NULL;
+    sq_pushregistrytable(v);
+    sq_pushstring(v, CALLBACKS_KEY, -1);
+    if (SQ_SUCCEEDED(sq_rawget(v, -2))) sq_getuserpointer(v, -1, &table);
+    sq_settop(v, top);
+    if (!table && create) {
+        table = g_hash_table_new(g_direct_hash, g_direct_equal);
+        sq_pushregistrytable(v);
+        sq_pushstring(v, CALLBACKS_KEY, -1);
+        sq_pushuserpointer(v, table);
+        sq_rawset(v, -3);
+        sq_pop(v, 1);
+    }
+    return table;
+}
+
+void sqgi_gi_shutdown_callbacks(HSQUIRRELVM v)
+{
+    GHashTable *callbacks = sqgi_callback_table(v, FALSE);
+    if (!callbacks) return;
+    GHashTableIter iter;
+    gpointer key;
+    GArray *handlers = g_array_new(FALSE, FALSE, sizeof(HSQOBJECT));
+    g_hash_table_iter_init(&iter, callbacks);
+    while (g_hash_table_iter_next(&iter, &key, NULL)) {
+        SqgiCallbackData *d = key;
+        d->v = NULL;
+        g_array_append_val(handlers, d->fn);
+        sq_resetobject(&d->fn);
+    }
+    g_hash_table_destroy(callbacks);
+    sq_pushregistrytable(v);
+    sq_pushstring(v, CALLBACKS_KEY, -1);
+    sq_rawdeleteslot(v, -2, SQFalse);
+    sq_pop(v, 1);
+    /* Releasing a handler may destroy native objects and their callbacks. */
+    for (guint i = 0; i < handlers->len; i++) {
+        sq_release(v, &g_array_index(handlers, HSQOBJECT, i));
+    }
+    g_array_free(handlers, TRUE);
+}
+
 static gssize sqgi_gi_argument_to_length(const GIArgument *arg, GITypeInfo *type_info)
 {
     if (!arg || !type_info) return -1;
@@ -125,7 +172,11 @@ static void sqgi_callback_destroy_notify(gpointer user_data)
      * reftable. Releasing into a partially-destroyed VM would trip the
      * RefTable::Release assertion. Skip the release in that case — the VM
      * is about to free the reftable wholesale anyway. */
-    if (!sqgi_signal_vm_is_closing(d->v) &&
+    if (d->v) {
+        GHashTable *callbacks = sqgi_callback_table(d->v, FALSE);
+        if (callbacks) g_hash_table_remove(callbacks, d);
+    }
+    if (d->v && !sqgi_signal_vm_is_closing(d->v) &&
         sq_getrefcount(d->v, &d->fn) > 0) {
         sq_release(d->v, &d->fn);
     }
@@ -220,6 +271,11 @@ static void sqgi_ffi_callback_handler(ffi_cif *cif, void *ret, void **args,
     (void)cif;
     SqgiCallbackData *d = (SqgiCallbackData *)user_data;
     HSQUIRRELVM v = d->v;
+    if (!v) {
+        if (cif->rtype->type != FFI_TYPE_VOID) memset(ret, 0, cif->rtype->size);
+        if (d->free_after_call) sqgi_callback_destroy_notify(d);
+        return;
+    }
     GICallableInfo *ci = d->cb_info;
     gint n_args = g_callable_info_get_n_args(ci);
 
@@ -469,12 +525,20 @@ static SQInteger sqgi_func_data_release(SQUserPointer p, SQInteger size)
  * char** strv we built for UTF-8/FILENAME C-arrays sourced from a Squirrel
  * array/table). Safe to call on both error and success paths. */
 static void sqgi_gi_free_in_arg_allocs(GICallableInfo *callable, GIArgument *in_args,
-                                      const gint *arg_to_in, gint n_args)
+                                      const gint *arg_to_in, gint n_args,
+                                      gboolean invoked)
 {
     for (gint i = 0; i < n_args; i++) {
         if (arg_to_in[i] < 0) continue;
         GIArgInfo  *ai = g_callable_info_get_arg(callable, i);
         GITypeInfo *ti = g_arg_info_get_type(ai);
+        /* Once invoked, the callee owns transferred arrays and may already
+         * have reallocated or freed their storage (e.g. environ_setenv). */
+        if (invoked && g_arg_info_get_ownership_transfer(ai) != GI_TRANSFER_NOTHING) {
+            g_base_info_unref(ti);
+            g_base_info_unref(ai);
+            continue;
+        }
         if (g_type_info_get_tag(ti) == GI_TYPE_TAG_ARRAY &&
             g_type_info_get_array_type(ti) == GI_ARRAY_TYPE_C) {
             GITypeInfo *param = g_type_info_get_param_type(ti, 0);
@@ -487,6 +551,13 @@ static void sqgi_gi_free_in_arg_allocs(GICallableInfo *callable, GIArgument *in_
                        in_args[arg_to_in[i]].v_pointer) {
                 /* We only own the spine (gpointer[]); element refs/lifetime
                  * are managed by their Squirrel wrappers. */
+                g_free(in_args[arg_to_in[i]].v_pointer);
+                in_args[arg_to_in[i]].v_pointer = NULL;
+            } else if ((ptag == GI_TYPE_TAG_INT16 || ptag == GI_TYPE_TAG_UINT16 ||
+                        ptag == GI_TYPE_TAG_INT32 || ptag == GI_TYPE_TAG_UINT32 ||
+                        ptag == GI_TYPE_TAG_INT64 || ptag == GI_TYPE_TAG_UINT64 ||
+                        ptag == GI_TYPE_TAG_FLOAT || ptag == GI_TYPE_TAG_DOUBLE) &&
+                       in_args[arg_to_in[i]].v_pointer) {
                 g_free(in_args[arg_to_in[i]].v_pointer);
                 in_args[arg_to_in[i]].v_pointer = NULL;
             }
@@ -585,6 +656,17 @@ static void sqgi_push_out_arg(HSQUIRRELVM v, GICallableInfo *callable,
             }
         }
         g_base_info_unref(elem);
+        gint la = g_type_info_get_array_length(ati);
+        if (la >= 0 && la < n_args && arg_to_out[la] >= 0) {
+            GIArgInfo *lai = g_callable_info_get_arg(callable, la);
+            GITypeInfo *lti = g_arg_info_get_type(lai);
+            gssize len = sqgi_gi_argument_to_length(&out_storage[arg_to_out[la]], lti);
+            g_base_info_unref(lti);
+            g_base_info_unref(lai);
+            sqgi_push_gi_argument_with_length(v, &out_storage[arg_to_out[i]],
+                                             ati, atransfer, len);
+            return;
+        }
     }
     if (owned_out_gtypes && arg_to_out[i] >= 0) {
         GType owned_gtype = owned_out_gtypes[arg_to_out[i]];
@@ -826,7 +908,7 @@ static SQInteger gi_function_call(HSQUIRRELVM v)
                     SQObjectType st = sq_gettype(v, sq_idx);
                     if (st == OT_CLOSURE || st == OT_NATIVECLOSURE) {
                         SqgiCallbackData *cb = g_new0(SqgiCallbackData, 1);
-                        cb->v = v;
+                        cb->v = sqgi_root_vm(v);
                         sq_resetobject(&cb->fn);
                         sq_getstackobj(v, sq_idx, &cb->fn);
                         sq_addref(v, &cb->fn);
@@ -837,7 +919,7 @@ static SQInteger gi_function_call(HSQUIRRELVM v)
                             g_base_info_unref(iface);
                             g_base_info_unref(type_info);
                             g_base_info_unref(arg_info);
-                            sqgi_gi_free_in_arg_allocs(callable, in_args, arg_to_in, n_args);
+                            sqgi_gi_free_in_arg_allocs(callable, in_args, arg_to_in, n_args, FALSE);
                             g_free(in_args);
                             g_free(out_args);
                             sqgi_free_caller_allocated_out(caller_allocated_out, n_out_args);
@@ -860,6 +942,7 @@ static SQInteger gi_function_call(HSQUIRRELVM v)
                         }
 
                         in_args[in_idx].v_pointer = cb->ffi_executable;
+                        g_hash_table_add(sqgi_callback_table(cb->v, TRUE), cb);
 
                         SqgiCallbackBinding *binding = g_new0(SqgiCallbackBinding, 1);
                         binding->arg_index = i;
@@ -909,7 +992,7 @@ static SQInteger gi_function_call(HSQUIRRELVM v)
                         g_base_info_unref(iface);
                         g_base_info_unref(type_info);
                         g_base_info_unref(arg_info);
-                        sqgi_gi_free_in_arg_allocs(callable, in_args, arg_to_in, n_args);
+                        sqgi_gi_free_in_arg_allocs(callable, in_args, arg_to_in, n_args, FALSE);
                         g_free(in_args);
                         g_free(out_args);
                         sqgi_free_caller_allocated_out(caller_allocated_out, n_out_args);
@@ -966,7 +1049,7 @@ static SQInteger gi_function_call(HSQUIRRELVM v)
                             g_base_info_get_name((GIBaseInfo *)arg_info));
                         g_base_info_unref(type_info);
                         g_base_info_unref(arg_info);
-                        sqgi_gi_free_in_arg_allocs(callable, in_args, arg_to_in, n_args);
+                        sqgi_gi_free_in_arg_allocs(callable, in_args, arg_to_in, n_args, FALSE);
                         g_free(in_args);
                         g_free(out_args);
                         sqgi_free_caller_allocated_out(caller_allocated_out, n_out_args);
@@ -988,7 +1071,7 @@ static SQInteger gi_function_call(HSQUIRRELVM v)
                     if (SQ_FAILED(sqgi_get_gi_argument(v, sq_idx, &in_args[in_idx], type_info))) {
                         g_base_info_unref(type_info);
                         g_base_info_unref(arg_info);
-                        sqgi_gi_free_in_arg_allocs(callable, in_args, arg_to_in, n_args);
+                        sqgi_gi_free_in_arg_allocs(callable, in_args, arg_to_in, n_args, FALSE);
                         g_free(in_args);
                         g_free(out_args);
                         sqgi_free_caller_allocated_out(caller_allocated_out, n_out_args);
@@ -1103,7 +1186,7 @@ static SQInteger gi_function_call(HSQUIRRELVM v)
     (void)throws;
 
     if (!ok) {
-        sqgi_gi_free_in_arg_allocs(callable, in_args, arg_to_in, n_args);
+        sqgi_gi_free_in_arg_allocs(callable, in_args, arg_to_in, n_args, FALSE);
         for (guint bi = 0; bi < callback_bindings->len; bi++) {
             SqgiCallbackBinding *b = g_ptr_array_index(callback_bindings, bi);
             sqgi_callback_destroy_notify(b->cb_data);
@@ -1223,6 +1306,9 @@ static SQInteger gi_function_call(HSQUIRRELVM v)
                 g_free(return_arg.v_pointer);
                 return_arg.v_pointer = NULL;
             }
+        } else if (len >= 0) {
+            sqgi_push_gi_argument_with_length(v, &return_arg, ret_type, ret_transfer, len);
+            pushed_return = TRUE;
         }
 
         g_base_info_unref(elem_type);
@@ -1417,7 +1503,7 @@ static SQInteger gi_function_call(HSQUIRRELVM v)
     }
     g_ptr_array_free(callback_bindings, TRUE);
 
-    sqgi_gi_free_in_arg_allocs(callable, in_args, arg_to_in, n_args);
+    sqgi_gi_free_in_arg_allocs(callable, in_args, arg_to_in, n_args, TRUE);
     g_free(in_args);
     g_free(out_args);
     sqgi_free_caller_allocated_out(caller_allocated_out, n_out_args);

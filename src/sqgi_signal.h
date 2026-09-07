@@ -6,6 +6,8 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+/* Invalidate connections before freeing their VM; native objects may survive. */
+void sqgi_signal_shutdown(HSQUIRRELVM v);
 
 /*
  * sqgi_signal_connect

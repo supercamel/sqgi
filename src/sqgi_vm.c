@@ -7,6 +7,7 @@
 #include "sqgi_subclass.h"
 #include "sqgi_json.h"
 #include "sqgi_cairo.h"
+#include "sqgi_gi.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -99,6 +100,7 @@ HSQUIRRELVM sqgi_vm_new(void)
 {
     HSQUIRRELVM v = sq_open(1024);
     if (!v) return NULL;
+    sqgi_signal_unmark_vm_closing(v);
 
     /* Stash root VM in shared foreign ptr so coro threads can find a
      * long-lived VM for sq_release in deferred callbacks (see sqgi_root_vm). */
@@ -145,6 +147,11 @@ HSQUIRRELVM sqgi_vm_new(void)
 
 void sqgi_vm_free(HSQUIRRELVM v)
 {
+    if (!v) return;
+    sqgi_gi_shutdown_callbacks(v);
+    sqgi_subclass_shutdown(v);
+    sqgi_async_shutdown(v);
+    sqgi_signal_shutdown(v);
     sqgi_signal_mark_vm_closing(v);
     sq_close(v);
 }

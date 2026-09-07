@@ -26,6 +26,7 @@
 #include "sqgi_gi.h"
 #include "sqgi_gi_object.h"
 #include "sqgi_gerror.h"
+#include "sqgi_vm.h"
 
 #include <string.h>
 #include <stdio.h>
@@ -83,6 +84,14 @@ static void sqgi_vfunc_handler(ffi_cif *cif, void *ret, void **args, void *ud)
 {
     SqgiVfuncTramp *t = (SqgiVfuncTramp *)ud;
     HSQUIRRELVM v = t->v;
+    if (!v) {
+        /* GTypes and their instances can outlive the registering VM. */
+        if (t->parent_func)
+            ffi_call(cif, FFI_FN(t->parent_func), ret, args);
+        else if (cif->rtype->type != FFI_TYPE_VOID)
+            memset(ret, 0, cif->rtype->size);
+        return;
+    }
     GICallableInfo *ci = (GICallableInfo *)t->vfunc_info;
     gint n_gi_args = g_callable_info_get_n_args(ci);
 
@@ -246,6 +255,64 @@ typedef struct {
     GHashTable   *overrides;             /* char* → HSQOBJECT* (owned) */
     GPtrArray    *trampolines;           /* SqgiVfuncTramp* */
 } SqgiSubclass;
+
+#define SUBCLASSES_KEY "sqgi_subclasses"
+static GPtrArray *sqgi_subclasses(HSQUIRRELVM v, gboolean create)
+{
+    SQInteger top = sq_gettop(v);
+    SQUserPointer subclasses = NULL;
+    sq_pushregistrytable(v);
+    sq_pushstring(v, SUBCLASSES_KEY, -1);
+    if (SQ_SUCCEEDED(sq_rawget(v, -2))) sq_getuserpointer(v, -1, &subclasses);
+    sq_settop(v, top);
+    if (!subclasses && create) {
+        subclasses = g_ptr_array_new();
+        sq_pushregistrytable(v);
+        sq_pushstring(v, SUBCLASSES_KEY, -1);
+        sq_pushuserpointer(v, subclasses);
+        sq_rawset(v, -3);
+        sq_pop(v, 1);
+    }
+    return subclasses;
+}
+
+void sqgi_subclass_shutdown(HSQUIRRELVM v)
+{
+    GPtrArray *subclasses = sqgi_subclasses(v, FALSE);
+    if (!subclasses) return;
+    GArray *handlers = g_array_new(FALSE, FALSE, sizeof(HSQOBJECT));
+    for (guint i = 0; i < subclasses->len; i++) {
+        SqgiSubclass *s = g_ptr_array_index(subclasses, i);
+        s->v = NULL;
+        for (guint j = 0; j < s->trampolines->len; j++) {
+            SqgiVfuncTramp *t = g_ptr_array_index(s->trampolines, j);
+            t->v = NULL;
+            g_array_append_val(handlers, t->handler);
+            sq_resetobject(&t->handler);
+        }
+    }
+    g_ptr_array_free(subclasses, TRUE);
+    sq_pushregistrytable(v);
+    sq_pushstring(v, SUBCLASSES_KEY, -1);
+    sq_rawdeleteslot(v, -2, SQFalse);
+    sq_pop(v, 1);
+    /* Invalidate every trampoline before releases can finalize objects. */
+    for (guint i = 0; i < handlers->len; i++)
+        sq_release(v, &g_array_index(handlers, HSQOBJECT, i));
+    g_array_free(handlers, TRUE);
+}
+
+static void sqgi_subclass_free_overrides(HSQUIRRELVM v, GHashTable *overrides)
+{
+    GHashTableIter iter;
+    gpointer value;
+    g_hash_table_iter_init(&iter, overrides);
+    while (g_hash_table_iter_next(&iter, NULL, &value)) {
+        sq_release(v, value);
+        g_free(value);
+    }
+    g_hash_table_destroy(overrides);
+}
 
 /* Look up a vfunc on the parent GIObjectInfo, walking up through parent GI
  * info if not found directly. Returns NULL if no such vfunc. The caller
@@ -463,7 +530,7 @@ static SQInteger sq_fn_register_class(HSQUIRRELVM v)
     GTypeQuery q;
     g_type_query(parent_gtype, &q);
     if (q.type == 0) {
-        g_hash_table_destroy(overrides);
+        sqgi_subclass_free_overrides(v, overrides);
         g_base_info_unref((GIBaseInfo *)parent_info);
         g_free(type_name);
         return sq_throwerror(v,
@@ -471,7 +538,7 @@ static SQInteger sq_fn_register_class(HSQUIRRELVM v)
     }
 
     SqgiSubclass *s = g_new0(SqgiSubclass, 1);
-    s->v = v;
+    s->v = sqgi_root_vm(v);
     s->parent_gtype = parent_gtype;
     s->parent_info = parent_info;
     s->overrides = overrides;
@@ -492,8 +559,10 @@ static SQInteger sq_fn_register_class(HSQUIRRELVM v)
     GType new_type = g_type_register_static(parent_gtype, type_name,
                                             &type_info, 0);
     if (new_type == G_TYPE_INVALID) {
-        /* `s` and overrides leak — but registration failure is rare and
-         * non-recoverable. */
+        sqgi_subclass_free_overrides(v, overrides);
+        g_ptr_array_free(s->trampolines, TRUE);
+        g_base_info_unref((GIBaseInfo *)parent_info);
+        g_free(s);
         g_free(type_name);
         return sq_throwerror(v, "register_class: g_type_register_static failed");
     }
@@ -503,6 +572,10 @@ static SQInteger sq_fn_register_class(HSQUIRRELVM v)
      * the first instance is constructed. (g_type_class_ref returns the class
      * pointer; we leak the ref intentionally — class lives forever.) */
     g_type_class_ref(new_type);
+    /* class_init has captured the handlers it needs in the trampolines. */
+    sqgi_subclass_free_overrides(v, s->overrides);
+    s->overrides = NULL;
+    g_ptr_array_add(sqgi_subclasses(v, TRUE), s);
 
     /* --- build the Squirrel class derived from parent --- */
     sq_push(v, parent_idx);                  /* base class */

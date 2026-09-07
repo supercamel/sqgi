@@ -17,6 +17,10 @@ extern "C" {
  */
 void sqgi_push_gi_argument(HSQUIRRELVM v, GIArgument *arg,
                            GITypeInfo *type_info, GITransfer transfer);
+/* array_length is the runtime element count, or -1 when not available. */
+void sqgi_push_gi_argument_with_length(HSQUIRRELVM v, GIArgument *arg,
+                                     GITypeInfo *type_info, GITransfer transfer,
+                                     gssize array_length);
 
 /*
  * sqgi_get_gi_argument

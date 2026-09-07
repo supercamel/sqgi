@@ -536,7 +536,9 @@ static int write_value(HSQUIRRELVM v, SQInteger idx, JsonWriter *w)
                     "json.stringify: _tojson threw");
                 return -1;
             }
+            w->depth++;
             int r = write_value(v, -1, w);
+            w->depth--;
             sq_pop(v, 2); /* result, closure */
             return r;
         }

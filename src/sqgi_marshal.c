@@ -135,6 +135,33 @@ static void sqgi_push_gvariant(HSQUIRRELVM v, GVariant *gv)
 void sqgi_push_gi_argument(HSQUIRRELVM v, GIArgument *arg,
                            GITypeInfo *type_info, GITransfer transfer)
 {
+    sqgi_push_gi_argument_with_length(v, arg, type_info, transfer, -1);
+}
+
+/* Read a packed native element without assuming pointer-sized storage. */
+static gsize sqgi_array_element(GIArgument *element, const void *data,
+                                GITypeInfo *type)
+{
+    memset(element, 0, sizeof(*element));
+    gsize size;
+    switch (g_type_info_get_tag(type)) {
+    case GI_TYPE_TAG_BOOLEAN: size = sizeof(gboolean); break;
+    case GI_TYPE_TAG_INT8: case GI_TYPE_TAG_UINT8: size = 1; break;
+    case GI_TYPE_TAG_INT16: case GI_TYPE_TAG_UINT16: size = 2; break;
+    case GI_TYPE_TAG_INT32: case GI_TYPE_TAG_UINT32: size = 4; break;
+    case GI_TYPE_TAG_INT64: case GI_TYPE_TAG_UINT64: size = 8; break;
+    case GI_TYPE_TAG_FLOAT: size = sizeof(gfloat); break;
+    case GI_TYPE_TAG_DOUBLE: size = sizeof(gdouble); break;
+    default: size = sizeof(gpointer); break;
+    }
+    if (data) memcpy(element, data, size);
+    return size;
+}
+
+void sqgi_push_gi_argument_with_length(HSQUIRRELVM v, GIArgument *arg,
+                                     GITypeInfo *type_info, GITransfer transfer,
+                                     gssize array_length)
+{
     GITypeTag tag = g_type_info_get_tag(type_info);
 
     switch (tag) {
@@ -238,8 +265,10 @@ void sqgi_push_gi_argument(HSQUIRRELVM v, GIArgument *arg,
                 (GIRegisteredTypeInfo *)iface);
             if (gtype == G_TYPE_VARIANT) {
                 GVariant *gv = (GVariant *)arg->v_pointer;
+                gboolean floating = gv && g_variant_is_floating(gv);
+                if (floating) g_variant_ref_sink(gv);
                 sqgi_push_gvariant(v, gv);
-                if (gv && transfer == GI_TRANSFER_EVERYTHING) {
+                if (gv && (floating || transfer == GI_TRANSFER_EVERYTHING)) {
                     g_variant_unref(gv);
                 }
                 g_base_info_unref(iface);
@@ -288,41 +317,23 @@ void sqgi_push_gi_argument(HSQUIRRELVM v, GIArgument *arg,
         /* Convert to a Squirrel array */
         GIArrayType atype = g_type_info_get_array_type(type_info);
         GITypeInfo *param = g_type_info_get_param_type(type_info, 0);
-        GITypeTag elem_tag = g_type_info_get_tag(param);
         sq_newarray(v, 0);
 
         if (atype == GI_ARRAY_TYPE_C && arg->v_pointer) {
-            gint len = g_type_info_get_array_length(type_info);
-            /* Fixed-length or NULL-terminated */
-            if (len < 0) {
-                /* NULL-terminated array of pointers */
-                gpointer *arr = (gpointer *)arg->v_pointer;
-                for (gint i = 0; arr[i]; i++) {
-                    GIArgument elem = { .v_pointer = arr[i] };
-                    sqgi_push_gi_argument(v, &elem, param, GI_TRANSFER_NOTHING);
-                    sq_arrayappend(v, -2);
-                }
-            } else {
-                for (gint i = 0; i < len; i++) {
-                    /* Fixed-size element access not trivially generic here;
-                     * for now handle pointer arrays only */
-                    gpointer *arr = (gpointer *)arg->v_pointer;
-                    GIArgument elem = { .v_pointer = arr[i] };
-                    sqgi_push_gi_argument(v, &elem, param, GI_TRANSFER_NOTHING);
-                    sq_arrayappend(v, -2);
-                }
+            gssize len = array_length >= 0 ? array_length :
+                g_type_info_get_array_fixed_size(type_info);
+            gboolean terminated = g_type_info_is_zero_terminated(type_info);
+            GIArgument elem;
+            gsize stride = sqgi_array_element(&elem, NULL, param);
+            const guint8 *data = arg->v_pointer;
+            for (gssize i = 0; len >= 0 ? i < len : terminated; i++) {
+                sqgi_array_element(&elem, data + (gsize)i * stride, param);
+                if (len < 0 && elem.v_uint64 == 0) break;
+                sqgi_push_gi_argument(v, &elem, param,
+                    transfer == GI_TRANSFER_EVERYTHING ? GI_TRANSFER_EVERYTHING : GI_TRANSFER_NOTHING);
+                sq_arrayappend(v, -2);
             }
-            /* Free the array spine / contents as required by the GIR
-             * transfer annotation. We only know how to free a few element
-             * kinds — refuse to free anything else to avoid double-free. */
-            if (transfer == GI_TRANSFER_EVERYTHING &&
-                (elem_tag == GI_TYPE_TAG_UTF8 || elem_tag == GI_TYPE_TAG_FILENAME)) {
-                g_strfreev((char **)arg->v_pointer);
-                arg->v_pointer = NULL;
-            } else if (transfer == GI_TRANSFER_CONTAINER ||
-                       (transfer == GI_TRANSFER_EVERYTHING && len < 0)) {
-                /* Plain pointer-array spine (no per-element teardown we
-                 * can safely apply): free just the array. */
+            if (transfer == GI_TRANSFER_CONTAINER || transfer == GI_TRANSFER_EVERYTHING) {
                 g_free(arg->v_pointer);
                 arg->v_pointer = NULL;
             }
@@ -350,14 +361,16 @@ void sqgi_push_gi_argument(HSQUIRRELVM v, GIArgument *arg,
         GITypeInfo *param = g_type_info_get_param_type(type_info, 0);
         gboolean is_slist = (g_type_info_get_tag(type_info) == GI_TYPE_TAG_GSLIST);
         sq_newarray(v, 0);
-        for (GList *l = (GList *)arg->v_pointer; l; l = l->next) {
-            GIArgument elem = { .v_pointer = l->data };
-            sqgi_push_gi_argument(v, &elem, param, GI_TRANSFER_NOTHING);
+        for (gpointer node = arg->v_pointer; node;
+             node = is_slist ? (gpointer)((GSList *)node)->next :
+                               (gpointer)((GList *)node)->next) {
+            GIArgument elem = { .v_pointer = is_slist ?
+                ((GSList *)node)->data : ((GList *)node)->data };
+            sqgi_push_gi_argument(v, &elem, param,
+                transfer == GI_TRANSFER_EVERYTHING ? GI_TRANSFER_EVERYTHING : GI_TRANSFER_NOTHING);
             sq_arrayappend(v, -2);
         }
-        /* Container-or-full transfer ⇒ free the spine; we don't have a
-         * generic per-element freer so transfer-full degrades to
-         * container (leaks elements, never double-frees). */
+        /* Elements have been copied or adopted by their wrappers above. */
         if (arg->v_pointer && (transfer == GI_TRANSFER_CONTAINER ||
                                transfer == GI_TRANSFER_EVERYTHING)) {
             if (is_slist) g_slist_free((GSList *)arg->v_pointer);
@@ -522,6 +535,77 @@ SQRESULT sqgi_get_gi_argument(HSQUIRRELVM v, SQInteger idx,
             ptrv[n] = NULL;
             arg->v_pointer = ptrv;
 
+            g_base_info_unref(param);
+            break;
+        }
+
+        /* Numeric C arrays are common in graphics and scientific APIs. Build
+         * a temporary native array; the call trampoline frees it after the
+         * synchronous GI invocation. */
+        if (atype == GI_ARRAY_TYPE_C && sq_gettype(v, idx) == OT_ARRAY &&
+            (ptag == GI_TYPE_TAG_INT16 || ptag == GI_TYPE_TAG_UINT16 ||
+             ptag == GI_TYPE_TAG_INT32 || ptag == GI_TYPE_TAG_UINT32 ||
+             ptag == GI_TYPE_TAG_INT64 || ptag == GI_TYPE_TAG_UINT64 ||
+             ptag == GI_TYPE_TAG_FLOAT || ptag == GI_TYPE_TAG_DOUBLE)) {
+
+            SQInteger n = sq_getsize(v, idx);
+            gsize element_size = 0;
+            switch (ptag) {
+            case GI_TYPE_TAG_INT16:  element_size = sizeof(gint16); break;
+            case GI_TYPE_TAG_UINT16: element_size = sizeof(guint16); break;
+            case GI_TYPE_TAG_INT32:  element_size = sizeof(gint32); break;
+            case GI_TYPE_TAG_UINT32: element_size = sizeof(guint32); break;
+            case GI_TYPE_TAG_INT64:  element_size = sizeof(gint64); break;
+            case GI_TYPE_TAG_UINT64: element_size = sizeof(guint64); break;
+            case GI_TYPE_TAG_FLOAT:  element_size = sizeof(gfloat); break;
+            case GI_TYPE_TAG_DOUBLE: element_size = sizeof(gdouble); break;
+            default: break;
+            }
+
+            /* Keep an empty array non-NULL for APIs requiring a valid buffer,
+             * and reserve a zero element for zero-terminated metadata. */
+            gpointer data = g_malloc0_n((gsize)n + 1, element_size);
+            for (SQInteger i = 0; i < n; i++) {
+                sq_push(v, idx);
+                sq_pushinteger(v, i);
+                if (SQ_FAILED(sq_get(v, -2))) {
+                    sq_pop(v, 1);
+                    g_free(data);
+                    g_base_info_unref(param);
+                    return sq_throwerror(v, "sqgi: could not read numeric array element");
+                }
+
+                if (ptag == GI_TYPE_TAG_FLOAT || ptag == GI_TYPE_TAG_DOUBLE) {
+                    SQFloat value = 0.0;
+                    if (SQ_FAILED(sq_getfloat(v, -1, &value))) {
+                        sq_pop(v, 2);
+                        g_free(data);
+                        g_base_info_unref(param);
+                        return sq_throwerror(v, "sqgi: numeric array expects number elements");
+                    }
+                    if (ptag == GI_TYPE_TAG_FLOAT) ((gfloat *)data)[i] = (gfloat)value;
+                    else ((gdouble *)data)[i] = (gdouble)value;
+                } else {
+                    SQInteger value = 0;
+                    if (SQ_FAILED(sq_getinteger(v, -1, &value))) {
+                        sq_pop(v, 2);
+                        g_free(data);
+                        g_base_info_unref(param);
+                        return sq_throwerror(v, "sqgi: integer array expects integer elements");
+                    }
+                    switch (ptag) {
+                    case GI_TYPE_TAG_INT16:  ((gint16 *)data)[i] = (gint16)value; break;
+                    case GI_TYPE_TAG_UINT16: ((guint16 *)data)[i] = (guint16)value; break;
+                    case GI_TYPE_TAG_INT32:  ((gint32 *)data)[i] = (gint32)value; break;
+                    case GI_TYPE_TAG_UINT32: ((guint32 *)data)[i] = (guint32)value; break;
+                    case GI_TYPE_TAG_INT64:  ((gint64 *)data)[i] = (gint64)value; break;
+                    case GI_TYPE_TAG_UINT64: ((guint64 *)data)[i] = (guint64)value; break;
+                    default: break;
+                    }
+                }
+                sq_pop(v, 2);
+            }
+            arg->v_pointer = data;
             g_base_info_unref(param);
             break;
         }

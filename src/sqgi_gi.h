@@ -28,6 +28,8 @@ SQRESULT sqgi_gi_load_namespace(HSQUIRRELVM v, const char *namespace_name,
  * on a class (first arg will be checked for GObject* if it's a method).
  */
 void sqgi_gi_wrap_function(HSQUIRRELVM v, GIFunctionInfo *info);
+/* Invalidate outstanding native callbacks while the VM is still alive. */
+void sqgi_gi_shutdown_callbacks(HSQUIRRELVM v);
 
 /*
  * sqgi_gi_push_enum_table

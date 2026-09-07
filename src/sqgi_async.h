@@ -41,6 +41,8 @@ extern "C" {
  *   GLib.MainLoop.new(null, false).run();
  */
 void sqgi_async_register(HSQUIRRELVM v);
+/* Cancel owned sources and release pending coroutine bindings before sq_close. */
+void sqgi_async_shutdown(HSQUIRRELVM v);
 
 #ifdef __cplusplus
 }
