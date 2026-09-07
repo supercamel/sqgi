@@ -200,6 +200,10 @@ printf 'stat target\n' >"${WORK_DIR}/stat-target.txt"
 assert_contains "${WORK_DIR}/modules.out" "sqgipkg module tests passed"
 pass "module-level sqgipkg tests"
 
+"${SQGI_BIN}" "${ROOT_DIR}/tools/sqgipkg_tests/test_platform_helpers.nut" >"${WORK_DIR}/platform-helpers.out"
+assert_contains "${WORK_DIR}/platform-helpers.out" "sqgipkg platform helper tests passed"
+pass "platform helper sqgipkg tests"
+
 export SQGI_SOURCE_DIR="${ROOT_DIR}"
 
 HELP_OUT="${WORK_DIR}/help.out"
@@ -1250,6 +1254,34 @@ if command -v meson >/dev/null 2>&1 &&
   pass "native Vala AppImage payload"
 else
   echo "SKIP: native Vala AppImage payload (missing meson/valac/g-ir-compiler/cc toolchain)"
+fi
+
+if command -v cargo >/dev/null 2>&1 &&
+   command -v g-ir-scanner >/dev/null 2>&1 &&
+   command -v g-ir-compiler >/dev/null 2>&1 &&
+   command -v cc >/dev/null 2>&1; then
+  NATIVE_RUST_OUT="${WORK_DIR}/native-rust"
+  run_sqgipkg \
+    --manifest "${ROOT_DIR}/tools/sqgipkg_tests/native_rust_project/sqgipkg.json" \
+    --output "${NATIVE_RUST_OUT}" \
+    --appimagetool "${APPIMAGETOOL}" \
+    --no-linux-deb-download \
+    --keep-appdir \
+    --smoke-test "" \
+    >"${WORK_DIR}/native-rust-package.out"
+
+  assert_file "${NATIVE_RUST_OUT}/NativeRust.AppDir/usr/lib/libsqrust-1.0.so"
+  assert_file "${NATIVE_RUST_OUT}/NativeRust.AppDir/usr/lib/girepository-1.0/SqRust-1.0.typelib"
+  assert_elf_arch "${NATIVE_RUST_OUT}/NativeRust.AppImage" "${HOST_APPIMAGE_ARCH}"
+  assert_appdir_elf_arches "${NATIVE_RUST_OUT}/NativeRust.AppDir" "${HOST_APPIMAGE_ARCH}"
+  assert_contains "${WORK_DIR}/native-rust-package.out" "native projects: 1"
+  assert_contains "${WORK_DIR}/native-rust-package.out" "shared libraries:"
+  assert_contains "${WORK_DIR}/native-rust-package.out" "recursively resolved Linux ELF"
+  assert_contains "${WORK_DIR}/native-rust-package.out" "typelibs: 1"
+  assert_contains "${WORK_DIR}/native-rust-package.out" "native Rust GI counter value=42; signals=2"
+  pass "native Rust GI AppImage payload"
+else
+  echo "SKIP: native Rust GI AppImage payload (missing cargo/g-ir/cc toolchain)"
 fi
 
 MANIFEST_DEMO_OUT="${WORK_DIR}/manifest-image-viewer"

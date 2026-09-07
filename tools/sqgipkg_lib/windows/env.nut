@@ -442,10 +442,7 @@ class SqgiPkgWindowsEnv extends Base.SqgiPkgAppImage {
     }
 
     function is_windows_shell() {
-        local uname = this.command_output_text("uname -s")
-        return this.starts_with(uname, "MINGW") ||
-            this.starts_with(uname, "MSYS") ||
-            this.starts_with(uname, "CYGWIN")
+        return import("system").os.family == "windows"
     }
 
     function command_list_contains(commands, needle) {
