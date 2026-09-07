@@ -186,6 +186,22 @@ sqgi my_script.nut
 That is ordinary Squirrel calling native Gio async APIs. No generated bindings,
 no per-library glue, and no blocking file read.
 
+## Check Before You Run
+
+`sqgicheck` statically checks an entry point and its literal local imports
+without executing the program:
+
+```sh
+sqgicheck --summary my_script.nut
+```
+
+It reports Squirrel syntax errors, unknown GI APIs, wrong argument counts,
+invalid GObject properties and signals, and mistakes across statically known
+local-module exports. Text diagnostics include source locations and spelling
+suggestions; JSON output and stable exit statuses are available for editor and
+CI integration. See [Static Analysis With sqgicheck](sqgicheck.md) for the
+complete workflow and command reference.
+
 ## Package An App
 
 From a project directory containing `main.nut`, run:

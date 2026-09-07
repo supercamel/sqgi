@@ -240,7 +240,13 @@ ownership conventions.
 
 `sqgicheck` compiles source with SQGI's bundled Squirrel compiler, then
 abstractly interprets its bytecode against the same GI metadata used by the
-runtime. It does not execute the checked program.
+runtime. It does not execute the checked program. For example, it catches a
+misspelled method and suggests the real API:
+
+```text
+main.nut:8:6: error SQGI102: Gio.File has no method 'get_paht'
+  help: did you mean 'get_path'?
+```
 
 ```sh
 sqgicheck main.nut
@@ -254,8 +260,10 @@ recursively by default, and statically known exported tables, functions, and
 classes flow into their importers. `--summary` reports checked files and
 operations skipped because a value was unknown. A clean check exits with
 status 0; diagnostics exit with status 1; invalid command-line usage exits
-with status 2. See the
-[sqgicheck guide](docs/sqgicheck.md) for the checks and limitations.
+with status 2, so the same command works as a local check or CI gate. See the
+[complete sqgicheck guide](docs/sqgicheck.md) for installation, diagnostic
+codes, JSON output, project/import behavior, CI integration, troubleshooting,
+and limitations.
 
 ## Async / Await
 
