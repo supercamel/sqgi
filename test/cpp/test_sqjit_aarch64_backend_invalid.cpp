@@ -46,13 +46,13 @@ int main(void)
         SQJitNative native = {};
         CHECK(!sqjit_backend_compile_proto(proto, entry_stack, NULL, &native),
             "whole-proto compiler rejects invalid stack slot operand");
-        CHECK(native._native_entry == NULL && native._native_size == 0,
+        CHECK(native._code.Entry() == NULL && native._code.MappedSize() == 0,
             "whole-proto invalid reject does not install native code");
 
         SQJitProto jit = {};
         CHECK(!sqjit_backend_compile_loop(proto, entry_stack, NULL, 0, 0, 0, 1, &jit),
             "loop compiler rejects invalid stack slot operand");
-        CHECK(jit._loop_entry == NULL && jit._loop_native_size == 0,
+        CHECK(jit._loop_code.Entry() == NULL && jit._loop_code.MappedSize() == 0,
             "loop invalid reject does not install native code");
 
         proto->Release();

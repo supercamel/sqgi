@@ -522,13 +522,13 @@ static SQInteger sqjit_a64_helper_call_native_closure(SQClosure *callee,
         return SQ_JIT_NATIVE_GUARD_FAILED;
     }
 
-    SQJitNative *native = (SQJitNative *)proto->_jit->_entry;
+    SQJitNative *native = proto->_jit->_entry;
     if(!native || native->_ninstructions != proto->_ninstructions ||
-        !native->_native_entry || native->_native_kind == SQ_JIT_NATIVE_SETTER) {
+        !native->_code.Entry() || native->_native_kind == SQ_JIT_NATIVE_SETTER) {
         return SQ_JIT_NATIVE_GUARD_FAILED;
     }
 
-    SQJitNativeObjectFn fn = (SQJitNativeObjectFn)native->_native_entry;
+    SQJitNativeObjectFn fn = (SQJitNativeObjectFn)native->_code.Entry();
     return fn(&stack[arg_base], &stack[out_slot], callee);
 }
 
@@ -1998,9 +1998,9 @@ static SQInteger sqjit_a64_helper_call_class(SQClass *klass, SQObjectPtr *stack,
         return SQ_JIT_NATIVE_GUARD_FAILED;
     }
 
-    SQJitNative *native = (SQJitNative *)proto->_jit->_entry;
+    SQJitNative *native = proto->_jit->_entry;
     if(!native || native->_ninstructions != proto->_ninstructions ||
-        !native->_native_entry || native->_native_kind == SQ_JIT_NATIVE_SETTER) {
+        !native->_code.Entry() || native->_native_kind == SQ_JIT_NATIVE_SETTER) {
         return SQ_JIT_NATIVE_GUARD_FAILED;
     }
 
@@ -2009,7 +2009,7 @@ static SQInteger sqjit_a64_helper_call_class(SQClass *klass, SQObjectPtr *stack,
     stack[arg_base] = instance;
 
     SQObjectPtr ignored;
-    SQJitNativeObjectFn fn = (SQJitNativeObjectFn)native->_native_entry;
+    SQJitNativeObjectFn fn = (SQJitNativeObjectFn)native->_code.Entry();
     SQInteger status = fn(&stack[arg_base], &ignored, callee);
     if(status != SQ_JIT_NATIVE_RETURNED) {
         stack[arg_base] = original_self;

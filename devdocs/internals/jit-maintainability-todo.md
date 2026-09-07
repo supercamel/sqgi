@@ -58,6 +58,23 @@ Status keys:
 - [x] Complete the prepared-state, observed-shape, duplicated-emitter, and
   x64/AArch64 pruning-boundary reviews below.
 
+## September 2026 architecture refactor
+
+Steps 1–2 of the [architecture review](jit-architecture-review-2026-09-07.md)
+are implemented. See the [first-stage report](jit-refactor-stage1-2026-09-07.md)
+for the module map, tests and measurements.
+
+- [x] Return typed compilation results, including backend, rejection category,
+  instruction position and retryability; remove global transient-failure state.
+- [x] Assert native frame/direct/loop execution, guard fallback, rollback,
+  debugger behavior and backoff through internal route snapshots.
+- [x] Extract x86 encoding/ABI, runtime helpers, policy, diagnostics and C++ stubs.
+- [x] Give each shared state its own context and each prototype typed artifact owners.
+- [x] Run x86, Win64 ABI and AArch64 encoder tests on the development host.
+- [ ] Run the new runtime contracts natively on AArch64 and Windows.
+- [ ] Continue with common operand/flow analysis and ownership/write-log rules (step 3).
+- [ ] Migrate shared lowering incrementally (step 4), then measure pruning/tuning (step 5).
+
 ## Required Gates
 
 - [gate] Every native fast path must have a named benchmark, or it should be

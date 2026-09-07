@@ -3,6 +3,9 @@
 #define _SQJIT_H_
 
 #include "sqopcodes.h"
+#include "sqjit_code.h"
+
+struct SQJitNative;
 
 struct SQVM;
 struct SQFunctionProto;
@@ -27,9 +30,12 @@ enum {
 };
 
 struct SQJitProto {
-    void *_entry;
-    void *_loop_entry;
-    SQInteger _loop_native_size;
+    SQJitProto();
+    ~SQJitProto();
+    SQJitProto(const SQJitProto &) = delete;
+    SQJitProto &operator=(const SQJitProto &) = delete;
+    SQJitNative *_entry;
+    SQJitCode _loop_code;
     SQInteger _loop_header_ip;
     SQInteger _loop_exit_ip;
     SQInteger _loop_hot_count;
@@ -50,8 +56,8 @@ struct SQJitProto {
     SQJitEligibility _eligibility;
 };
 
-bool sqjit_runtime_enabled();
-SQInteger sqjit_hot_threshold();
+bool sqjit_runtime_enabled(SQVM *v);
+SQInteger sqjit_hot_threshold(SQVM *v);
 void sqjit_on_function_enter(SQVM *v, SQFunctionProto *proto);
 bool sqjit_try_execute_closure(SQVM *v, SQClosure *closure, SQObjectPtr *stack, SQInteger nargs, SQObjectPtr &outres);
 bool sqjit_try_execute_current_loop(SQVM *v, SQInteger header_ip);

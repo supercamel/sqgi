@@ -6,7 +6,9 @@ the interpreter as the source of truth for semantics, error handling, debugging,
 and unsupported bytecode paths.
 
 For the current AArch64 cleanup checklist, benchmark gates, and pruning rules,
-see `jit-maintainability-todo.md`.
+see `jit-maintainability-todo.md`. The implemented boundaries and validation for
+the September 2026 refactor are in [the first-stage report](jit-refactor-stage1-2026-09-07.md).
+Sections describing shared analysis and lowering remain design proposals.
 
 ## Goals
 
@@ -50,22 +52,27 @@ reimplementing the object model.
 
 ## High-Level Architecture
 
-Add a small optional JIT subsystem under `Squirrel3/squirrel/jit/`:
+The implementation lives under `Squirrel3/squirrel/jit/`:
 
-```text
-Squirrel3/squirrel/jit/
-  sqjit.h              public/internal JIT declarations
-  sqjit.cpp            manager, policy, hotness counters
-  sqjit_backend.h      backend interface
-  sqjit_backend_aarch64.cpp
-                        AArch64 backend root and include-fragment owner
-  sqjit_backend_aarch64_private.h
-                        private backend constants and small state structs
-  sqjit_backend_aarch64_*.inc
-                        AArch64 helper, whole-proto, and loop compiler fragments
-  sqjit_backend_aarch64_emit.*
-                        AArch64 instruction encoder helpers
-```
+| Module | Responsibility |
+| --- | --- |
+| `sqjit.cpp`, `sqjit.h` | VM entry/return/loop adapters and compilation orchestration |
+| `sqjit_context.*` | Options, clocks and lazy diagnostic ownership per shared state |
+| `sqjit_policy.*` | Hotness-related backoff and loop rejection policy |
+| `sqjit_diagnostics.*`, `sqjit_observe.*` | Counters, tracing and internal read-only route snapshots |
+| `sqjit_backend.h`, `sqjit_compile.cpp` | Typed compilation results and attempt-local rejection details |
+| `sqjit_artifact.cpp`, `sqjit_code.*` | Typed artifact lifetime and unique executable-mapping ownership |
+| `sqjit_specialize.*` | C++ accessor, setter and numeric specializations |
+| `sqjit_backend_x64.cpp` | x86 function and loop compilation |
+| `sqjit_backend_x64_emit.*` | x86 instruction encoding, relocations and ABI operations |
+| `sqjit_backend_x64_helpers.*` | x86 runtime operations and transactional writes |
+| `sqjit_backend_aarch64.cpp`, `sqjit_backend_aarch64_private.h`, `sqjit_backend_aarch64_*.inc` | AArch64 compiler drivers, state and helpers |
+| `sqjit_backend_aarch64_emit.*` | AArch64 instruction encoding and relocations |
+| `sqjit_backend_none.cpp` | Explicit rejection on hosts without a native backend |
+
+Both encoders can be built and tested independently of the host's native backend.
+The large compiler drivers still contain backend-specific analysis and lowering;
+sharing those rules is a later refactoring stage.
 
 Build controls:
 
@@ -74,29 +81,23 @@ SQ_ENABLE_JIT=ON/OFF          CMake option, default OFF
 SQGI_JIT=0/1                  runtime env toggle
 SQGI_JIT_THRESHOLD=N          hot-call threshold
 SQGI_JIT_TRACE=0/1            logging for compile/fallback decisions
-SQGI_JIT_TRACE=stats          aggregate counters and rejection summary at exit
+SQGI_JIT_TRACE=stats          aggregate counters and rejection summary at shared-state shutdown
 ```
 
-When JIT is disabled, the build should compile no executable-code allocator and
-all behavior should match today.
+With `SQ_ENABLE_JIT=OFF`, the build compiles no JIT implementation or executable-code
+allocator. Runtime environment options are captured on each shared state's first
+JIT use; coroutines share that context. SQGI runtime consumers receive matching
+internal layouts through the `sqgi-runtime-config` CMake interface target.
 
 ## Compilation Unit
 
 Compile one `SQFunctionProto` at a time.
 
-Add optional JIT metadata to `SQFunctionProto` behind `#ifdef SQ_ENABLE_JIT`:
-
-```cpp
-struct SQJitProto {
-    SQJitCode *entry;
-    SQInteger hot_count;
-    SQInteger fail_count;
-    SQInteger version;
-    SQJitEligibility eligibility;
-};
-
-SQJitProto *_jit;
-```
+`SQFunctionProto::_jit` is present behind `#ifdef SQ_ENABLE_JIT`. Its
+`SQJitProto` owns a typed `SQJitNative *` for the function and a separate
+`SQJitCode` for the selected loop, plus hotness, failure and backoff state.
+`SQJitNative` owns its code and specialization metadata. These owners cannot be
+copied. See `sqjit.h` and `sqjit_backend.h` for the current fields.
 
 The compiled code is invalidated when the proto is released. Because bytecode is
 immutable after `SQFunctionProto::Create()`, there is no normal bytecode
@@ -304,24 +305,25 @@ VM stack or call stack. If a helper can grow `_stack`, reload `_stack._vals`,
 
 ## Code Cache and Memory
 
-Use one process-local `SQJitContext` per `SQSharedState`:
+Each `SQSharedState` owns one lazy `SQJitContext`, containing runtime options,
+hotness/backoff clocks and optional bounded diagnostics. Separate VMs have
+separate contexts; their coroutines share the parent context.
 
-- owns executable memory pages,
-- owns compiled proto records,
-- provides logging/statistics,
-- releases code when the shared state closes.
+Each function prototype owns its compiled artifacts. `SQJitCode` exclusively
+owns a mapping or borrows a C++ stub with a zero mapping size. Prototype release
+reclaims its function and loop mappings, and clears diagnostic pointer identities
+while retaining copied names for reporting. Shared-state teardown then reports
+and destroys its diagnostic context.
 
 Executable memory policy:
 
-- Allocate RW pages for code generation.
-- Flip to RX before execution.
+- Allocate RW pages, copy code, then switch to RX before publication.
 - Never keep pages RWX.
-- On Windows use `VirtualAlloc`/`VirtualProtect`.
-- On POSIX use `mmap`/`mprotect`.
+- Use `VirtualAlloc`/`VirtualProtect` on Windows and `mmap`/`mprotect` on POSIX.
+- An unsuccessful installation preserves any previously owned code.
 
-Compiled code lifetime should be tied to `SQFunctionProto::Release()`. The first
-implementation can leak code until VM shutdown to simplify correctness, then add
-per-proto reclamation once stable.
+The mapping owner does not implement a shared cache, eviction or background
+compilation. Those remain separate design decisions.
 
 ## Backend Choice
 

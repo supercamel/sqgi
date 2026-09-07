@@ -11,9 +11,15 @@
 #include "sqarray.h"
 #include "squserdata.h"
 #include "sqclass.h"
+#ifdef SQ_ENABLE_JIT
+#include "jit/sqjit_context.h"
+#endif
 
 SQSharedState::SQSharedState()
 {
+#ifdef SQ_ENABLE_JIT
+    _jit_context = NULL;
+#endif
     _compilererrorhandler = NULL;
     _printfunc = NULL;
     _errorfunc = NULL;
@@ -222,6 +228,9 @@ SQSharedState::~SQSharedState()
     sq_delete(_metamethods,SQObjectPtrVec);
     sq_delete(_stringtable,SQStringTable);
     if(_scratchpad)SQ_FREE(_scratchpad,_scratchpadsize);
+#ifdef SQ_ENABLE_JIT
+    sqjit_context_release(this);
+#endif
 }
 
 

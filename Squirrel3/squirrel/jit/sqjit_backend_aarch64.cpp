@@ -1,7 +1,6 @@
 /*  see copyright notice in squirrel.h */
 #include "sqjit_backend_aarch64_private.h"
-#include <sys/mman.h>
-#include <unistd.h>
+#include "sqjit_code.h"
 
 #if defined(__aarch64__) && defined(__linux__)
 
@@ -112,25 +111,6 @@ static bool sqjit_a64_instruction_slots_valid(const SQInstruction &inst)
 static const SQChar *sqjit_a64_proto_name(SQFunctionProto *proto)
 {
     return proto && sq_type(proto->_name) == OT_STRING ? _stringval(proto->_name) : _SC("<anonymous>");
-}
-
-static bool sqjit_a64_reject(SQFunctionProto *proto, SQInteger ip, const char *reason)
-{
-    sqjit_diag_record_reject(proto, ip, reason);
-    if(sqjit_diag_trace_enabled()) {
-        if(proto && ip >= 0 && ip < proto->_ninstructions) {
-            const SQInstruction &inst = proto->_instructions[ip];
-            scprintf(_SC("[sqjit:a64] reject proto '%s' ip %d: %s args=%d,%d,%d,%d\n"),
-                sqjit_a64_proto_name(proto), (SQInt32)ip, reason,
-                (SQInt32)inst._arg0, (SQInt32)inst._arg1,
-                (SQInt32)inst._arg2, (SQInt32)inst._arg3);
-        }
-        else {
-            scprintf(_SC("[sqjit:a64] reject proto '%s' ip %d: %s\n"),
-                sqjit_a64_proto_name(proto), (SQInt32)ip, reason);
-        }
-    }
-    return false;
 }
 
 #define SQJIT_A64_OPCODE_LIST(X) \
@@ -266,31 +246,6 @@ static bool sqjit_a64_emit_store_stack_scalar(SQJitA64Buffer *buf, SQInteger sta
 
     return sqjit_a64_emit_ldr_x(buf, 10, 31, sqjit_a64_local_disp(local_slot)) &&
         sqjit_a64_emit_str_x(buf, 10, 19, sqjit_a64_stack_value_disp(stack_slot));
-}
-
-static bool sqjit_a64_install_raw(void **entry_out, SQInteger *mapped_size_out, SQJitA64Buffer *buf)
-{
-    long page_size = sysconf(_SC_PAGESIZE);
-    if(page_size <= 0) {
-        page_size = 4096;
-    }
-
-    SQInteger alloc_size = ((buf->size + page_size - 1) / page_size) * page_size;
-    void *mem = mmap(NULL, alloc_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-    if(mem == MAP_FAILED) {
-        return false;
-    }
-
-    memcpy(mem, buf->bytes, (size_t)buf->size);
-    __builtin___clear_cache((char *)mem, (char *)mem + buf->size);
-    if(mprotect(mem, alloc_size, PROT_READ | PROT_EXEC) != 0) {
-        munmap(mem, alloc_size);
-        return false;
-    }
-
-    *entry_out = mem;
-    *mapped_size_out = alloc_size;
-    return true;
 }
 
 #include "sqjit_backend_aarch64_compile_proto.inc"

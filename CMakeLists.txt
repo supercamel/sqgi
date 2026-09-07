@@ -33,11 +33,14 @@ endif()
 # compiled and the interpreter remains the only execution engine.
 option(SQ_ENABLE_JIT "Build experimental Squirrel bytecode JIT support" OFF)
 set(SQGI_HAS_NATIVE_JIT OFF)
-if(SQ_ENABLE_JIT AND UNIX AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|amd64)$")
+set(SQGI_JIT_BACKEND none)
+if(SQ_ENABLE_JIT AND (UNIX OR WIN32) AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|amd64)$")
     set(SQGI_HAS_NATIVE_JIT ON)
+    set(SQGI_JIT_BACKEND x64)
 elseif(SQ_ENABLE_JIT AND CMAKE_SYSTEM_NAME STREQUAL "Linux" AND
     CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64|ARM64)$")
     set(SQGI_HAS_NATIVE_JIT ON)
+    set(SQGI_JIT_BACKEND aarch64)
 endif()
 if(SQ_ENABLE_JIT)
     message(STATUS "SQGI: experimental Squirrel bytecode JIT enabled")
@@ -52,10 +55,11 @@ endif()
 set(DISABLE_STATIC ON CACHE BOOL "" FORCE)
 set(SQ_DISABLE_INSTALLER ON CACHE BOOL "" FORCE)
 add_subdirectory(Squirrel3)
+add_library(sqgi-runtime-config INTERFACE)
 if(SQ_ENABLE_JIT)
     # All consumers of sqgi-core's internal headers must share its layouts.
     # The independent bundled libsquirrel target above remains interpreter-only.
-    add_compile_definitions(SQ_ENABLE_JIT)
+    target_compile_definitions(sqgi-runtime-config INTERFACE SQ_ENABLE_JIT)
 endif()
 
 # ── System Dependencies ───────────────────────────────────────────────────────
@@ -101,6 +105,7 @@ if(MINGW AND SQGI_MINGW_STATIC_CXX_RUNTIME)
 endif()
 
 set(SQGI_DEPS
+    sqgi-runtime-config
     PkgConfig::GLIB
     PkgConfig::GOBJECT
     PkgConfig::GIO
@@ -153,12 +158,27 @@ set(SQUIRREL3_SRC
 if(SQ_ENABLE_JIT)
     list(APPEND SQUIRREL3_SRC
         Squirrel3/squirrel/jit/sqjit.cpp
+        Squirrel3/squirrel/jit/sqjit_context.cpp
+        Squirrel3/squirrel/jit/sqjit_policy.cpp
+        Squirrel3/squirrel/jit/sqjit_observe.cpp
+        Squirrel3/squirrel/jit/sqjit_compile.cpp
+        Squirrel3/squirrel/jit/sqjit_diagnostics.cpp
+        Squirrel3/squirrel/jit/sqjit_artifact.cpp
+        Squirrel3/squirrel/jit/sqjit_code.cpp
+        Squirrel3/squirrel/jit/sqjit_specialize.cpp
     )
-    if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64|ARM64)$")
+    if(SQGI_JIT_BACKEND STREQUAL "x64")
+        list(APPEND SQUIRREL3_SRC
+            Squirrel3/squirrel/jit/sqjit_backend_x64.cpp
+            Squirrel3/squirrel/jit/sqjit_backend_x64_emit.cpp
+            Squirrel3/squirrel/jit/sqjit_backend_x64_helpers.cpp)
+    elseif(SQGI_JIT_BACKEND STREQUAL "aarch64")
         list(APPEND SQUIRREL3_SRC
             Squirrel3/squirrel/jit/sqjit_backend_aarch64_emit.cpp
             Squirrel3/squirrel/jit/sqjit_backend_aarch64.cpp
         )
+    else()
+        list(APPEND SQUIRREL3_SRC Squirrel3/squirrel/jit/sqjit_backend_none.cpp)
     endif()
 endif()
 
@@ -182,9 +202,6 @@ target_include_directories(sqgi-core
         ${CMAKE_CURRENT_SOURCE_DIR}/Squirrel3/include
         ${CMAKE_CURRENT_SOURCE_DIR}/Squirrel3/squirrel
 )
-if(SQ_ENABLE_JIT)
-    target_compile_definitions(sqgi-core PRIVATE SQ_ENABLE_JIT)
-endif()
 target_compile_definitions(sqgi-core PRIVATE
     SQGI_VERSION="${PROJECT_VERSION}"
     SQGI_TARGET_ARCH="${CMAKE_SYSTEM_PROCESSOR}"
@@ -658,10 +675,31 @@ set_tests_properties(sqgi_test_c_vm_lifecycle_pending PROPERTIES
 add_test(NAME sqgi_test_c_vm_lifecycle_subclass COMMAND sqgi_test_c_vm_lifecycle subclass)
 set_tests_properties(sqgi_test_c_vm_lifecycle_subclass PROPERTIES
     ENVIRONMENT "${SQGI_TEST_ENV}" TIMEOUT 30)
+if(SQ_ENABLE_JIT)
+    # Both encoders are pure byte generation, and run on every host architecture.
+    foreach(arch x64 aarch64)
+        add_executable(sqgi_test_cpp_sqjit_${arch}_emit
+            test/cpp/test_sqjit_${arch}_emit.cpp
+            Squirrel3/squirrel/jit/sqjit_backend_${arch}_emit.cpp)
+        target_include_directories(sqgi_test_cpp_sqjit_${arch}_emit PRIVATE
+            Squirrel3/include Squirrel3/squirrel)
+        add_test(NAME sqgi_test_cpp_sqjit_${arch}_emit
+            COMMAND sqgi_test_cpp_sqjit_${arch}_emit)
+        set_tests_properties(sqgi_test_cpp_sqjit_${arch}_emit PROPERTIES LABELS "jit")
+    endforeach()
+    add_executable(sqgi_test_cpp_sqjit_x64_win64_emit
+        test/cpp/test_sqjit_x64_emit.cpp
+        Squirrel3/squirrel/jit/sqjit_backend_x64_emit.cpp)
+    target_include_directories(sqgi_test_cpp_sqjit_x64_win64_emit PRIVATE
+        Squirrel3/include Squirrel3/squirrel)
+    target_compile_definitions(sqgi_test_cpp_sqjit_x64_win64_emit PRIVATE SQJIT_ABI_WIN64=1)
+    add_test(NAME sqgi_test_cpp_sqjit_x64_win64_emit COMMAND sqgi_test_cpp_sqjit_x64_win64_emit)
+    set_tests_properties(sqgi_test_cpp_sqjit_x64_win64_emit PROPERTIES LABELS "jit")
+    add_sqgi_c_test(sqgi_test_cpp_sqjit_contracts test/cpp/test_sqjit_contracts.cpp)
+    set_tests_properties(sqgi_test_cpp_sqjit_contracts PROPERTIES LABELS "jit")
+endif()
 if(SQ_ENABLE_JIT AND CMAKE_SYSTEM_NAME STREQUAL "Linux" AND
     CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64|ARM64)$")
-    add_sqgi_c_test(sqgi_test_cpp_sqjit_aarch64_emit test/cpp/test_sqjit_aarch64_emit.cpp)
-    set_tests_properties(sqgi_test_cpp_sqjit_aarch64_emit PROPERTIES LABELS "jit")
     add_sqgi_c_test(sqgi_test_cpp_sqjit_aarch64_backend_invalid
         test/cpp/test_sqjit_aarch64_backend_invalid.cpp)
     set_tests_properties(sqgi_test_cpp_sqjit_aarch64_backend_invalid PROPERTIES LABELS "jit")

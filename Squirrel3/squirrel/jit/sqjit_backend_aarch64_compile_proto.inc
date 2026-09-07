@@ -1,17 +1,19 @@
 static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr *entry_stack,
-    SQClosure *closure, SQJitNative *native)
+    SQClosure *closure, SQJitNative *native, SQJitCompileAttempt &attempt)
 {
-    if(!proto || !entry_stack || proto->_nparameters < 1 || proto->_varparams ||
-        proto->_ndefaultparams != 0 || proto->_stacksize <= 0 ||
-        proto->_stacksize > MAX_FUNC_STACKSIZE ||
-        proto->_nparameters > proto->_stacksize || proto->_ninstructions <= 0 ||
-        proto->_ninstructions > SQ_JIT_A64_MAX_INSTRUCTIONS || proto->_bgenerator) {
-        return false;
+    if(!proto || !entry_stack || !native || proto->_nparameters < 1 ||
+        proto->_stacksize <= 0 || proto->_stacksize > MAX_FUNC_STACKSIZE ||
+        proto->_nparameters > proto->_stacksize || proto->_ninstructions <= 0) {
+        return attempt.Reject(-1, SQ_JIT_REJECT_INVALID_BYTECODE, "invalid compilation input or function bounds");
+    }
+    if(proto->_varparams || proto->_ndefaultparams != 0 || proto->_bgenerator ||
+        proto->_ninstructions > SQ_JIT_A64_MAX_INSTRUCTIONS) {
+        return attempt.Reject(-1, SQ_JIT_REJECT_OTHER, "unsupported function shape or instruction limit");
     }
 
     for(SQInteger ip = 0; ip < proto->_ninstructions; ip++) {
         if(!sqjit_a64_instruction_slots_valid(proto->_instructions[ip])) {
-            return sqjit_a64_reject(proto, ip, "invalid stack slot operand");
+            return attempt.Reject(ip, SQ_JIT_REJECT_INVALID_BYTECODE, "invalid stack slot operand");
         }
     }
 
@@ -23,6 +25,7 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
         branch_target[ip] = false;
     }
     for(SQInteger ip = 0; ip < proto->_ninstructions; ip++) {
+        attempt.SetIP(ip);
         const SQInstruction &inst = proto->_instructions[ip];
         if(inst.op == _OP_JMP || inst.op == _OP_JZ || inst.op == _OP_JCMP) {
             SQInteger target_ip = ip + 1 + sqjit_signed_arg1(inst);
@@ -2182,10 +2185,10 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
             !callee_proto->_jit->_entry) {
             return false;
         }
-        SQJitNative *callee_native = (SQJitNative *)callee_proto->_jit->_entry;
+        SQJitNative *callee_native = callee_proto->_jit->_entry;
         return callee_native &&
             callee_native->_ninstructions == callee_proto->_ninstructions &&
-            callee_native->_native_entry &&
+            callee_native->_code.Entry() &&
             callee_native->_native_kind != SQ_JIT_NATIVE_SETTER;
     };
 
@@ -2384,10 +2387,10 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
             !callee_proto->_jit->_entry) {
             return false;
         }
-        SQJitNative *callee_native = (SQJitNative *)callee_proto->_jit->_entry;
+        SQJitNative *callee_native = callee_proto->_jit->_entry;
         if(!callee_native ||
             callee_native->_ninstructions != callee_proto->_ninstructions ||
-            !callee_native->_native_entry ||
+            !callee_native->_code.Entry() ||
             callee_native->_native_kind == SQ_JIT_NATIVE_SETTER) {
             return false;
         }
@@ -3402,6 +3405,7 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
             }
             dead_until_ip = -1;
         }
+        attempt.SetIP(ip);
         const SQInstruction &inst = proto->_instructions[ip];
         bool return_shape_reachable =
             !(previous_effective_return && !branch_target[ip]);
@@ -3419,28 +3423,28 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
             case _OP_LOADFLOAT: {
                 SQFloat value;
                 if(!sqjit_loadfloat_value(inst, &value) || !emit_load_float(inst._arg0, value)) {
-                    return sqjit_a64_reject(proto, ip, "unsupported LOADFLOAT");
+                    return attempt.Reject(ip, SQ_JIT_REJECT_OTHER, "unsupported LOADFLOAT");
                 }
                 break;
             }
             case _OP_LOAD:
                 if(inst._arg1 < 0 || inst._arg1 >= proto->_nliterals) {
-                    return sqjit_a64_reject(proto, ip, "unsupported LOAD literal");
+                    return attempt.Reject(ip, SQ_JIT_REJECT_OTHER, "unsupported LOAD literal");
                 }
                 if(!load_literal_value_slot(inst._arg0, proto->_literals[inst._arg1])) {
-                    return sqjit_a64_reject(proto, ip, "unsupported LOAD literal");
+                    return attempt.Reject(ip, SQ_JIT_REJECT_OTHER, "unsupported LOAD literal");
                 }
                 break;
             case _OP_DLOAD:
                 if(inst._arg1 < 0 || inst._arg1 >= proto->_nliterals ||
                     inst._arg3 < 0 || inst._arg3 >= proto->_nliterals) {
-                    return sqjit_a64_reject(proto, ip, "unsupported DLOAD literal");
+                    return attempt.Reject(ip, SQ_JIT_REJECT_OTHER, "unsupported DLOAD literal");
                 }
                 if(!load_literal_value_slot(inst._arg0, proto->_literals[inst._arg1])) {
-                    return sqjit_a64_reject(proto, ip, "unsupported DLOAD literal");
+                    return attempt.Reject(ip, SQ_JIT_REJECT_OTHER, "unsupported DLOAD literal");
                 }
                 if(!load_literal_value_slot(inst._arg2, proto->_literals[inst._arg3])) {
-                    return sqjit_a64_reject(proto, ip, "unsupported DLOAD literal");
+                    return attempt.Reject(ip, SQ_JIT_REJECT_OTHER, "unsupported DLOAD literal");
                 }
                 break;
             case _OP_LOADBOOL:
@@ -3450,28 +3454,28 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
                 break;
             case _OP_LOADNULLS:
                 if(!emit_load_nulls(inst._arg0, inst._arg1)) {
-                    return sqjit_a64_reject(proto, ip, "unsupported LOADNULLS");
+                    return attempt.Reject(ip, SQ_JIT_REJECT_OTHER, "unsupported LOADNULLS");
                 }
                 break;
             case _OP_MOVE:
                 if(!copy_any_slot(inst._arg0, inst._arg1)) {
-                    return sqjit_a64_reject(proto, ip, "unsupported MOVE");
+                    return attempt.Reject(ip, SQ_JIT_REJECT_OTHER, "unsupported MOVE");
                 }
                 break;
             case _OP_DMOVE:
                 if(!copy_any_slot(inst._arg0, inst._arg1) ||
                     !copy_any_slot(inst._arg2, inst._arg3)) {
-                    return sqjit_a64_reject(proto, ip, "unsupported DMOVE");
+                    return attempt.Reject(ip, SQ_JIT_REJECT_OTHER, "unsupported DMOVE");
                 }
                 break;
             case _OP_GETOUTER:
                 if(!emit_outer_get(inst._arg0, inst._arg1)) {
-                    return sqjit_a64_reject(proto, ip, "unsupported GETOUTER");
+                    return attempt.Reject(ip, SQ_JIT_REJECT_OTHER, "unsupported GETOUTER");
                 }
                 break;
             case _OP_GETK: {
                 if(inst._arg1 < 0 || inst._arg1 >= proto->_nliterals) {
-                    return sqjit_a64_reject(proto, ip, "unsupported GETK key");
+                    return attempt.Reject(ip, SQ_JIT_REJECT_OTHER, "unsupported GETK key");
                 }
                 if(sq_type(proto->_literals[inst._arg1]) == OT_INTEGER) {
                     SQInteger index = _integer(proto->_literals[inst._arg1]);
@@ -3483,7 +3487,7 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
                             slots[inst._arg2].array_ptr_observed, index, &observed_array);
                         if(!emit_array_ptr_get(inst._arg0, inst._arg2, index, observed,
                             observed_array)) {
-                            return sqjit_a64_reject(proto, ip, "unsupported GETK array ptr read");
+                            return attempt.Reject(ip, SQ_JIT_REJECT_ARRAY, "unsupported GETK array ptr read");
                         }
                     }
                     else {
@@ -3501,7 +3505,7 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
                         }
                         if(!emit_array_get(inst._arg0, inst._arg2, index, observed,
                             observed_array, 0)) {
-                        return sqjit_a64_reject(proto, ip, "unsupported GETK array read");
+                        return attempt.Reject(ip, SQ_JIT_REJECT_ARRAY, "unsupported GETK array read");
                         }
                     }
                 }
@@ -3532,7 +3536,7 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
                     }
                     if(!emit_table_get(inst._arg0, inst._arg2, inst._arg1, observed,
                         observed_array, observed_object_ptr)) {
-                        return sqjit_a64_reject(proto, ip, "unsupported GETK table read");
+                        return attempt.Reject(ip, SQ_JIT_REJECT_OTHER, "unsupported GETK table read");
                     }
                 }
                 break;
@@ -3548,7 +3552,7 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
                             &observed_array);
                         if(!emit_array_ptr_get(inst._arg0, inst._arg1,
                             slots[inst._arg2].const_value, observed, observed_array)) {
-                            return sqjit_a64_reject(proto, ip, "unsupported const GET array ptr read");
+                            return attempt.Reject(ip, SQ_JIT_REJECT_ARRAY, "unsupported const GET array ptr read");
                         }
                     }
                     else {
@@ -3567,7 +3571,7 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
                         }
                         if(!emit_array_get(inst._arg0, inst._arg1, slots[inst._arg2].const_value,
                             observed, observed_array, 0)) {
-                        return sqjit_a64_reject(proto, ip, "unsupported const GET array read");
+                        return attempt.Reject(ip, SQ_JIT_REJECT_ARRAY, "unsupported const GET array read");
                         }
                     }
                 }
@@ -3584,8 +3588,7 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
                     if(key_can_be_dynamic_member && base_can_be_dynamic_member) {
                         if(!emit_member_get_dynamic_key(inst._arg0, inst._arg1,
                             inst._arg2)) {
-                            return sqjit_a64_reject(proto, ip,
-                                "unsupported dynamic GET member read");
+                            return attempt.Reject(ip, SQ_JIT_REJECT_MEMBER, "unsupported dynamic GET member read");
                         }
                         break;
                     }
@@ -3602,7 +3605,7 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
                             slots[inst._arg1].array_ptr_observed, observed_index, &observed_array);
                         if(!emit_array_ptr_get_dynamic(inst._arg0, inst._arg1, inst._arg2,
                             observed, observed_array)) {
-                            return sqjit_a64_reject(proto, ip, "unsupported dynamic GET array ptr read");
+                            return attempt.Reject(ip, SQ_JIT_REJECT_ARRAY, "unsupported dynamic GET array ptr read");
                         }
                     }
                     else {
@@ -3620,7 +3623,7 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
                         }
                         if(!emit_array_get_dynamic(inst._arg0, inst._arg1, inst._arg2,
                             observed, observed_array)) {
-                            if(sqjit_diag_trace_enabled()) {
+                            if(sqjit_diag_trace_enabled(proto)) {
                                 SQInteger observed_reg =
                                     (inst._arg1 >= 0 && inst._arg1 < MAX_FUNC_STACKSIZE) ?
                                     slots[inst._arg1].stack_object_reg : -1;
@@ -3639,7 +3642,7 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
                                     slots[inst._arg2].kind : SQ_JIT_A64_SLOT_UNKNOWN),
                                     (SQInt32)observed);
                             }
-                            return sqjit_a64_reject(proto, ip, "unsupported dynamic GET array read");
+                            return attempt.Reject(ip, SQ_JIT_REJECT_ARRAY, "unsupported dynamic GET array read");
                         }
                     }
                 }
@@ -3649,30 +3652,27 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
                 if(inst._arg0 < 0 || inst._arg0 >= MAX_FUNC_STACKSIZE ||
                     inst._arg1 < 0 || inst._arg1 >= MAX_FUNC_STACKSIZE ||
                     inst._arg2 < 0 || inst._arg2 >= MAX_FUNC_STACKSIZE) {
-                    return sqjit_a64_reject(proto, ip, "unsupported PREPCALL");
+                    return attempt.Reject(ip, SQ_JIT_REJECT_CALL, "unsupported PREPCALL");
                 }
                 SQInteger key_literal = literal_index_for_object_ptr_slot(inst._arg1);
                 if(key_literal < 0 ||
                     sq_type(proto->_literals[key_literal]) != OT_STRING) {
-                    return sqjit_a64_reject(proto, ip,
-                        "unsupported PREPCALL key");
+                    return attempt.Reject(ip, SQ_JIT_REJECT_CALL, "unsupported PREPCALL key");
                 }
 
                 SQInteger receiver_slot = inst._arg2;
                 if(inst._arg3 >= 0 && inst._arg3 < MAX_FUNC_STACKSIZE) {
                     if(inst._arg3 == inst._arg0 ||
                         !copy_any_slot(inst._arg3, inst._arg2)) {
-                        return sqjit_a64_reject(proto, ip,
-                            "unsupported PREPCALL self copy");
+                        return attempt.Reject(ip, SQ_JIT_REJECT_CALL, "unsupported PREPCALL self copy");
                     }
                     receiver_slot = inst._arg3;
                 }
                 else if(inst._arg0 == inst._arg2) {
-                    return sqjit_a64_reject(proto, ip,
-                        "unsupported PREPCALL self copy");
+                    return attempt.Reject(ip, SQ_JIT_REJECT_CALL, "unsupported PREPCALL self copy");
                 }
                 if(!mark_unknown_slot(inst._arg0)) {
-                    return sqjit_a64_reject(proto, ip, "unsupported PREPCALL");
+                    return attempt.Reject(ip, SQ_JIT_REJECT_CALL, "unsupported PREPCALL");
                 }
 
                 const SQObjectPtr *key = &proto->_literals[key_literal];
@@ -3705,8 +3705,7 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
                     scstrcmp(member_name, _SC("push")) == 0) {
                     if(slots[receiver_slot].kind != SQ_JIT_A64_SLOT_ARRAY_PTR ||
                         !slots[receiver_slot].array_ptr_fresh) {
-                        return sqjit_a64_reject(proto, ip,
-                            "unsupported PREPCALL append base");
+                        return attempt.Reject(ip, SQ_JIT_REJECT_ARRAY_APPEND, "unsupported PREPCALL append base");
                     }
                     prepared_array_append_base[inst._arg0] = receiver_slot;
                 }
@@ -3739,8 +3738,7 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
                                 member_type != OT_CLASS ||
                                 !emit_member_object_ptr_guard(receiver_slot,
                                 key_literal, member_type, member_ptr)) {
-                                return sqjit_a64_reject(proto, ip,
-                                    "unsupported PREPCALL member");
+                                return attempt.Reject(ip, SQ_JIT_REJECT_MEMBER, "unsupported PREPCALL member");
                             }
                             prepared_class[inst._arg0] =
                                 (SQClass *)(intptr_t)member_ptr;
@@ -3754,24 +3752,22 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
                     inst._arg1 < 0 || inst._arg1 >= proto->_nliterals ||
                     sq_type(proto->_literals[inst._arg1]) != OT_STRING ||
                     inst._arg2 < 0 || inst._arg2 >= MAX_FUNC_STACKSIZE) {
-                    return sqjit_a64_reject(proto, ip, "unsupported PREPCALLK");
+                    return attempt.Reject(ip, SQ_JIT_REJECT_CALL, "unsupported PREPCALLK");
                 }
 
                 SQInteger receiver_slot = inst._arg2;
                 if(inst._arg3 >= 0 && inst._arg3 < MAX_FUNC_STACKSIZE) {
                     if(inst._arg3 == inst._arg0 ||
                         !copy_any_slot(inst._arg3, inst._arg2)) {
-                        return sqjit_a64_reject(proto, ip,
-                            "unsupported PREPCALLK self copy");
+                        return attempt.Reject(ip, SQ_JIT_REJECT_CALL, "unsupported PREPCALLK self copy");
                     }
                     receiver_slot = inst._arg3;
                 }
                 else if(inst._arg0 == inst._arg2) {
-                    return sqjit_a64_reject(proto, ip,
-                        "unsupported PREPCALLK self copy");
+                    return attempt.Reject(ip, SQ_JIT_REJECT_CALL, "unsupported PREPCALLK self copy");
                 }
                 if(!mark_unknown_slot(inst._arg0)) {
-                    return sqjit_a64_reject(proto, ip, "unsupported PREPCALLK");
+                    return attempt.Reject(ip, SQ_JIT_REJECT_CALL, "unsupported PREPCALLK");
                 }
 
                 const SQChar *member_name = _stringval(proto->_literals[inst._arg1]);
@@ -3803,8 +3799,7 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
                     scstrcmp(member_name, _SC("push")) == 0) {
                     if(slots[receiver_slot].kind != SQ_JIT_A64_SLOT_ARRAY_PTR ||
                         !slots[receiver_slot].array_ptr_fresh) {
-                        return sqjit_a64_reject(proto, ip,
-                            "unsupported PREPCALLK append base");
+                        return attempt.Reject(ip, SQ_JIT_REJECT_ARRAY_APPEND, "unsupported PREPCALLK append base");
                     }
                     prepared_array_append_base[inst._arg0] = receiver_slot;
                 }
@@ -3827,8 +3822,7 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
                             &callee)) {
                             if(!emit_member_closure_guard(receiver_slot,
                                 inst._arg1, callee)) {
-                                return sqjit_a64_reject(proto, ip,
-                                    "unsupported PREPCALLK member");
+                                return attempt.Reject(ip, SQ_JIT_REJECT_MEMBER, "unsupported PREPCALLK member");
                             }
                             prepared_direct_closure[inst._arg0] = callee;
                         }
@@ -3840,7 +3834,7 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
                                 member_type != OT_CLASS ||
                                 !emit_member_object_ptr_guard(receiver_slot,
                                 inst._arg1, member_type, member_ptr)) {
-                                if(sqjit_diag_trace_enabled()) {
+                                if(sqjit_diag_trace_enabled(proto)) {
                                     SQInteger observed_reg =
                                         (receiver_slot >= 0 &&
                                         receiver_slot < MAX_FUNC_STACKSIZE) ?
@@ -3862,8 +3856,7 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
                                         (void *)constructed_array_field_class[receiver_slot] :
                                         NULL);
                                 }
-                                return sqjit_a64_reject(proto, ip,
-                                    "unsupported PREPCALLK member");
+                                return attempt.Reject(ip, SQ_JIT_REJECT_MEMBER, "unsupported PREPCALLK member");
                             }
                             prepared_class[inst._arg0] =
                                 (SQClass *)(intptr_t)member_ptr;
@@ -3875,14 +3868,13 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
             case _OP_CALL:
             case _OP_TAILCALL:
                 if(inst._arg1 < 0 || inst._arg1 >= MAX_FUNC_STACKSIZE) {
-                    return sqjit_a64_reject(proto, ip, "unsupported CALL");
+                    return attempt.Reject(ip, SQ_JIT_REJECT_CALL, "unsupported CALL");
                 }
                 if(prepared_array_len_base[inst._arg1] >= 0) {
                     SQInteger base = prepared_array_len_base[inst._arg1];
                     if(inst._arg0 == SQ_JIT_A64_NO_RESULT_SLOT || inst._arg3 != 1 ||
                         !emit_array_len(inst._arg0, base)) {
-                        return sqjit_a64_reject(proto, ip,
-                            "unsupported CALL array len");
+                        return attempt.Reject(ip, SQ_JIT_REJECT_ARRAY, "unsupported CALL array len");
                     }
                     clear_prepared_call_slot(inst._arg1);
                 }
@@ -3892,12 +3884,10 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
                     if(inst._arg3 != 2 || inst._arg2 < 0 ||
                         value_slot < 0 || value_slot >= MAX_FUNC_STACKSIZE ||
                         !emit_array_append_value_unlogged(base, value_slot)) {
-                        return sqjit_a64_reject(proto, ip,
-                            "unsupported CALL array append");
+                        return attempt.Reject(ip, SQ_JIT_REJECT_ARRAY_APPEND, "unsupported CALL array append");
                     }
                     if(inst._arg0 != SQ_JIT_A64_NO_RESULT_SLOT && !copy_any_slot(inst._arg0, base)) {
-                        return sqjit_a64_reject(proto, ip,
-                            "unsupported CALL array append result");
+                        return attempt.Reject(ip, SQ_JIT_REJECT_ARRAY_APPEND, "unsupported CALL array append result");
                     }
                     clear_prepared_call_slot(inst._arg1);
                 }
@@ -3910,8 +3900,7 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
                         inst._arg3 != math_nargs + 1 ||
                         !emit_math_call(inst._arg0, intrinsic, math_nargs,
                         inst._arg2 + 1)) {
-                        return sqjit_a64_reject(proto, ip,
-                            "unsupported CALL math");
+                        return attempt.Reject(ip, SQ_JIT_REJECT_CALL, "unsupported CALL math");
                     }
                     clear_prepared_call_slot(inst._arg1);
                 }
@@ -3924,8 +3913,7 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
                     if(inst._arg3 != 1 ||
                         !emit_number_conversion(inst._arg0, conversion,
                         conversion_base)) {
-                        return sqjit_a64_reject(proto, ip,
-                            "unsupported CALL number conversion");
+                        return attempt.Reject(ip, SQ_JIT_REJECT_CALL, "unsupported CALL number conversion");
                     }
                     clear_prepared_call_slot(inst._arg1);
                 }
@@ -3939,7 +3927,7 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
                             (!callee_proto->_jit ||
                             callee_proto->_jit->_eligibility != SQ_JIT_NEVER) &&
                             (!callee_proto->_jit || !callee_proto->_jit->_entry);
-                        if(sqjit_diag_trace_enabled() && callee) {
+                        if(sqjit_diag_trace_enabled(proto) && callee) {
                             scprintf(_SC("[sqjit:a64] direct closure miss proto '%s' ip %d callee '%s'\n"),
                                 sqjit_a64_proto_name(proto), (SQInt32)ip,
                                 sqjit_a64_proto_name(callee_proto));
@@ -3957,12 +3945,10 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
                             }
                         }
                         if(callee_can_retry) {
-                            sqjit_diag_mark_transient_reject();
-                            return sqjit_a64_reject(proto, ip,
-                                "deferred CALL direct closure");
+                            attempt.MarkTransient();
+                            return attempt.Reject(ip, SQ_JIT_REJECT_CALL, "deferred CALL direct closure");
                         }
-                        return sqjit_a64_reject(proto, ip,
-                            "unsupported CALL direct closure");
+                        return attempt.Reject(ip, SQ_JIT_REJECT_CALL, "unsupported CALL direct closure");
                     }
                     clear_prepared_call_slot(inst._arg1);
                 }
@@ -3970,13 +3956,12 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
                     SQClass *klass = prepared_class[inst._arg1];
                     if(!emit_class_call(inst._arg0, klass, inst._arg2,
                         inst._arg3)) {
-                        return sqjit_a64_reject(proto, ip,
-                            "unsupported CALL class");
+                        return attempt.Reject(ip, SQ_JIT_REJECT_CONSTRUCTOR, "unsupported CALL class");
                     }
                     clear_prepared_call_slot(inst._arg1);
                 }
                 else {
-                    return sqjit_a64_reject(proto, ip, "unsupported CALL");
+                    return attempt.Reject(ip, SQ_JIT_REJECT_CALL, "unsupported CALL");
                 }
                 break;
             case _OP_SET: {
@@ -3994,28 +3979,24 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
                         !(inst._arg3 >= 0 && inst._arg3 < MAX_FUNC_STACKSIZE &&
                         slots[inst._arg3].kind == SQ_JIT_A64_SLOT_BOOL) &&
                         !slot_observed_is_float(inst._arg3)) {
-                        return sqjit_a64_reject(proto, ip,
-                            "unsupported SET dynamic member");
+                        return attempt.Reject(ip, SQ_JIT_REJECT_MEMBER, "unsupported SET dynamic member");
                     }
                     else if(inst._arg3 >= 0 && inst._arg3 < MAX_FUNC_STACKSIZE &&
                         slots[inst._arg3].kind == SQ_JIT_A64_SLOT_BOOL) {
                         if(!emit_array_set_bool(inst._arg0, inst._arg1,
                             inst._arg2, inst._arg3)) {
-                            return sqjit_a64_reject(proto, ip,
-                                "unsupported SET bool array");
+                            return attempt.Reject(ip, SQ_JIT_REJECT_ARRAY, "unsupported SET bool array");
                         }
                     }
                     else if(slot_observed_is_float(inst._arg3)) {
                         if(!emit_array_set_float(inst._arg0, inst._arg1,
                             inst._arg2, inst._arg3)) {
-                            return sqjit_a64_reject(proto, ip,
-                                "unsupported SET float array");
+                            return attempt.Reject(ip, SQ_JIT_REJECT_ARRAY, "unsupported SET float array");
                         }
                     }
                     else if(!emit_array_set_integer(inst._arg0,
                         inst._arg1, inst._arg2, inst._arg3)) {
-                        return sqjit_a64_reject(proto, ip,
-                            "unsupported SET integer array");
+                        return attempt.Reject(ip, SQ_JIT_REJECT_ARRAY, "unsupported SET integer array");
                     }
                     break;
                 }
@@ -4033,15 +4014,13 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
                     slots[inst._arg3].kind == SQ_JIT_A64_SLOT_BOOL) {
                     if(!emit_member_set_bool_key(inst._arg0, inst._arg1,
                         &proto->_literals[key_literal], inst._arg3)) {
-                        return sqjit_a64_reject(proto, ip,
-                            "unsupported SET bool member");
+                        return attempt.Reject(ip, SQ_JIT_REJECT_MEMBER, "unsupported SET bool member");
                     }
                 }
                 else if(slot_observed_is_float(inst._arg3)) {
                     if(!emit_member_set_float_key(inst._arg0, inst._arg1,
                         &proto->_literals[key_literal], inst._arg3)) {
-                        return sqjit_a64_reject(proto, ip,
-                            "unsupported SET float member");
+                        return attempt.Reject(ip, SQ_JIT_REJECT_MEMBER, "unsupported SET float member");
                     }
                 }
                 else {
@@ -4052,13 +4031,11 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
                         value_type != OT_FLOAT &&
                         value_type != OT_BOOL;
                     if(value_is_known_object) {
-                        return sqjit_a64_reject(proto, ip,
-                            "unsupported SET object member");
+                        return attempt.Reject(ip, SQ_JIT_REJECT_MEMBER, "unsupported SET object member");
                     }
                     else if(!emit_member_set_integer_key(inst._arg0, inst._arg1,
                         &proto->_literals[key_literal], inst._arg3)) {
-                        return sqjit_a64_reject(proto, ip,
-                            "unsupported SET member");
+                        return attempt.Reject(ip, SQ_JIT_REJECT_MEMBER, "unsupported SET member");
                     }
                 }
                 break;
@@ -4138,52 +4115,52 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
             case _OP_NEWOBJ:
                 if(inst._arg3 == NOT_ARRAY) {
                     if(!emit_new_array(inst._arg0, inst._arg1)) {
-                        return sqjit_a64_reject(proto, ip, "unsupported NEWOBJ array");
+                        return attempt.Reject(ip, SQ_JIT_REJECT_ARRAY, "unsupported NEWOBJ array");
                     }
                 }
                 else if(inst._arg3 == NOT_TABLE) {
                     if(!emit_new_table(inst._arg0, inst._arg1)) {
-                        return sqjit_a64_reject(proto, ip, "unsupported NEWOBJ table");
+                        return attempt.Reject(ip, SQ_JIT_REJECT_OTHER, "unsupported NEWOBJ table");
                     }
                 }
                 else {
-                    return sqjit_a64_reject(proto, ip, "unsupported NEWOBJ");
+                    return attempt.Reject(ip, SQ_JIT_REJECT_OTHER, "unsupported NEWOBJ");
                 }
                 break;
             case _OP_NEWSLOT:
                 if(inst._arg0 != SQ_JIT_A64_NO_RESULT_SLOT ||
                     !emit_table_newslot(inst._arg1, inst._arg2, inst._arg3)) {
-                    return sqjit_a64_reject(proto, ip, "unsupported NEWSLOT");
+                    return attempt.Reject(ip, SQ_JIT_REJECT_OTHER, "unsupported NEWSLOT");
                 }
                 break;
             case _OP_APPENDARRAY:
                 if(inst._arg2 == AAT_STACK) {
                     if(!emit_append_array_stack(inst._arg0, inst._arg1)) {
-                        return sqjit_a64_reject(proto, ip, "unsupported APPENDARRAY stack");
+                        return attempt.Reject(ip, SQ_JIT_REJECT_ARRAY_APPEND, "unsupported APPENDARRAY stack");
                     }
                 }
                 else if(inst._arg2 == AAT_LITERAL) {
                     if(!emit_append_array_literal(inst._arg0, inst._arg1)) {
-                        return sqjit_a64_reject(proto, ip, "unsupported APPENDARRAY literal");
+                        return attempt.Reject(ip, SQ_JIT_REJECT_ARRAY_APPEND, "unsupported APPENDARRAY literal");
                     }
                 }
                 else if(inst._arg2 == AAT_INT) {
                     if(!emit_append_array_integer(inst._arg0, sqjit_loadint_value(inst))) {
-                        return sqjit_a64_reject(proto, ip, "unsupported APPENDARRAY int");
+                        return attempt.Reject(ip, SQ_JIT_REJECT_ARRAY_APPEND, "unsupported APPENDARRAY int");
                     }
                 }
                 else if(inst._arg2 == AAT_FLOAT) {
                     if(!emit_append_array_float_bits(inst._arg0, (SQInteger)inst._arg1)) {
-                        return sqjit_a64_reject(proto, ip, "unsupported APPENDARRAY float");
+                        return attempt.Reject(ip, SQ_JIT_REJECT_ARRAY_APPEND, "unsupported APPENDARRAY float");
                     }
                 }
                 else if(inst._arg2 == AAT_BOOL) {
                     if(!emit_append_array_bool(inst._arg0, inst._arg1)) {
-                        return sqjit_a64_reject(proto, ip, "unsupported APPENDARRAY bool");
+                        return attempt.Reject(ip, SQ_JIT_REJECT_ARRAY_APPEND, "unsupported APPENDARRAY bool");
                     }
                 }
                 else {
-                    return sqjit_a64_reject(proto, ip, "unsupported APPENDARRAY kind");
+                    return attempt.Reject(ip, SQ_JIT_REJECT_ARRAY_APPEND, "unsupported APPENDARRAY kind");
                 }
                 break;
             case _OP_EQ:
@@ -4218,7 +4195,7 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
                     !sqjit_a64_emit_b_placeholder(&buf, &patch_offset) ||
                     !sqjit_a64_record_reloc(relocs, &nrelocs, SQ_JIT_A64_MAX_RELOCS, patch_offset,
                         target_ip, false, 0)) {
-                    return sqjit_a64_reject(proto, ip, "unsupported JMP target");
+                    return attempt.Reject(ip, SQ_JIT_REJECT_OTHER, "unsupported JMP target");
                 }
                 break;
             }
@@ -4226,15 +4203,14 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
                 SQInteger target_ip = ip + 1 + sqjit_signed_arg1(inst);
                 SQInteger patch_offset = 0;
                 if(target_ip < 0 || target_ip >= proto->_ninstructions) {
-                    return sqjit_a64_reject(proto, ip, "unsupported JZ target or operand");
+                    return attempt.Reject(ip, SQ_JIT_REJECT_INVALID_BYTECODE, "unsupported JZ target or operand");
                 }
                 if(slots[inst._arg0].known_const) {
                     if(slots[inst._arg0].const_value == 0) {
                         if(!sqjit_a64_emit_b_placeholder(&buf, &patch_offset) ||
                             !sqjit_a64_record_reloc(relocs, &nrelocs, SQ_JIT_A64_MAX_RELOCS,
                             patch_offset, target_ip, false, 0)) {
-                            return sqjit_a64_reject(proto, ip,
-                                "unsupported JZ target or operand");
+                            return attempt.Reject(ip, SQ_JIT_REJECT_INVALID_BYTECODE, "unsupported JZ target or operand");
                         }
                         if(target_ip > ip) {
                             dead_until_ip = target_ip;
@@ -4248,7 +4224,7 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
                     !sqjit_a64_emit_bcond_placeholder(&buf, SQ_JIT_A64_EQ, &patch_offset) ||
                     !sqjit_a64_record_reloc(relocs, &nrelocs, SQ_JIT_A64_MAX_RELOCS, patch_offset,
                         target_ip, true, SQ_JIT_A64_EQ)) {
-                    return sqjit_a64_reject(proto, ip, "unsupported JZ target or operand");
+                    return attempt.Reject(ip, SQ_JIT_REJECT_INVALID_BYTECODE, "unsupported JZ target or operand");
                 }
                 break;
             }
@@ -4302,7 +4278,7 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
                         !sqjit_a64_emit_str_x(&buf, 10, 20, (SQInteger)offsetof(SQObject, _unVal)) ||
                         !emit_write_log_release(false) ||
                         !sqjit_a64_emit_epilogue(&buf, frame_size, SQ_JIT_NATIVE_RETURNED)) {
-                        return sqjit_a64_reject(proto, ip, "unsupported null RETURN");
+                        return attempt.Reject(ip, SQ_JIT_REJECT_OTHER, "unsupported null RETURN");
                     }
                     break;
                 }
@@ -4316,7 +4292,7 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
                         !emit_write_log_release(false) ||
                         !sqjit_a64_emit_epilogue(&buf, frame_size,
                             SQ_JIT_NATIVE_RETURNED)) {
-                        return sqjit_a64_reject(proto, ip, "unsupported object RETURN value");
+                        return attempt.Reject(ip, SQ_JIT_REJECT_OTHER, "unsupported object RETURN value");
                     }
                     break;
                 }
@@ -4330,12 +4306,11 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
                         inst._arg1, slots[inst._arg1].kind) ||
                     !emit_write_log_release(false) ||
                     !sqjit_a64_emit_epilogue(&buf, frame_size, SQ_JIT_NATIVE_RETURNED)) {
-                    return sqjit_a64_reject(proto, ip, "unsupported RETURN value");
+                    return attempt.Reject(ip, SQ_JIT_REJECT_OTHER, "unsupported RETURN value");
                 }
                 break;
             default:
-                return sqjit_a64_reject(proto, ip,
-                    sqjit_a64_unsupported_opcode_reason(inst.op));
+                return attempt.Reject(ip, SQ_JIT_REJECT_OPCODE, sqjit_a64_unsupported_opcode_reason(inst.op));
         }
     }
 
@@ -4360,8 +4335,8 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
         }
     }
 
-    if(!sqjit_a64_install_raw(&native->_native_entry, &native->_native_size, &buf)) {
-        return false;
+    if(!native->_code.Install(buf.bytes, buf.size)) {
+        return attempt.Reject(-1, SQ_JIT_REJECT_RESOURCE, "executable memory installation failed");
     }
     if(return_shape_seen && !return_shape_conflict && return_shape_class) {
         native->_return_shape = SQ_JIT_NATIVE_RETURN_ARRAY_FIELD_INSTANCE;
@@ -4376,17 +4351,11 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
     return true;
 }
 
-void sqjit_backend_native_free(void *entry, SQInteger size)
-{
-    if(entry && size > 0) {
-        munmap(entry, size);
-    }
-}
-
-bool sqjit_backend_compile_proto(SQFunctionProto *proto, SQObjectPtr *entry_stack,
+SQJitCompileResult sqjit_backend_compile_proto(SQFunctionProto *proto, SQObjectPtr *entry_stack,
     SQClosure *closure, SQJitNative *native)
 {
-    return sqjit_a64_compile_integer_proto(proto, entry_stack, closure, native);
+    SQJitCompileAttempt attempt(proto, SQ_JIT_BACKEND_AARCH64);
+    return attempt.Finish(sqjit_a64_compile_integer_proto(proto, entry_stack, closure, native, attempt));
 }
 
 static bool sqjit_a64_cmp_false_cond(CmpOP op, unsigned *cond)

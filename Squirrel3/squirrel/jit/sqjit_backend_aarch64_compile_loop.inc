@@ -310,22 +310,23 @@ bool sqjit_backend_loop_find_region(SQFunctionProto *proto, SQInteger header_ip,
     return false;
 }
 
-bool sqjit_backend_compile_loop(SQFunctionProto *proto, SQObjectPtr *entry_stack,
+static bool compile_loop(SQFunctionProto *proto, SQObjectPtr *entry_stack,
     SQClosure *closure, SQInteger start_ip, SQInteger header_ip,
-    SQInteger end_ip, SQInteger exit_ip, SQJitProto *jit)
+    SQInteger end_ip, SQInteger exit_ip, SQJitProto *jit, SQJitCompileAttempt &attempt)
 {
     if(!proto || !entry_stack || !jit || start_ip < 0 || header_ip < start_ip ||
-        end_ip < header_ip || exit_ip <= header_ip || exit_ip > proto->_ninstructions ||
+        end_ip < header_ip || end_ip >= proto->_ninstructions || exit_ip <= header_ip || exit_ip > proto->_ninstructions ||
         proto->_stacksize <= 0 || proto->_stacksize > MAX_FUNC_STACKSIZE ||
         proto->_nparameters > proto->_stacksize || proto->_ninstructions > SQ_JIT_A64_MAX_INSTRUCTIONS ||
         end_ip - start_ip > SQ_JIT_A64_MAX_INSTRUCTIONS) {
-        return false;
+        return attempt.Reject(-1, SQ_JIT_REJECT_INVALID_BYTECODE, "invalid loop compilation input or bounds");
     }
 
     for(SQInteger ip = start_ip; ip <= end_ip; ip++) {
+        attempt.SetIP(ip);
         const SQInstruction &inst = proto->_instructions[ip];
         if(!sqjit_a64_instruction_slots_valid(inst)) {
-            return sqjit_a64_reject(proto, ip, "invalid loop stack slot operand");
+            return attempt.Reject(ip, SQ_JIT_REJECT_INVALID_BYTECODE, "invalid loop stack slot operand");
         }
         if(ip == header_ip && (inst.op == _OP_JCMP || inst.op == _OP_JZ)) {
             SQInteger target_ip = ip + 1 + sqjit_signed_arg1(inst);
@@ -340,12 +341,12 @@ bool sqjit_backend_compile_loop(SQFunctionProto *proto, SQObjectPtr *entry_stack
             }
         }
         if(inst.op == _OP_JMP || inst.op == _OP_JZ || inst.op == _OP_JCMP) {
-            return sqjit_a64_reject(proto, ip, "unsupported loop branch shape");
+            return attempt.Reject(ip, SQ_JIT_REJECT_LOOP, "unsupported loop branch shape");
         }
     }
     SQJitA64LoopLenHoist len_hoist = sqjit_a64_loop_find_len_hoist(proto,
         entry_stack, start_ip, header_ip, end_ip);
-    if(sqjit_diag_trace_enabled() && len_hoist.valid) {
+    if(sqjit_diag_trace_enabled(proto) && len_hoist.valid) {
         scprintf(_SC("[sqjit:a64] hoisting array len in native loop proto '%s' at ip %d base=%d\n"),
             sqjit_a64_proto_name(proto), (SQInt32)header_ip,
             (SQInt32)len_hoist.base_slot);
@@ -420,6 +421,7 @@ bool sqjit_backend_compile_loop(SQFunctionProto *proto, SQObjectPtr *entry_stack
             (ip == len_hoist.prepcall_ip || ip == len_hoist.call_ip)) {
             continue;
         }
+        attempt.SetIP(ip);
         const SQInstruction &inst = proto->_instructions[ip];
         if(inst.op == _OP_SET || inst.op == _OP_COMPARITH || inst.op == _OP_CALL) {
             uses_write_log = true;
@@ -2392,7 +2394,7 @@ bool sqjit_backend_compile_loop(SQFunctionProto *proto, SQObjectPtr *entry_stack
             }
         }
 
-        if(sqjit_diag_trace_enabled()) {
+        if(sqjit_diag_trace_enabled(proto)) {
             scprintf(_SC("[sqjit:a64] loop dynamic member GET base=%d kind=%d keyslot=%d keykind=%d observed=%d out=%d\n"),
                 (SQInt32)base,
                 (SQInt32)((base >= 0 && base < MAX_FUNC_STACKSIZE) ?
@@ -3629,6 +3631,7 @@ bool sqjit_backend_compile_loop(SQFunctionProto *proto, SQObjectPtr *entry_stack
         preload_slot[n] = false;
     }
     for(SQInteger ip = start_ip; ip <= end_ip; ip++) {
+        attempt.SetIP(ip);
         const SQInstruction &inst = proto->_instructions[ip];
         for(SQInteger slot = 0; slot < proto->_stacksize; slot++) {
             if(sqjit_a64_loop_instruction_reads_int_slot(inst, slot) && !defined_in_loop[slot]) {
@@ -3647,25 +3650,21 @@ bool sqjit_backend_compile_loop(SQFunctionProto *proto, SQObjectPtr *entry_stack
         }
         if(sq_type(entry_stack[slot]) == OT_FLOAT) {
             if(!ensure_float_slot(slot)) {
-                return sqjit_a64_reject(proto, header_ip,
-                    "unsupported loop float preload");
+                return attempt.Reject(header_ip, SQ_JIT_REJECT_LOOP, "unsupported loop float preload");
             }
         }
         else if(sq_type(entry_stack[slot]) == OT_INTEGER) {
             if(!ensure_int_slot(slot)) {
-                return sqjit_a64_reject(proto, header_ip,
-                    "unsupported loop integer preload");
+                return attempt.Reject(header_ip, SQ_JIT_REJECT_LOOP, "unsupported loop integer preload");
             }
         }
         else {
-            return sqjit_a64_reject(proto, header_ip,
-                "unsupported loop object preload");
+            return attempt.Reject(header_ip, SQ_JIT_REJECT_LOOP, "unsupported loop object preload");
         }
     }
     if(len_hoist.valid && !emit_array_len_raw(len_hoist.local_slot,
         len_hoist.base_slot)) {
-        return sqjit_a64_reject(proto, len_hoist.prepcall_ip,
-            "unsupported loop len hoist");
+        return attempt.Reject(len_hoist.prepcall_ip, SQ_JIT_REJECT_LOOP, "unsupported loop len hoist");
     }
 
     auto hoist_supplies_slot = [&](SQInteger slot) -> bool {
@@ -3687,6 +3686,7 @@ bool sqjit_backend_compile_loop(SQFunctionProto *proto, SQObjectPtr *entry_stack
             (ip == len_hoist.prepcall_ip || ip == len_hoist.call_ip)) {
             continue;
         }
+        attempt.SetIP(ip);
         const SQInstruction &inst = proto->_instructions[ip];
         switch(inst.op) {
             case _OP_LINE:
@@ -3699,19 +3699,19 @@ bool sqjit_backend_compile_loop(SQFunctionProto *proto, SQObjectPtr *entry_stack
             case _OP_LOADFLOAT: {
                 SQFloat value;
                 if(!sqjit_loadfloat_value(inst, &value) || !emit_load_float(inst._arg0, value)) {
-                    return sqjit_a64_reject(proto, ip, "unsupported loop LOADFLOAT");
+                    return attempt.Reject(ip, SQ_JIT_REJECT_LOOP, "unsupported loop LOADFLOAT");
                 }
                 break;
             }
             case _OP_LOAD:
                 if(!load_literal_slot(inst._arg0, inst._arg1)) {
-                    return sqjit_a64_reject(proto, ip, "unsupported loop LOAD");
+                    return attempt.Reject(ip, SQ_JIT_REJECT_LOOP, "unsupported loop LOAD");
                 }
                 break;
             case _OP_DLOAD:
                 if(!load_literal_slot(inst._arg0, inst._arg1) ||
                     !load_literal_slot(inst._arg2, inst._arg3)) {
-                    return sqjit_a64_reject(proto, ip, "unsupported loop DLOAD");
+                    return attempt.Reject(ip, SQ_JIT_REJECT_LOOP, "unsupported loop DLOAD");
                 }
                 break;
             case _OP_LOADBOOL:
@@ -3722,7 +3722,7 @@ bool sqjit_backend_compile_loop(SQFunctionProto *proto, SQObjectPtr *entry_stack
                 break;
             case _OP_LOADNULLS:
                 if(!emit_load_nulls(inst._arg0, inst._arg1)) {
-                    return sqjit_a64_reject(proto, ip, "unsupported loop LOADNULLS");
+                    return attempt.Reject(ip, SQ_JIT_REJECT_LOOP, "unsupported loop LOADNULLS");
                 }
                 break;
             case _OP_MOVE:
@@ -3791,7 +3791,7 @@ bool sqjit_backend_compile_loop(SQFunctionProto *proto, SQObjectPtr *entry_stack
                 break;
             case _OP_GETK: {
                 if(inst._arg1 < 0 || inst._arg1 >= proto->_nliterals) {
-                    return sqjit_a64_reject(proto, ip, "unsupported loop GETK key");
+                    return attempt.Reject(ip, SQ_JIT_REJECT_LOOP, "unsupported loop GETK key");
                 }
                 if(sq_type(proto->_literals[inst._arg1]) == OT_INTEGER) {
                     SQInteger index = _integer(proto->_literals[inst._arg1]);
@@ -3822,13 +3822,12 @@ bool sqjit_backend_compile_loop(SQFunctionProto *proto, SQObjectPtr *entry_stack
                     if(numeric_float) {
                         if(!emit_array_element_get_number_float_direct(inst._arg0,
                             inst._arg2, true, index, -1)) {
-                            return sqjit_a64_reject(proto, ip,
-                                "unsupported loop numeric GETK array read");
+                            return attempt.Reject(ip, SQ_JIT_REJECT_LOOP, "unsupported loop numeric GETK array read");
                         }
                     }
                     else if(!emit_array_get_const(inst._arg0, inst._arg2, index, observed,
                         observed_array)) {
-                        return sqjit_a64_reject(proto, ip, "unsupported loop GETK array read");
+                        return attempt.Reject(ip, SQ_JIT_REJECT_LOOP, "unsupported loop GETK array read");
                     }
                 }
                 else {
@@ -3859,7 +3858,7 @@ bool sqjit_backend_compile_loop(SQFunctionProto *proto, SQObjectPtr *entry_stack
                         &observed_array, &observed_object_ptr);
                     if(!emit_table_get(inst._arg0, inst._arg2, inst._arg1, observed,
                         observed_array, observed_object_ptr)) {
-                        if(sqjit_diag_trace_enabled()) {
+                        if(sqjit_diag_trace_enabled(proto)) {
                             SQInteger observed_reg =
                                 (inst._arg2 >= 0 && inst._arg2 < MAX_FUNC_STACKSIZE) ?
                                 slots[inst._arg2].stack_object_reg : -1;
@@ -3879,7 +3878,7 @@ bool sqjit_backend_compile_loop(SQFunctionProto *proto, SQObjectPtr *entry_stack
                                     _stringval(proto->_literals[inst._arg1]));
                             }
                         }
-                        return sqjit_a64_reject(proto, ip, "unsupported loop GETK table read");
+                        return attempt.Reject(ip, SQ_JIT_REJECT_LOOP, "unsupported loop GETK table read");
                     }
                 }
                 break;
@@ -3915,13 +3914,12 @@ bool sqjit_backend_compile_loop(SQFunctionProto *proto, SQObjectPtr *entry_stack
                     if(numeric_float) {
                         if(!emit_array_element_get_number_float_direct(inst._arg0,
                             inst._arg1, true, slots[inst._arg2].const_value, -1)) {
-                            return sqjit_a64_reject(proto, ip,
-                                "unsupported loop numeric const GET array read");
+                            return attempt.Reject(ip, SQ_JIT_REJECT_LOOP, "unsupported loop numeric const GET array read");
                         }
                     }
                     else if(!emit_array_get_const(inst._arg0, inst._arg1,
                         slots[inst._arg2].const_value, observed, observed_array)) {
-                        return sqjit_a64_reject(proto, ip, "unsupported loop const GET array read");
+                        return attempt.Reject(ip, SQ_JIT_REJECT_LOOP, "unsupported loop const GET array read");
                     }
                 }
                 else {
@@ -3938,8 +3936,7 @@ bool sqjit_backend_compile_loop(SQFunctionProto *proto, SQObjectPtr *entry_stack
                         if(!emit_member_get_dynamic_key(inst._arg0, inst._arg1,
                             inst._arg2,
                             slot_next_used_by_integer_binary(ip, inst._arg0))) {
-                            return sqjit_a64_reject(proto, ip,
-                                "unsupported loop dynamic GET member read");
+                            return attempt.Reject(ip, SQ_JIT_REJECT_LOOP, "unsupported loop dynamic GET member read");
                         }
                         break;
                     }
@@ -3978,13 +3975,12 @@ bool sqjit_backend_compile_loop(SQFunctionProto *proto, SQObjectPtr *entry_stack
                     if(numeric_float) {
                         if(!emit_array_element_get_number_float_direct(inst._arg0,
                             inst._arg1, false, 0, inst._arg2)) {
-                            return sqjit_a64_reject(proto, ip,
-                                "unsupported loop numeric dynamic GET array read");
+                            return attempt.Reject(ip, SQ_JIT_REJECT_LOOP, "unsupported loop numeric dynamic GET array read");
                         }
                     }
                     else if(!emit_array_get_dynamic(inst._arg0, inst._arg1, inst._arg2,
                         observed, observed_array, observed_object_ptr)) {
-                        return sqjit_a64_reject(proto, ip, "unsupported loop dynamic GET array read");
+                        return attempt.Reject(ip, SQ_JIT_REJECT_LOOP, "unsupported loop dynamic GET array read");
                     }
                 }
                 break;
@@ -4001,24 +3997,21 @@ bool sqjit_backend_compile_loop(SQFunctionProto *proto, SQObjectPtr *entry_stack
                     slots[inst._arg2].kind != SQ_JIT_A64_SLOT_BOOL &&
                     (slots[inst._arg2].kind != SQ_JIT_A64_SLOT_STACK_OBJECT ||
                     slots[inst._arg2].stack_object_reg < 0))) {
-                    return sqjit_a64_reject(proto, ip, "unsupported loop PREPCALLK");
+                    return attempt.Reject(ip, SQ_JIT_REJECT_LOOP, "unsupported loop PREPCALLK");
                 }
                 {
                     SQInteger receiver_slot = inst._arg2;
                     if(inst._arg3 >= 0 && inst._arg3 < MAX_FUNC_STACKSIZE) {
                         if(inst._arg3 == inst._arg0) {
-                            return sqjit_a64_reject(proto, ip,
-                                "unsupported loop PREPCALLK");
+                            return attempt.Reject(ip, SQ_JIT_REJECT_LOOP, "unsupported loop PREPCALLK");
                         }
                         if(slots[inst._arg2].kind == SQ_JIT_A64_SLOT_STACK_OBJECT) {
                             if(!copy_stack_object_alias(inst._arg3, inst._arg2)) {
-                                return sqjit_a64_reject(proto, ip,
-                                    "unsupported loop PREPCALLK");
+                                return attempt.Reject(ip, SQ_JIT_REJECT_LOOP, "unsupported loop PREPCALLK");
                             }
                         }
                         else if(!copy_any_slot(inst._arg3, inst._arg2)) {
-                            return sqjit_a64_reject(proto, ip,
-                                "unsupported loop PREPCALLK");
+                            return attempt.Reject(ip, SQ_JIT_REJECT_LOOP, "unsupported loop PREPCALLK");
                         }
                         receiver_slot = inst._arg3;
                     }
@@ -4048,8 +4041,7 @@ bool sqjit_backend_compile_loop(SQFunctionProto *proto, SQObjectPtr *entry_stack
                     }
                     else if(scstrcmp(member_name, _SC("append")) == 0 ||
                         scstrcmp(member_name, _SC("push")) == 0) {
-                        return sqjit_a64_reject(proto, ip,
-                            "unsupported loop array append PREPCALLK");
+                        return attempt.Reject(ip, SQ_JIT_REJECT_ARRAY_APPEND, "unsupported loop array append PREPCALLK");
                     }
                     else {
                         SQNativeClosure *native_callee = NULL;
@@ -4069,7 +4061,7 @@ bool sqjit_backend_compile_loop(SQFunctionProto *proto, SQObjectPtr *entry_stack
                         SQClosure *callee = NULL;
                         if(!observed_member_closure(receiver_slot, inst._arg1, &callee) ||
                             !emit_member_closure_guard(receiver_slot, inst._arg1, callee)) {
-                            return sqjit_a64_reject(proto, ip, "unsupported loop PREPCALLK");
+                            return attempt.Reject(ip, SQ_JIT_REJECT_LOOP, "unsupported loop PREPCALLK");
                         }
                         prepared_direct_closure[inst._arg0] = callee;
                     }
@@ -4077,12 +4069,12 @@ bool sqjit_backend_compile_loop(SQFunctionProto *proto, SQObjectPtr *entry_stack
                 break;
             case _OP_CALL:
                 if(inst._arg1 < 0 || inst._arg1 >= MAX_FUNC_STACKSIZE) {
-                    return sqjit_a64_reject(proto, ip, "unsupported loop CALL");
+                    return attempt.Reject(ip, SQ_JIT_REJECT_LOOP, "unsupported loop CALL");
                 }
                 if(prepared_array_len_base[inst._arg1] >= 0) {
                     if(inst._arg0 == SQ_JIT_A64_NO_RESULT_SLOT || inst._arg3 != 1 ||
                         !emit_array_len(inst._arg0, prepared_array_len_base[inst._arg1])) {
-                        return sqjit_a64_reject(proto, ip, "unsupported loop CALL");
+                        return attempt.Reject(ip, SQ_JIT_REJECT_LOOP, "unsupported loop CALL");
                     }
                     prepared_array_len_base[inst._arg1] = -1;
                 }
@@ -4095,8 +4087,7 @@ bool sqjit_backend_compile_loop(SQFunctionProto *proto, SQObjectPtr *entry_stack
                     if(inst._arg3 != 1 ||
                         !emit_number_conversion(inst._arg0, conversion,
                         conversion_base)) {
-                        return sqjit_a64_reject(proto, ip,
-                            "unsupported loop number conversion CALL");
+                        return attempt.Reject(ip, SQ_JIT_REJECT_LOOP, "unsupported loop number conversion CALL");
                     }
                     prepared_number_conversion[inst._arg1] =
                         SQ_JIT_A64_NUMBER_CONVERSION_NONE;
@@ -4109,7 +4100,7 @@ bool sqjit_backend_compile_loop(SQFunctionProto *proto, SQObjectPtr *entry_stack
                         inst._arg3 != math_nargs + 1 ||
                         !emit_math_call(inst._arg0, intrinsic, math_nargs,
                         inst._arg2 + 1)) {
-                        return sqjit_a64_reject(proto, ip, "unsupported loop math CALL");
+                        return attempt.Reject(ip, SQ_JIT_REJECT_LOOP, "unsupported loop math CALL");
                     }
                     prepared_math_intrinsic[inst._arg1] = SQ_JIT_A64_MATH_NONE;
                     prepared_math_nargs[inst._arg1] = 0;
@@ -4117,7 +4108,7 @@ bool sqjit_backend_compile_loop(SQFunctionProto *proto, SQObjectPtr *entry_stack
                 else if(prepared_direct_closure[inst._arg1]) {
                     SQClosure *callee = prepared_direct_closure[inst._arg1];
                     if(!emit_inline_leaf_call(callee, inst)) {
-                        return sqjit_a64_reject(proto, ip, "unsupported loop direct CALL");
+                        return attempt.Reject(ip, SQ_JIT_REJECT_LOOP, "unsupported loop direct CALL");
                     }
                     prepared_direct_closure[inst._arg1] = NULL;
                 }
@@ -4127,11 +4118,11 @@ bool sqjit_backend_compile_loop(SQFunctionProto *proto, SQObjectPtr *entry_stack
                     SQClosure *callee = _closure(entry_stack[slots[inst._arg1].stack_object_reg]);
                     if(!emit_closure_slot_guard(inst._arg1, callee) ||
                         !emit_inline_leaf_call(callee, inst)) {
-                        return sqjit_a64_reject(proto, ip, "unsupported loop direct CALL");
+                        return attempt.Reject(ip, SQ_JIT_REJECT_LOOP, "unsupported loop direct CALL");
                     }
                 }
                 else {
-                    return sqjit_a64_reject(proto, ip, "unsupported loop CALL");
+                    return attempt.Reject(ip, SQ_JIT_REJECT_LOOP, "unsupported loop CALL");
                 }
                 break;
             case _OP_COMPARITH: {
@@ -4147,7 +4138,7 @@ bool sqjit_backend_compile_loop(SQFunctionProto *proto, SQObjectPtr *entry_stack
                     key < 0 || key >= MAX_FUNC_STACKSIZE ||
                     scratch < 0 || scratch >= MAX_FUNC_STACKSIZE ||
                     !comparith_opcode(inst._arg3, &op)) {
-                    return sqjit_a64_reject(proto, ip, "unsupported loop COMPARITH");
+                    return attempt.Reject(ip, SQ_JIT_REJECT_LOOP, "unsupported loop COMPARITH");
                 }
 
                 SQObjectType observed = OT_NULL;
@@ -4174,8 +4165,7 @@ bool sqjit_backend_compile_loop(SQFunctionProto *proto, SQObjectPtr *entry_stack
                     }
                     if(!emit_array_get_const(scratch, source, slots[key].const_value,
                         observed, observed_array)) {
-                        return sqjit_a64_reject(proto, ip,
-                            "unsupported loop COMPARITH get");
+                        return attempt.Reject(ip, SQ_JIT_REJECT_LOOP, "unsupported loop COMPARITH get");
                     }
                 }
                     else {
@@ -4206,22 +4196,19 @@ bool sqjit_backend_compile_loop(SQFunctionProto *proto, SQObjectPtr *entry_stack
                     }
                     if(!emit_array_get_dynamic(scratch, source, key, observed,
                         observed_array, observed_object_ptr)) {
-                        return sqjit_a64_reject(proto, ip,
-                            "unsupported loop COMPARITH get");
+                        return attempt.Reject(ip, SQ_JIT_REJECT_LOOP, "unsupported loop COMPARITH get");
                     }
                 }
 
                 if(slot_is_float(scratch) || slot_observed_is_float(value)) {
                     if(!emit_float_binary(op, scratch, scratch, value) ||
                         !emit_array_set_float(inst._arg0, source, key, scratch)) {
-                        return sqjit_a64_reject(proto, ip,
-                            "unsupported loop COMPARITH float");
+                        return attempt.Reject(ip, SQ_JIT_REJECT_LOOP, "unsupported loop COMPARITH float");
                     }
                 }
                 else if(!emit_binary(op, scratch, scratch, value) ||
                     !emit_array_set_integer(inst._arg0, source, key, scratch)) {
-                    return sqjit_a64_reject(proto, ip,
-                        "unsupported loop COMPARITH integer");
+                    return attempt.Reject(ip, SQ_JIT_REJECT_LOOP, "unsupported loop COMPARITH integer");
                 }
                 break;
             }
@@ -4234,15 +4221,13 @@ bool sqjit_backend_compile_loop(SQFunctionProto *proto, SQObjectPtr *entry_stack
                         slots[inst._arg3].kind == SQ_JIT_A64_SLOT_BOOL) {
                         if(!emit_member_set_bool_key(inst._arg0, inst._arg1,
                             &proto->_literals[key_literal], inst._arg3)) {
-                            return sqjit_a64_reject(proto, ip,
-                                "unsupported loop bool member SET");
+                            return attempt.Reject(ip, SQ_JIT_REJECT_LOOP, "unsupported loop bool member SET");
                         }
                     }
                     else if(slot_is_float(inst._arg3)) {
                         if(!emit_member_set_float_key(inst._arg0, inst._arg1,
                             &proto->_literals[key_literal], inst._arg3)) {
-                            return sqjit_a64_reject(proto, ip,
-                                "unsupported loop float member SET");
+                            return attempt.Reject(ip, SQ_JIT_REJECT_LOOP, "unsupported loop float member SET");
                         }
                     }
                     else {
@@ -4259,14 +4244,12 @@ bool sqjit_backend_compile_loop(SQFunctionProto *proto, SQObjectPtr *entry_stack
                                 sqjit_a64_type_is_object_ptr(value_type);
                         }
                         if(value_can_be_object) {
-                            return sqjit_a64_reject(proto, ip,
-                                "unsupported loop object member SET");
+                            return attempt.Reject(ip, SQ_JIT_REJECT_LOOP, "unsupported loop object member SET");
                         }
                         else if(!emit_member_set_integer_key(inst._arg0,
                             inst._arg1, &proto->_literals[key_literal],
                             inst._arg3)) {
-                            return sqjit_a64_reject(proto, ip,
-                                "unsupported loop integer member SET");
+                            return attempt.Reject(ip, SQ_JIT_REJECT_LOOP, "unsupported loop integer member SET");
                         }
                     }
                     remember_member_shape(inst._arg1, key_literal, inst._arg3);
@@ -4284,25 +4267,24 @@ bool sqjit_backend_compile_loop(SQFunctionProto *proto, SQObjectPtr *entry_stack
                     !(inst._arg3 >= 0 && inst._arg3 < MAX_FUNC_STACKSIZE &&
                     slots[inst._arg3].kind == SQ_JIT_A64_SLOT_BOOL) &&
                     !slot_is_float(inst._arg3)) {
-                    return sqjit_a64_reject(proto, ip,
-                        "unsupported loop dynamic member SET");
+                    return attempt.Reject(ip, SQ_JIT_REJECT_LOOP, "unsupported loop dynamic member SET");
                 }
                 else if(inst._arg3 >= 0 && inst._arg3 < MAX_FUNC_STACKSIZE &&
                     slots[inst._arg3].kind == SQ_JIT_A64_SLOT_BOOL) {
                     if(!emit_array_set_bool(inst._arg0, inst._arg1, inst._arg2,
                         inst._arg3)) {
-                        return sqjit_a64_reject(proto, ip, "unsupported loop SET");
+                        return attempt.Reject(ip, SQ_JIT_REJECT_LOOP, "unsupported loop SET");
                     }
                 }
                 else if(slot_is_float(inst._arg3)) {
                     if(!emit_array_set_float(inst._arg0, inst._arg1, inst._arg2,
                         inst._arg3)) {
-                        return sqjit_a64_reject(proto, ip, "unsupported loop SET");
+                        return attempt.Reject(ip, SQ_JIT_REJECT_LOOP, "unsupported loop SET");
                     }
                 }
                 else if(!emit_array_set_integer(inst._arg0, inst._arg1, inst._arg2,
                     inst._arg3)) {
-                    return sqjit_a64_reject(proto, ip, "unsupported loop SET");
+                    return attempt.Reject(ip, SQ_JIT_REJECT_LOOP, "unsupported loop SET");
                 }
                 }
                 break;
@@ -4418,7 +4400,7 @@ bool sqjit_backend_compile_loop(SQFunctionProto *proto, SQObjectPtr *entry_stack
                     !sqjit_a64_emit_cmp_imm(&buf, 9, 0) ||
                     !sqjit_a64_emit_bcond_placeholder(&buf, SQ_JIT_A64_EQ, &patch_offset) ||
                     !record_branch(patch_offset, target_ip, true, SQ_JIT_A64_EQ)) {
-                    return sqjit_a64_reject(proto, ip, "unsupported loop JZ");
+                    return attempt.Reject(ip, SQ_JIT_REJECT_LOOP, "unsupported loop JZ");
                 }
                 if(ip == header_ip && !emit_mark_body_entered()) {
                     return false;
@@ -4441,7 +4423,7 @@ bool sqjit_backend_compile_loop(SQFunctionProto *proto, SQObjectPtr *entry_stack
                         !sqjit_a64_emit_fcmp_s(&buf, 0, 1) ||
                         !sqjit_a64_emit_bcond_placeholder(&buf, false_cond, &patch_offset) ||
                         !record_branch(patch_offset, target_ip, true, false_cond)) {
-                        return sqjit_a64_reject(proto, ip, "unsupported loop float JCMP");
+                        return attempt.Reject(ip, SQ_JIT_REJECT_LOOP, "unsupported loop float JCMP");
                     }
                 }
                 else if(!emit_loop_int_operand(9, inst._arg2) ||
@@ -4449,7 +4431,7 @@ bool sqjit_backend_compile_loop(SQFunctionProto *proto, SQObjectPtr *entry_stack
                     !sqjit_a64_emit_cmp_reg(&buf, 9, 10) ||
                     !sqjit_a64_emit_bcond_placeholder(&buf, false_cond, &patch_offset) ||
                     !record_branch(patch_offset, target_ip, true, false_cond)) {
-                    return sqjit_a64_reject(proto, ip, "unsupported loop JCMP");
+                    return attempt.Reject(ip, SQ_JIT_REJECT_LOOP, "unsupported loop JCMP");
                 }
                 if(ip == header_ip && !emit_mark_body_entered()) {
                     return false;
@@ -4461,13 +4443,12 @@ bool sqjit_backend_compile_loop(SQFunctionProto *proto, SQObjectPtr *entry_stack
                 SQInteger patch_offset = 0;
                 if(!sqjit_a64_emit_b_placeholder(&buf, &patch_offset) ||
                     !record_branch(patch_offset, target_ip, false, 0)) {
-                    return sqjit_a64_reject(proto, ip, "unsupported loop JMP");
+                    return attempt.Reject(ip, SQ_JIT_REJECT_LOOP, "unsupported loop JMP");
                 }
                 break;
             }
             default:
-                return sqjit_a64_reject(proto, ip,
-                    sqjit_a64_unsupported_loop_opcode_reason(inst.op));
+                return attempt.Reject(ip, SQ_JIT_REJECT_OPCODE, sqjit_a64_unsupported_loop_opcode_reason(inst.op));
         }
     }
 
@@ -4583,5 +4564,15 @@ bool sqjit_backend_compile_loop(SQFunctionProto *proto, SQObjectPtr *entry_stack
         }
     }
 
-    return sqjit_a64_install_raw(&jit->_loop_entry, &jit->_loop_native_size, &buf);
+    return jit->_loop_code.Install(buf.bytes, buf.size) ||
+        attempt.Reject(-1, SQ_JIT_REJECT_RESOURCE, "executable memory installation failed");
+}
+
+SQJitCompileResult sqjit_backend_compile_loop(SQFunctionProto *proto,
+    SQObjectPtr *stack, SQClosure *closure, SQInteger start, SQInteger header,
+    SQInteger end, SQInteger exit, SQJitProto *jit)
+{
+    SQJitCompileAttempt attempt(proto, SQ_JIT_BACKEND_AARCH64);
+    return attempt.Finish(compile_loop(proto, stack, closure, start, header,
+        end, exit, jit, attempt));
 }

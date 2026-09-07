@@ -1247,8 +1247,8 @@ exception_restore:
                     SQFunctionProto *jitfunc = _closure(ci->_closure)->_function;
                     SQInteger jit_ip = (SQInteger)((ci->_ip - jitfunc->_instructions) - 1);
                     SQJitProto *jit = jitfunc->_jit;
-                    if((!jit || (jit->_loop_entry && jit->_loop_header_ip == jit_ip) ||
-                        (!jit->_loop_entry && (jit->_loop_fail_count == 0 ||
+                    if((!jit || (jit->_loop_code.Entry() && jit->_loop_header_ip == jit_ip) ||
+                        (!jit->_loop_code.Entry() && (jit->_loop_fail_count == 0 ||
                             jit->_loop_header_ip != jit_ip))) &&
                         sqjit_try_execute_current_loop(this, jit_ip)) {
                         continue;
@@ -1264,8 +1264,8 @@ exception_restore:
                     SQFunctionProto *jitfunc = _closure(ci->_closure)->_function;
                     SQInteger jit_ip = (SQInteger)((ci->_ip - jitfunc->_instructions) - 1);
                     SQJitProto *jit = jitfunc->_jit;
-                    if((!jit || (jit->_loop_entry && jit->_loop_header_ip == jit_ip) ||
-                        (!jit->_loop_entry && (jit->_loop_fail_count == 0 ||
+                    if((!jit || (jit->_loop_code.Entry() && jit->_loop_header_ip == jit_ip) ||
+                        (!jit->_loop_code.Entry() && (jit->_loop_fail_count == 0 ||
                             jit->_loop_header_ip != jit_ip))) &&
                         sqjit_try_execute_current_loop(this, jit_ip)) {
                         continue;

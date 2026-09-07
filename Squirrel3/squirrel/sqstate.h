@@ -57,8 +57,13 @@ private:
 
 struct SQObjectPtr;
 
+struct SQJitContext;
+
 struct SQSharedState
 {
+#ifdef SQ_ENABLE_JIT
+    SQJitContext *_jit_context;
+#endif
     SQSharedState();
     ~SQSharedState();
     void Init();

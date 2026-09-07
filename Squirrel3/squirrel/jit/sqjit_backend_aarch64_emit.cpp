@@ -4,7 +4,6 @@
 #include <stddef.h>
 #include <string.h>
 
-#if defined(__aarch64__) && defined(__linux__)
 
 static bool sqjit_a64_is_i12(SQInteger value)
 {
@@ -329,5 +328,3 @@ bool sqjit_a64_emit_type_guard(SQJitA64Buffer *buf, SQInteger stack_slot, SQObje
         sqjit_a64_record_reloc(guard_relocs, nguard_relocs, MAX_FUNC_STACKSIZE + 512,
             patch_offset, -1, true, SQ_JIT_A64_NE);
 }
-
-#endif

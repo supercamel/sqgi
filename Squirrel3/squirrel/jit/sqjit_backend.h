@@ -3,6 +3,7 @@
 #define _SQJIT_BACKEND_H_
 
 #include "sqopcodes.h"
+#include "sqjit_code.h"
 
 struct SQClosure;
 struct SQClass;
@@ -48,8 +49,43 @@ enum SQJitRejectCategory {
     SQ_JIT_REJECT_CONSTRUCTOR,
     SQ_JIT_REJECT_GUARD,
     SQ_JIT_REJECT_WRITE,
+    SQ_JIT_REJECT_RESOURCE,
     SQ_JIT_REJECT_OTHER,
     SQ_JIT_REJECT_COUNT
+};
+
+enum SQJitBackendKind {
+    SQ_JIT_BACKEND_NONE = 0,
+    SQ_JIT_BACKEND_CPP,
+    SQ_JIT_BACKEND_X64,
+    SQ_JIT_BACKEND_AARCH64
+};
+
+struct SQJitCompileResult {
+    bool compiled;
+    bool retryable;
+    SQJitBackendKind backend;
+    SQJitRejectCategory category;
+    SQInteger ip;
+    const char *reason; // static diagnostic text
+
+    explicit operator bool() const { return compiled; }
+    static SQJitCompileResult Success(SQJitBackendKind backend) {
+        return {true, false, backend, SQ_JIT_REJECT_UNKNOWN, -1, NULL};
+    }
+};
+
+// One attempt owns its failure details; there is no global failure side channel.
+class SQJitCompileAttempt {
+public:
+    SQJitCompileAttempt(SQFunctionProto *proto, SQJitBackendKind backend);
+    void SetIP(SQInteger ip) { result.ip = ip; }
+    void MarkTransient() { result.retryable = true; }
+    bool Reject(SQInteger ip, SQJitRejectCategory category, const char *reason);
+    SQJitCompileResult Finish(bool compiled) const;
+private:
+    SQFunctionProto *proto;
+    SQJitCompileResult result;
 };
 
 enum {
@@ -57,9 +93,9 @@ enum {
 };
 
 struct SQJitNative {
+    SQJitNative();
     SQInteger _ninstructions;
-    void *_native_entry;
-    SQInteger _native_size;
+    SQJitCode _code;
     SQInteger _native_kind;
     SQInteger _base_slot;
     SQInteger _field_literal_index;
@@ -78,19 +114,16 @@ struct SQJitNative {
     bool _native_trace_executed;
 };
 
-void sqjit_backend_native_free(void *entry, SQInteger size);
-bool sqjit_backend_compile_proto(SQFunctionProto *proto, SQObjectPtr *entry_stack,
+SQJitCompileResult sqjit_backend_compile_proto(SQFunctionProto *proto, SQObjectPtr *entry_stack,
     SQClosure *closure, SQJitNative *native);
 bool sqjit_backend_loop_find_region(SQFunctionProto *proto, SQInteger header_ip,
     SQInteger *start_ip, SQInteger *end_ip, SQInteger *exit_ip);
-bool sqjit_backend_compile_loop(SQFunctionProto *proto, SQObjectPtr *entry_stack,
+SQJitCompileResult sqjit_backend_compile_loop(SQFunctionProto *proto, SQObjectPtr *entry_stack,
     SQClosure *closure, SQInteger start_ip, SQInteger header_ip,
     SQInteger end_ip, SQInteger exit_ip, SQJitProto *jit);
+const SQChar *sqjit_diag_proto_name(SQFunctionProto *proto);
 const char *sqjit_diag_reject_category_name(SQJitRejectCategory category);
-bool sqjit_diag_trace_enabled();
-void sqjit_diag_record_reject(SQFunctionProto *proto, SQInteger ip, const char *reason);
-void sqjit_diag_mark_transient_reject();
-void sqjit_diag_clear_transient_reject();
-bool sqjit_diag_consume_transient_reject();
+bool sqjit_diag_trace_enabled(SQFunctionProto *proto);
+void sqjit_diag_record_reject(SQFunctionProto *proto, const SQJitCompileResult &result);
 
 #endif // _SQJIT_BACKEND_H_
