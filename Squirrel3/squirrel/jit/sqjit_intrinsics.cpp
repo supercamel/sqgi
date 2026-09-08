@@ -43,7 +43,7 @@ SQInteger sqjit_math_guard(SQObjectPtr *stack, SQInteger base, const SQObjectPtr
     if(!stack || !key || base < 0 || base >= MAX_FUNC_STACKSIZE || sq_type(stack[base]) != OT_TABLE)
         return SQ_JIT_NATIVE_GUARD_FAILED;
     SQObjectPtr value;
-    if(!(sq_member_cache_hit(cache, stack[base], value) || sq_member_cache_fill(cache, stack[base], *key, value)) || sq_type(value) != OT_NATIVECLOSURE)
+    if(!(sq_member_cache_hit(cache, stack[base], *key, value) || sq_member_cache_fill(cache, stack[base], *key, value)) || sq_type(value) != OT_NATIVECLOSURE)
         return SQ_JIT_NATIVE_GUARD_FAILED;
     const SQNativeMathSpec *spec = sqjit_math_spec(_nativeclosure(value));
     return spec && spec->kind == kind ? SQ_JIT_NATIVE_RETURNED : SQ_JIT_NATIVE_GUARD_FAILED;

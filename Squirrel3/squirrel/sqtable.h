@@ -36,18 +36,10 @@ private:
     _HashNode *_nodes;
     SQInteger _numofnodes;
     SQInteger _usednodes;
-    SQUnsignedInteger _layout_version;
 
 ///////////////////////////
     void AllocNodes(SQInteger nSize);
     void Rehash(bool force);
-    void BumpLayoutVersion()
-    {
-        _layout_version++;
-        if(_layout_version == 0) {
-            _layout_version = 1;
-        }
-    }
     SQTable(SQSharedState *ss, SQInteger nInitialSize);
     void _ClearNodes();
 public:
@@ -115,10 +107,20 @@ public:
         _HashNode *n = _Get(key, HashObj(key) & (_numofnodes - 1));
         return n ? &n->val : NULL;
     }
-    bool GetCacheSlot(const SQObjectPtr &key,SQInteger &index,
-        SQUnsignedInteger &version,SQObjectPtr &val);
-    bool GetCachedSlot(SQInteger index,SQUnsignedInteger version,
-        SQObjectPtr &val);
+    bool GetCacheSlot(const SQObjectPtr &key,SQInteger &index,SQObjectPtr &val);
+    // Receiver-independent hint: validate the key, not a table's identity or
+    // layout version. Equal, non-identical strings may miss this fast path;
+    // the normal lookup still provides content equality on a miss.
+    bool GetCachedSlot(SQInteger index,const SQObjectPtr &key,SQObjectPtr &val)
+    {
+        if(index < 0 || index >= _numofnodes || sq_type(key) == OT_NULL ||
+            sq_type(_nodes[index].key) != sq_type(key) ||
+            _rawval(_nodes[index].key) != _rawval(key)) {
+            return false;
+        }
+        val = _realval(_nodes[index].val);
+        return true;
+    }
     void Remove(const SQObjectPtr &key);
     bool Set(const SQObjectPtr &key, const SQObjectPtr &val);
     //returns true if a new slot has been created false if it was already present

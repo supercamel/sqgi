@@ -39,6 +39,8 @@ def main():
     parser.add_argument('--candidate', type=Path, required=True)
     parser.add_argument('--suite', choices=['kernels', 'execution', 'applications'], default='kernels')
     parser.add_argument('--seed', type=positive, default=17, help='input seed for the applications suite')
+    parser.add_argument('--jit', type=int, choices=[0, 1], default=1,
+                        help='enable JIT (default), or measure shared interpreter paths with 0')
     parser.add_argument('--runs', type=positive, default=5)
     parser.add_argument('--iterations', type=positive, default=80000)
     parser.add_argument('--cpu', type=int)
@@ -57,7 +59,7 @@ def main():
     for run in range(args.runs):
         for name in (['baseline', 'candidate'] if run % 2 == 0 else ['candidate', 'baseline']):
             binary = binaries[name]
-            env = dict(os.environ, SQGI_JIT='1', SQGI_JIT_THRESHOLD='1', SQGI_JIT_TRACE='0')
+            env = dict(os.environ, SQGI_JIT=str(args.jit), SQGI_JIT_THRESHOLD='1', SQGI_JIT_TRACE='0')
             env['LD_LIBRARY_PATH'] = str(binary.parent) + (':' + env['LD_LIBRARY_PATH'] if env.get('LD_LIBRARY_PATH') else '')
             proc = subprocess.run(prefix + [str(binary), str(script), *flags, f'--iterations={args.iterations}'],
                                   cwd=root, env=env, capture_output=True, text=True, check=True, timeout=300)
@@ -90,7 +92,7 @@ def main():
         print(f'{kernel}: {old:.6f} -> {new:.6f} us; {old / new:.3f}x')
     args.output.write_text(json.dumps(dict(binaries={k: str(v) for k, v in binaries.items()},
         suite=args.suite, runs=args.runs, iterations=args.iterations, warmups=5, threshold=1,
-        cpu=args.cpu, seed=args.seed,
+        cpu=args.cpu, seed=args.seed, jit=args.jit,
         binary_sha256={name: hashlib.sha256(binary.read_bytes()).hexdigest()
                        for name, binary in binaries.items()},
         script_sha256=hashlib.sha256(script.read_bytes()).hexdigest(),

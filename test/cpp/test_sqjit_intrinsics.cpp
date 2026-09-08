@@ -80,6 +80,45 @@ static int floating_contracts(SQVM *v, bool enabled)
         if(enabled) CHECK(observe(v, _SC("checked_math")).frame.successes > 0,
             "floating contracts exercise native evaluation");
 #endif
+        source = _SC("function checked_math_loop(x,y) { marker(0); local result=0.0; ");
+        source += _SC("for(local i=0;i<7;i++) { result=");
+        source += names[n]; source += n < 13 ? _SC("(x);") : _SC("(x,y);");
+        source += _SC("} return marker(result); }");
+        CHECK(run(v, source.c_str()), "define audited evaluator loop contract");
+        for(SQFloat arg : values) {
+            SQFloat expected = 0, actual = 0;
+            ctx.enabled = false;
+            CHECK(call_numeric(v, _SC("checked_math_loop"), arg, (SQFloat)2.5, expected),
+                "interpreter loop evaluator reference");
+            ctx.enabled = enabled;
+            CHECK(call_numeric(v, _SC("checked_math_loop"), arg, (SQFloat)2.5, actual),
+                "native loop evaluator result");
+            CHECK((std::isnan(expected) && std::isnan(actual)) ||
+                !std::memcmp(&expected, &actual, sizeof(SQFloat)),
+                "loop evaluator preserves the scalar FP ABI and exceptional values");
+        }
+#if SQJIT_HAS_X64_NATIVE || SQJIT_HAS_EXTERNAL_NATIVE
+        if(enabled) CHECK(observe(v, _SC("checked_math_loop")).loop.successes > 0,
+            "all audited evaluators execute in native loop regions");
+#endif
+    }
+    CHECK(run(v, _SC("function mixed_args_loop(x,y) { marker(0); local sum=0.0; "
+        "for(local i=0;i<7;i++) sum+=pow(x,y)+atan2(y,x); return marker(sum+x+y); }")),
+        "define mixed-argument evaluator loop");
+    {
+        SQInteger input = 2;
+        SQFloat expected = 0, actual = 0;
+        ctx.enabled = false;
+        CHECK(call_numeric(v, _SC("mixed_args_loop"), 0, (SQFloat)3.0, expected, &input),
+            "interpreter mixed-argument loop reference");
+        ctx.enabled = enabled;
+        CHECK(call_numeric(v, _SC("mixed_args_loop"), 0, (SQFloat)3.0, actual, &input) &&
+            !std::memcmp(&expected, &actual, sizeof(SQFloat)),
+            "two-argument FP calls retain and convert both integer/float arguments");
+#if SQJIT_HAS_X64_NATIVE || SQJIT_HAS_EXTERNAL_NATIVE
+        if(enabled) CHECK(observe(v, _SC("mixed_args_loop")).loop.successes > 0,
+            "mixed-argument evaluators use native loop execution");
+#endif
     }
     CHECK(run(v, _SC("function checked_conversion(x,y) { local value=x+0; return value.tofloat() }")),
         "define signed conversion contract");

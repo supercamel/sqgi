@@ -62,19 +62,17 @@ enum SQMemberCacheKind {
 };
 
 struct SQMemberCache {
-    SQMemberCache() : _kind(SQ_MEMBER_CACHE_EMPTY), _index(-1), _version(0) {}
+    SQMemberCache() : _kind(SQ_MEMBER_CACHE_EMPTY), _index(-1) {}
     void Clear()
     {
         _owner.Null();
         _kind = SQ_MEMBER_CACHE_EMPTY;
         _index = -1;
-        _version = 0;
     }
 
-    SQObjectPtr _owner;
+    SQObjectPtr _owner; // Class layouts only; table hints retain no receiver.
     SQInteger _kind;
     SQInteger _index;
-    SQUnsignedInteger _version;
 };
 
 typedef sqvector<SQOuterVar> SQOuterVarVec;

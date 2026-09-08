@@ -1028,7 +1028,7 @@ exception_restore:
                         (SQInteger)((ci->_ip - 1) -
                         _closure(ci->_closure)->_function->_instructions)) : NULL;
                     if(member_cache &&
-                        (sq_member_cache_hit(member_cache, o, temp_reg) ||
+                        (sq_member_cache_hit(member_cache, o, key, temp_reg) ||
                         sq_member_cache_fill(member_cache, o, key, temp_reg))) {
                         STK(arg3) = o;
                         _Swap(TARGET,temp_reg);
@@ -1048,7 +1048,7 @@ exception_restore:
                     (SQInteger)((ci->_ip - 1) - func->_instructions));
                 if(!(member_cache &&
                     (sq_member_cache_hit(member_cache, STK(arg2),
-                    temp_reg) ||
+                    ci->_literals[arg1], temp_reg) ||
                     sq_member_cache_fill(member_cache, STK(arg2),
                     ci->_literals[arg1], temp_reg))) &&
                     !Get(STK(arg2), ci->_literals[arg1], temp_reg, 0,arg2)) {

@@ -2787,6 +2787,9 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
         if(dst < 0 || dst >= MAX_FUNC_STACKSIZE || first_arg < 0 ||
             nargs < 1 || nargs > 2 || first_arg + nargs > MAX_FUNC_STACKSIZE ||
             intrinsic == SQ_NATIVE_MATH_NONE) return false;
+        const SQNativeMathSpec *spec = sq_native_math_spec(intrinsic);
+        if(!spec || spec->nargs != nargs ||
+            (nargs == 1 ? !spec->unary : !spec->binary)) return false;
         // Standard math accepts both integer and float arguments. Convert to
         // private scratch slots so later uses retain the original value/tag.
         for(SQInteger n = 0; n < nargs; ++n) {
@@ -2799,16 +2802,20 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
                 sqjit_a64_local_disp(src)) || !sqjit_a64_emit_scvtf_float_x(&buf, 0, 9)) return false;
             if(!sqjit_a64_emit_str_float(&buf, 0, 31, sqjit_a64_local_disp(math_scratch + n))) return false;
         }
-        if(!sqjit_a64_emit_mov_imm_x(&buf, 0, (SQInteger)intrinsic) ||
-            !sqjit_a64_emit_add_imm(&buf, 1, 31, sqjit_a64_local_disp(math_scratch))) return false;
-        if(nargs == 1) {
-            if(!sqjit_a64_emit_add_imm(&buf, 2, 31, sqjit_a64_local_disp(dst)) ||
-                !sqjit_a64_emit_mov_imm_x(&buf, 16, (SQInteger)(intptr_t)(const void *)sqjit_math_unary)) return false;
-        }
-        else if(!sqjit_a64_emit_add_imm(&buf, 2, 31, sqjit_a64_local_disp(math_scratch + 1)) ||
-            !sqjit_a64_emit_add_imm(&buf, 3, 31, sqjit_a64_local_disp(dst)) ||
-            !sqjit_a64_emit_mov_imm_x(&buf, 16, (SQInteger)(intptr_t)(const void *)sqjit_math_binary)) return false;
-        if(!sqjit_a64_emit_blr_x16(&buf) || !emit_guard_on_x0_zero() || !mark_float_slot(dst)) return false;
+        // PREPCALL already guards the native closure's identity. The immutable
+        // audited spec fixes the evaluator and arity at compile time, so use
+        // the scalar FP ABI directly instead of a shared runtime dispatcher.
+        // Keep both converted arguments in private slots until all preparation
+        // is done: preparing the second argument may itself call a helper.
+        const void *evaluator = nargs == 1 ? (const void *)spec->unary :
+            (const void *)spec->binary;
+        if(!sqjit_a64_emit_ldr_float(&buf, 0, 31, sqjit_a64_local_disp(math_scratch)) ||
+            (nargs == 2 && !sqjit_a64_emit_ldr_float(&buf, 1, 31,
+                sqjit_a64_local_disp(math_scratch + 1))) ||
+            !sqjit_a64_emit_mov_imm_x(&buf, 16, (SQInteger)(intptr_t)evaluator) ||
+            !sqjit_a64_emit_blr_x16(&buf) ||
+            !sqjit_a64_emit_str_float(&buf, 0, 31, sqjit_a64_local_disp(dst)) ||
+            !mark_float_slot(dst)) return false;
         return true;
     };
 

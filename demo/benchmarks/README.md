@@ -64,6 +64,9 @@ The `execution` suite adds GI scalar calls, GI clock calls, parameter-array
 reads and nonescaping temporary numeric arrays. Both suites use five warmups,
 alternate process order, compare checksums, and save all samples and output.
 Results are microseconds per iteration, excluding startup and compilation.
+For changes shared with the interpreter, add `--jit 0` to
+`run_execution_benchmarks.py` to compare both builds with native execution
+disabled. The default remains `--jit 1`; the saved result records this setting.
 Run on an otherwise idle machine. The historical
 `object_member_write_fallback` kernel name is retained for comparison; eligible
 array/string member transfers now use native loop code on x64.
@@ -127,6 +130,11 @@ JIT-off reference remains the independent correctness check.
 The [AArch64 scalar-call report](../../devdocs/internals/aarch64-leaf-control-flow-2026-09-09.md)
 records the initial results, sanitizer-discovered ownership fix, final PGO/LTO
 comparison, independent seeds and timing variability.
+
+The [checked table slots and direct math report](../../devdocs/internals/guarded-slots-direct-math-2026-09-09.md)
+records the subsequent runtime/AArch64 iteration, final cross-runtime results,
+independent member/method holdouts, and the rejected cache-only experiment.
+It preserves regressions, confirmation runs, counter evidence and remaining gaps.
 
 `vector` constructs and combines `Vec3` objects with list/array-backed elements;
 SQGI/Python use overloaded operators and JavaScript uses explicit methods.

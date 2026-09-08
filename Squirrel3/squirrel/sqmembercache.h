@@ -7,7 +7,7 @@
 #include "sqclass.h"
 
 static inline bool sq_member_cache_hit(SQMemberCache *cache,
-    const SQObjectPtr &self, SQObjectPtr &dest)
+    const SQObjectPtr &self, const SQObjectPtr &key, SQObjectPtr &dest)
 {
     if(!cache || cache->_kind == SQ_MEMBER_CACHE_EMPTY ||
         cache->_index < 0) {
@@ -15,19 +15,11 @@ static inline bool sq_member_cache_hit(SQMemberCache *cache,
     }
 
     if(cache->_kind == SQ_MEMBER_CACHE_TABLE_SLOT) {
-        SQObject cached_owner;
-        if(sq_type(cache->_owner) == OT_WEAKREF) {
-            cached_owner = _weakref(cache->_owner)->_obj;
-        }
-        else {
-            cached_owner = cache->_owner;
-        }
-        if(sq_type(self) == OT_TABLE && sq_type(cached_owner) == OT_TABLE &&
-            _table(self) == _table(cached_owner)) {
-            return _table(self)->GetCachedSlot(cache->_index,
-                cache->_version, dest);
-        }
-        return false;
+        // An index is only a hint, not a shared shape or retained receiver.
+        // Check the current table's bounds and key on every access. A moved
+        // or deleted field misses normally, even if the old index is reused.
+        return sq_type(self) == OT_TABLE &&
+            _table(self)->GetCachedSlot(cache->_index, key, dest);
     }
 
     if(sq_type(cache->_owner) != OT_CLASS) {
@@ -84,15 +76,13 @@ static inline bool sq_member_cache_fill(SQMemberCache *cache,
     }
     else if(sq_type(self) == OT_TABLE) {
         SQInteger index = -1;
-        SQUnsignedInteger version = 0;
-        if(!_table(self)->GetCacheSlot(key, index, version, dest)) {
+        if(!_table(self)->GetCacheSlot(key, index, dest)) {
             return false;
         }
         if(cache) {
-            cache->_owner = _refcounted(self)->GetWeakRef(sq_type(self));
+            cache->_owner.Null();
             cache->_kind = SQ_MEMBER_CACHE_TABLE_SLOT;
             cache->_index = index;
-            cache->_version = version;
         }
         return true;
     }
