@@ -89,6 +89,45 @@ Python uses ordinary CPython objects, loops, lists and `math`, with fixed-field
 classes (`__slots__`), not NumPy/BLAS. Its direct-call kernel explicitly preserves
 SQGI/JavaScript's signed-remainder behavior for negative accumulators.
 
+The independent application-component suite adds eight workloads:
+
+```sh
+python3 tools/run_runtime_benchmarks.py --suite applications \
+  --sqgi /path/to/candidate/sqgi --sqgi-baseline /path/to/baseline/sqgi \
+  --runs 5 --iterations 200000 --warmups 5 --seed 17 --cpu 4 \
+  --output applications-seed17.json
+```
+
+It covers routing with balanced and skewed branches, pricing with early returns
+and retained arguments, a streaming filter, record updates over 64 and 4096
+objects with two insertion orders, string-key word counting, and dependent
+graph-array reads. Node and GJS share one JavaScript source; Python uses normal
+lists and dictionaries. Checksums are first checked against SQGI with JIT off,
+then compared across every timed runtime. `--sqgi-baseline` also works with the
+original kernel suite. Match baseline and candidate build options when measuring
+compiler improvements.
+
+Keep `test/bench_application_workloads.nut` and its ports out of PGO training.
+Repeat with a different `--seed` and iteration count (for example seed 83 and
+400003 iterations) to change input values and loop boundaries. Input arrays are
+constructed before timing; record construction and per-run word-count tables
+are included in their workload's timing. State is reset on every invocation.
+Results exclude process startup and report microseconds per processed event,
+record, word, or graph hop. The JSON preserves raw samples, source hashes,
+build settings and timing spread. These are representative components, not
+measurements of complete applications or end-to-end latency.
+
+For a quicker SQGI-only paired confirmation, use
+`run_execution_benchmarks.py --suite applications --seed 17` with the same
+`--baseline`, `--candidate`, `--iterations`, `--runs`, `--cpu` and `--output`
+options shown above. This alternates the two builds and preserves checksums,
+raw timings, and executable/source hashes. The full cross-runtime runner's
+JIT-off reference remains the independent correctness check.
+
+The [AArch64 scalar-call report](../../devdocs/internals/aarch64-leaf-control-flow-2026-09-09.md)
+records the initial results, sanitizer-discovered ownership fix, final PGO/LTO
+comparison, independent seeds and timing variability.
+
 `vector` constructs and combines `Vec3` objects with list/array-backed elements;
 SQGI/Python use overloaded operators and JavaScript uses explicit methods.
 `matrix` is an iterative 3×3 matrix–vector calculation with scalar element

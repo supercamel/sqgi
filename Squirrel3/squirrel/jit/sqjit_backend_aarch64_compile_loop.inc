@@ -428,8 +428,20 @@ static bool compile_loop(SQFunctionProto *proto, SQObjectPtr *entry_stack,
     };
 
     auto ensure_word_slot = [&](SQInteger slot) -> bool {
-        return slot >= 0 && slot < MAX_FUNC_STACKSIZE &&
-            (slots[slot].kind == SQ_JIT_SLOT_BOOL || ensure_int_slot(slot));
+        if(slot < 0 || slot >= MAX_FUNC_STACKSIZE) return false;
+        if(slots[slot].kind == SQ_JIT_SLOT_BOOL) return true;
+        if(slots[slot].kind == SQ_JIT_SLOT_STACK_OBJECT &&
+            slots[slot].stack_object_reg >= 0 && entry_stack &&
+            sq_type(entry_stack[slots[slot].stack_object_reg]) == OT_BOOL) {
+            SQInteger reg = slots[slot].stack_object_reg;
+            if(!emit_stack_type_guard(reg, OT_BOOL) ||
+                !sqjit_a64_emit_ldr_x(&buf, 9, 19, sqjit_a64_stack_value_disp(reg)) ||
+                !sqjit_a64_emit_str_x(&buf, 9, 31, sqjit_a64_local_disp(slot))) return false;
+            slots[slot].MarkBool();
+            slots[slot].entry_loaded = true;
+            return true;
+        }
+        return ensure_int_slot(slot);
     };
 
     auto ensure_float_slot = [&](SQInteger slot) -> bool {
@@ -738,14 +750,12 @@ static bool compile_loop(SQFunctionProto *proto, SQObjectPtr *entry_stack,
         if(dst == SQ_JIT_A64_NO_RESULT_SLOT) {
             return true;
         }
-        bool src_bool = src >= 0 && src < MAX_FUNC_STACKSIZE &&
-            slots[src].kind == SQ_JIT_SLOT_BOOL;
-        if(dst < 0 || dst >= MAX_FUNC_STACKSIZE || !ensure_int_slot(src) ||
+        if(dst < 0 || dst >= MAX_FUNC_STACKSIZE || !ensure_word_slot(src) ||
             !sqjit_a64_emit_ldr_x(&buf, 9, 31, sqjit_a64_local_disp(src)) ||
             !sqjit_a64_emit_str_x(&buf, 9, 31, sqjit_a64_local_disp(dst))) {
             return false;
         }
-        if(src_bool) {
+        if(slots[src].kind == SQ_JIT_SLOT_BOOL) {
             if(!mark_bool_slot(dst)) {
                 return false;
             }
@@ -2809,9 +2819,387 @@ static bool compile_loop(SQFunctionProto *proto, SQObjectPtr *entry_stack,
             callee->_ndefaultparams != 0 || callee->_noutervalues != 0 ||
             callee->_nparameters != call_inst._arg3 ||
             call_inst._arg2 < 0 ||
-            call_inst._arg2 + call_inst._arg3 > MAX_FUNC_STACKSIZE ||
-            inline_scratch_base + (callee->_stacksize - callee->_nparameters) >
-                MAX_FUNC_STACKSIZE) {
+            call_inst._arg2 + call_inst._arg3 > MAX_FUNC_STACKSIZE) {
+            return false;
+        }
+
+        // Scalar callees with forward control flow use the shared bounded leaf
+        // analysis. Keep every callee slot private: Squirrel arguments are
+        // passed by value, so assigning a parameter must not overwrite the
+        // caller's local. This also gives branch joins one stable spill slot
+        // per callee local across all branch paths.
+        bool scalar_control_flow = false;
+        if(SQJitLeafPlan::Eligible(callee)) {
+            for(SQInteger ip = 0; ip < callee->_ninstructions; ip++) {
+                SQOpcode op = (SQOpcode)callee->_instructions[ip].op;
+                scalar_control_flow = scalar_control_flow ||
+                    op == _OP_JZ || op == _OP_JCMP || op == _OP_JMP;
+            }
+        }
+        auto observed_scalar_kind = [&](SQInteger slot) -> SQJitSlotKind {
+            if(slot < 0 || slot >= MAX_FUNC_STACKSIZE) {
+                return SQ_JIT_SLOT_UNKNOWN;
+            }
+            if(slots[slot].kind == SQ_JIT_SLOT_INT ||
+                slots[slot].kind == SQ_JIT_SLOT_FLOAT ||
+                slots[slot].kind == SQ_JIT_SLOT_BOOL) {
+                return slots[slot].kind;
+            }
+            if(slots[slot].kind != SQ_JIT_SLOT_STACK_OBJECT ||
+                slots[slot].stack_object_reg < 0 || !entry_stack) {
+                return SQ_JIT_SLOT_UNKNOWN;
+            }
+            switch(sq_type(entry_stack[slots[slot].stack_object_reg])) {
+            case OT_INTEGER: return SQ_JIT_SLOT_INT;
+            case OT_FLOAT: return SQ_JIT_SLOT_FLOAT;
+            case OT_BOOL: return SQ_JIT_SLOT_BOOL;
+            default: return SQ_JIT_SLOT_UNKNOWN;
+            }
+        };
+
+        std::vector<SQJitSlotKind> leaf_arguments(callee->_nparameters,
+            SQ_JIT_SLOT_UNKNOWN);
+        bool scalar_arguments = true;
+        for(SQInteger n = 1; n < callee->_nparameters; n++) {
+            leaf_arguments[n] = observed_scalar_kind(call_inst._arg2 + n);
+            scalar_arguments = scalar_arguments &&
+                leaf_arguments[n] != SQ_JIT_SLOT_UNKNOWN;
+        }
+        SQJitLeafPlan leaf_plan;
+        const SQInteger leaf_scratch = inline_scratch_base;
+        const SQInteger leaf_temporary = leaf_scratch + callee->_stacksize;
+        if(scalar_control_flow && scalar_arguments &&
+            leaf_temporary + 2 <= MAX_FUNC_STACKSIZE &&
+            leaf_plan.Build(callee, leaf_arguments)) {
+            auto leaf_local = [&](SQInteger slot) -> SQInteger {
+                return slot >= 0 && slot < callee->_stacksize ?
+                    leaf_scratch + slot : -1;
+            };
+            auto mark_leaf_kind = [&](SQInteger slot, SQJitSlotKind kind,
+                const SQJitLeafValue *value) -> bool {
+                if(slot < 0 || slot >= MAX_FUNC_STACKSIZE) {
+                    return false;
+                }
+                switch(kind) {
+                case SQ_JIT_SLOT_INT: slots[slot].MarkInt(); break;
+                case SQ_JIT_SLOT_FLOAT: slots[slot].MarkFloat(); break;
+                case SQ_JIT_SLOT_BOOL: slots[slot].MarkBool(); break;
+                default: slots[slot].MarkUnknown(); return true;
+                }
+                slots[slot].dirty = true;
+                slots[slot].entry_loaded = true;
+                if(value && value->constant && kind != SQ_JIT_SLOT_FLOAT) {
+                    slots[slot].SetConst(value->integer);
+                }
+                return true;
+            };
+            auto copy_leaf_scalar = [&](SQInteger dst, SQInteger src,
+                SQJitSlotKind kind) -> bool {
+                if(dst == SQ_JIT_A64_NO_RESULT_SLOT) {
+                    return true;
+                }
+                if(dst < 0 || dst >= MAX_FUNC_STACKSIZE || src < 0 ||
+                    src >= MAX_FUNC_STACKSIZE) {
+                    return false;
+                }
+                if(kind == SQ_JIT_SLOT_FLOAT) {
+                    if(!ensure_float_slot(src) ||
+                        !sqjit_a64_emit_ldr_x(&buf, 9, 31,
+                        sqjit_a64_local_disp(src)) ||
+                        !sqjit_a64_emit_str_x(&buf, 9, 31,
+                        sqjit_a64_local_disp(dst)) ||
+                        !mark_float_slot(dst)) {
+                        return false;
+                    }
+                }
+                else if(kind == SQ_JIT_SLOT_BOOL) {
+                    if(slots[src].kind == SQ_JIT_SLOT_STACK_OBJECT) {
+                        if(slots[src].stack_object_reg < 0 ||
+                            !emit_stack_type_guard(slots[src].stack_object_reg,
+                            OT_BOOL) ||
+                            !sqjit_a64_emit_ldr_x(&buf, 9, 19,
+                            sqjit_a64_stack_value_disp(
+                            slots[src].stack_object_reg))) {
+                            return false;
+                        }
+                    }
+                    else if(slots[src].kind != SQ_JIT_SLOT_BOOL ||
+                        !sqjit_a64_emit_ldr_x(&buf, 9, 31,
+                        sqjit_a64_local_disp(src))) {
+                        return false;
+                    }
+                    if(!sqjit_a64_emit_str_x(&buf, 9, 31,
+                        sqjit_a64_local_disp(dst)) || !mark_bool_slot(dst)) {
+                        return false;
+                    }
+                }
+                else if(kind == SQ_JIT_SLOT_INT) {
+                    if(!ensure_int_slot(src) ||
+                        !sqjit_a64_emit_ldr_x(&buf, 9, 31,
+                        sqjit_a64_local_disp(src)) ||
+                        !sqjit_a64_emit_str_x(&buf, 9, 31,
+                        sqjit_a64_local_disp(dst)) || !mark_int_slot(dst)) {
+                        return false;
+                    }
+                }
+                else {
+                    return false;
+                }
+                slots[dst].entry_loaded = true;
+                if(kind != SQ_JIT_SLOT_FLOAT) {
+                    slots[dst].CopyConstFrom(slots[src]);
+                }
+                return true;
+            };
+
+            for(SQInteger n = 1; n < callee->_nparameters; n++) {
+                if(!copy_leaf_scalar(leaf_local(n), call_inst._arg2 + n,
+                    leaf_arguments[n])) {
+                    return false;
+                }
+            }
+
+            std::vector<SQInteger> leaf_offsets(callee->_ninstructions + 1,
+                -1);
+            std::vector<SQJitA64Reloc> leaf_branches;
+            auto record_leaf_branch = [&](SQInteger patch, SQInteger target,
+                bool conditional, unsigned cond) -> bool {
+                if(target < 0 || target > callee->_ninstructions) {
+                    return false;
+                }
+                SQJitA64Reloc reloc;
+                reloc.patch_offset = patch;
+                reloc.target_ip = target;
+                reloc.cond = (unsigned char)cond;
+                reloc.conditional = conditional;
+                leaf_branches.push_back(reloc);
+                return true;
+            };
+            auto load_leaf_literal = [&](SQInteger dst,
+                SQInteger literal_index) -> bool {
+                return literal_index >= 0 &&
+                    literal_index < callee->_nliterals &&
+                    load_literal_value_slot(dst,
+                    callee->_literals[literal_index]);
+            };
+
+            for(SQInteger ip = 0; ip < callee->_ninstructions; ip++) {
+                leaf_offsets[ip] = buf.size;
+                const SQJitLeafPlan::Instruction &node =
+                    leaf_plan.instructions[ip];
+                if(!node.reachable) {
+                    continue;
+                }
+                for(SQInteger n = 0; n < callee->_stacksize; n++) {
+                    if(!mark_leaf_kind(leaf_local(n), node.incoming[n].kind,
+                        &node.incoming[n])) {
+                        return false;
+                    }
+                }
+
+                const SQInstruction &leaf_inst = callee->_instructions[ip];
+                SQInteger dst = leaf_local(leaf_inst._arg0);
+                SQInteger left = leaf_local(leaf_inst._arg2);
+                SQInteger right = leaf_local(leaf_inst._arg1);
+                switch(leaf_inst.op) {
+                case _OP_LINE:
+                    break;
+                case _OP_LOADINT:
+                    if(!emit_load_int(dst, sqjit_loadint_value(leaf_inst))) {
+                        return false;
+                    }
+                    break;
+                case _OP_LOADBOOL:
+                    if(!emit_load_int(dst, leaf_inst._arg1 ? 1 : 0) ||
+                        !mark_bool_slot(dst)) {
+                        return false;
+                    }
+                    slots[dst].SetConst(leaf_inst._arg1 ? 1 : 0);
+                    break;
+                case _OP_LOADFLOAT: {
+                    SQFloat value;
+                    if(!sqjit_loadfloat_value(leaf_inst, &value) ||
+                        !emit_load_float(dst, value)) {
+                        return false;
+                    }
+                    break;
+                }
+                case _OP_LOAD:
+                    if(!load_leaf_literal(dst, leaf_inst._arg1)) {
+                        return false;
+                    }
+                    break;
+                case _OP_DLOAD:
+                    if(!load_leaf_literal(dst, leaf_inst._arg1) ||
+                        !load_leaf_literal(leaf_local(leaf_inst._arg2),
+                        leaf_inst._arg3)) {
+                        return false;
+                    }
+                    break;
+                case _OP_MOVE:
+                case _OP_DMOVE:
+                    if(!copy_leaf_scalar(dst, right,
+                        node.incoming[leaf_inst._arg1].kind)) {
+                        return false;
+                    }
+                    if(leaf_inst.op == _OP_DMOVE &&
+                        !copy_leaf_scalar(leaf_local(leaf_inst._arg2),
+                        leaf_local(leaf_inst._arg3),
+                        leaf_inst._arg3 == leaf_inst._arg0 ?
+                        node.incoming[leaf_inst._arg1].kind :
+                        node.incoming[leaf_inst._arg3].kind)) {
+                        return false;
+                    }
+                    break;
+                case _OP_ADD:
+                case _OP_SUB:
+                case _OP_MUL:
+                case _OP_DIV:
+                case _OP_MOD:
+                    if(node.result == SQ_JIT_SLOT_FLOAT ?
+                        !emit_float_binary((SQOpcode)leaf_inst.op, dst, left,
+                        right) :
+                        !emit_binary((SQOpcode)leaf_inst.op, dst, left,
+                        right)) {
+                        return false;
+                    }
+                    break;
+                case _OP_NEG:
+                    if(!emit_integer_neg(dst, right)) {
+                        return false;
+                    }
+                    break;
+                case _OP_EQ:
+                case _OP_NE: {
+                    if(leaf_inst._arg3) {
+                        right = leaf_temporary;
+                        if(!load_leaf_literal(right, leaf_inst._arg1)) {
+                            return false;
+                        }
+                    }
+                    if(!ensure_word_slot(left) || !ensure_word_slot(right) ||
+                        !sqjit_a64_emit_ldr_x(&buf, 9, 31,
+                        sqjit_a64_local_disp(left)) ||
+                        !sqjit_a64_emit_ldr_x(&buf, 10, 31,
+                        sqjit_a64_local_disp(right)) ||
+                        !sqjit_a64_emit_cmp_reg(&buf, 9, 10) ||
+                        !sqjit_a64_emit_cset(&buf, 9,
+                        leaf_inst.op == _OP_NE ? SQ_JIT_A64_NE :
+                        SQ_JIT_A64_EQ) ||
+                        !sqjit_a64_emit_str_x(&buf, 9, 31,
+                        sqjit_a64_local_disp(dst)) || !mark_bool_slot(dst)) {
+                        return false;
+                    }
+                    break;
+                }
+                case _OP_CMP:
+                case _OP_JCMP: {
+                    unsigned false_cond = 0;
+                    SQInteger cmp_right = leaf_inst.op == _OP_CMP ? right : dst;
+                    if(!sqjit_a64_cmp_false_cond((CmpOP)leaf_inst._arg3,
+                        &false_cond) || !ensure_int_slot(left) ||
+                        !ensure_int_slot(cmp_right) ||
+                        !sqjit_a64_emit_ldr_x(&buf, 9, 31,
+                        sqjit_a64_local_disp(left)) ||
+                        !sqjit_a64_emit_ldr_x(&buf, 10, 31,
+                        sqjit_a64_local_disp(cmp_right)) ||
+                        !sqjit_a64_emit_cmp_reg(&buf, 9, 10)) {
+                        return false;
+                    }
+                    if(leaf_inst.op == _OP_CMP) {
+                        if(!sqjit_a64_emit_cset(&buf, 9,
+                            false_cond ^ 1) ||
+                            !sqjit_a64_emit_str_x(&buf, 9, 31,
+                            sqjit_a64_local_disp(dst)) ||
+                            !mark_bool_slot(dst)) {
+                            return false;
+                        }
+                    }
+                    else {
+                        SQInteger patch = 0;
+                        if(!sqjit_a64_emit_bcond_placeholder(&buf, false_cond,
+                            &patch) || !record_leaf_branch(patch,
+                            ip + 1 + sqjit_signed_arg1(leaf_inst), true,
+                            false_cond)) {
+                            return false;
+                        }
+                    }
+                    break;
+                }
+                case _OP_JZ: {
+                    SQInteger patch = 0;
+                    if(!ensure_word_slot(dst) ||
+                        !sqjit_a64_emit_ldr_x(&buf, 9, 31,
+                        sqjit_a64_local_disp(dst)) ||
+                        !sqjit_a64_emit_cmp_imm(&buf, 9, 0) ||
+                        !sqjit_a64_emit_bcond_placeholder(&buf,
+                        SQ_JIT_A64_EQ, &patch) ||
+                        !record_leaf_branch(patch,
+                        ip + 1 + sqjit_signed_arg1(leaf_inst), true,
+                        SQ_JIT_A64_EQ)) {
+                        return false;
+                    }
+                    break;
+                }
+                case _OP_JMP: {
+                    SQInteger patch = 0;
+                    if(!sqjit_a64_emit_b_placeholder(&buf, &patch) ||
+                        !record_leaf_branch(patch,
+                        ip + 1 + sqjit_signed_arg1(leaf_inst), false, 0)) {
+                        return false;
+                    }
+                    break;
+                }
+                case _OP_RETURN: {
+                    if(leaf_inst._arg0 != SQ_JIT_A64_NO_RESULT_SLOT &&
+                        !copy_leaf_scalar(call_inst._arg0,
+                        leaf_local(leaf_inst._arg1), leaf_plan.return_kind)) {
+                        return false;
+                    }
+                    bool later_reachable = false;
+                    for(SQInteger n = ip + 1; n < callee->_ninstructions; n++) {
+                        later_reachable = later_reachable ||
+                            leaf_plan.instructions[n].reachable;
+                    }
+                    if(later_reachable) {
+                        SQInteger patch = 0;
+                        if(!sqjit_a64_emit_b_placeholder(&buf, &patch) ||
+                            !record_leaf_branch(patch,
+                            callee->_ninstructions, false, 0)) {
+                            return false;
+                        }
+                    }
+                    break;
+                }
+                default:
+                    return false;
+                }
+            }
+
+            leaf_offsets[callee->_ninstructions] = buf.size;
+            for(size_t n = 0; n < leaf_branches.size(); n++) {
+                const SQJitA64Reloc &reloc = leaf_branches[n];
+                if(reloc.target_ip < 0 ||
+                    reloc.target_ip > callee->_ninstructions ||
+                    leaf_offsets[reloc.target_ip] < 0 ||
+                    !sqjit_a64_patch_branch(&buf, reloc.patch_offset,
+                    leaf_offsets[reloc.target_ip], reloc.conditional,
+                    reloc.cond)) {
+                    return false;
+                }
+            }
+            // All returns join here. A constant from one return path is not
+            // necessarily valid on the others.
+            if(call_inst._arg0 != SQ_JIT_A64_NO_RESULT_SLOT &&
+                !mark_leaf_kind(call_inst._arg0, leaf_plan.return_kind, NULL)) {
+                return false;
+            }
+            return true;
+        }
+
+        if(inline_scratch_base +
+            (callee->_stacksize - callee->_nparameters) >
+            MAX_FUNC_STACKSIZE) {
             return false;
         }
 
@@ -3543,6 +3931,15 @@ static bool compile_loop(SQFunctionProto *proto, SQObjectPtr *entry_stack,
         }
     }
     for(SQInteger slot = 0; slot < proto->_stacksize; slot++) {
+        // Any scalar live at the header may be loop-carried, including values
+        // first consumed by DMOVE or a call. Load it before the backedge target:
+        // loading lazily inside the body would restore the stale VM entry value
+        // on every iteration while native updates remain in local spill slots.
+        SQObjectType entry_type = sq_type(entry_stack[slot]);
+        if(analysis.live_in[start_ip].test(slot) &&
+            (entry_type == OT_INTEGER || entry_type == OT_FLOAT || entry_type == OT_BOOL)) {
+            preload_slot[slot] = true;
+        }
         if(!preload_slot[slot]) {
             continue;
         }
@@ -3551,9 +3948,9 @@ static bool compile_loop(SQFunctionProto *proto, SQObjectPtr *entry_stack,
                 return attempt.Reject(header_ip, SQ_JIT_REJECT_LOOP, "unsupported loop float preload");
             }
         }
-        else if(sq_type(entry_stack[slot]) == OT_INTEGER) {
-            if(!ensure_int_slot(slot)) {
-                return attempt.Reject(header_ip, SQ_JIT_REJECT_LOOP, "unsupported loop integer preload");
+        else if(entry_type == OT_INTEGER || entry_type == OT_BOOL) {
+            if(!ensure_word_slot(slot)) {
+                return attempt.Reject(header_ip, SQ_JIT_REJECT_LOOP, "unsupported loop scalar preload");
             }
         }
         else {
@@ -4421,12 +4818,11 @@ static bool compile_loop(SQFunctionProto *proto, SQObjectPtr *entry_stack,
             }
             continue;
         }
-        if(ISREFCOUNTED(sq_type(entry_stack[n]))) {
-            if(!emit_refcounted_stack_store_scalar(n)) {
-                return false;
-            }
-        }
-        else if(!sqjit_a64_emit_store_stack_scalar(&buf, n, n, slots[n].kind)) {
+        // A temporary's entry tag can change between native invocations even
+        // when all live scalar inputs satisfy their guards. Assign through
+        // SQObjectPtr so an overwritten reference is released using its
+        // current tag, not the value sampled during compilation.
+        if(!emit_refcounted_stack_store_scalar(n)) {
             return false;
         }
     }

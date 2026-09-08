@@ -506,7 +506,16 @@ add_sqgi_nut_test(sqgi_test_jit_math                    test_jit_math.nut)
 add_sqgi_nut_test(sqgi_test_jit_loop_regressions        test_jit_loop_regressions.nut)
 set_tests_properties(sqgi_test_jit_loop_regressions PROPERTIES
     LABELS "jit"
-    ENVIRONMENT "${SQGI_TEST_ENV};SQGI_JIT=1;SQGI_JIT_THRESHOLD=1")
+    ENVIRONMENT "${SQGI_TEST_ENV};SQGI_JIT=1;SQGI_JIT_THRESHOLD=1"
+    PASS_REGULAR_EXPRESSION "test_jit_loop_regressions.nut passed")
+if(SQGI_HAS_NATIVE_JIT AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64|ARM64)$")
+    add_sqgi_nut_test(sqgi_test_jit_leaf_loop_native test_jit_loop_regressions.nut)
+    set_tests_properties(sqgi_test_jit_leaf_loop_native PROPERTIES
+        LABELS "jit"
+        ENVIRONMENT "${SQGI_TEST_ENV};SQGI_JIT=1;SQGI_JIT_THRESHOLD=1;SQGI_JIT_TRACE=1"
+        FAIL_REGULAR_EXPRESSION "\\[FAIL\\];AN ERROR HAS OCCURRED"
+        PASS_REGULAR_EXPRESSION "\\[sqjit\\] executed native loop in proto 'branch_join_loop'")
+endif()
 add_sqgi_nut_test(sqgi_test_jit_math_runtime            test_jit_math.nut)
 add_sqgi_nut_test(sqgi_test_jit_fastpath                test_jit_fastpath.nut)
 add_sqgi_nut_test(sqgi_test_jit_fastpath_runtime        test_jit_fastpath.nut)

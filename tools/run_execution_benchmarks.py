@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Compare two SQGI builds using alternating, warmed, checksum-checked runs."""
 import argparse
+import hashlib
 import json
 import math
 import os
@@ -23,6 +24,8 @@ def parse(output):
         if fields[0] != 'BENCH':
             continue
         _, name, count, elapsed, checksum = fields
+        if name in rows:
+            raise ValueError(f'duplicate benchmark row: {name}')
         rows[name] = dict(iterations=int(count), us=float(elapsed), checksum=checksum)
     if not rows:
         raise ValueError('no benchmark rows returned')
@@ -34,7 +37,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--baseline', type=Path, required=True)
     parser.add_argument('--candidate', type=Path, required=True)
-    parser.add_argument('--suite', choices=['kernels', 'execution'], default='kernels')
+    parser.add_argument('--suite', choices=['kernels', 'execution', 'applications'], default='kernels')
+    parser.add_argument('--seed', type=positive, default=17, help='input seed for the applications suite')
     parser.add_argument('--runs', type=positive, default=5)
     parser.add_argument('--iterations', type=positive, default=80000)
     parser.add_argument('--cpu', type=int)
@@ -43,8 +47,10 @@ def main():
     if args.suite == 'execution' and args.iterations % 4:
         parser.error('execution iterations must be a multiple of four')
     binaries = dict(baseline=args.baseline.resolve(), candidate=args.candidate.resolve())
-    script = root / ('test/test_jit_perf_correctness.nut' if args.suite == 'kernels' else 'test/bench_execution.nut')
-    flags = ['--bench', '--warmups=5'] if args.suite == 'kernels' else []
+    script = root / {'kernels': 'test/test_jit_perf_correctness.nut',
+                     'execution': 'test/bench_execution.nut',
+                     'applications': 'test/bench_application_workloads.nut'}[args.suite]
+    flags = [] if args.suite == 'execution' else ['--bench', '--warmups=5', f'--seed={args.seed}']
     prefix = ['taskset', '-c', str(args.cpu)] if args.cpu is not None else []
     samples = {name: {} for name in binaries}
     raw, reference = [], None
@@ -56,7 +62,7 @@ def main():
             proc = subprocess.run(prefix + [str(binary), str(script), *flags, f'--iterations={args.iterations}'],
                                   cwd=root, env=env, capture_output=True, text=True, check=True, timeout=300)
             rows = parse(proc.stdout)
-            expected_rows = 15 if args.suite == 'kernels' else 4
+            expected_rows = {'kernels': 15, 'execution': 4, 'applications': 8}[args.suite]
             if len(rows) != expected_rows:
                 raise ValueError(f'expected {expected_rows} rows, got {len(rows)}')
             if reference is None:
@@ -84,7 +90,11 @@ def main():
         print(f'{kernel}: {old:.6f} -> {new:.6f} us; {old / new:.3f}x')
     args.output.write_text(json.dumps(dict(binaries={k: str(v) for k, v in binaries.items()},
         suite=args.suite, runs=args.runs, iterations=args.iterations, warmups=5, threshold=1,
-        cpu=args.cpu, comparisons=comparisons, samples=samples, raw=raw), indent=2) + '\n')
+        cpu=args.cpu, seed=args.seed,
+        binary_sha256={name: hashlib.sha256(binary.read_bytes()).hexdigest()
+                       for name, binary in binaries.items()},
+        script_sha256=hashlib.sha256(script.read_bytes()).hexdigest(),
+        comparisons=comparisons, samples=samples, raw=raw), indent=2) + '\n')
 
 
 if __name__ == '__main__':

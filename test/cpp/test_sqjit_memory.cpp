@@ -108,6 +108,36 @@ int main()
             if(observe(v, _SC("escaping")).loop.successes) { puts("FAIL: escaping string must fall back"); ++failures; }
         }
 #endif
+        {
+            // A reused loop must release references in dead VM temporaries,
+            // even if those slots held null/scalars when it was compiled.
+            SQObjectPtr owner(SQString::Create(v->_sharedstate,
+                _SC("entry-tag-owner-not-a-bytecode-literal")));
+            sq_pushroottable(v);
+            sq_pushstring(v, _SC("entry_tag_owner"), -1);
+            sq_pushobject(v, owner);
+            if(SQ_FAILED(sq_newslot(v, -3, SQFalse))) ++failures;
+            sq_pop(v, 1);
+            const SQUnsignedInteger references = _string(owner)->_uiRef;
+            if(!run(v, _SC(
+                "function entry_tag_step(x,i) { if(i%2==0) return x+i; return x-i }\n"
+                "function changing_entry_temporaries(n,old) { local sum=0;\n"
+                " if(old!=null) { local a=old,b=old,c=old,d=old,e=old,f=old;\n"
+                "  if(a!=b || c!=d || e!=f) throw \"temporary references\"; }\n"
+                " for(local i=0;i<n;i++) sum=entry_tag_step(sum,i); return sum }\n"
+                "for(local j=0;j<3;j++) if(changing_entry_temporaries(41,null)!=20) throw \"warmup\";\n"
+                "for(local j=0;j<3;j++) if(changing_entry_temporaries(41,entry_tag_owner)!=20) throw \"changed tags\";\n"))) ++failures;
+            if(_string(owner)->_uiRef != references) {
+                puts("FAIL: scalar loop writeback leaked overwritten temporary references");
+                ++failures;
+            }
+#if SQJIT_HAS_EXTERNAL_NATIVE
+            if(enabled && !observe(v, _SC("changing_entry_temporaries")).loop.successes) {
+                puts("FAIL: temporary ownership regression must execute a native loop");
+                ++failures;
+            }
+#endif
+        }
 #if SQJIT_HAS_X64_NATIVE || SQJIT_HAS_EXTERNAL_NATIVE
         for(int instance = 0; enabled && instance < (SQJIT_HAS_EXTERNAL_NATIVE ? 2 : 1); ++instance) {
             // Execute the artifact directly so interpreter replay cannot hide

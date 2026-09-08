@@ -22,6 +22,7 @@
 #include "sqbytecode.h"
 #include "sqjit_value.h"
 #include "sqjit_intrinsics.h"
+#include "sqjit_leaf.h"
 #include <string.h>
 
 enum {

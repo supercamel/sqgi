@@ -21,17 +21,19 @@ def positive(value):
     return result
 
 
-def parse(output):
+def parse(output, expected_count=15, float_kernels=FLOAT_KERNELS):
     rows = {}
     for line in output.splitlines():
         fields = line.split('\t')
         if fields[0] != 'BENCH':
             continue
         _, name, count, elapsed, checksum = fields
+        if name in rows:
+            raise ValueError(f'duplicate benchmark row: {name}')
         rows[name] = {'iterations': int(count), 'us': float(elapsed),
-                      'checksum': float(checksum) if name in FLOAT_KERNELS else int(checksum)}
-    if len(rows) != 15:
-        raise ValueError(f'expected 15 benchmark rows, got {len(rows)}')
+                      'checksum': float(checksum) if name in float_kernels else int(checksum)}
+    if len(rows) != expected_count:
+        raise ValueError(f'expected {expected_count} benchmark rows, got {len(rows)}')
     return rows
 
 
