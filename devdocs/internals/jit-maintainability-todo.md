@@ -11,6 +11,107 @@ Status keys:
 - `[ ]` backlog item.
 - `[gate]` rule that every future JIT change must satisfy.
 
+## September 8 execution improvements
+
+The [dynamic-member pass](dynamic-member-optimization-2026-09-08.md) adds:
+
+- [x] Reuse the bounded field plan for groups of member reads and writes in
+  eligible mutating functions, retaining fresh addresses and existing guards.
+- [x] Accept guarded borrowed array/string parameters in native field stores.
+- [x] Place x64 undo logs in the native frame and construct only used entries;
+  larger logs retain the checked heap growth and rollback path.
+- [x] Test poisoned/reused log storage, growth, aliased receivers, changed
+  layouts/types and failures after multiple owning writes.
+- [x] Six independent mutating-call workloads with Node ports, excluded from
+  PGO training. The report includes gains and the Release class-update regression.
+- [ ] Compile loops across general mutating calls and changing object locals.
+  This needs an explicit ownership/effect contract; the dynamic-member outer
+  loop still executes in the interpreter.
+
+The [floating-call pass](float-call-optimization-2026-09-08.md) adds:
+
+- [x] Shared floating-copy names with liveness-based removal of dead native
+  temporaries; live caller values remain independent across inlined calls.
+- [x] Destructive scalar arithmetic only when all names of its input are dead
+  or overwritten, retaining double precision and operand order.
+- [x] A separate x64 loop register convention with parallel backedge copies,
+  ordinary memory exits, and conservative rejection of side entries/exits.
+- [x] Executable register permutation tests and interpreter comparisons for
+  register pressure, helpers, branches, guards and exceptional floating values.
+- [x] Seven independent floating workloads with Node ports, excluded from PGO
+  training. The report records remaining gaps as well as improvements.
+- [ ] General floating register allocation across arbitrary control flow,
+  invariant constant residency and integer temporary coalescing remain separate
+  work. AArch64 retains its existing lowering.
+
+The [object-store pass](object-store-optimization-2026-09-08.md) adds:
+
+- [x] A separate bounded field/key plan shared by whole-function and loop x64
+  lowering, with fresh field addresses on each native invocation.
+- [x] Immediate heap stores with a small borrowed cache of owners already
+  retained by rollback; cache misses retain the complete write-log behavior.
+- [x] Literal-key flow through branches and backedges for guard placement.
+- [x] Tests for alias visibility, type changes, float/integer register reuse,
+  allocation failure, release hooks, rehashing and cache capacity overflow.
+- [x] Independent owner populations beyond the cache size, with interpreter
+  and Node checksums, excluded from PGO training.
+- [ ] Broader ownership/deoptimization work and large displaced-owner log
+  indexing remain separate optimizations. The new native stores target x64;
+  AArch64 retains its existing lowering.
+
+The [member-access pass](member-optimization-2026-09-08.md) follows up with:
+
+- [x] Shared borrowed slot lookup for existing table/instance fields, avoiding
+  duplicate native-store lookups while retaining displaced owners for rollback.
+- [x] Table cache invalidation based on layout changes; cached reads still
+  fetch the current value and validate callable identity.
+- [x] Built-in guard placement based on possible writes to the guarded key;
+  unknown keys, structural writes and callback-capable operations stay conservative.
+- [x] Interpreter fast paths for indexed arrays, existing fields and integer
+  remainder, with error propagation and dynamic-divisor JIT regressions tested.
+- [x] Independent record/layout/buffer-size workloads excluded from PGO training.
+
+The subsequent [Vec3 implementation](vec3-implementation-2026-09-08.md) adds:
+
+- [x] Shared x64 numeric array stores and whole-function borrowed array-member reads.
+- [x] Native implicit-null returns for x64 mutating methods.
+- [x] A separate, bounded object inlining pass that emits ordinary scalar
+  bytecode for the existing x64 and AArch64 backends.
+- [x] Scalar replacement of closed numeric object graphs, with method/class/root
+  guards, stable loop aliases, parallel backedge copies and replay-safe failure.
+- [x] Native-route assertions for the original Vec3 source and regressions for
+  mutation, GC, ownership, bounds, escapes, defaults and changing aliases.
+- [x] AArch64 root-identity guards and retained embedded weak references for
+  both whole functions and loops; conservative instance root fallback.
+- [ ] General object calls, escaping-object materialization and branched method
+  inlining remain separate work. The field-backed Vec3 variants still fall back.
+- [ ] Investigate the measured small regressions in matrix, array append and
+  object member writes before claiming an improvement across all workloads.
+
+See [implementation, measurements and limits](execution-improvements-2026-09-08.md).
+
+- [x] Lower positive constant signed division/remainder on x64; keep compact
+  division in write-heavy loops where the longer sequence regresses timings.
+- [x] Cache floating intermediates across eligible scalar operations; spill at
+  helpers/control-flow joins and test raw double bits and ABI boundaries.
+- [x] Support mixed int64/double arithmetic without changing source slot tags.
+- [x] Hoist bounded homogeneous-array guards in regions without heap effects.
+- [x] Scalar-replace small nonescaping numeric arrays within one block.
+- [x] Support guarded array/string member transfers and numeric instance fields.
+- [x] Retain distinct displaced owners once per member/epoch, and accelerate
+  repeated scalar-array logging with exact identity/index membership.
+- [x] Propagate compatible bytecode constants across forward joins and prevent
+  whole-function JIT loop headers from reloading modified parameters.
+- [x] Cache immutable GI call plans with independent invocation buffers.
+- [x] Add opt-in PGO/LTO configuration, training instructions and build comparison tooling.
+- [ ] Precise guard resumption with materialization maps and packed numeric
+  array storage remain separate architecture projects; their prerequisites and
+  measurement gates are recorded in the report.
+
+The x64 object-transfer path supersedes the historical object-write fallback
+entry below. AArch64 retains its existing lowering, with shared value/logging
+and optimizer changes checked under emulation.
+
 ## Current Pass
 
 - [x] Name AArch64 backend limits instead of scattering literal `512`, `513`,
@@ -64,6 +165,12 @@ Steps 1–2 of the [architecture review](jit-architecture-review-2026-09-07.md)
 are implemented. See the [first-stage report](jit-refactor-stage1-2026-09-07.md)
 for the module map, tests and measurements.
 
+The [follow-up bytecode/JIT exploration](bytecode-jit-exploration-2026-09-07.md)
+records a reproduced x86 boolean-tag bug, native-coverage gaps, write-log scaling
+experiments, and an implementation sequence for the next stages. The
+[implementation report](bytecode-jit-implementation-2026-09-07.md) records the
+completed optimization pass, native coverage, tests and performance tradeoffs.
+
 - [x] Return typed compilation results, including backend, rejection category,
   instruction position and retryability; remove global transient-failure state.
 - [x] Assert native frame/direct/loop execution, guard fallback, rollback,
@@ -72,8 +179,22 @@ for the module map, tests and measurements.
 - [x] Give each shared state its own context and each prototype typed artifact owners.
 - [x] Run x86, Win64 ABI and AArch64 encoder tests on the development host.
 - [ ] Run the new runtime contracts natively on AArch64 and Windows.
-- [ ] Continue with common operand/flow analysis and ownership/write-log rules (step 3).
-- [ ] Migrate shared lowering incrementally (step 4), then measure pruning/tuning (step 5).
+- [x] Share opcode operands, effects, CFG liveness and loop-written facts.
+- [x] Share bounded rollback logging, preserving old values, weak references and structural boundaries.
+- [x] Add conservative bytecode folding, branch pruning and dead scalar temporary removal.
+- [x] Share scalar state and reject incompatible live type joins; preserve boolean tags and branch constants.
+- [x] Share guarded math identities/evaluators and add x86 conversion/math lowering.
+- [x] Emit x86 scalar conversions and direct audited math calls; hoist invariant checks in pure regions. See the [follow-up measurements](jit-math-optimization-2026-09-07.md).
+- [x] Check numeric delegate identity on AArch64 and reject bound conversion receivers.
+- [x] Share x86 checked array loads, including dynamic floats and nested arrays; compile temporary string-key table loops. See the [memory optimization report](jit-memory-optimization-2026-09-07.md).
+- [x] Deduplicate scalar member undo records and preserve raw weakrefs in table/instance rollback.
+- [x] Analyze bounded scalar leaf callees with bytecode data flow and inline them in x86 callers/loops, with weak prototype guards and private locals. See the [leaf-call report](jit-leaf-call-optimization-2026-09-07.md).
+- [x] Standardize int64/double across runtime and public SDK, update AArch64 floating lowering, and measure equivalent warmed Node.js 18 kernels. See the [numeric64 and Node comparison](numeric64-and-node-comparison-2026-09-07.md).
+- [x] Size x86 frames from actual slots and assign its three value registers by weighted use.
+- [x] Allocate existing member caches sparsely when smaller and reuse them for intrinsic guards.
+- [x] Execute ten focused AArch64 core tests under QEMU; real-hardware validation remains open above.
+- [ ] Continue reducing duplicated lowering and add precise guard-site/compile-cost telemetry.
+- [ ] Revisit dynamic object specialization and full register allocation only with measured evidence.
 
 ## Required Gates
 
@@ -99,7 +220,7 @@ test is a deletion candidate.
 | --- | --- | --- | --- | --- | --- |
 | Integer arithmetic | supported | supported | `numeric_loop`, `numeric` | `test_jit_fastpath.nut` | Keep direct emitters small. |
 | Float arithmetic | supported | supported | `matrix`, `vector` | `test_jit_math.nut` | Preserve conversion guards. |
-| Direct closure calls | supported | supported | `direct_call`, `function-call` | `test_jit_fastpath.nut` | Inline only leaf-safe shapes. |
+| Direct closure calls | supported for selected leaf shapes | supported for selected leaf shapes | `direct_call`, `branch_call`, `float_call`, `function-call` | `test_sqjit_leaf.cpp`, `test_jit_fastpath.nut` | x86 uses bounded scalar analysis, weak prototype guards and private locals; general calls fall back. |
 | Array reads | supported | supported | `vector`, `array` | `test_jit_fastpath.nut` | Shape guards must stay simple. |
 | Array writes | supported | supported | `array`, focused write kernels | `test_jit_fastpath.nut` | Requires write-log rollback. |
 | Array append/push | supported for selected whole-proto/fresh-array shapes | fallback | `array`, `array_push_sum` | `test_jit_correctness.nut` | Do not restore loop append without benchmark proof. |
@@ -107,6 +228,7 @@ test is a deletion candidate.
 | Table/member writes | integer/float/bool only | integer/float/bool only | focused write kernels | `test_jit_correctness.nut` | Object-valued writes currently fall back. |
 | Math intrinsics | supported | supported | math benchmark cases | `test_jit_math.nut` | Keep native-closure guards explicit. |
 | Constructors/classes | selected shapes | fallback/limited | focused constructor benchmarks | `test_jit_correctness.nut` | Treat as high risk. |
+| Closed numeric object kernels | bounded inlining and scalar replacement | one counted loop inside a whole function | `vector`, `bench_vec3.nut` | `test_sqjit_object_plan.cpp` | Shared scalar bytecode; no escaping objects or unanalyzed effects. |
 | GI/native calls | mostly fallback | mostly fallback | `glib-clock` | existing GI tests | Do not optimize unless boundary cost moves. |
 
 ## Code Organization TODO

@@ -334,7 +334,7 @@ tarball
 
 #### `build_dir`
 
-SQGI build directory. On Linux this is where `sqgi` and `libsqgi.so.0` are
+SQGI build directory. On Linux this is where `sqgi` and `libsqgi.so.1` are
 looked up when you are packaging against an already-built SQGI runtime. Default:
 
 ```text
@@ -2394,3 +2394,75 @@ what it did.
 
 The common path should be one command. The complicated parts should be visible,
 repeatable, and owned by the tool instead of copied into every project manifest.
+
+## Compiler optimization builds
+
+`SQGI_ENABLE_LTO=ON` enables CMake's checked interprocedural optimization for
+Release builds. `SQGI_PGO_MODE` accepts `OFF` (default), `GENERATE`, or `USE`.
+PGO currently requires GCC; GCC 12 is the validated configuration. Both options
+preserve int64/double semantics and leave fast-math disabled.
+
+Use a separate build directory and train representative application workloads:
+
+```sh
+cmake -S . -B build-pgo -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_INSTALL_PREFIX=/usr -DSQ_ENABLE_JIT=ON \
+  -DSQGI_ENABLE_LTO=ON -DSQGI_PGO_MODE=GENERATE
+cmake --build build-pgo -j
+ctest --test-dir build-pgo --output-on-failure
+SQGI_JIT=1 SQGI_JIT_THRESHOLD=1 build-pgo/sqgi \
+  test/test_jit_perf_correctness.nut --bench --iterations=20000 --warmups=2
+SQGI_JIT=1 SQGI_JIT_THRESHOLD=1 build-pgo/sqgi \
+  test/bench_execution.nut --iterations=20000
+# Run your applications with build-pgo/sqgi here, then rebuild in the SAME directory.
+cmake -S . -B build-pgo -DSQGI_PGO_MODE=USE
+cmake --build build-pgo -j
+ctest --test-dir build-pgo --output-on-failure
+```
+
+Profiles default to `build-pgo/profiles`; override with `SQGI_PGO_DIRECTORY`.
+Use a fresh build/profile directory when changing source or compiler version.
+`USE` rejects an empty profile directory; GCC diagnoses stale/mismatched data.
+Train before switching modes, keep sanitizers in a separate build, and compare
+with an ordinary Release build using `run_execution_benchmarks.py`. PGO affects
+the compiled runtime and helpers; it does not optimize machine code emitted by
+the JIT at runtime. The packaging test requires network downloads.
+
+`run_member_benchmarks.py` compares any number of named SQGI builds with Node
+on six independent record, buffer and numeric-array workloads. For example:
+
+```sh
+python3 tools/run_member_benchmarks.py \
+  --sqgi before=/path/to/before/sqgi --sqgi after=/path/to/after/sqgi \
+  --runs 5 --iterations 200000 --cpu 0 --output member-workloads.json
+```
+
+It checks results against an interpreter run, uses fresh processes and rotating
+order, and records binary/source hashes, commands and all timing samples.
+Exclude `test/bench_member_workloads.nut` from PGO training to retain it as an
+independent check. See the [member optimization report](../devdocs/internals/member-optimization-2026-09-08.md)
+for measured gains and remaining limits.
+
+Use `--suite owners` to compare table and class fields cycling through 1, 2, 5,
+19 or 257 array owners while updating integer and double fields. This runs ten
+additional workloads from `test/bench_member_owners.nut` and its JavaScript port.
+Keep that suite out of PGO training as well. It exposes both the benefit of
+repeated stores and the remaining cost of large displaced-owner sets. The
+[object-store report](../devdocs/internals/object-store-optimization-2026-09-08.md)
+records the field-cache implementation, ownership contracts and measurements.
+
+Use `--suite methods` for six mutating-call workloads with table, class and
+mixed-layout receivers. Payload transfers use 17 receivers; state publication
+uses 97 receivers and 13 array payloads. The SQGI and Node ports perform the
+same operations and are checked against the interpreter. Exclude
+`test/bench_member_methods.nut` from PGO training. See the
+[dynamic-member report](../devdocs/internals/dynamic-member-optimization-2026-09-08.md)
+for native-call coverage, undo-log costs and measured limits.
+
+Use `--suite floats` for seven independent floating workloads: filtering,
+four/eight channels, integration, retained call arguments, branched leaves and
+a math-helper control. The SQGI and Node programs preserve operation order;
+the runner checks exact final double values against an interpreter reference.
+Exclude `test/bench_float_workloads.nut` from PGO training. The
+[floating-call report](../devdocs/internals/float-call-optimization-2026-09-08.md)
+records the register-cache changes and before/after measurements.
