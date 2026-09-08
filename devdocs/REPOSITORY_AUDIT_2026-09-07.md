@@ -268,10 +268,3 @@ Temporary evidence files remain on this machine:
 - `/tmp/sqgi-audit-list-fix-test_gstreamer_recipes.nut.log`: remaining
   unsuppressed GStreamer leak report.
 - `/tmp/sqgi-audit-20260907/baseline-coverage/summary.json`: baseline coverage.
-
-The existing `ANEMOI_ASYNC_CRASH_REPORT.md` describes an earlier binary and an
-unresolved stack-growth hypothesis. This working tree already had the
-`sqgi_async_finish_wakeup` stack-balancing logic and a 4,096-await regression
-before the audit; that regression passed. This audit does not establish that
-the production worker described by that report has been rebuilt, deployed, or
-validated with either the earlier stack fix or these new lifetime fixes.
