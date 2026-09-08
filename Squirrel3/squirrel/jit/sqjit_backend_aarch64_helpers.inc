@@ -129,52 +129,6 @@ static SQInteger sqjit_a64_helper_array_ptr_get_object_raw(SQInteger array_ptr,
     return SQ_JIT_NATIVE_RETURNED;
 }
 
-static SQInteger sqjit_a64_helper_math_unary(SQInteger op, const SQFloat *arg,
-    SQFloat *out)
-{
-    if(!arg || !out) {
-        return SQ_JIT_NATIVE_GUARD_FAILED;
-    }
-    switch((SQJitA64MathIntrinsic)op) {
-        case SQ_JIT_A64_MATH_SQRT: *out = (SQFloat)sqrt(*arg); return SQ_JIT_NATIVE_RETURNED;
-        case SQ_JIT_A64_MATH_SIN: *out = (SQFloat)sin(*arg); return SQ_JIT_NATIVE_RETURNED;
-        case SQ_JIT_A64_MATH_COS: *out = (SQFloat)cos(*arg); return SQ_JIT_NATIVE_RETURNED;
-        case SQ_JIT_A64_MATH_ASIN: *out = (SQFloat)asin(*arg); return SQ_JIT_NATIVE_RETURNED;
-        case SQ_JIT_A64_MATH_ACOS: *out = (SQFloat)acos(*arg); return SQ_JIT_NATIVE_RETURNED;
-        case SQ_JIT_A64_MATH_LOG: *out = (SQFloat)log(*arg); return SQ_JIT_NATIVE_RETURNED;
-        case SQ_JIT_A64_MATH_LOG10: *out = (SQFloat)log10(*arg); return SQ_JIT_NATIVE_RETURNED;
-        case SQ_JIT_A64_MATH_TAN: *out = (SQFloat)tan(*arg); return SQ_JIT_NATIVE_RETURNED;
-        case SQ_JIT_A64_MATH_ATAN: *out = (SQFloat)atan(*arg); return SQ_JIT_NATIVE_RETURNED;
-        case SQ_JIT_A64_MATH_FLOOR: *out = (SQFloat)floor(*arg); return SQ_JIT_NATIVE_RETURNED;
-        case SQ_JIT_A64_MATH_CEIL: *out = (SQFloat)ceil(*arg); return SQ_JIT_NATIVE_RETURNED;
-        case SQ_JIT_A64_MATH_EXP: *out = (SQFloat)exp(*arg); return SQ_JIT_NATIVE_RETURNED;
-        case SQ_JIT_A64_MATH_FABS: *out = (SQFloat)fabs(*arg); return SQ_JIT_NATIVE_RETURNED;
-        default: return SQ_JIT_NATIVE_GUARD_FAILED;
-    }
-}
-
-static SQInteger sqjit_a64_helper_math_binary(SQInteger op, const SQFloat *left,
-    const SQFloat *right, SQFloat *out)
-{
-    if(!left || !right || !out) {
-        return SQ_JIT_NATIVE_GUARD_FAILED;
-    }
-    switch((SQJitA64MathIntrinsic)op) {
-        case SQ_JIT_A64_MATH_ATAN2: *out = (SQFloat)atan2(*left, *right); return SQ_JIT_NATIVE_RETURNED;
-        case SQ_JIT_A64_MATH_POW: *out = (SQFloat)pow(*left, *right); return SQ_JIT_NATIVE_RETURNED;
-        default: return SQ_JIT_NATIVE_GUARD_FAILED;
-    }
-}
-
-static SQInteger sqjit_a64_helper_integer_to_float(SQInteger value, SQFloat *out)
-{
-    if(!out) {
-        return SQ_JIT_NATIVE_GUARD_FAILED;
-    }
-    *out = (SQFloat)value;
-    return SQ_JIT_NATIVE_RETURNED;
-}
-
 static SQInteger sqjit_a64_helper_float_to_integer(const SQFloat *value, SQInteger *out)
 {
     if(!value || !out) {
@@ -569,202 +523,42 @@ static SQInteger sqjit_a64_helper_store_out_stack_object(SQObjectPtr *stack,
     return SQ_JIT_NATIVE_RETURNED;
 }
 
-static SQJitA64WriteLog *sqjit_a64_write_log_from_slot(SQInteger *slot)
-{
-    if(!slot || !*slot) {
-        return NULL;
-    }
-    return (SQJitA64WriteLog *)(intptr_t)*slot;
-}
-
-static SQJitA64WriteLog *sqjit_a64_write_log_ensure(SQInteger *slot)
-{
-    if(!slot) {
-        return NULL;
-    }
-    SQJitA64WriteLog *log = sqjit_a64_write_log_from_slot(slot);
-    if(log) {
-        return log;
-    }
-
-    void *mem = sq_vm_malloc(sizeof(SQJitA64WriteLog));
-    if(!mem) {
-        return NULL;
-    }
-    log = new (mem) SQJitA64WriteLog;
-    *slot = (SQInteger)(intptr_t)log;
-    return log;
-}
-
-static SQInteger sqjit_a64_write_log_target_index(SQJitA64WriteLog *log,
-    const SQObjectPtr &target)
-{
-    if(!log) {
-        return -1;
-    }
-    SQObjectType target_type = sq_type(target);
-    SQRawObjectVal target_raw = _rawval(target);
-    if(log->last_target_index >= 0 &&
-        log->last_target_index < (SQInteger)log->targets.size() &&
-        log->last_target_type == target_type &&
-        log->last_target_raw == target_raw) {
-        return log->last_target_index;
-    }
-    for(SQUnsignedInteger n = 0; n < log->targets.size(); n++) {
-        if(sq_type(log->targets[n]) == target_type &&
-            _rawval(log->targets[n]) == target_raw) {
-            log->last_target_type = target_type;
-            log->last_target_raw = target_raw;
-            log->last_target_index = (SQInteger)n;
-            return (SQInteger)n;
-        }
-    }
-    SQInteger index = (SQInteger)log->targets.size();
-    log->targets.push_back(target);
-    log->last_target_type = target_type;
-    log->last_target_raw = target_raw;
-    log->last_target_index = index;
-    return index;
-}
-
-static void sqjit_a64_write_log_free(SQInteger *slot)
-{
-    SQJitA64WriteLog *log = sqjit_a64_write_log_from_slot(slot);
-    if(!log) {
-        return;
-    }
-
-    log->~SQJitA64WriteLog();
-    sq_vm_free(log, sizeof(SQJitA64WriteLog));
-    *slot = 0;
-}
-
-static bool sqjit_a64_write_log_has_array_index(SQJitA64WriteLog *log,
-    SQInteger target_index, SQInteger index)
-{
-    if(!log || target_index < 0) {
-        return false;
-    }
-    for(SQUnsignedInteger n = 0; n < log->entries.size(); n++) {
-        const SQJitA64WriteLogEntry &entry = log->entries[n];
-        if(entry.kind == SQ_JIT_A64_WRITE_ARRAY_INDEX &&
-            entry.target_index == target_index &&
-            entry.index == index) {
-            return true;
-        }
-    }
-    return false;
-}
-
 static SQInteger sqjit_a64_write_log_record_array_current(SQInteger *slot,
     const SQObjectPtr &target, SQArray *array, SQInteger index)
 {
-    SQJitA64WriteLog *log = sqjit_a64_write_log_ensure(slot);
-    if(!log || !array) {
-        return SQ_JIT_NATIVE_GUARD_FAILED;
-    }
-    SQInteger target_index = sqjit_a64_write_log_target_index(log, target);
-    if(target_index < 0) {
-        return SQ_JIT_NATIVE_GUARD_FAILED;
-    }
-    // Rollback needs the entry value once; repeated writes to the same slot
-    // must not grow the log or replace the original value.
-    if(sqjit_a64_write_log_has_array_index(log, target_index, index)) {
-        return SQ_JIT_NATIVE_RETURNED;
-    }
-
-    SQObjectPtr old_value;
-    if(!array->Get(index, old_value)) {
-        return SQ_JIT_NATIVE_GUARD_FAILED;
-    }
-
-    SQJitA64WriteLogEntry entry;
-    entry.kind = SQ_JIT_A64_WRITE_ARRAY_INDEX;
-    entry.target_index = target_index;
-    entry.key.Null();
-    entry.old_value = old_value;
-    entry.index = index;
-    log->entries.push_back(entry);
-    return SQ_JIT_NATIVE_RETURNED;
+    SQJitWriteLog *log = sqjit_write_log_ensure(slot);
+    return log && array && log->RecordArray(target, index) ? SQ_JIT_NATIVE_RETURNED : SQ_JIT_NATIVE_GUARD_FAILED;
 }
 
 static SQInteger sqjit_a64_write_log_record_array_size(SQInteger *slot,
     const SQObjectPtr &target, SQInteger old_size)
 {
-    SQJitA64WriteLog *log = sqjit_a64_write_log_ensure(slot);
-    if(!log) {
-        return SQ_JIT_NATIVE_GUARD_FAILED;
-    }
-    SQInteger target_index = sqjit_a64_write_log_target_index(log, target);
-    if(target_index < 0) {
-        return SQ_JIT_NATIVE_GUARD_FAILED;
-    }
-
-    SQJitA64WriteLogEntry entry;
-    entry.kind = SQ_JIT_A64_WRITE_ARRAY_SIZE;
-    entry.target_index = target_index;
-    entry.key.Null();
-    entry.old_value.Null();
-    entry.index = old_size;
-    log->entries.push_back(entry);
-    return SQ_JIT_NATIVE_RETURNED;
+    SQJitWriteLog *log = sqjit_write_log_ensure(slot);
+    return log && log->RecordArraySize(target, old_size) ? SQ_JIT_NATIVE_RETURNED : SQ_JIT_NATIVE_GUARD_FAILED;
 }
 
 static SQInteger sqjit_a64_write_log_record_member(SQInteger *slot,
-    const SQObjectPtr &target, const SQObjectPtr &key, const SQObjectPtr &old_value)
+    const SQObjectPtr &target, const SQObjectPtr &key)
 {
-    SQJitA64WriteLog *log = sqjit_a64_write_log_ensure(slot);
-    if(!log) {
-        return SQ_JIT_NATIVE_GUARD_FAILED;
+    // Target resolution dereferences weakrefs for normal reads. Undo storage
+    // must retain the actual slot, including a weakref whose target has died.
+    SQObjectPtr raw;
+    if(sq_type(target) == OT_TABLE) {
+        if(!_table(target)->GetRaw(key, raw)) return SQ_JIT_NATIVE_GUARD_FAILED;
     }
-    SQInteger target_index = sqjit_a64_write_log_target_index(log, target);
-    if(target_index < 0) {
-        return SQ_JIT_NATIVE_GUARD_FAILED;
+    else if(sq_type(target) == OT_INSTANCE) {
+        SQObjectPtr index;
+        if(!_instance(target)->_class->_members->Get(key, index) || !_isfield(index))
+            return SQ_JIT_NATIVE_GUARD_FAILED;
+        raw = _instance(target)->_values[_member_idx(index)];
     }
-
-    SQJitA64WriteLogEntry entry;
-    entry.kind = SQ_JIT_A64_WRITE_MEMBER_VALUE;
-    entry.target_index = target_index;
-    entry.key = key;
-    entry.old_value = old_value;
-    entry.index = 0;
-    log->entries.push_back(entry);
-    return SQ_JIT_NATIVE_RETURNED;
+    else return SQ_JIT_NATIVE_GUARD_FAILED;
+    SQJitWriteLog *log = sqjit_write_log_ensure(slot);
+    return log && log->RecordMember(target, key, raw) ? SQ_JIT_NATIVE_RETURNED : SQ_JIT_NATIVE_GUARD_FAILED;
 }
 
-static void sqjit_a64_helper_write_log_commit(SQInteger *slot)
-{
-    sqjit_a64_write_log_free(slot);
-}
-
-static void sqjit_a64_helper_write_log_rollback(SQInteger *slot)
-{
-    SQJitA64WriteLog *log = sqjit_a64_write_log_from_slot(slot);
-    if(!log) {
-        return;
-    }
-
-    SQUnsignedInteger count = log->entries.size();
-    while(count > 0) {
-        SQJitA64WriteLogEntry &entry = log->entries[--count];
-        if(entry.target_index < 0 ||
-            entry.target_index >= (SQInteger)log->targets.size()) {
-            continue;
-        }
-        SQObjectPtr &target = log->targets[entry.target_index];
-        if(entry.kind == SQ_JIT_A64_WRITE_ARRAY_INDEX && sq_type(target) == OT_ARRAY) {
-            _array(target)->Set(entry.index, entry.old_value);
-        }
-        else if(entry.kind == SQ_JIT_A64_WRITE_ARRAY_SIZE && sq_type(target) == OT_ARRAY) {
-            _array(target)->Resize(entry.index);
-        }
-        else if(entry.kind == SQ_JIT_A64_WRITE_MEMBER_VALUE) {
-            sqjit_a64_set_member_value(target, &entry.key, entry.old_value);
-        }
-    }
-
-    sqjit_a64_write_log_free(slot);
-}
+static void sqjit_a64_helper_write_log_commit(SQInteger *slot) { sqjit_write_log_release(slot, false); }
+static void sqjit_a64_helper_write_log_rollback(SQInteger *slot) { sqjit_write_log_release(slot, true); }
 
 static SQInteger sqjit_a64_helper_array_set_integer_logged(SQInteger *log_slot,
     SQObjectPtr *stack, SQInteger array_reg, SQInteger index, SQInteger value)
@@ -892,8 +686,7 @@ static SQInteger sqjit_a64_helper_member_set_integer_logged(SQInteger *log_slot,
         target, old_value)) {
         return SQ_JIT_NATIVE_GUARD_FAILED;
     }
-    if(sqjit_a64_write_log_record_member(log_slot, target, *key,
-        old_value) != SQ_JIT_NATIVE_RETURNED) {
+    if(sqjit_a64_write_log_record_member(log_slot, target, *key) != SQ_JIT_NATIVE_RETURNED) {
         return SQ_JIT_NATIVE_GUARD_FAILED;
     }
 
@@ -918,8 +711,7 @@ static SQInteger sqjit_a64_helper_member_set_bool_logged(SQInteger *log_slot,
         target, old_value)) {
         return SQ_JIT_NATIVE_GUARD_FAILED;
     }
-    if(sqjit_a64_write_log_record_member(log_slot, target, *key,
-        old_value) != SQ_JIT_NATIVE_RETURNED) {
+    if(sqjit_a64_write_log_record_member(log_slot, target, *key) != SQ_JIT_NATIVE_RETURNED) {
         return SQ_JIT_NATIVE_GUARD_FAILED;
     }
 
@@ -944,8 +736,7 @@ static SQInteger sqjit_a64_helper_member_set_float_logged(SQInteger *log_slot,
         target, old_value)) {
         return SQ_JIT_NATIVE_GUARD_FAILED;
     }
-    if(sqjit_a64_write_log_record_member(log_slot, target, *key,
-        old_value) != SQ_JIT_NATIVE_RETURNED) {
+    if(sqjit_a64_write_log_record_member(log_slot, target, *key) != SQ_JIT_NATIVE_RETURNED) {
         return SQ_JIT_NATIVE_GUARD_FAILED;
     }
 
@@ -971,8 +762,7 @@ static SQInteger sqjit_a64_helper_object_ptr_set_integer_logged(
         !sqjit_a64_get_member_value(target, key, old_value)) {
         return SQ_JIT_NATIVE_GUARD_FAILED;
     }
-    if(sqjit_a64_write_log_record_member(log_slot, target, *key,
-        old_value) != SQ_JIT_NATIVE_RETURNED) {
+    if(sqjit_a64_write_log_record_member(log_slot, target, *key) != SQ_JIT_NATIVE_RETURNED) {
         return SQ_JIT_NATIVE_GUARD_FAILED;
     }
 
@@ -998,8 +788,7 @@ static SQInteger sqjit_a64_helper_object_ptr_set_bool_logged(
         !sqjit_a64_get_member_value(target, key, old_value)) {
         return SQ_JIT_NATIVE_GUARD_FAILED;
     }
-    if(sqjit_a64_write_log_record_member(log_slot, target, *key,
-        old_value) != SQ_JIT_NATIVE_RETURNED) {
+    if(sqjit_a64_write_log_record_member(log_slot, target, *key) != SQ_JIT_NATIVE_RETURNED) {
         return SQ_JIT_NATIVE_GUARD_FAILED;
     }
 
@@ -1025,8 +814,7 @@ static SQInteger sqjit_a64_helper_object_ptr_set_float_logged(
         !sqjit_a64_get_member_value(target, key, old_value)) {
         return SQ_JIT_NATIVE_GUARD_FAILED;
     }
-    if(sqjit_a64_write_log_record_member(log_slot, target, *key,
-        old_value) != SQ_JIT_NATIVE_RETURNED) {
+    if(sqjit_a64_write_log_record_member(log_slot, target, *key) != SQ_JIT_NATIVE_RETURNED) {
         return SQ_JIT_NATIVE_GUARD_FAILED;
     }
 
@@ -1054,8 +842,7 @@ static SQInteger sqjit_a64_helper_instance_field_set_integer_logged(
 
     SQObjectPtr target(inst);
     SQObjectPtr old_value(_realval(inst->_values[field_index]));
-    if(sqjit_a64_write_log_record_member(log_slot, target, *key,
-        old_value) != SQ_JIT_NATIVE_RETURNED) {
+    if(sqjit_a64_write_log_record_member(log_slot, target, *key) != SQ_JIT_NATIVE_RETURNED) {
         return SQ_JIT_NATIVE_GUARD_FAILED;
     }
 
@@ -1081,8 +868,7 @@ static SQInteger sqjit_a64_helper_instance_field_set_bool_logged(
 
     SQObjectPtr target(inst);
     SQObjectPtr old_value(_realval(inst->_values[field_index]));
-    if(sqjit_a64_write_log_record_member(log_slot, target, *key,
-        old_value) != SQ_JIT_NATIVE_RETURNED) {
+    if(sqjit_a64_write_log_record_member(log_slot, target, *key) != SQ_JIT_NATIVE_RETURNED) {
         return SQ_JIT_NATIVE_GUARD_FAILED;
     }
 
@@ -1108,8 +894,7 @@ static SQInteger sqjit_a64_helper_instance_field_set_float_logged(
 
     SQObjectPtr target(inst);
     SQObjectPtr old_value(_realval(inst->_values[field_index]));
-    if(sqjit_a64_write_log_record_member(log_slot, target, *key,
-        old_value) != SQ_JIT_NATIVE_RETURNED) {
+    if(sqjit_a64_write_log_record_member(log_slot, target, *key) != SQ_JIT_NATIVE_RETURNED) {
         return SQ_JIT_NATIVE_GUARD_FAILED;
     }
 
@@ -1247,6 +1032,17 @@ static bool sqjit_a64_object_ptr_to_value(SQInteger target_ptr,
     }
 }
 
+static bool sqjit_a64_root_fallback_safe(const SQObjectPtr &receiver, const SQObjectPtr *key)
+{
+    if(sq_type(receiver) == OT_INSTANCE) {
+        SQClass *klass = _instance(receiver)->_class;
+        SQObjectPtr shadow;
+        return sq_type(klass->_metamethods[MT_GET]) == OT_NULL &&
+            !_table(klass->_sharedstate->_instance_default_delegate)->Get(*key, shadow);
+    }
+    return true;
+}
+
 static bool sqjit_a64_get_member_value_with_root(SQObjectPtr *stack, SQInteger base_reg,
     const SQObjectPtr *key, const SQObjectPtr *root, SQObjectPtr &value)
 {
@@ -1256,7 +1052,8 @@ static bool sqjit_a64_get_member_value_with_root(SQObjectPtr *stack, SQInteger b
     if(sqjit_a64_get_member_value(stack[base_reg], key, value)) {
         return true;
     }
-    if(base_reg == 0 && root && sq_type(*root) != OT_NULL) {
+    if(base_reg == 0 && root && sq_type(*root) != OT_NULL &&
+        sqjit_a64_root_fallback_safe(stack[base_reg], key)) {
         return sqjit_a64_get_member_value(*root, key, value);
     }
     return false;
@@ -1274,6 +1071,7 @@ static bool sqjit_a64_get_member_target_with_root(SQObjectPtr *stack,
         return true;
     }
     if(base_reg == 0 && root && sq_type(*root) != OT_NULL &&
+        sqjit_a64_root_fallback_safe(stack[base_reg], key) &&
         sqjit_a64_get_member_value(*root, key, value)) {
         target = *root;
         return true;
@@ -1398,55 +1196,14 @@ static SQObjectType sqjit_a64_observed_outer_value_type(SQClosure *closure,
     return sq_type(*value);
 }
 
-static bool sqjit_a64_math_intrinsic_from_name(const SQChar *name,
-    SQJitA64MathIntrinsic *intrinsic, SQInteger *nargs)
-{
-    if(!name || !intrinsic || !nargs) {
-        return false;
-    }
-
-    struct MathName {
-        const SQChar *name;
-        SQJitA64MathIntrinsic intrinsic;
-        SQInteger nargs;
-    };
-    static const MathName math_names[] = {
-        { _SC("sqrt"), SQ_JIT_A64_MATH_SQRT, 1 },
-        { _SC("sin"), SQ_JIT_A64_MATH_SIN, 1 },
-        { _SC("cos"), SQ_JIT_A64_MATH_COS, 1 },
-        { _SC("asin"), SQ_JIT_A64_MATH_ASIN, 1 },
-        { _SC("acos"), SQ_JIT_A64_MATH_ACOS, 1 },
-        { _SC("log"), SQ_JIT_A64_MATH_LOG, 1 },
-        { _SC("log10"), SQ_JIT_A64_MATH_LOG10, 1 },
-        { _SC("tan"), SQ_JIT_A64_MATH_TAN, 1 },
-        { _SC("atan"), SQ_JIT_A64_MATH_ATAN, 1 },
-        { _SC("floor"), SQ_JIT_A64_MATH_FLOOR, 1 },
-        { _SC("ceil"), SQ_JIT_A64_MATH_CEIL, 1 },
-        { _SC("exp"), SQ_JIT_A64_MATH_EXP, 1 },
-        { _SC("fabs"), SQ_JIT_A64_MATH_FABS, 1 },
-        { _SC("atan2"), SQ_JIT_A64_MATH_ATAN2, 2 },
-        { _SC("pow"), SQ_JIT_A64_MATH_POW, 2 },
-        { NULL, SQ_JIT_A64_MATH_NONE, 0 }
-    };
-
-    for(SQInteger i = 0; math_names[i].name; i++) {
-        if(scstrcmp(name, math_names[i].name) == 0) {
-            *intrinsic = math_names[i].intrinsic;
-            *nargs = math_names[i].nargs;
-            return true;
-        }
-    }
-    return false;
-}
-
 static bool sqjit_a64_math_intrinsic_from_native(SQNativeClosure *closure,
-    SQJitA64MathIntrinsic *intrinsic, SQInteger *nargs)
+    SQNativeMathKind *intrinsic, SQInteger *nargs)
 {
-    if(!closure || sq_type(closure->_name) != OT_STRING) {
-        return false;
-    }
-    return sqjit_a64_math_intrinsic_from_name(_stringval(closure->_name),
-        intrinsic, nargs);
+    const SQNativeMathSpec *spec = sqjit_math_spec(closure);
+    if(!spec || !intrinsic || !nargs) return false;
+    *intrinsic = spec->kind;
+    *nargs = spec->nargs;
+    return true;
 }
 
 static SQInteger sqjit_a64_helper_closure_slot_guard(SQObjectPtr *stack,

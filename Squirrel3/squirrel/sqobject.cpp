@@ -10,6 +10,10 @@
 #include "sqfuncproto.h"
 #include "sqclass.h"
 #include "sqclosure.h"
+#ifdef SQ_ENABLE_JIT
+#include "jit/sqjit_backend.h"
+#include "jit/sqjit_object_plan.h"
+#endif
 
 
 const SQChar *IdType2Name(SQObjectType type)
@@ -93,8 +97,8 @@ SQWeakRef *SQRefCounted::GetWeakRef(SQObjectType type)
 {
     if(!_weakref) {
         sq_new(_weakref,SQWeakRef);
-#if defined(SQUSEDOUBLE) && !defined(_SQ64)
-        _weakref->_obj._unVal.raw = 0; //clean the whole union on 32 bits with double
+#if UINTPTR_MAX < UINT64_MAX
+        _weakref->_obj._unVal.raw = 0; // clear padding when pointers are narrower than values
 #endif
         _weakref->_obj._type = type;
         _weakref->_obj._unVal.pRefCounted = this;
@@ -106,7 +110,7 @@ SQRefCounted::~SQRefCounted()
 {
     if(_weakref) {
         _weakref->_obj._type = OT_NULL;
-        _weakref->_obj._unVal.pRefCounted = NULL;
+        _weakref->_obj._unVal.raw = 0;
     }
 }
 
@@ -239,6 +243,24 @@ const SQChar* SQFunctionProto::GetLocal(SQVM *vm,SQUnsignedInteger stackbase,SQU
     return res;
 }
 
+
+void SQFunctionProto::InitMemberCaches()
+{
+    SQInteger sites = 0;
+    for(SQInteger ip = 0; ip < _ninstructions; ++ip)
+        if(_instructions[ip].op == _OP_GETK || _instructions[ip].op == _OP_PREPCALLK) ++sites;
+    // Keep dense storage when an index would cost more than it saves.
+    if((SQUnsignedInteger)sites * sizeof(SQMemberCache) + (SQUnsignedInteger)_ninstructions * sizeof(SQInt32) >=
+        (SQUnsignedInteger)_ninstructions * sizeof(SQMemberCache)) {
+        _membercache.resize(_ninstructions);
+        return;
+    }
+    _membercache_offsets.resize(_ninstructions, (SQInt32)-1);
+    _membercache.resize(sites);
+    SQInt32 next = 0;
+    for(SQInteger ip = 0; ip < _ninstructions; ++ip)
+        if(_instructions[ip].op == _OP_GETK || _instructions[ip].op == _OP_PREPCALLK) _membercache_offsets[ip] = next++;
+}
 
 SQInteger SQFunctionProto::GetLine(SQInstruction *curr)
 {
@@ -733,6 +755,9 @@ void SQGenerator::Mark(SQCollectable **chain)
 void SQFunctionProto::Mark(SQCollectable **chain)
 {
     START_MARK()
+#ifdef SQ_ENABLE_JIT
+        if(_jit && _jit->_entry && _jit->_entry->_object_plan) _jit->_entry->_object_plan->Mark(chain);
+#endif
         for(SQInteger i = 0; i < _nliterals; i++) SQSharedState::MarkObject(_literals[i], chain);
         for(SQInteger k = 0; k < _nfunctions; k++) SQSharedState::MarkObject(_functions[k], chain);
         for(SQUnsignedInteger c = 0; c < _membercache.size(); c++) {

@@ -533,7 +533,7 @@ void test_analyzer_defensive_paths()
         {ProtoMutation::BadOuterWrite,
          "local x=1; function f(){ x=2 }\n"},
         {ProtoMutation::BadJump,
-         "if (true) { local x=1 } else { local y=2 }\n"},
+         "if (unknown) { local x=1 } else { local y=2 }\n"},
         {ProtoMutation::BadClosure,
          "local f=function(){ return 1 }\n"},
         {ProtoMutation::EmptyPrototype, "local value=1\n"},

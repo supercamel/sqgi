@@ -1,3 +1,13 @@
+/* SQGI's public numeric ABI: signed 64-bit integers and IEEE double floats.
+ * Keep these defaults in the installed header so embedders and every build
+ * entry point agree with the runtime without extra compiler definitions. */
+#include <stdint.h>
+#ifndef _SQ64
+#define _SQ64
+#endif
+#ifndef SQUSEDOUBLE
+#define SQUSEDOUBLE
+#endif
 
 #ifdef _SQ64
 
@@ -36,7 +46,11 @@ typedef long long SQRawObjectVal; //must be 64bits
 #define SQ_OBJECT_RAWINIT() { _unVal.raw = 0; }
 #else
 typedef SQUnsignedInteger SQRawObjectVal; //is 32 bits on 32 bits builds and 64 bits otherwise
+#if UINTPTR_MAX < UINT64_MAX
+#define SQ_OBJECT_RAWINIT() { _unVal.raw = 0; }
+#else
 #define SQ_OBJECT_RAWINIT()
+#endif
 #endif
 
 #ifndef SQ_ALIGNMENT // SQ_ALIGNMENT shall be less than or equal to SQ_MALLOC alignments, and its value shall be power of 2.

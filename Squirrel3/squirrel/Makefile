@@ -10,6 +10,8 @@ LIB=
 OBJS= \
 	sqapi.o \
 	sqbaselib.o \
+	sqoptimizer.o \
+	sqbytecode.o \
 	sqfuncstate.o \
 	sqdebug.o \
 	sqlexer.o \
@@ -24,6 +26,8 @@ OBJS= \
 SRCS= \
 	sqapi.cpp \
 	sqbaselib.cpp \
+	sqoptimizer.cpp \
+	sqbytecode.cpp \
 	sqfuncstate.cpp \
 	sqdebug.cpp \
 	sqlexer.cpp \

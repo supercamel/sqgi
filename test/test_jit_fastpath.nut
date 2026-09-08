@@ -302,7 +302,7 @@ approx(mixed_table_float_set_region_kernel(5, 1.25), 2.5, 0.0001,
     "mixed table float set loop-region kernel")
 check(branch_kernel(20000) == 1004999480001, "branch kernel")
 check(equality_branch_kernel(20000) == 11624, "equality branch kernel")
-approx(float_geometry_kernel(1000), 25716.453125, 0.01, "float geometry kernel")
+approx(float_geometry_kernel(1000), 25716.448845812865, 0.00000001, "float geometry kernel")
 approx(float_return_kernel(2.0, 4.0, 1.0), 4.75, 0.0001, "native float return kernel")
 approx(float_array_dot_kernel([1.0, 2.0, 3.0], [4.0, 5.0, 6.0]), 32.0, 0.0001, "native float array dot kernel")
 local transformed = transform_point_kernel([

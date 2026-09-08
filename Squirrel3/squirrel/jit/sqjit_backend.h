@@ -10,6 +10,7 @@ struct SQClass;
 struct SQFunctionProto;
 struct SQObjectPtr;
 struct SQJitProto;
+struct SQJitObjectPlan;
 
 enum SQJitNativeStatus {
     SQ_JIT_NATIVE_GUARD_FAILED = 0,
@@ -94,6 +95,9 @@ enum {
 
 struct SQJitNative {
     SQJitNative();
+    ~SQJitNative();
+    SQJitObjectPlan *_object_plan;
+    bool _scalarized;
     SQInteger _ninstructions;
     SQJitCode _code;
     SQInteger _native_kind;

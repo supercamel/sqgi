@@ -119,6 +119,7 @@ public:
     SQCOMPILERERROR _compilererrorhandler;
     SQPRINTFUNCTION _printfunc;
     SQPRINTFUNCTION _errorfunc;
+    bool _bytecode_optimization; // Internal switch for differential compiler tests.
     bool _debuginfo;
     bool _notifyallexceptions;
     SQUserPointer _foreignptr;

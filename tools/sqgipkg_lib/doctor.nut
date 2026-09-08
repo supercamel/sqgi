@@ -230,8 +230,8 @@ class SqgiPkgDoctor extends Base.SqgiPkgTemplates {
         if (opts.entry_type == "sqgi") {
             if (!this.path_exists(GLib.build_filenamev([opts.build_dir, "sqgi"])))
                 warnings.push("sqgi binary not found in build_dir yet: " + opts.build_dir)
-            if (!this.path_exists(GLib.build_filenamev([opts.build_dir, "libsqgi.so.0"])))
-                warnings.push("libsqgi.so.0 not found in build_dir yet: " + opts.build_dir)
+            if (!this.path_exists(GLib.build_filenamev([opts.build_dir, "libsqgi.so.1"])))
+                warnings.push("libsqgi.so.1 not found in build_dir yet: " + opts.build_dir)
         }
         if (this.executable_path(opts.appimagetool) == null)
             warnings.push("appimagetool not found in PATH; build will download it if curl or wget is available")

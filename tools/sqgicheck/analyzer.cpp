@@ -2,6 +2,7 @@
 
 #include "sqpcheader.h"
 #include "sqopcodes.h"
+#include "sqbytecode.h"
 #include "sqvm.h"
 #include "sqfuncproto.h"
 #include "sqclosure.h"
@@ -772,31 +773,10 @@ private:
                         successors.end())
                     successors.push_back(target);
             };
-            switch (instruction.op) {
-            case _OP_RETURN:
-            case _OP_THROW:
-            case _OP_TAILCALL:
-                break;
-            case _OP_JMP:
-                add_successor(ip + 1 + arg1);
-                break;
-            case _OP_JZ:
-            case _OP_JCMP:
-            case _OP_AND:
-            case _OP_OR:
-            case _OP_FOREACH:
-            case _OP_PUSHTRAP:
-                add_successor(ip + 1);
-                add_successor(ip + 1 + arg1);
-                break;
-            case _OP_POSTFOREACH:
-                add_successor(ip + 1);
-                add_successor(ip + arg1);
-                break;
-            default:
-                add_successor(ip + 1);
-                break;
-            }
+            if(sq_bytecode_fallthrough(instruction)) add_successor(ip + 1);
+            SQInteger branch_target;
+            if(sq_bytecode_branch_target(instruction, ip, branch_target))
+                add_successor(static_cast<int>(branch_target));
 
             for (int successor : successors) {
                 size_t index = static_cast<size_t>(successor);

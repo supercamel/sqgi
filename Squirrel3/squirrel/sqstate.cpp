@@ -23,6 +23,7 @@ SQSharedState::SQSharedState()
     _compilererrorhandler = NULL;
     _printfunc = NULL;
     _errorfunc = NULL;
+    _bytecode_optimization = true;
     _debuginfo = false;
     _notifyallexceptions = false;
     _foreignptr = NULL;

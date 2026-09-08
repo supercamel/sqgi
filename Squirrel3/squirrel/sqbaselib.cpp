@@ -386,6 +386,10 @@ static SQInteger default_delegate_tofloat(HSQUIRRELVM v)
     return 1;
 }
 
+#ifdef SQ_ENABLE_JIT
+SQFUNCTION sq_native_number_tofloat() { return default_delegate_tofloat; }
+#endif
+
 static SQInteger default_delegate_tointeger(HSQUIRRELVM v)
 {
     SQObjectPtr &o=stack_get(v,1);

@@ -78,6 +78,16 @@ void SQJitCode::Reset()
     sqjit_code_free(entry, size);
     entry = NULL;
     size = 0;
+    for(SQWeakRef *reference : weak_references) { __ObjRelease(reference); }
+    weak_references.clear();
+}
+
+void SQJitCode::RetainWeakReference(SQWeakRef *reference)
+{
+    assert(reference);
+    for(SQWeakRef *existing : weak_references) if(existing == reference) return;
+    weak_references.push_back(reference);
+    __ObjAddRef(reference);
 }
 
 bool SQJitCode::Install(const unsigned char *bytes, SQInteger length)

@@ -186,6 +186,15 @@ public:
 #ifdef SQ_ENABLE_JIT
     SQJitProto *_jit;
 #endif
+    SQMemberCache *MemberCacheAt(SQInteger ip)
+    {
+        if(ip < 0 || ip >= _ninstructions) return NULL;
+        if(_membercache.empty() && _membercache_offsets.empty()) InitMemberCaches();
+        SQInteger index = _membercache_offsets.empty() ? ip : _membercache_offsets[ip];
+        return index >= 0 && index < (SQInteger)_membercache.size() ? &_membercache[index] : NULL;
+    }
+    void InitMemberCaches();
+    sqvector<SQInt32> _membercache_offsets;
     SQMemberCacheVec _membercache;
 
     SQInteger _ninstructions;

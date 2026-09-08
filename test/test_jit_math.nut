@@ -180,7 +180,8 @@ local branchy = timed("branch", branch_iterations,
     function() { return mixed_branch_checksum(branch_iterations) })
 
 check(matrix == -819393019, "matrix checksum " + matrix)
-approx(geometry, 2531.650146, 0.01, "geometry checksum")
+// Binary64 reference, independently reproduced with Python arithmetic.
+approx(geometry, 2532.6650339313774, 0.000000001, "geometry checksum")
 approx(float_loop, 0.0, 0.000001, "float loop checksum")
 check(branchy == 484197849, "branch checksum " + branchy)
 

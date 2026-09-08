@@ -1,6 +1,7 @@
 /*  see copyright notice in squirrel.h */
 #include "sqjit_backend_aarch64_private.h"
 #include "sqjit_code.h"
+#include "sqjit_typeflow.h"
 
 #if defined(__aarch64__) && defined(__linux__)
 
@@ -87,6 +88,7 @@ static bool sqjit_a64_instruction_slots_valid(const SQInstruction &inst)
                 sqjit_a64_slot_index_valid(inst._arg2) &&
                 (inst._arg3 != 0 || sqjit_a64_slot_index_valid(inst._arg1));
         case _OP_JZ:
+        case _OP_THROW:
             return sqjit_a64_slot_index_valid(inst._arg0);
         case _OP_JCMP:
             return sqjit_a64_slot_index_valid(inst._arg0) &&
@@ -204,31 +206,31 @@ static const char *sqjit_a64_unsupported_loop_opcode_reason(unsigned char op)
 #include "sqjit_backend_aarch64_helpers.inc"
 
 static bool sqjit_a64_emit_store_out_scalar(SQJitA64Buffer *buf, SQObjectType type, SQInteger slot,
-    SQJitA64SlotKind kind)
+    SQJitSlotKind kind)
 {
-    SQObjectType out_type = kind == SQ_JIT_A64_SLOT_BOOL ? OT_BOOL : type;
+    SQObjectType out_type = kind == SQ_JIT_SLOT_BOOL ? OT_BOOL : type;
     if(!sqjit_a64_emit_mov_imm_w(buf, 9, (uint32_t)out_type) ||
         !sqjit_a64_emit_str_w(buf, 9, 20, (SQInteger)offsetof(SQObject, _type))) {
         return false;
     }
-    if(kind == SQ_JIT_A64_SLOT_FLOAT) {
+    if(kind == SQ_JIT_SLOT_FLOAT) {
         return sqjit_a64_emit_mov_imm_x(buf, 10, 0) &&
             sqjit_a64_emit_str_x(buf, 10, 20, (SQInteger)offsetof(SQObject, _unVal)) &&
-            sqjit_a64_emit_ldr_s(buf, 0, 31, sqjit_a64_local_disp(slot)) &&
-            sqjit_a64_emit_str_s(buf, 0, 20, (SQInteger)offsetof(SQObject, _unVal));
+            sqjit_a64_emit_ldr_float(buf, 0, 31, sqjit_a64_local_disp(slot)) &&
+            sqjit_a64_emit_str_float(buf, 0, 20, (SQInteger)offsetof(SQObject, _unVal));
     }
     return sqjit_a64_emit_ldr_x(buf, 10, 31, sqjit_a64_local_disp(slot)) &&
         sqjit_a64_emit_str_x(buf, 10, 20, (SQInteger)offsetof(SQObject, _unVal));
 }
 
 static bool sqjit_a64_emit_store_stack_scalar(SQJitA64Buffer *buf, SQInteger stack_slot,
-    SQInteger local_slot, SQJitA64SlotKind kind)
+    SQInteger local_slot, SQJitSlotKind kind)
 {
     SQObjectType type = OT_INTEGER;
-    if(kind == SQ_JIT_A64_SLOT_FLOAT) {
+    if(kind == SQ_JIT_SLOT_FLOAT) {
         type = OT_FLOAT;
     }
-    else if(kind == SQ_JIT_A64_SLOT_BOOL) {
+    else if(kind == SQ_JIT_SLOT_BOOL) {
         type = OT_BOOL;
     }
 
@@ -237,11 +239,11 @@ static bool sqjit_a64_emit_store_stack_scalar(SQJitA64Buffer *buf, SQInteger sta
         return false;
     }
 
-    if(kind == SQ_JIT_A64_SLOT_FLOAT) {
+    if(kind == SQ_JIT_SLOT_FLOAT) {
         return sqjit_a64_emit_mov_imm_x(buf, 10, 0) &&
             sqjit_a64_emit_str_x(buf, 10, 19, sqjit_a64_stack_value_disp(stack_slot)) &&
-            sqjit_a64_emit_ldr_s(buf, 0, 31, sqjit_a64_local_disp(local_slot)) &&
-            sqjit_a64_emit_str_s(buf, 0, 19, sqjit_a64_stack_value_disp(stack_slot));
+            sqjit_a64_emit_ldr_float(buf, 0, 31, sqjit_a64_local_disp(local_slot)) &&
+            sqjit_a64_emit_str_float(buf, 0, 19, sqjit_a64_stack_value_disp(stack_slot));
     }
 
     return sqjit_a64_emit_ldr_x(buf, 10, 31, sqjit_a64_local_disp(local_slot)) &&

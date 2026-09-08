@@ -3,6 +3,8 @@ set(SQUIRREL_SRC sqapi.cpp
                  sqclass.cpp
                  sqcompiler.cpp
                  sqdebug.cpp
+                 sqoptimizer.cpp
+                 sqbytecode.cpp
                  sqfuncstate.cpp
                  sqlexer.cpp
                  sqmem.cpp

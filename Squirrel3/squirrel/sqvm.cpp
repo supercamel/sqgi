@@ -13,6 +13,8 @@
 #include "squserdata.h"
 #include "sqarray.h"
 #include "sqclass.h"
+#include "sqmembercache.h"
+#include "sqmemberslot.h"
 #ifdef SQ_ENABLE_JIT
 #include "jit/sqjit.h"
 #endif
@@ -30,138 +32,7 @@ static inline SQMemberCache *sq_vm_member_cache_for(SQFunctionProto *func, SQInt
     if(!func || ip < 0 || ip >= func->_ninstructions) {
         return NULL;
     }
-    if(func->_membercache.size() == 0) {
-        func->_membercache.resize(func->_ninstructions);
-    }
-    return &func->_membercache[ip];
-}
-
-static inline bool sq_vm_member_cache_hit(SQMemberCache *cache,
-    const SQObjectPtr &self, SQObjectPtr &dest)
-{
-    if(!cache || cache->_kind == SQ_MEMBER_CACHE_EMPTY ||
-        cache->_index < 0) {
-        return false;
-    }
-
-    if(cache->_kind == SQ_MEMBER_CACHE_TABLE_SLOT) {
-        SQObject cached_owner;
-        if(sq_type(cache->_owner) == OT_WEAKREF) {
-            cached_owner = _weakref(cache->_owner)->_obj;
-        }
-        else {
-            cached_owner = cache->_owner;
-        }
-        if(sq_type(self) == OT_TABLE && sq_type(cached_owner) == OT_TABLE &&
-            _table(self) == _table(cached_owner)) {
-            return _table(self)->GetCachedSlot(cache->_index,
-                cache->_version, dest);
-        }
-        return false;
-    }
-
-    if(sq_type(cache->_owner) != OT_CLASS) {
-        return false;
-    }
-
-    SQClass *klass = _class(cache->_owner);
-    switch(cache->_kind) {
-    case SQ_MEMBER_CACHE_INSTANCE_FIELD:
-        if(sq_type(self) == OT_INSTANCE && _instance(self)->_class == klass &&
-            cache->_index < (SQInteger)klass->_defaultvalues.size()) {
-            dest = _realval(_instance(self)->_values[cache->_index]);
-            return true;
-        }
-        break;
-    case SQ_MEMBER_CACHE_INSTANCE_METHOD:
-        if(sq_type(self) == OT_INSTANCE && _instance(self)->_class == klass &&
-            cache->_index < (SQInteger)klass->_methods.size()) {
-            dest = klass->_methods[cache->_index].val;
-            return true;
-        }
-        break;
-    case SQ_MEMBER_CACHE_CLASS_FIELD:
-        if(sq_type(self) == OT_CLASS && _class(self) == klass &&
-            cache->_index < (SQInteger)klass->_defaultvalues.size()) {
-            dest = _realval(klass->_defaultvalues[cache->_index].val);
-            return true;
-        }
-        break;
-    case SQ_MEMBER_CACHE_CLASS_METHOD:
-        if(sq_type(self) == OT_CLASS && _class(self) == klass &&
-            cache->_index < (SQInteger)klass->_methods.size()) {
-            dest = klass->_methods[cache->_index].val;
-            return true;
-        }
-        break;
-    default:
-        break;
-    }
-    return false;
-}
-
-static inline bool sq_vm_member_cache_fill(SQMemberCache *cache,
-    const SQObjectPtr &self, const SQObjectPtr &key, SQObjectPtr &dest)
-{
-    SQClass *klass = NULL;
-    bool instance = false;
-    if(sq_type(self) == OT_INSTANCE) {
-        klass = _instance(self)->_class;
-        instance = true;
-    }
-    else if(sq_type(self) == OT_CLASS) {
-        klass = _class(self);
-    }
-    else if(sq_type(self) == OT_TABLE) {
-        SQInteger index = -1;
-        SQUnsignedInteger version = 0;
-        if(!_table(self)->GetCacheSlot(key, index, version, dest)) {
-            return false;
-        }
-        if(cache) {
-            cache->_owner = _refcounted(self)->GetWeakRef(sq_type(self));
-            cache->_kind = SQ_MEMBER_CACHE_TABLE_SLOT;
-            cache->_index = index;
-            cache->_version = version;
-        }
-        return true;
-    }
-    else {
-        return false;
-    }
-
-    SQObjectPtr idx;
-    if(!klass || !klass->_members->Get(key, idx)) {
-        return false;
-    }
-
-    SQInteger member_idx = _member_idx(idx);
-    if(_isfield(idx)) {
-        if(member_idx >= (SQInteger)klass->_defaultvalues.size()) {
-            return false;
-        }
-        dest = instance ? _realval(_instance(self)->_values[member_idx]) :
-            _realval(klass->_defaultvalues[member_idx].val);
-        if(cache) {
-            cache->_owner = klass;
-            cache->_kind = instance ? SQ_MEMBER_CACHE_INSTANCE_FIELD :
-                SQ_MEMBER_CACHE_CLASS_FIELD;
-            cache->_index = member_idx;
-        }
-        return true;
-    }
-
-    if(!_ismethod(idx) || member_idx >= (SQInteger)klass->_methods.size()) {
-        return false;
-    }
-    dest = klass->_methods[member_idx].val;
-    if(cache) {
-        cache->_owner = klass;
-        cache->_kind = instance ? SQ_MEMBER_CACHE_INSTANCE_METHOD :
-            SQ_MEMBER_CACHE_CLASS_METHOD;
-        cache->_index = member_idx;
-    }
-    return true;
+    return func->MemberCacheAt(ip);
 }
 
 bool SQVM::BW_OP(SQUnsignedInteger op,SQObjectPtr &trg,const SQObjectPtr &o1,const SQObjectPtr &o2)
@@ -222,7 +93,7 @@ bool SQVM::ARITH_OP(SQUnsignedInteger op,SQObjectPtr &trg,const SQObjectPtr &o1,
                     break;
             case '*': res = i1 * i2; break;
             case '%': if (i2 == 0) { Raise_Error(_SC("modulo by zero")); return false; }
-                    else if (i2 == -1 && i1 == INT_MIN) { res = 0; break; }
+                    else if (i2 == -1) { res = 0; break; }
                     res = i1 % i2;
                     break;
             default: res = 0xDEADBEEF;
@@ -1157,8 +1028,8 @@ exception_restore:
                         (SQInteger)((ci->_ip - 1) -
                         _closure(ci->_closure)->_function->_instructions)) : NULL;
                     if(member_cache &&
-                        (sq_vm_member_cache_hit(member_cache, o, temp_reg) ||
-                        sq_vm_member_cache_fill(member_cache, o, key, temp_reg))) {
+                        (sq_member_cache_hit(member_cache, o, temp_reg) ||
+                        sq_member_cache_fill(member_cache, o, key, temp_reg))) {
                         STK(arg3) = o;
                         _Swap(TARGET,temp_reg);
                         continue;
@@ -1176,9 +1047,9 @@ exception_restore:
                 SQMemberCache *member_cache = sq_vm_member_cache_for(func,
                     (SQInteger)((ci->_ip - 1) - func->_instructions));
                 if(!(member_cache &&
-                    (sq_vm_member_cache_hit(member_cache, STK(arg2),
+                    (sq_member_cache_hit(member_cache, STK(arg2),
                     temp_reg) ||
-                    sq_vm_member_cache_fill(member_cache, STK(arg2),
+                    sq_member_cache_fill(member_cache, STK(arg2),
                     ci->_literals[arg1], temp_reg))) &&
                     !Get(STK(arg2), ci->_literals[arg1], temp_reg, 0,arg2)) {
                     SQ_THROW();
@@ -1192,12 +1063,25 @@ exception_restore:
                 if(arg0 != 0xFF) TARGET = STK(arg3);
                 continue;
             case _OP_DELETE: _GUARD(DeleteSlot(STK(arg1), STK(arg2), TARGET)); continue;
-            case _OP_SET:
-                if (!Set(STK(arg1), STK(arg2), STK(arg3),arg1)) { SQ_THROW(); }
-                if (arg0 != 0xFF) TARGET = STK(arg3);
+            case _OP_SET: {
+                SQObjectPtr *slot = NULL;
+                if(sq_type(STK(arg1)) == OT_ARRAY && sq_type(STK(arg2)) == OT_INTEGER) {
+                    SQArray *array = _array(STK(arg1));
+                    SQInteger index = _integer(STK(arg2));
+                    if((SQUnsignedInteger)index < (SQUnsignedInteger)array->Size()) slot = &array->_values[index];
+                }
+                else slot = sq_member_raw_slot(STK(arg1), STK(arg2));
+                // Existing fields have ordinary assignment semantics. Missing
+                // fields and other receivers still use delegation/metamethods.
+                if(slot) *slot = STK(arg3);
+                else if(!Set(STK(arg1), STK(arg2), STK(arg3),arg1)) { SQ_THROW(); }
+                if(arg0 != 0xFF) TARGET = STK(arg3);
                 continue;
+            }
             case _OP_GET:
-                if (!Get(STK(arg1), STK(arg2), temp_reg, 0,arg1)) { SQ_THROW(); }
+                if(!(sq_type(STK(arg1)) == OT_ARRAY && sq_type(STK(arg2)) == OT_INTEGER &&
+                    _array(STK(arg1))->Get(_integer(STK(arg2)), temp_reg)) &&
+                    !Get(STK(arg1), STK(arg2), temp_reg, 0,arg1)) { SQ_THROW(); }
                 _Swap(TARGET,temp_reg);//TARGET = temp_reg;
                 continue;
             case _OP_EQ:{
@@ -1214,7 +1098,16 @@ exception_restore:
             case _OP_SUB: _ARITH_(-,TARGET,STK(arg2),STK(arg1)); continue;
             case _OP_MUL: _ARITH_(*,TARGET,STK(arg2),STK(arg1)); continue;
             case _OP_DIV: _ARITH_NOZERO(/,TARGET,STK(arg2),STK(arg1),_SC("division by zero")); continue;
-            case _OP_MOD: ARITH_OP('%',TARGET,STK(arg2),STK(arg1)); continue;
+            case _OP_MOD:
+                if((sq_type(STK(arg2)) | sq_type(STK(arg1))) == OT_INTEGER) {
+                    SQInteger divisor = _integer(STK(arg1));
+                    if(divisor == 0) { Raise_Error(_SC("modulo by zero")); SQ_THROW(); }
+                    // INT64_MIN % -1 is zero mathematically, but C++ signed
+                    // remainder overflows. This also handles aliased targets.
+                    TARGET = divisor == -1 ? (SQInteger)0 : _integer(STK(arg2)) % divisor;
+                }
+                else { _GUARD(ARITH_OP('%',TARGET,STK(arg2),STK(arg1))); }
+                continue;
             case _OP_BITW:  _GUARD(BW_OP( arg3,TARGET,STK(arg2),STK(arg1))); continue;
             case _OP_RETURN:
                 if((ci)->_generator) {

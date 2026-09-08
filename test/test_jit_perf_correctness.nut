@@ -50,6 +50,29 @@ function direct_call_kernel(n) {
     return acc
 }
 
+function scalar_branch_step(acc, i) {
+    local delta = 0
+    if (i % 2 == 0) delta = i % 17
+    else delta = 0 - (i % 13)
+    return (acc + delta + 97) % 1000003
+}
+
+function branch_call_kernel(n) {
+    local acc = 7
+    for (local i = 0; i < n; i++) acc = scalar_branch_step(acc, i)
+    return acc
+}
+
+function scalar_float_step(x, y) {
+    return x * 0.5 + y
+}
+
+function float_call_kernel(n) {
+    local value = 0.0
+    for (local i = 0; i < n; i++) value = scalar_float_step(value, i % 7)
+    return value
+}
+
 function numeric_loop_kernel(n) {
     local acc = 13
     for (local i = 0; i < n; i++) {
@@ -260,6 +283,16 @@ function math_intrinsic_kernel(n) {
     return total
 }
 
+// All arguments vary, so this also measures actual transcendental work.
+function math_variable_kernel(n) {
+    local total = 0.0
+    for (local i = 0; i < n; i++) {
+        local x = ((i % 97) + 1).tofloat() * 0.01
+        total += sqrt(x) + sin(x) + cos(x) + log(x) + atan2(x, 0.75) + pow(x, 1.125)
+    }
+    return total
+}
+
 function matrix_kernel(n) {
     local a = [
         [1.0, 0.5, -0.25],
@@ -283,28 +316,52 @@ function matrix_kernel(n) {
     return checksum + v[0] * 3.0 + v[1] * 5.0 + v[2] * 7.0
 }
 
+function array_read_kernel(n) {
+    local a = [1, 2, 3, 4]
+    local sum = 0
+    for (local i = 0; i < n; i++) sum += a[i % 4]
+    return sum
+}
+
+function array_float_kernel(n) {
+    local a = [0.5, 1.5, 2.5, 3.5]
+    local sum = 0.0
+    for (local i = 0; i < n; i++) sum += a[i % 4]
+    return sum
+}
+
 function run_correctness() {
+    check_eq(array_read_kernel(200), 500, "array read checksum")
+    approx(array_float_kernel(200), 400.0, 0.0005, "float array checksum")
     check_eq(direct_call_kernel(400), 193938, "direct call checksum")
+    check_eq(branch_call_kernel(400), 39196, "branch call checksum")
+    approx(float_call_kernel(400), 5.0551181102362204, 0.000000000001, "float call checksum")
     check_eq(numeric_loop_kernel(400), 2500508, "numeric loop checksum")
-    approx(vector_kernel(120), 0.021712612, 0.0005, "vector kernel checksum")
+    approx(vector_kernel(120), 0.021712587807413163, 0.000000000001, "vector kernel checksum")
     check_eq(dynamic_member_kernel(160), 186190, "dynamic member checksum")
     check_eq(dynamic_key_get_set_kernel(200), 470622, "dynamic key checksum")
     check_eq(object_member_write_fallback_kernel(120), 82710,
         "object member write fallback checksum")
     check_eq(array_append_kernel(300), 134408, "array append checksum")
     check_eq(array_write_kernel(300), 461837, "array write checksum")
-    approx(math_intrinsic_kernel(80), 1161.312988281, 0.0005,
+    approx(math_intrinsic_kernel(80), 1161.3127449959120, 0.000000001,
         "math intrinsic checksum")
-    approx(matrix_kernel(200), -0.314673245, 0.0005, "matrix kernel checksum")
+    approx(math_variable_kernel(80), 122.66761111643609, 0.000000001, "variable math checksum")
+    approx(matrix_kernel(200), -0.31467322972993278, 0.000000000001, "matrix kernel checksum")
 }
 
 function bench_one(name, iterations, fn) {
+    local warmups = parse_arg_int("--warmups=", 0)
+    local warm_checksum = null
+    for (local w = 0; w < warmups; w++) warm_checksum = fn(iterations)
     local start_us = GLib.get_monotonic_time()
     local checksum = fn(iterations)
     local elapsed_us = GLib.get_monotonic_time() - start_us
+    if (warmups > 0) check_eq(checksum, warm_checksum, name + " warm checksum")
     local per_iter = elapsed_us.tofloat() / iterations.tofloat()
+    local checksum_text = typeof checksum == "float" ? format("%.17g", checksum) : checksum.tostring()
     print(format("BENCH\t%s\t%d\t%.6f\t%s\n",
-        name, iterations, per_iter, checksum.tostring()))
+        name, iterations, per_iter, checksum_text))
 }
 
 run_correctness()
@@ -312,6 +369,8 @@ run_correctness()
 if (has_arg("--bench")) {
     local iterations = parse_arg_int("--iterations=", 2000)
     bench_one("direct_call", iterations * 20, direct_call_kernel)
+    bench_one("branch_call", iterations * 20, branch_call_kernel)
+    bench_one("float_call", iterations * 20, float_call_kernel)
     bench_one("numeric_loop", iterations * 20, numeric_loop_kernel)
     bench_one("vector", iterations, vector_kernel)
     bench_one("dynamic_member", iterations, dynamic_member_kernel)
@@ -320,7 +379,10 @@ if (has_arg("--bench")) {
         object_member_write_fallback_kernel)
     bench_one("array_append", iterations, array_append_kernel)
     bench_one("array_write", iterations, array_write_kernel)
+    bench_one("array_read", iterations * 20, array_read_kernel)
+    bench_one("array_float", iterations * 20, array_float_kernel)
     bench_one("math_intrinsic", iterations, math_intrinsic_kernel)
+    bench_one("math_variable", iterations, math_variable_kernel)
     bench_one("matrix", iterations, matrix_kernel)
 }
 else {

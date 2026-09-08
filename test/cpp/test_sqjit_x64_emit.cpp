@@ -42,6 +42,13 @@ int main()
     CHECK(buf.size == sizeof(spill) && !memcmp(buf.bytes, spill, sizeof(spill)), "slot 1 spill encoding");
     CHECK(sqjit_native_pinned_slot_reg(1) == 14 && sqjit_native_pinned_slot_reg(2) == 15 &&
         sqjit_native_pinned_slot_reg(3) == 3, "callee-saved pinned registers");
+    buf = {};
+    buf.pinned_slots[0] = 9;
+    CHECK(sqjit_native_pinned_slot_reg(&buf, 9) == 14 && sqjit_native_pinned_slot_reg(&buf, 1) == -1,
+        "register assignment is local to the compilation buffer");
+    CHECK(sqjit_native_emit_mov_mem_rax(&buf, 9), "selected slot writes its assigned register");
+    const unsigned char selected[] = {0x49, 0x89, 0xc6};
+    CHECK(buf.size == sizeof(selected) && !memcmp(buf.bytes, selected, sizeof(selected)), "selected r14 move encoding");
 
     buf = {};
     CHECK(sqjit_native_emit_mov_r13_rdi(&buf) && sqjit_native_emit_mov_r12_rsi(&buf) &&
@@ -71,6 +78,32 @@ int main()
 #else
     CHECK(buf.size == 2 && buf.bytes[0] == 0xff && buf.bytes[1] == 0xd0, "SysV helper call encoding");
 #endif
+    buf = {};
+    CHECK(sqjit_native_emit_convert_rax_float(&buf), "integer-to-float conversion emits");
+    const unsigned char convert[] = {
+        sizeof(SQFloat) == 4 ? (unsigned char)0xf3 : (unsigned char)0xf2,
+#ifdef _SQ64
+        0x48,
+#endif
+        0x0f, 0x2a, 0xc0};
+    CHECK(buf.size == sizeof(convert) && !memcmp(buf.bytes, convert, sizeof(convert)),
+        "native signed integer conversion encoding");
+    buf = {};
+    CHECK(sqjit_native_emit_mov_xmm1_local_float(&buf, 1), "second floating argument emits");
+    const unsigned char fp_arg[] = {sizeof(SQFloat) == 4 ? (unsigned char)0xf3 : (unsigned char)0xf2,
+        0x0f, 0x10, 0x8d, (unsigned char)(-2 * (SQInteger)sizeof(SQInteger)), 0xff, 0xff, 0xff};
+    CHECK(buf.size == sizeof(fp_arg) && !memcmp(buf.bytes, fp_arg, sizeof(fp_arg)),
+        "XMM1 floating argument encoding");
+
+    buf = {}; buf.cache_floats = true;
+    CHECK(sqjit_native_emit_mov_local_float_const(&buf, 7, 1.5), "floating cache write");
+    CHECK(buf.float_slots[0] == 7, "volatile XMM register assigned");
+    CHECK(sqjit_native_emit_call_rax(&buf), "cached float reconciled before helper ABI");
+    for(int n=0;n<4;++n) CHECK(buf.float_slots[n] == -1, "helper cannot retain volatile cached values");
+    CHECK(sqjit_native_emit_mov_local_float_const(&buf, 7, 2.5) &&
+        sqjit_native_emit_lea_rdx_mem(&buf, 7), "address exposure reconciles floating cache");
+    for(int n=0;n<4;++n) CHECK(buf.float_slots[n] != 7, "exposed address sees authoritative memory");
+
     buf.size = sizeof(buf.bytes) - 3;
     const SQInteger before = buf.size;
     CHECK(!sqjit_native_emit_i32(&buf, 1) && buf.size == before, "full buffer rejects 32-bit immediate");

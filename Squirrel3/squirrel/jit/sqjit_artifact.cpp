@@ -2,6 +2,7 @@
 #include "sqpcheader.h"
 #include "sqjit.h"
 #include "sqjit_backend.h"
+#include "sqjit_object_plan.h"
 
 SQJitProto::SQJitProto()
 {
@@ -30,6 +31,8 @@ SQJitProto::SQJitProto()
 
 SQJitNative::SQJitNative()
 {
+    _object_plan = NULL;
+    _scalarized = false;
     _ninstructions = 0;
     _native_kind = SQ_JIT_NATIVE_RAW_CODE;
     _base_slot = -1;
@@ -51,6 +54,8 @@ SQJitNative::SQJitNative()
     _native_trace_executed = false;
 
 }
+
+SQJitNative::~SQJitNative() { delete _object_plan; }
 
 SQJitProto::~SQJitProto()
 {

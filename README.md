@@ -47,7 +47,7 @@ SQGI is useful for:
 ## Features
 
 - **Squirrel scripting**: closures, classes, exceptions, modules, and compact
-  JavaScript-like syntax.
+  JavaScript-like syntax, with signed 64-bit integers and double-precision floats.
 - **Modern async**: `async` / `await`, `Task`, `sqgi.sleep`, `sqgi.all`,
   `sqgi.race`, and `.then()` / `.catch()` chaining.
 - **GObject Introspection**: import introspected libraries directly with

@@ -2,6 +2,8 @@
 #ifndef _SQJIT_CODE_H_
 #define _SQJIT_CODE_H_
 #include "squirrel.h"
+#include <vector>
+struct SQWeakRef;
 
 class SQJitCode {
 public:
@@ -12,11 +14,13 @@ public:
     bool Install(const unsigned char *bytes, SQInteger length);
     void SetStub(void *stub);
     void Reset();
+    void RetainWeakReference(SQWeakRef *reference);
     void *Entry() const { return entry; }
     SQInteger MappedSize() const { return size; }
     explicit operator bool() const { return entry != NULL; }
 private:
     void *entry;
     SQInteger size; // Zero for borrowed C++ code; positive for an owned mapping.
+    std::vector<SQWeakRef *> weak_references;
 };
 #endif

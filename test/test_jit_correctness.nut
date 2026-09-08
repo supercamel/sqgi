@@ -821,7 +821,8 @@ function loop_region_float_write_then_guard(values, n, x) {
 }
 
 check(integer_math_kernel(2000) == 1167537359, "integer math")
-approx(float_math_kernel(750), 3185.652832031, 0.0001, "float math")
+// Binary64 reference, independently reproduced with Python arithmetic.
+approx(float_math_kernel(750), 3185.654087152315, 0.000000001, "float math")
 check(recurrence_kernel(10000) == 303, "integer recurrence")
 check(integer_neg_kernel(17) == -17, "integer unary neg")
 approx(float_neg_kernel(2.5), -2.5, 0.0001, "float unary neg")

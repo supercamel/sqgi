@@ -6,7 +6,7 @@ class SqgiPkgScripts extends Base.SqgiPkgManifest {
     function copy_sqgi_runtime(opts, appdir) {
         local build_dir = opts.build_dir
         local sqgi_bin = GLib.build_filenamev([build_dir, "sqgi"])
-        local libsqgi = GLib.build_filenamev([build_dir, "libsqgi.so.0"])
+        local libsqgi = GLib.build_filenamev([build_dir, "libsqgi.so.1"])
 
         if (!this.path_exists(sqgi_bin)) {
             local app_arch = this.normalize_appimage_arch(opts.appimage_arch)

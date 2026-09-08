@@ -17,6 +17,9 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
         }
     }
 
+    SQBytecodeAnalysis analysis;
+    if(!analysis.Build(proto->_instructions, proto->_ninstructions, proto->_stacksize))
+        return attempt.Reject(-1, SQ_JIT_REJECT_INVALID_BYTECODE, "invalid bytecode operands or control flow");
     bool has_backward_branch = false;
     bool in_backward_loop[SQ_JIT_A64_IP_TABLE_SIZE];
     bool branch_target[SQ_JIT_A64_IP_TABLE_SIZE];
@@ -55,6 +58,7 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
     SQJitA64Reloc guard_relocs[SQ_JIT_A64_MAX_GUARD_RELOCS];
     SQInteger nrelocs = 0;
     SQInteger nguard_relocs = 0;
+    SQJitTypeFlow typeflow(analysis, 0, proto->_ninstructions - 1, proto->_stacksize);
     SQJitA64SlotState slots[MAX_FUNC_STACKSIZE];
     SQClass *constructed_array_field_class[MAX_FUNC_STACKSIZE];
     SQInteger constructed_array_field_index[MAX_FUNC_STACKSIZE];
@@ -66,7 +70,7 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
     SQClosure *(&prepared_direct_closure)[MAX_FUNC_STACKSIZE] =
         prepared_call.direct_closure;
     SQClass *(&prepared_class)[MAX_FUNC_STACKSIZE] = prepared_call.klass;
-    SQJitA64MathIntrinsic (&prepared_math_intrinsic)[MAX_FUNC_STACKSIZE] =
+    SQNativeMathKind (&prepared_math_intrinsic)[MAX_FUNC_STACKSIZE] =
         prepared_call.math_intrinsic;
     SQInteger (&prepared_math_nargs)[MAX_FUNC_STACKSIZE] =
         prepared_call.math_nargs;
@@ -143,6 +147,8 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
         return true;
     };
 
+    const SQInteger math_scratch = local_slots;
+    local_slots += 2;
     SQInteger frame_size = local_slots * (SQInteger)sizeof(SQInteger);
     frame_size = (frame_size + 15) & ~(SQInteger)15;
     if(frame_size <= 0 || frame_size > 4095) {
@@ -178,10 +184,10 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
         if(slot < 0 || slot >= MAX_FUNC_STACKSIZE) {
             return false;
         }
-        if(slots[slot].kind == SQ_JIT_A64_SLOT_INT || slots[slot].kind == SQ_JIT_A64_SLOT_BOOL) {
+        if(slots[slot].kind == SQ_JIT_SLOT_INT) {
             return true;
         }
-        if(slots[slot].kind != SQ_JIT_A64_SLOT_STACK_OBJECT || slots[slot].stack_object_reg < 0) {
+        if(slots[slot].kind != SQ_JIT_SLOT_STACK_OBJECT || slots[slot].stack_object_reg < 0) {
             return false;
         }
         if(!sqjit_a64_emit_type_guard(&buf, slots[slot].stack_object_reg,
@@ -198,20 +204,25 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
         return true;
     };
 
+    auto ensure_word_slot = [&](SQInteger slot) -> bool {
+        return slot >= 0 && slot < MAX_FUNC_STACKSIZE &&
+            (slots[slot].kind == SQ_JIT_SLOT_BOOL || ensure_int_slot(slot));
+    };
+
     auto ensure_float_slot = [&](SQInteger slot) -> bool {
         if(slot < 0 || slot >= MAX_FUNC_STACKSIZE) {
             return false;
         }
-        if(slots[slot].kind == SQ_JIT_A64_SLOT_FLOAT) {
+        if(slots[slot].kind == SQ_JIT_SLOT_FLOAT) {
             return true;
         }
-        if(slots[slot].kind != SQ_JIT_A64_SLOT_STACK_OBJECT || slots[slot].stack_object_reg < 0) {
+        if(slots[slot].kind != SQ_JIT_SLOT_STACK_OBJECT || slots[slot].stack_object_reg < 0) {
             return false;
         }
         if(!sqjit_a64_emit_type_guard(&buf, slots[slot].stack_object_reg,
             OT_FLOAT, guard_relocs, &nguard_relocs) ||
-            !sqjit_a64_emit_ldr_s(&buf, 0, 19, sqjit_a64_stack_value_disp(slots[slot].stack_object_reg)) ||
-            !sqjit_a64_emit_str_s(&buf, 0, 31, sqjit_a64_local_disp(slot))) {
+            !sqjit_a64_emit_ldr_float(&buf, 0, 19, sqjit_a64_stack_value_disp(slots[slot].stack_object_reg)) ||
+            !sqjit_a64_emit_str_float(&buf, 0, 31, sqjit_a64_local_disp(slot))) {
             return false;
         }
         if(!sqjit_a64_slot_state_mark_float(slots, slot, false)) {
@@ -327,10 +338,11 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
         if(dst < 0 || dst >= MAX_FUNC_STACKSIZE) {
             return false;
         }
-        SQInt32 bits = 0;
+        SQInteger bits = 0;
+        static_assert(sizeof(bits) == sizeof(value), "float literal storage width");
         memcpy(&bits, &value, sizeof(bits));
-        return sqjit_a64_emit_mov_imm_w(&buf, 9, (uint32_t)bits) &&
-            sqjit_a64_emit_str_w(&buf, 9, 31, sqjit_a64_local_disp(dst)) &&
+        return sqjit_a64_emit_mov_imm_x(&buf, 9, bits) &&
+            sqjit_a64_emit_str_x(&buf, 9, 31, sqjit_a64_local_disp(dst)) &&
             mark_float_slot(dst);
     };
 
@@ -369,8 +381,8 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
             src < 0 || src >= MAX_FUNC_STACKSIZE) {
             return false;
         }
-        bool src_bool = slots[src].kind == SQ_JIT_A64_SLOT_BOOL;
-        if(!ensure_int_slot(src) ||
+        bool src_bool = slots[src].kind == SQ_JIT_SLOT_BOOL;
+        if(!ensure_word_slot(src) ||
             !sqjit_a64_emit_ldr_x(&buf, 9, 31, sqjit_a64_local_disp(src)) ||
             !sqjit_a64_emit_str_x(&buf, 9, 31, sqjit_a64_local_disp(dst))) {
             return false;
@@ -408,7 +420,7 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
         }
         if(dst < 0 || dst >= MAX_FUNC_STACKSIZE ||
             src < 0 || src >= MAX_FUNC_STACKSIZE ||
-            slots[src].kind != SQ_JIT_A64_SLOT_ARRAY_PTR ||
+            slots[src].kind != SQ_JIT_SLOT_ARRAY_PTR ||
             !sqjit_a64_emit_ldr_x(&buf, 9, 31, sqjit_a64_local_disp(src)) ||
             !sqjit_a64_emit_str_x(&buf, 9, 31, sqjit_a64_local_disp(dst))) {
             return false;
@@ -425,7 +437,7 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
         }
         if(dst < 0 || dst >= MAX_FUNC_STACKSIZE ||
             src < 0 || src >= MAX_FUNC_STACKSIZE ||
-            slots[src].kind != SQ_JIT_A64_SLOT_OBJECT_PTR ||
+            slots[src].kind != SQ_JIT_SLOT_OBJECT_PTR ||
             slots[src].object_ptr_observed_type == OT_NULL ||
             !sqjit_a64_emit_ldr_x(&buf, 9, 31, sqjit_a64_local_disp(src)) ||
             !sqjit_a64_emit_str_x(&buf, 9, 31, sqjit_a64_local_disp(dst))) {
@@ -443,7 +455,7 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
         }
         if(dst < 0 || dst >= MAX_FUNC_STACKSIZE ||
             src < 0 || src >= MAX_FUNC_STACKSIZE ||
-            slots[src].kind != SQ_JIT_A64_SLOT_STACK_OBJECT ||
+            slots[src].kind != SQ_JIT_SLOT_STACK_OBJECT ||
             slots[src].stack_object_reg < 0) {
             return false;
         }
@@ -458,20 +470,20 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
         if(src < 0 || src >= MAX_FUNC_STACKSIZE) {
             return false;
         }
-        if(slots[src].kind == SQ_JIT_A64_SLOT_ARRAY_PTR) {
+        if(slots[src].kind == SQ_JIT_SLOT_ARRAY_PTR) {
             return copy_array_ptr_slot(dst, src);
         }
-        if(slots[src].kind == SQ_JIT_A64_SLOT_OBJECT_PTR) {
+        if(slots[src].kind == SQ_JIT_SLOT_OBJECT_PTR) {
             return copy_object_ptr_slot(dst, src);
         }
-        if(slots[src].kind == SQ_JIT_A64_SLOT_FLOAT) {
+        if(slots[src].kind == SQ_JIT_SLOT_FLOAT) {
             return copy_float_slot(dst, src);
         }
-        if(slots[src].kind == SQ_JIT_A64_SLOT_INT ||
-            slots[src].kind == SQ_JIT_A64_SLOT_BOOL) {
+        if(slots[src].kind == SQ_JIT_SLOT_INT ||
+            slots[src].kind == SQ_JIT_SLOT_BOOL) {
             return copy_int_slot(dst, src);
         }
-        if(slots[src].kind == SQ_JIT_A64_SLOT_STACK_OBJECT) {
+        if(slots[src].kind == SQ_JIT_SLOT_STACK_OBJECT) {
             SQInteger reg = slots[src].stack_object_reg;
             if(reg < 0) {
                 return false;
@@ -537,8 +549,8 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
 
     auto slot_observed_is_float = [&](SQInteger slot) -> bool {
         return slot >= 0 && slot < MAX_FUNC_STACKSIZE &&
-            (slots[slot].kind == SQ_JIT_A64_SLOT_FLOAT ||
-            (slots[slot].kind == SQ_JIT_A64_SLOT_STACK_OBJECT &&
+            (slots[slot].kind == SQ_JIT_SLOT_FLOAT ||
+            (slots[slot].kind == SQ_JIT_SLOT_STACK_OBJECT &&
             slots[slot].stack_object_reg >= 0 &&
             sq_type(entry_stack[slots[slot].stack_object_reg]) == OT_FLOAT));
     };
@@ -548,19 +560,18 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
         if(slot < 0 || slot >= MAX_FUNC_STACKSIZE) {
             return false;
         }
-        if(slots[slot].kind == SQ_JIT_A64_SLOT_FLOAT) {
+        if(slots[slot].kind == SQ_JIT_SLOT_FLOAT) {
             return ensure_float_slot(slot) &&
-                sqjit_a64_emit_ldr_s(&buf, fp_reg, 31,
+                sqjit_a64_emit_ldr_float(&buf, fp_reg, 31,
                     sqjit_a64_local_disp(slot));
         }
-        if(slots[slot].kind == SQ_JIT_A64_SLOT_INT ||
-            slots[slot].kind == SQ_JIT_A64_SLOT_BOOL) {
+        if(slots[slot].kind == SQ_JIT_SLOT_INT) {
             return ensure_int_slot(slot) &&
                 sqjit_a64_emit_ldr_x(&buf, int_reg, 31,
                     sqjit_a64_local_disp(slot)) &&
-                sqjit_a64_emit_scvtf_s_x(&buf, fp_reg, int_reg);
+                sqjit_a64_emit_scvtf_float_x(&buf, fp_reg, int_reg);
         }
-        if(slots[slot].kind != SQ_JIT_A64_SLOT_STACK_OBJECT ||
+        if(slots[slot].kind != SQ_JIT_SLOT_STACK_OBJECT ||
             slots[slot].stack_object_reg < 0 || !entry_stack) {
             return false;
         }
@@ -573,14 +584,14 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
         if(observed == OT_FLOAT) {
             return sqjit_a64_emit_type_guard(&buf, stack_reg, OT_FLOAT,
                     guard_relocs, &nguard_relocs) &&
-                sqjit_a64_emit_ldr_s(&buf, fp_reg, 19,
+                sqjit_a64_emit_ldr_float(&buf, fp_reg, 19,
                     sqjit_a64_stack_value_disp(stack_reg));
         }
         return sqjit_a64_emit_type_guard(&buf, stack_reg, OT_INTEGER,
                 guard_relocs, &nguard_relocs) &&
             sqjit_a64_emit_ldr_x(&buf, int_reg, 19,
                 sqjit_a64_stack_value_disp(stack_reg)) &&
-            sqjit_a64_emit_scvtf_s_x(&buf, fp_reg, int_reg);
+            sqjit_a64_emit_scvtf_float_x(&buf, fp_reg, int_reg);
     };
 
     auto emit_float_binary = [&](SQOpcode op, SQInteger dst, SQInteger left,
@@ -588,8 +599,8 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
         if(dst < 0 || dst >= MAX_FUNC_STACKSIZE || op == _OP_MOD ||
             !emit_load_slot_as_float(left, 0, 9) ||
             !emit_load_slot_as_float(right, 1, 10) ||
-            !sqjit_a64_emit_fop_s(&buf, op, 0, 0, 1) ||
-            !sqjit_a64_emit_str_s(&buf, 0, 31, sqjit_a64_local_disp(dst)) ||
+            !sqjit_a64_emit_fop_float(&buf, op, 0, 0, 1) ||
+            !sqjit_a64_emit_str_float(&buf, 0, 31, sqjit_a64_local_disp(dst)) ||
             !mark_float_slot(dst)) {
             return false;
         }
@@ -609,9 +620,9 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
 
     auto emit_float_neg = [&](SQInteger dst, SQInteger src) -> bool {
         if(dst < 0 || dst >= MAX_FUNC_STACKSIZE || !ensure_float_slot(src) ||
-            !sqjit_a64_emit_ldr_s(&buf, 0, 31, sqjit_a64_local_disp(src)) ||
-            !sqjit_a64_emit_fneg_s(&buf, 0, 0) ||
-            !sqjit_a64_emit_str_s(&buf, 0, 31, sqjit_a64_local_disp(dst)) ||
+            !sqjit_a64_emit_ldr_float(&buf, 0, 31, sqjit_a64_local_disp(src)) ||
+            !sqjit_a64_emit_fneg_float(&buf, 0, 0) ||
+            !sqjit_a64_emit_str_float(&buf, 0, 31, sqjit_a64_local_disp(dst)) ||
             !mark_float_slot(dst)) {
             return false;
         }
@@ -655,21 +666,18 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
     auto emit_instance_field_get_direct = [&](SQInteger dst, SQInteger base,
         const SQObjectPtr *key, SQObjectType observed) -> bool {
         if(dst < 0 || dst >= MAX_FUNC_STACKSIZE || base < 0 || base >= MAX_FUNC_STACKSIZE ||
-            !key || (slots[base].kind != SQ_JIT_A64_SLOT_STACK_OBJECT &&
-            slots[base].kind != SQ_JIT_A64_SLOT_OBJECT_PTR)) {
+            !key || (slots[base].kind != SQ_JIT_SLOT_STACK_OBJECT &&
+            slots[base].kind != SQ_JIT_SLOT_OBJECT_PTR)) {
             return false;
         }
         if(observed != OT_FLOAT && observed != OT_INTEGER && observed != OT_BOOL &&
             observed != OT_ARRAY && !sqjit_a64_type_is_object_ptr(observed)) {
             return false;
         }
-        if(observed == OT_FLOAT && sizeof(SQFloat) != sizeof(SQInt32)) {
-            return false;
-        }
 
         SQJitA64InstanceFieldObservation field;
         bool have_field = false;
-        if(slots[base].kind == SQ_JIT_A64_SLOT_STACK_OBJECT) {
+        if(slots[base].kind == SQ_JIT_SLOT_STACK_OBJECT) {
             have_field = slots[base].stack_object_reg >= 0 &&
                 sqjit_a64_observed_stack_instance_field(entry_stack,
                     slots[base].stack_object_reg, key, &field);
@@ -683,7 +691,7 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
             return false;
         }
 
-        if(slots[base].kind == SQ_JIT_A64_SLOT_STACK_OBJECT) {
+        if(slots[base].kind == SQ_JIT_SLOT_STACK_OBJECT) {
             if(!sqjit_a64_emit_type_guard(&buf, slots[base].stack_object_reg, OT_INSTANCE,
                 guard_relocs, &nguard_relocs) ||
                 !sqjit_a64_emit_ldr_x(&buf, 11, 19,
@@ -711,8 +719,8 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
         }
 
         if(observed == OT_FLOAT) {
-            return sqjit_a64_emit_ldr_s(&buf, 0, 11, value_disp) &&
-                sqjit_a64_emit_str_s(&buf, 0, 31, sqjit_a64_local_disp(dst)) &&
+            return sqjit_a64_emit_ldr_float(&buf, 0, 11, value_disp) &&
+                sqjit_a64_emit_str_float(&buf, 0, 31, sqjit_a64_local_disp(dst)) &&
                 mark_float_slot(dst);
         }
         if(!sqjit_a64_emit_ldr_x(&buf, 9, 11, value_disp) ||
@@ -732,7 +740,7 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
         const SQObjectPtr *key) -> bool {
         if(dst < 0 || dst >= MAX_FUNC_STACKSIZE || base < 0 ||
             base >= MAX_FUNC_STACKSIZE || !key ||
-            slots[base].kind != SQ_JIT_A64_SLOT_STACK_OBJECT ||
+            slots[base].kind != SQ_JIT_SLOT_STACK_OBJECT ||
             slots[base].stack_object_reg < 0 ||
             !constructed_array_field_class[base]) {
             return false;
@@ -901,13 +909,13 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
         if(slot < 0 || slot >= MAX_FUNC_STACKSIZE) {
             return false;
         }
-        if(slots[slot].kind == SQ_JIT_A64_SLOT_STACK_OBJECT &&
+        if(slots[slot].kind == SQ_JIT_SLOT_STACK_OBJECT &&
             slots[slot].stack_object_reg >= 0) {
             return true;
         }
 
         const void *helper = NULL;
-        if(slots[slot].kind == SQ_JIT_A64_SLOT_FLOAT) {
+        if(slots[slot].kind == SQ_JIT_SLOT_FLOAT) {
             if(!ensure_float_slot(slot)) {
                 return false;
             }
@@ -923,12 +931,12 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
             }
             return true;
         }
-        if(slots[slot].kind == SQ_JIT_A64_SLOT_INT ||
-            slots[slot].kind == SQ_JIT_A64_SLOT_BOOL) {
-            if(!ensure_int_slot(slot)) {
+        if(slots[slot].kind == SQ_JIT_SLOT_INT ||
+            slots[slot].kind == SQ_JIT_SLOT_BOOL) {
+            if(!ensure_word_slot(slot)) {
                 return false;
             }
-            helper = slots[slot].kind == SQ_JIT_A64_SLOT_BOOL ?
+            helper = slots[slot].kind == SQ_JIT_SLOT_BOOL ?
                 (const void *)sqjit_a64_helper_store_stack_bool :
                 (const void *)sqjit_a64_helper_store_stack_integer;
             if(!sqjit_a64_emit_mov_reg(&buf, 0, 19) ||
@@ -942,7 +950,7 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
             }
             return true;
         }
-        if(slots[slot].kind == SQ_JIT_A64_SLOT_ARRAY_PTR) {
+        if(slots[slot].kind == SQ_JIT_SLOT_ARRAY_PTR) {
             return sqjit_a64_emit_mov_reg(&buf, 0, 19) &&
                 sqjit_a64_emit_mov_imm_x(&buf, 1, slot) &&
                 sqjit_a64_emit_ldr_x(&buf, 2, 31, sqjit_a64_local_disp(slot)) &&
@@ -951,7 +959,7 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
                 sqjit_a64_emit_blr_x16(&buf) &&
                 emit_guard_on_x0_zero();
         }
-        if(slots[slot].kind == SQ_JIT_A64_SLOT_OBJECT_PTR) {
+        if(slots[slot].kind == SQ_JIT_SLOT_OBJECT_PTR) {
             if(slots[slot].object_ptr_observed_type == OT_NULL) {
                 return false;
             }
@@ -972,7 +980,7 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
         if(slot < 0 || slot >= MAX_FUNC_STACKSIZE) {
             return false;
         }
-        if(slots[slot].kind == SQ_JIT_A64_SLOT_STACK_OBJECT &&
+        if(slots[slot].kind == SQ_JIT_SLOT_STACK_OBJECT &&
             slots[slot].stack_object_reg >= 0 &&
             slots[slot].stack_object_reg != slot) {
             if(!sqjit_a64_emit_mov_reg(&buf, 0, 19) ||
@@ -994,7 +1002,7 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
         if(slot < 0 || slot >= MAX_FUNC_STACKSIZE) {
             return -1;
         }
-        if(slots[slot].kind == SQ_JIT_A64_SLOT_STACK_OBJECT) {
+        if(slots[slot].kind == SQ_JIT_SLOT_STACK_OBJECT) {
             return slots[slot].stack_object_reg;
         }
         return slot;
@@ -1005,7 +1013,7 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
         if(table_slot < 0 || table_slot >= MAX_FUNC_STACKSIZE ||
             key_slot < 0 || key_slot >= MAX_FUNC_STACKSIZE ||
             value_slot < 0 || value_slot >= MAX_FUNC_STACKSIZE ||
-            slots[table_slot].kind != SQ_JIT_A64_SLOT_OBJECT_PTR ||
+            slots[table_slot].kind != SQ_JIT_SLOT_OBJECT_PTR ||
             slots[table_slot].object_ptr_observed_type != OT_TABLE ||
             !slots[table_slot].object_ptr_fresh_table) {
             return false;
@@ -1033,14 +1041,14 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
     auto emit_append_array_stack = [&](SQInteger array_reg, SQInteger value_reg) -> bool {
         if(array_reg < 0 || array_reg >= MAX_FUNC_STACKSIZE ||
             value_reg < 0 || value_reg >= MAX_FUNC_STACKSIZE ||
-            slots[array_reg].kind != SQ_JIT_A64_SLOT_ARRAY_PTR) {
+            slots[array_reg].kind != SQ_JIT_SLOT_ARRAY_PTR) {
             return false;
         }
 
         if(!sqjit_a64_emit_ldr_x(&buf, 0, 31, sqjit_a64_local_disp(array_reg))) {
             return false;
         }
-        if(slots[value_reg].kind == SQ_JIT_A64_SLOT_FLOAT) {
+        if(slots[value_reg].kind == SQ_JIT_SLOT_FLOAT) {
             if(!ensure_float_slot(value_reg) ||
                 !sqjit_a64_emit_add_imm(&buf, 1, 31, sqjit_a64_local_disp(value_reg)) ||
                 !sqjit_a64_emit_mov_imm_x(&buf, 16,
@@ -1048,7 +1056,7 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
                 return false;
             }
         }
-        else if(slots[value_reg].kind == SQ_JIT_A64_SLOT_INT) {
+        else if(slots[value_reg].kind == SQ_JIT_SLOT_INT) {
             if(!ensure_int_slot(value_reg) ||
                 !sqjit_a64_emit_ldr_x(&buf, 1, 31, sqjit_a64_local_disp(value_reg)) ||
                 !sqjit_a64_emit_mov_imm_x(&buf, 16,
@@ -1056,15 +1064,15 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
                 return false;
             }
         }
-        else if(slots[value_reg].kind == SQ_JIT_A64_SLOT_BOOL) {
-            if(!ensure_int_slot(value_reg) ||
+        else if(slots[value_reg].kind == SQ_JIT_SLOT_BOOL) {
+            if(!ensure_word_slot(value_reg) ||
                 !sqjit_a64_emit_ldr_x(&buf, 1, 31, sqjit_a64_local_disp(value_reg)) ||
                 !sqjit_a64_emit_mov_imm_x(&buf, 16,
                     (SQInteger)(intptr_t)sqjit_a64_helper_array_ptr_append_bool)) {
                 return false;
             }
         }
-        else if(slots[value_reg].kind == SQ_JIT_A64_SLOT_STACK_OBJECT &&
+        else if(slots[value_reg].kind == SQ_JIT_SLOT_STACK_OBJECT &&
             slots[value_reg].stack_object_reg >= 0) {
             if(!sqjit_a64_emit_mov_reg(&buf, 1, 19) ||
                 !sqjit_a64_emit_mov_imm_x(&buf, 2, slots[value_reg].stack_object_reg) ||
@@ -1073,14 +1081,14 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
                 return false;
             }
         }
-        else if(slots[value_reg].kind == SQ_JIT_A64_SLOT_ARRAY_PTR) {
+        else if(slots[value_reg].kind == SQ_JIT_SLOT_ARRAY_PTR) {
             if(!sqjit_a64_emit_ldr_x(&buf, 1, 31, sqjit_a64_local_disp(value_reg)) ||
                 !sqjit_a64_emit_mov_imm_x(&buf, 16,
                     (SQInteger)(intptr_t)sqjit_a64_helper_array_ptr_append_array_ptr)) {
                 return false;
             }
         }
-        else if(slots[value_reg].kind == SQ_JIT_A64_SLOT_OBJECT_PTR) {
+        else if(slots[value_reg].kind == SQ_JIT_SLOT_OBJECT_PTR) {
             if(slots[value_reg].object_ptr_observed_type == OT_NULL ||
                 !sqjit_a64_emit_ldr_x(&buf, 1, 31, sqjit_a64_local_disp(value_reg)) ||
                 !sqjit_a64_emit_mov_imm_x(&buf, 2,
@@ -1099,7 +1107,7 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
 
     auto emit_append_array_integer = [&](SQInteger array_reg, SQInteger value) -> bool {
         if(array_reg < 0 || array_reg >= MAX_FUNC_STACKSIZE ||
-            slots[array_reg].kind != SQ_JIT_A64_SLOT_ARRAY_PTR) {
+            slots[array_reg].kind != SQ_JIT_SLOT_ARRAY_PTR) {
             return false;
         }
         return sqjit_a64_emit_ldr_x(&buf, 0, 31, sqjit_a64_local_disp(array_reg)) &&
@@ -1112,7 +1120,7 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
 
     auto emit_append_array_bool = [&](SQInteger array_reg, SQInteger value) -> bool {
         if(array_reg < 0 || array_reg >= MAX_FUNC_STACKSIZE ||
-            slots[array_reg].kind != SQ_JIT_A64_SLOT_ARRAY_PTR) {
+            slots[array_reg].kind != SQ_JIT_SLOT_ARRAY_PTR) {
             return false;
         }
         return sqjit_a64_emit_ldr_x(&buf, 0, 31, sqjit_a64_local_disp(array_reg)) &&
@@ -1126,7 +1134,7 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
     auto emit_append_array_float_bits = [&](SQInteger array_reg, SQInteger bits) -> bool {
         if(array_reg < 0 || array_reg >= MAX_FUNC_STACKSIZE ||
             sizeof(SQFloat) != sizeof(SQInt32) ||
-            slots[array_reg].kind != SQ_JIT_A64_SLOT_ARRAY_PTR) {
+            slots[array_reg].kind != SQ_JIT_SLOT_ARRAY_PTR) {
             return false;
         }
         return sqjit_a64_emit_ldr_x(&buf, 0, 31, sqjit_a64_local_disp(array_reg)) &&
@@ -1140,7 +1148,7 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
     auto emit_append_array_literal = [&](SQInteger array_reg, SQInteger literal_index) -> bool {
         if(array_reg < 0 || array_reg >= MAX_FUNC_STACKSIZE ||
             literal_index < 0 || literal_index >= proto->_nliterals ||
-            slots[array_reg].kind != SQ_JIT_A64_SLOT_ARRAY_PTR) {
+            slots[array_reg].kind != SQ_JIT_SLOT_ARRAY_PTR) {
             return false;
         }
         return sqjit_a64_emit_ldr_x(&buf, 0, 31, sqjit_a64_local_disp(array_reg)) &&
@@ -1156,7 +1164,7 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
         if(dst_local < 0 || base < 0 || base >= MAX_FUNC_STACKSIZE) {
             return false;
         }
-        if(slots[base].kind == SQ_JIT_A64_SLOT_ARRAY_PTR) {
+        if(slots[base].kind == SQ_JIT_SLOT_ARRAY_PTR) {
             return sqjit_a64_emit_ldr_x(&buf, 11, 31,
                     sqjit_a64_local_disp(base)) &&
                 sqjit_a64_emit_cmp_imm(&buf, 11, 0) &&
@@ -1165,7 +1173,7 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
                 sqjit_a64_emit_str_x(&buf, 9, 31,
                     sqjit_a64_local_disp(dst_local));
         }
-        if(slots[base].kind == SQ_JIT_A64_SLOT_STACK_OBJECT &&
+        if(slots[base].kind == SQ_JIT_SLOT_STACK_OBJECT &&
             slots[base].stack_object_reg >= 0) {
             return sqjit_a64_emit_type_guard(&buf, slots[base].stack_object_reg,
                     OT_ARRAY, guard_relocs, &nguard_relocs) &&
@@ -1191,14 +1199,14 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
         SQInteger value_slot) -> bool {
         if(base < 0 || base >= MAX_FUNC_STACKSIZE ||
             value_slot < 0 || value_slot >= MAX_FUNC_STACKSIZE ||
-            slots[base].kind != SQ_JIT_A64_SLOT_ARRAY_PTR ||
+            slots[base].kind != SQ_JIT_SLOT_ARRAY_PTR ||
             !slots[base].array_ptr_fresh ||
             !sqjit_a64_emit_ldr_x(&buf, 0, 31,
             sqjit_a64_local_disp(base))) {
             return false;
         }
 
-        if(slots[value_slot].kind == SQ_JIT_A64_SLOT_FLOAT) {
+        if(slots[value_slot].kind == SQ_JIT_SLOT_FLOAT) {
             if(!ensure_float_slot(value_slot) ||
                 !sqjit_a64_emit_add_imm(&buf, 1, 31,
                     sqjit_a64_local_disp(value_slot)) ||
@@ -1207,7 +1215,7 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
                 return false;
             }
         }
-        else if(slots[value_slot].kind == SQ_JIT_A64_SLOT_INT) {
+        else if(slots[value_slot].kind == SQ_JIT_SLOT_INT) {
             if(!ensure_int_slot(value_slot) ||
                 !sqjit_a64_emit_ldr_x(&buf, 1, 31,
                     sqjit_a64_local_disp(value_slot)) ||
@@ -1216,8 +1224,8 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
                 return false;
             }
         }
-        else if(slots[value_slot].kind == SQ_JIT_A64_SLOT_BOOL) {
-            if(!ensure_int_slot(value_slot) ||
+        else if(slots[value_slot].kind == SQ_JIT_SLOT_BOOL) {
+            if(!ensure_word_slot(value_slot) ||
                 !sqjit_a64_emit_ldr_x(&buf, 1, 31,
                     sqjit_a64_local_disp(value_slot)) ||
                 !sqjit_a64_emit_mov_imm_x(&buf, 16,
@@ -1225,7 +1233,7 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
                 return false;
             }
         }
-        else if(slots[value_slot].kind == SQ_JIT_A64_SLOT_STACK_OBJECT &&
+        else if(slots[value_slot].kind == SQ_JIT_SLOT_STACK_OBJECT &&
             slots[value_slot].stack_object_reg >= 0) {
             if(!sqjit_a64_emit_mov_reg(&buf, 1, 19) ||
                 !sqjit_a64_emit_mov_imm_x(&buf, 2, slots[value_slot].stack_object_reg) ||
@@ -1234,7 +1242,7 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
                 return false;
             }
         }
-        else if(slots[value_slot].kind == SQ_JIT_A64_SLOT_ARRAY_PTR) {
+        else if(slots[value_slot].kind == SQ_JIT_SLOT_ARRAY_PTR) {
             if(!sqjit_a64_emit_ldr_x(&buf, 1, 31,
                     sqjit_a64_local_disp(value_slot)) ||
                 !sqjit_a64_emit_mov_imm_x(&buf, 16,
@@ -1242,7 +1250,7 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
                 return false;
             }
         }
-        else if(slots[value_slot].kind == SQ_JIT_A64_SLOT_OBJECT_PTR) {
+        else if(slots[value_slot].kind == SQ_JIT_SLOT_OBJECT_PTR) {
             if(slots[value_slot].object_ptr_observed_type == OT_NULL ||
                 !sqjit_a64_emit_ldr_x(&buf, 1, 31,
                     sqjit_a64_local_disp(value_slot)) ||
@@ -1264,7 +1272,7 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
         if(reg < 0 || reg >= MAX_FUNC_STACKSIZE) {
             return false;
         }
-        if(slots[reg].kind == SQ_JIT_A64_SLOT_ARRAY_PTR) {
+        if(slots[reg].kind == SQ_JIT_SLOT_ARRAY_PTR) {
             return sqjit_a64_emit_ldr_x(&buf, 0, 31, sqjit_a64_local_disp(reg)) &&
                 sqjit_a64_emit_mov_reg(&buf, 1, 20) &&
                 sqjit_a64_emit_mov_imm_x(&buf, 16,
@@ -1272,7 +1280,7 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
                 sqjit_a64_emit_blr_x16(&buf) &&
                 emit_guard_on_x0_zero();
         }
-        if(slots[reg].kind == SQ_JIT_A64_SLOT_OBJECT_PTR) {
+        if(slots[reg].kind == SQ_JIT_SLOT_OBJECT_PTR) {
             if(slots[reg].object_ptr_observed_type == OT_NULL) {
                 return false;
             }
@@ -1285,7 +1293,7 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
                 sqjit_a64_emit_blr_x16(&buf) &&
                 emit_guard_on_x0_zero();
         }
-        if(slots[reg].kind == SQ_JIT_A64_SLOT_STACK_OBJECT && slots[reg].stack_object_reg >= 0) {
+        if(slots[reg].kind == SQ_JIT_SLOT_STACK_OBJECT && slots[reg].stack_object_reg >= 0) {
             return sqjit_a64_emit_mov_reg(&buf, 0, 19) &&
                 sqjit_a64_emit_mov_imm_x(&buf, 1, slots[reg].stack_object_reg) &&
                 sqjit_a64_emit_mov_reg(&buf, 2, 20) &&
@@ -1306,9 +1314,6 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
             observed != OT_ARRAY)) {
             return false;
         }
-        if(observed == OT_FLOAT && sizeof(SQFloat) != sizeof(SQInt32)) {
-            return false;
-        }
 
         unsigned stride_shift = 0;
         SQInteger stride = (SQInteger)sizeof(SQObjectPtr);
@@ -1319,7 +1324,7 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
             return false;
         }
 
-        if(slots[base].kind == SQ_JIT_A64_SLOT_ARRAY_PTR) {
+        if(slots[base].kind == SQ_JIT_SLOT_ARRAY_PTR) {
             if(!sqjit_a64_emit_ldr_x(&buf, 11, 31,
                 sqjit_a64_local_disp(base)) ||
                 !sqjit_a64_emit_cmp_imm(&buf, 11, 0) ||
@@ -1327,7 +1332,7 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
                 return false;
             }
         }
-        else if(slots[base].kind == SQ_JIT_A64_SLOT_STACK_OBJECT &&
+        else if(slots[base].kind == SQ_JIT_SLOT_STACK_OBJECT &&
             slots[base].stack_object_reg >= 0) {
             if(!sqjit_a64_emit_type_guard(&buf, slots[base].stack_object_reg,
                 OT_ARRAY, guard_relocs, &nguard_relocs) ||
@@ -1370,9 +1375,9 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
         }
 
         if(observed == OT_FLOAT) {
-            return sqjit_a64_emit_ldr_s(&buf, 0, 13,
+            return sqjit_a64_emit_ldr_float(&buf, 0, 13,
                     (SQInteger)offsetof(SQObject, _unVal)) &&
-                sqjit_a64_emit_str_s(&buf, 0, 31,
+                sqjit_a64_emit_str_float(&buf, 0, 31,
                     sqjit_a64_local_disp(dst)) &&
                 mark_float_slot(dst);
         }
@@ -1396,7 +1401,7 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
             return true;
         }
         if(dst < 0 || dst >= MAX_FUNC_STACKSIZE || base < 0 || base >= MAX_FUNC_STACKSIZE ||
-            index < 0 || slots[base].kind != SQ_JIT_A64_SLOT_STACK_OBJECT ||
+            index < 0 || slots[base].kind != SQ_JIT_SLOT_STACK_OBJECT ||
             slots[base].stack_object_reg < 0) {
             return false;
         }
@@ -1446,7 +1451,7 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
         }
         if(dst < 0 || dst >= MAX_FUNC_STACKSIZE || base < 0 || base >= MAX_FUNC_STACKSIZE ||
             key < 0 || key >= MAX_FUNC_STACKSIZE ||
-            slots[base].kind != SQ_JIT_A64_SLOT_STACK_OBJECT || slots[base].stack_object_reg < 0 ||
+            slots[base].kind != SQ_JIT_SLOT_STACK_OBJECT || slots[base].stack_object_reg < 0 ||
             !ensure_int_slot(key)) {
             return false;
         }
@@ -1495,7 +1500,7 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
             return true;
         }
         if(dst < 0 || dst >= MAX_FUNC_STACKSIZE || base < 0 || base >= MAX_FUNC_STACKSIZE ||
-            index < 0 || slots[base].kind != SQ_JIT_A64_SLOT_ARRAY_PTR) {
+            index < 0 || slots[base].kind != SQ_JIT_SLOT_ARRAY_PTR) {
             return false;
         }
         const void *helper = NULL;
@@ -1544,7 +1549,7 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
         }
         if(dst < 0 || dst >= MAX_FUNC_STACKSIZE || base < 0 || base >= MAX_FUNC_STACKSIZE ||
             key < 0 || key >= MAX_FUNC_STACKSIZE ||
-            slots[base].kind != SQ_JIT_A64_SLOT_ARRAY_PTR || !ensure_int_slot(key)) {
+            slots[base].kind != SQ_JIT_SLOT_ARRAY_PTR || !ensure_int_slot(key)) {
             return false;
         }
         const void *helper = NULL;
@@ -1588,14 +1593,14 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
     auto emit_member_get_key = [&](SQInteger dst, SQInteger base, const SQObjectPtr *key,
         SQObjectType observed, SQArray *observed_array, SQInteger observed_object_ptr) -> bool {
         if(dst < 0 || dst >= MAX_FUNC_STACKSIZE || base < 0 || base >= MAX_FUNC_STACKSIZE ||
-            !key || (slots[base].kind != SQ_JIT_A64_SLOT_STACK_OBJECT &&
-            slots[base].kind != SQ_JIT_A64_SLOT_OBJECT_PTR)) {
+            !key || (slots[base].kind != SQ_JIT_SLOT_STACK_OBJECT &&
+            slots[base].kind != SQ_JIT_SLOT_OBJECT_PTR)) {
             return false;
         }
-        bool use_root_fallback = slots[base].kind == SQ_JIT_A64_SLOT_STACK_OBJECT &&
+        bool use_root_fallback = slots[base].kind == SQ_JIT_SLOT_STACK_OBJECT &&
             slots[base].stack_object_reg == 0 && root_object != NULL;
         bool direct_instance_field_ok = true;
-        if(slots[base].kind == SQ_JIT_A64_SLOT_STACK_OBJECT &&
+        if(slots[base].kind == SQ_JIT_SLOT_STACK_OBJECT &&
             slots[base].stack_object_reg > 0 &&
             slots[base].stack_object_reg < proto->_nparameters &&
             sq_type(entry_stack[0]) == OT_INSTANCE &&
@@ -1612,7 +1617,7 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
             return true;
         }
         if(observed == OT_NULL) {
-            if(slots[base].kind == SQ_JIT_A64_SLOT_OBJECT_PTR) {
+            if(slots[base].kind == SQ_JIT_SLOT_OBJECT_PTR) {
                 if(slots[base].object_ptr_observed_type == OT_NULL ||
                     !sqjit_a64_emit_ldr_x(&buf, 0, 31,
                     sqjit_a64_local_disp(base)) ||
@@ -1649,28 +1654,28 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
         }
         const void *helper = NULL;
         if(observed == OT_FLOAT) {
-            helper = slots[base].kind == SQ_JIT_A64_SLOT_OBJECT_PTR ?
+            helper = slots[base].kind == SQ_JIT_SLOT_OBJECT_PTR ?
                 (const void *)sqjit_a64_helper_object_ptr_get_float :
                 (use_root_fallback ?
                 (const void *)sqjit_a64_helper_table_get_float_root :
                 (const void *)sqjit_a64_helper_table_get_float);
         }
         else if(observed == OT_INTEGER) {
-            helper = slots[base].kind == SQ_JIT_A64_SLOT_OBJECT_PTR ?
+            helper = slots[base].kind == SQ_JIT_SLOT_OBJECT_PTR ?
                 (const void *)sqjit_a64_helper_object_ptr_get_integer :
                 (use_root_fallback ?
                 (const void *)sqjit_a64_helper_table_get_integer_root :
                 (const void *)sqjit_a64_helper_table_get_integer);
         }
         else if(observed == OT_ARRAY) {
-            helper = slots[base].kind == SQ_JIT_A64_SLOT_OBJECT_PTR ?
+            helper = slots[base].kind == SQ_JIT_SLOT_OBJECT_PTR ?
                 (const void *)sqjit_a64_helper_object_ptr_get_array_ptr :
                 (use_root_fallback ?
                 (const void *)sqjit_a64_helper_table_get_array_ptr_root :
                 (const void *)sqjit_a64_helper_table_get_array_ptr);
         }
         else if(sqjit_a64_type_is_object_ptr(observed)) {
-            helper = slots[base].kind == SQ_JIT_A64_SLOT_OBJECT_PTR ?
+            helper = slots[base].kind == SQ_JIT_SLOT_OBJECT_PTR ?
                 (const void *)sqjit_a64_helper_object_ptr_get_object_ptr :
                 (use_root_fallback ?
                 (const void *)sqjit_a64_helper_member_get_object_ptr_root :
@@ -1680,7 +1685,7 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
             return false;
         }
 
-        if(slots[base].kind == SQ_JIT_A64_SLOT_OBJECT_PTR) {
+        if(slots[base].kind == SQ_JIT_SLOT_OBJECT_PTR) {
             if(slots[base].object_ptr_observed_type == OT_NULL ||
                 !sqjit_a64_emit_ldr_x(&buf, 0, 31, sqjit_a64_local_disp(base)) ||
                 !sqjit_a64_emit_mov_imm_x(&buf, 1,
@@ -1743,30 +1748,30 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
         SQInteger key_slot, bool prefer_integer = false) -> bool {
         bool key_is_object_ptr = key_slot >= 0 &&
             key_slot < MAX_FUNC_STACKSIZE &&
-            slots[key_slot].kind == SQ_JIT_A64_SLOT_OBJECT_PTR &&
+            slots[key_slot].kind == SQ_JIT_SLOT_OBJECT_PTR &&
             slots[key_slot].object_ptr_observed != 0 &&
             slots[key_slot].object_ptr_observed_type != OT_NULL;
         bool key_is_stack_object = key_slot >= 0 &&
             key_slot < MAX_FUNC_STACKSIZE &&
-            slots[key_slot].kind == SQ_JIT_A64_SLOT_STACK_OBJECT &&
+            slots[key_slot].kind == SQ_JIT_SLOT_STACK_OBJECT &&
             slots[key_slot].stack_object_reg >= 0;
         if(dst < 0 || dst >= MAX_FUNC_STACKSIZE ||
             base < 0 || base >= MAX_FUNC_STACKSIZE ||
             (!key_is_object_ptr && !key_is_stack_object) ||
-            (slots[base].kind != SQ_JIT_A64_SLOT_STACK_OBJECT &&
-            slots[base].kind != SQ_JIT_A64_SLOT_OBJECT_PTR)) {
+            (slots[base].kind != SQ_JIT_SLOT_STACK_OBJECT &&
+            slots[base].kind != SQ_JIT_SLOT_OBJECT_PTR)) {
             return false;
         }
 
         if(key_is_stack_object) {
-            bool use_root_fallback = slots[base].kind == SQ_JIT_A64_SLOT_STACK_OBJECT &&
+            bool use_root_fallback = slots[base].kind == SQ_JIT_SLOT_STACK_OBJECT &&
                 slots[base].stack_object_reg == 0 && root_object != NULL;
             SQObjectType observed = OT_NULL;
             if(entry_stack && slots[key_slot].stack_object_reg >= 0 &&
                 slots[key_slot].stack_object_reg < MAX_FUNC_STACKSIZE &&
                 sq_type(entry_stack[slots[key_slot].stack_object_reg]) != OT_NULL) {
                 const SQObjectPtr *key = &entry_stack[slots[key_slot].stack_object_reg];
-                if(slots[base].kind == SQ_JIT_A64_SLOT_OBJECT_PTR) {
+                if(slots[base].kind == SQ_JIT_SLOT_OBJECT_PTR) {
                     observed = sqjit_a64_observed_object_ptr_value_type(
                         slots[base].object_ptr_observed, slots[base].object_ptr_observed_type,
                         key);
@@ -1783,7 +1788,7 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
                 }
             }
             if(observed == OT_INTEGER || prefer_integer) {
-                if(slots[base].kind == SQ_JIT_A64_SLOT_OBJECT_PTR) {
+                if(slots[base].kind == SQ_JIT_SLOT_OBJECT_PTR) {
                     if(slots[base].object_ptr_observed_type == OT_NULL ||
                         !sqjit_a64_emit_ldr_x(&buf, 0, 31,
                         sqjit_a64_local_disp(base)) ||
@@ -1837,7 +1842,7 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
                 return mark_int_slot(dst);
             }
             const void *helper = NULL;
-            if(slots[base].kind == SQ_JIT_A64_SLOT_OBJECT_PTR) {
+            if(slots[base].kind == SQ_JIT_SLOT_OBJECT_PTR) {
                 helper = (const void *)sqjit_a64_helper_object_ptr_get_object_stack_key;
                 if(slots[base].object_ptr_observed_type == OT_NULL ||
                     !sqjit_a64_emit_ldr_x(&buf, 0, 31, sqjit_a64_local_disp(base)) ||
@@ -1890,7 +1895,7 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
         SQInteger observed_object_ptr = 0;
         SQObjectType observed = OT_NULL;
         bool use_root_fallback = false;
-        if(slots[base].kind == SQ_JIT_A64_SLOT_OBJECT_PTR) {
+        if(slots[base].kind == SQ_JIT_SLOT_OBJECT_PTR) {
             observed = sqjit_a64_observed_object_ptr_value_type(
                 slots[base].object_ptr_observed, slots[base].object_ptr_observed_type,
                 &key, &observed_array, &observed_object_ptr);
@@ -1915,7 +1920,7 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
         }
 
         const void *helper = NULL;
-        if(slots[base].kind == SQ_JIT_A64_SLOT_OBJECT_PTR) {
+        if(slots[base].kind == SQ_JIT_SLOT_OBJECT_PTR) {
             helper = (const void *)sqjit_a64_helper_object_ptr_get_object_dynamic_key;
             if(slots[base].object_ptr_observed_type == OT_NULL ||
                 !sqjit_a64_emit_ldr_x(&buf, 0, 31, sqjit_a64_local_disp(base)) ||
@@ -1974,12 +1979,12 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
         SQInteger literal_index, SQClosure *expected) -> bool {
         if(base_slot < 0 || base_slot >= MAX_FUNC_STACKSIZE ||
             literal_index < 0 || literal_index >= proto->_nliterals ||
-            (slots[base_slot].kind != SQ_JIT_A64_SLOT_STACK_OBJECT &&
-            slots[base_slot].kind != SQ_JIT_A64_SLOT_OBJECT_PTR) ||
+            (slots[base_slot].kind != SQ_JIT_SLOT_STACK_OBJECT &&
+            slots[base_slot].kind != SQ_JIT_SLOT_OBJECT_PTR) ||
             !expected) {
             return false;
         }
-        if(slots[base_slot].kind == SQ_JIT_A64_SLOT_OBJECT_PTR) {
+        if(slots[base_slot].kind == SQ_JIT_SLOT_OBJECT_PTR) {
             return slots[base_slot].object_ptr_observed_type != OT_NULL &&
                 sqjit_a64_emit_ldr_x(&buf, 0, 31,
                     sqjit_a64_local_disp(base_slot)) &&
@@ -2017,12 +2022,12 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
         SQInteger expected_ptr) -> bool {
         if(base_slot < 0 || base_slot >= MAX_FUNC_STACKSIZE ||
             literal_index < 0 || literal_index >= proto->_nliterals ||
-            (slots[base_slot].kind != SQ_JIT_A64_SLOT_STACK_OBJECT &&
-            slots[base_slot].kind != SQ_JIT_A64_SLOT_OBJECT_PTR) ||
+            (slots[base_slot].kind != SQ_JIT_SLOT_STACK_OBJECT &&
+            slots[base_slot].kind != SQ_JIT_SLOT_OBJECT_PTR) ||
             !sqjit_a64_type_is_object_ptr(expected_type) || !expected_ptr) {
             return false;
         }
-        if(slots[base_slot].kind == SQ_JIT_A64_SLOT_OBJECT_PTR) {
+        if(slots[base_slot].kind == SQ_JIT_SLOT_OBJECT_PTR) {
             return slots[base_slot].object_ptr_observed_type != OT_NULL &&
                 sqjit_a64_emit_ldr_x(&buf, 0, 31,
                     sqjit_a64_local_disp(base_slot)) &&
@@ -2058,11 +2063,11 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
     auto emit_member_exists_guard_key = [&](SQInteger base_slot,
         const SQObjectPtr *key, bool expected) -> bool {
         if(base_slot < 0 || base_slot >= MAX_FUNC_STACKSIZE || !key ||
-            (slots[base_slot].kind != SQ_JIT_A64_SLOT_STACK_OBJECT &&
-            slots[base_slot].kind != SQ_JIT_A64_SLOT_OBJECT_PTR)) {
+            (slots[base_slot].kind != SQ_JIT_SLOT_STACK_OBJECT &&
+            slots[base_slot].kind != SQ_JIT_SLOT_OBJECT_PTR)) {
             return false;
         }
-        if(slots[base_slot].kind == SQ_JIT_A64_SLOT_OBJECT_PTR) {
+        if(slots[base_slot].kind == SQ_JIT_SLOT_OBJECT_PTR) {
             return slots[base_slot].object_ptr_observed_type != OT_NULL &&
                 sqjit_a64_emit_ldr_x(&buf, 0, 31,
                     sqjit_a64_local_disp(base_slot)) &&
@@ -2105,12 +2110,12 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
 
         SQObjectPtr value;
         bool ok = false;
-        if(slots[base_slot].kind == SQ_JIT_A64_SLOT_OBJECT_PTR) {
+        if(slots[base_slot].kind == SQ_JIT_SLOT_OBJECT_PTR) {
             ok = sqjit_a64_get_member_ptr_value(slots[base_slot].object_ptr_observed,
                 slots[base_slot].object_ptr_observed_type,
                 &proto->_literals[literal_index], value);
         }
-        else if(slots[base_slot].kind == SQ_JIT_A64_SLOT_STACK_OBJECT &&
+        else if(slots[base_slot].kind == SQ_JIT_SLOT_STACK_OBJECT &&
             slots[base_slot].stack_object_reg >= 0) {
             ok = sqjit_a64_get_member_value_with_root(entry_stack,
                 slots[base_slot].stack_object_reg, &proto->_literals[literal_index],
@@ -2142,12 +2147,12 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
 
         SQObjectPtr value;
         bool ok = false;
-        if(slots[base_slot].kind == SQ_JIT_A64_SLOT_OBJECT_PTR) {
+        if(slots[base_slot].kind == SQ_JIT_SLOT_OBJECT_PTR) {
             ok = sqjit_a64_get_member_ptr_value(slots[base_slot].object_ptr_observed,
                 slots[base_slot].object_ptr_observed_type,
                 &proto->_literals[literal_index], value);
         }
-        else if(slots[base_slot].kind == SQ_JIT_A64_SLOT_STACK_OBJECT &&
+        else if(slots[base_slot].kind == SQ_JIT_SLOT_STACK_OBJECT &&
             slots[base_slot].stack_object_reg >= 0) {
             ok = sqjit_a64_get_member_value_with_root(entry_stack,
                 slots[base_slot].stack_object_reg, &proto->_literals[literal_index],
@@ -2197,25 +2202,25 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
             return false;
         }
         switch(slots[slot].kind) {
-        case SQ_JIT_A64_SLOT_INT:
+        case SQ_JIT_SLOT_INT:
             *type_out = OT_INTEGER;
             return true;
-        case SQ_JIT_A64_SLOT_FLOAT:
+        case SQ_JIT_SLOT_FLOAT:
             *type_out = OT_FLOAT;
             return true;
-        case SQ_JIT_A64_SLOT_BOOL:
+        case SQ_JIT_SLOT_BOOL:
             *type_out = OT_BOOL;
             return true;
-        case SQ_JIT_A64_SLOT_ARRAY_PTR:
+        case SQ_JIT_SLOT_ARRAY_PTR:
             *type_out = OT_ARRAY;
             return true;
-        case SQ_JIT_A64_SLOT_OBJECT_PTR:
+        case SQ_JIT_SLOT_OBJECT_PTR:
             if(slots[slot].object_ptr_observed_type == OT_NULL) {
                 return false;
             }
             *type_out = slots[slot].object_ptr_observed_type;
             return true;
-        case SQ_JIT_A64_SLOT_STACK_OBJECT:
+        case SQ_JIT_SLOT_STACK_OBJECT:
             if(slots[slot].stack_object_reg < 0) {
                 return false;
             }
@@ -2573,7 +2578,7 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
                 return false;
             }
             SQObjectPtr value;
-            if(slots[base].kind == SQ_JIT_A64_SLOT_OBJECT_PTR) {
+            if(slots[base].kind == SQ_JIT_SLOT_OBJECT_PTR) {
                 if(slots[base].object_ptr_observed_type == OT_NULL) {
                     return false;
                 }
@@ -2582,13 +2587,13 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
                     key, value);
                 return true;
             }
-            if(slots[base].kind == SQ_JIT_A64_SLOT_INT ||
-                slots[base].kind == SQ_JIT_A64_SLOT_FLOAT ||
-                slots[base].kind == SQ_JIT_A64_SLOT_BOOL) {
+            if(slots[base].kind == SQ_JIT_SLOT_INT ||
+                slots[base].kind == SQ_JIT_SLOT_FLOAT ||
+                slots[base].kind == SQ_JIT_SLOT_BOOL) {
                 *exists_out = false;
                 return true;
             }
-            if(slots[base].kind != SQ_JIT_A64_SLOT_STACK_OBJECT ||
+            if(slots[base].kind != SQ_JIT_SLOT_STACK_OBJECT ||
                 slots[base].stack_object_reg < 0 || !entry_stack) {
                 return false;
             }
@@ -2631,8 +2636,8 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
                 }
             }
             else if(guard_key < 0 ||
-                ((slots[subject_slot].kind == SQ_JIT_A64_SLOT_STACK_OBJECT ||
-                slots[subject_slot].kind == SQ_JIT_A64_SLOT_OBJECT_PTR) &&
+                ((slots[subject_slot].kind == SQ_JIT_SLOT_STACK_OBJECT ||
+                slots[subject_slot].kind == SQ_JIT_SLOT_OBJECT_PTR) &&
                 !emit_member_exists_guard_key(subject_slot,
                 &callee->_literals[guard_key], false))) {
                 return false;
@@ -2675,7 +2680,7 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
             if(base < 0 || base >= MAX_FUNC_STACKSIZE || !key) {
                 return OT_NULL;
             }
-            if(slots[base].kind == SQ_JIT_A64_SLOT_OBJECT_PTR) {
+            if(slots[base].kind == SQ_JIT_SLOT_OBJECT_PTR) {
                 return sqjit_a64_observed_object_ptr_value_type(
                     slots[base].object_ptr_observed, slots[base].object_ptr_observed_type,
                     key, array_out, object_ptr_out);
@@ -2777,47 +2782,41 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
             observed_array);
     };
 
-    auto emit_math_call = [&](SQInteger dst, SQJitA64MathIntrinsic intrinsic,
+    auto emit_math_call = [&](SQInteger dst, SQNativeMathKind intrinsic,
         SQInteger nargs, SQInteger first_arg) -> bool {
-        if(dst < 0 || dst >= MAX_FUNC_STACKSIZE ||
-            first_arg < 0 || first_arg >= MAX_FUNC_STACKSIZE ||
-            intrinsic == SQ_JIT_A64_MATH_NONE) {
-            return false;
+        if(dst < 0 || dst >= MAX_FUNC_STACKSIZE || first_arg < 0 ||
+            nargs < 1 || nargs > 2 || first_arg + nargs > MAX_FUNC_STACKSIZE ||
+            intrinsic == SQ_NATIVE_MATH_NONE) return false;
+        // Standard math accepts both integer and float arguments. Convert to
+        // private scratch slots so later uses retain the original value/tag.
+        for(SQInteger n = 0; n < nargs; ++n) {
+            SQInteger src = first_arg + n;
+            if(slot_observed_is_float(src)) {
+                if(!ensure_float_slot(src) || !sqjit_a64_emit_ldr_float(&buf, 0, 31,
+                    sqjit_a64_local_disp(src))) return false;
+            }
+            else if(!ensure_int_slot(src) || !sqjit_a64_emit_ldr_x(&buf, 9, 31,
+                sqjit_a64_local_disp(src)) || !sqjit_a64_emit_scvtf_float_x(&buf, 0, 9)) return false;
+            if(!sqjit_a64_emit_str_float(&buf, 0, 31, sqjit_a64_local_disp(math_scratch + n))) return false;
         }
+        if(!sqjit_a64_emit_mov_imm_x(&buf, 0, (SQInteger)intrinsic) ||
+            !sqjit_a64_emit_add_imm(&buf, 1, 31, sqjit_a64_local_disp(math_scratch))) return false;
         if(nargs == 1) {
-            return ensure_float_slot(first_arg) &&
-                sqjit_a64_emit_mov_imm_x(&buf, 0, (SQInteger)intrinsic) &&
-                sqjit_a64_emit_add_imm(&buf, 1, 31,
-                    sqjit_a64_local_disp(first_arg)) &&
-                sqjit_a64_emit_add_imm(&buf, 2, 31,
-                    sqjit_a64_local_disp(dst)) &&
-                sqjit_a64_emit_mov_imm_x(&buf, 16,
-                    (SQInteger)(intptr_t)(const void *)
-                    sqjit_a64_helper_math_unary) &&
-                sqjit_a64_emit_blr_x16(&buf) &&
-                emit_guard_on_x0_zero() &&
-                mark_float_slot(dst);
+            if(!sqjit_a64_emit_add_imm(&buf, 2, 31, sqjit_a64_local_disp(dst)) ||
+                !sqjit_a64_emit_mov_imm_x(&buf, 16, (SQInteger)(intptr_t)(const void *)sqjit_math_unary)) return false;
         }
-        if(nargs == 2) {
-            SQInteger second_arg = first_arg + 1;
-            return second_arg >= 0 && second_arg < MAX_FUNC_STACKSIZE &&
-                ensure_float_slot(first_arg) &&
-                ensure_float_slot(second_arg) &&
-                sqjit_a64_emit_mov_imm_x(&buf, 0, (SQInteger)intrinsic) &&
-                sqjit_a64_emit_add_imm(&buf, 1, 31,
-                    sqjit_a64_local_disp(first_arg)) &&
-                sqjit_a64_emit_add_imm(&buf, 2, 31,
-                    sqjit_a64_local_disp(second_arg)) &&
-                sqjit_a64_emit_add_imm(&buf, 3, 31,
-                    sqjit_a64_local_disp(dst)) &&
-                sqjit_a64_emit_mov_imm_x(&buf, 16,
-                    (SQInteger)(intptr_t)(const void *)
-                    sqjit_a64_helper_math_binary) &&
-                sqjit_a64_emit_blr_x16(&buf) &&
-                emit_guard_on_x0_zero() &&
-                mark_float_slot(dst);
-        }
-        return false;
+        else if(!sqjit_a64_emit_add_imm(&buf, 2, 31, sqjit_a64_local_disp(math_scratch + 1)) ||
+            !sqjit_a64_emit_add_imm(&buf, 3, 31, sqjit_a64_local_disp(dst)) ||
+            !sqjit_a64_emit_mov_imm_x(&buf, 16, (SQInteger)(intptr_t)(const void *)sqjit_math_binary)) return false;
+        if(!sqjit_a64_emit_blr_x16(&buf) || !emit_guard_on_x0_zero() || !mark_float_slot(dst)) return false;
+        return true;
+    };
+
+    auto emit_conversion_guard = [&](const SQObjectPtr *key) -> bool {
+        return sqjit_a64_emit_mov_reg(&buf, 0, 21) &&
+            sqjit_a64_emit_mov_imm_x(&buf, 1, (SQInteger)(intptr_t)key) &&
+            sqjit_a64_emit_mov_imm_x(&buf, 16, (SQInteger)(intptr_t)(const void *)sqjit_number_conversion_guard) &&
+            sqjit_a64_emit_blr_x16(&buf) && emit_guard_on_x0_zero();
     };
 
     auto emit_number_conversion = [&](SQInteger dst,
@@ -2848,7 +2847,7 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
                     sqjit_a64_local_disp(dst)) ||
                 !sqjit_a64_emit_mov_imm_x(&buf, 16,
                     (SQInteger)(intptr_t)(const void *)
-                    sqjit_a64_helper_integer_to_float) ||
+                    sqjit_integer_to_float) ||
                 !sqjit_a64_emit_blr_x16(&buf) ||
                 !emit_guard_on_x0_zero() ||
                 !mark_float_slot(dst)) {
@@ -2881,12 +2880,12 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
     auto emit_member_native_closure_guard_key = [&](SQInteger base_slot,
         const SQObjectPtr *key, SQNativeClosure *expected) -> bool {
         if(base_slot < 0 || base_slot >= MAX_FUNC_STACKSIZE || !key ||
-            (slots[base_slot].kind != SQ_JIT_A64_SLOT_STACK_OBJECT &&
-            slots[base_slot].kind != SQ_JIT_A64_SLOT_OBJECT_PTR) ||
+            (slots[base_slot].kind != SQ_JIT_SLOT_STACK_OBJECT &&
+            slots[base_slot].kind != SQ_JIT_SLOT_OBJECT_PTR) ||
             !expected) {
             return false;
         }
-        if(slots[base_slot].kind == SQ_JIT_A64_SLOT_OBJECT_PTR) {
+        if(slots[base_slot].kind == SQ_JIT_SLOT_OBJECT_PTR) {
             return slots[base_slot].object_ptr_observed_type != OT_NULL &&
                 sqjit_a64_emit_ldr_x(&buf, 0, 31,
                     sqjit_a64_local_disp(base_slot)) &&
@@ -2930,11 +2929,11 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
 
         SQObjectPtr value;
         bool ok = false;
-        if(slots[base_slot].kind == SQ_JIT_A64_SLOT_OBJECT_PTR) {
+        if(slots[base_slot].kind == SQ_JIT_SLOT_OBJECT_PTR) {
             ok = sqjit_a64_get_member_ptr_value(slots[base_slot].object_ptr_observed,
                 slots[base_slot].object_ptr_observed_type, key, value);
         }
-        else if(slots[base_slot].kind == SQ_JIT_A64_SLOT_STACK_OBJECT &&
+        else if(slots[base_slot].kind == SQ_JIT_SLOT_STACK_OBJECT &&
             slots[base_slot].stack_object_reg >= 0) {
             ok = sqjit_a64_get_member_value_with_root(entry_stack,
                 slots[base_slot].stack_object_reg, key,
@@ -2949,7 +2948,7 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
 
     auto literal_index_for_object_ptr_slot = [&](SQInteger slot) -> SQInteger {
         if(slot < 0 || slot >= MAX_FUNC_STACKSIZE ||
-            slots[slot].kind != SQ_JIT_A64_SLOT_OBJECT_PTR ||
+            slots[slot].kind != SQ_JIT_SLOT_OBJECT_PTR ||
             slots[slot].object_ptr_observed_type == OT_NULL) {
             return -1;
         }
@@ -2970,12 +2969,12 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
         if(base < 0 || base >= MAX_FUNC_STACKSIZE || !key || !field) {
             return false;
         }
-        if(slots[base].kind == SQ_JIT_A64_SLOT_STACK_OBJECT) {
+        if(slots[base].kind == SQ_JIT_SLOT_STACK_OBJECT) {
             return slots[base].stack_object_reg >= 0 &&
                 sqjit_a64_observed_stack_instance_field(entry_stack,
                     slots[base].stack_object_reg, key, field);
         }
-        if(slots[base].kind == SQ_JIT_A64_SLOT_OBJECT_PTR) {
+        if(slots[base].kind == SQ_JIT_SLOT_OBJECT_PTR) {
             return sqjit_a64_observed_object_ptr_instance_field(
                 slots[base].object_ptr_observed, slots[base].object_ptr_observed_type,
                 key, field);
@@ -2985,7 +2984,7 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
 
     auto emit_instance_field_set_base = [&](SQInteger base,
         const SQJitA64InstanceFieldObservation &field) -> bool {
-        if(slots[base].kind == SQ_JIT_A64_SLOT_STACK_OBJECT) {
+        if(slots[base].kind == SQ_JIT_SLOT_STACK_OBJECT) {
             if(slots[base].stack_object_reg < 0 ||
                 !sqjit_a64_emit_type_guard(&buf, slots[base].stack_object_reg,
                 OT_INSTANCE, guard_relocs, &nguard_relocs) ||
@@ -2994,7 +2993,7 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
                 return false;
             }
         }
-        else if(slots[base].kind == SQ_JIT_A64_SLOT_OBJECT_PTR) {
+        else if(slots[base].kind == SQ_JIT_SLOT_OBJECT_PTR) {
             if(!sqjit_a64_emit_ldr_x(&buf, 1, 31,
                 sqjit_a64_local_disp(base))) {
                 return false;
@@ -3108,7 +3107,7 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
         if(emit_instance_field_set_integer_key(target, base, key, value)) {
             return true;
         }
-        if(slots[base].kind == SQ_JIT_A64_SLOT_OBJECT_PTR) {
+        if(slots[base].kind == SQ_JIT_SLOT_OBJECT_PTR) {
             return slots[base].object_ptr_observed_type != OT_NULL &&
                 sqjit_a64_emit_add_imm(&buf, 0, 31,
                     sqjit_a64_local_disp(write_log_slot)) &&
@@ -3127,7 +3126,7 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
                 emit_guard_on_x0_zero() &&
                 copy_int_slot(target, value);
         }
-        if(slots[base].kind == SQ_JIT_A64_SLOT_STACK_OBJECT &&
+        if(slots[base].kind == SQ_JIT_SLOT_STACK_OBJECT &&
             slots[base].stack_object_reg >= 0) {
             return sqjit_a64_emit_add_imm(&buf, 0, 31,
                     sqjit_a64_local_disp(write_log_slot)) &&
@@ -3160,7 +3159,7 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
         if(emit_instance_field_set_bool_key(target, base, key, value)) {
             return true;
         }
-        if(slots[base].kind == SQ_JIT_A64_SLOT_OBJECT_PTR) {
+        if(slots[base].kind == SQ_JIT_SLOT_OBJECT_PTR) {
             return slots[base].object_ptr_observed_type != OT_NULL &&
                 sqjit_a64_emit_add_imm(&buf, 0, 31,
                     sqjit_a64_local_disp(write_log_slot)) &&
@@ -3179,7 +3178,7 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
                 emit_guard_on_x0_zero() &&
                 copy_int_slot(target, value);
         }
-        if(slots[base].kind == SQ_JIT_A64_SLOT_STACK_OBJECT &&
+        if(slots[base].kind == SQ_JIT_SLOT_STACK_OBJECT &&
             slots[base].stack_object_reg >= 0) {
             return sqjit_a64_emit_add_imm(&buf, 0, 31,
                     sqjit_a64_local_disp(write_log_slot)) &&
@@ -3210,7 +3209,7 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
             !ensure_int_slot(value)) {
             return false;
         }
-        if(slots[base].kind == SQ_JIT_A64_SLOT_ARRAY_PTR) {
+        if(slots[base].kind == SQ_JIT_SLOT_ARRAY_PTR) {
             if(!sqjit_a64_emit_add_imm(&buf, 0, 31,
                 sqjit_a64_local_disp(write_log_slot)) ||
                 !sqjit_a64_emit_ldr_x(&buf, 1, 31,
@@ -3228,7 +3227,7 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
             }
             return copy_int_slot(target, value);
         }
-        if(slots[base].kind == SQ_JIT_A64_SLOT_STACK_OBJECT &&
+        if(slots[base].kind == SQ_JIT_SLOT_STACK_OBJECT &&
             slots[base].stack_object_reg >= 0) {
             if(!sqjit_a64_emit_add_imm(&buf, 0, 31,
                 sqjit_a64_local_disp(write_log_slot)) ||
@@ -3257,7 +3256,7 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
             !ensure_int_slot(value)) {
             return false;
         }
-        if(slots[base].kind == SQ_JIT_A64_SLOT_ARRAY_PTR) {
+        if(slots[base].kind == SQ_JIT_SLOT_ARRAY_PTR) {
             if(!sqjit_a64_emit_add_imm(&buf, 0, 31,
                 sqjit_a64_local_disp(write_log_slot)) ||
                 !sqjit_a64_emit_ldr_x(&buf, 1, 31,
@@ -3275,7 +3274,7 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
             }
             return copy_int_slot(target, value);
         }
-        if(slots[base].kind == SQ_JIT_A64_SLOT_STACK_OBJECT &&
+        if(slots[base].kind == SQ_JIT_SLOT_STACK_OBJECT &&
             slots[base].stack_object_reg >= 0) {
             if(!sqjit_a64_emit_add_imm(&buf, 0, 31,
                 sqjit_a64_local_disp(write_log_slot)) ||
@@ -3304,7 +3303,7 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
             !ensure_float_slot(value)) {
             return false;
         }
-        if(slots[base].kind == SQ_JIT_A64_SLOT_ARRAY_PTR) {
+        if(slots[base].kind == SQ_JIT_SLOT_ARRAY_PTR) {
             if(!sqjit_a64_emit_add_imm(&buf, 0, 31,
                 sqjit_a64_local_disp(write_log_slot)) ||
                 !sqjit_a64_emit_ldr_x(&buf, 1, 31,
@@ -3322,7 +3321,7 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
             }
             return copy_float_slot(target, value);
         }
-        if(slots[base].kind == SQ_JIT_A64_SLOT_STACK_OBJECT &&
+        if(slots[base].kind == SQ_JIT_SLOT_STACK_OBJECT &&
             slots[base].stack_object_reg >= 0) {
             if(!sqjit_a64_emit_add_imm(&buf, 0, 31,
                 sqjit_a64_local_disp(write_log_slot)) ||
@@ -3353,7 +3352,7 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
         if(emit_instance_field_set_float_key(target, base, key, value)) {
             return true;
         }
-        if(slots[base].kind == SQ_JIT_A64_SLOT_OBJECT_PTR) {
+        if(slots[base].kind == SQ_JIT_SLOT_OBJECT_PTR) {
             return slots[base].object_ptr_observed_type != OT_NULL &&
                 sqjit_a64_emit_add_imm(&buf, 0, 31,
                     sqjit_a64_local_disp(write_log_slot)) &&
@@ -3372,7 +3371,7 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
                 emit_guard_on_x0_zero() &&
                 copy_float_slot(target, value);
         }
-        if(slots[base].kind == SQ_JIT_A64_SLOT_STACK_OBJECT &&
+        if(slots[base].kind == SQ_JIT_SLOT_STACK_OBJECT &&
             slots[base].stack_object_reg >= 0) {
             return sqjit_a64_emit_add_imm(&buf, 0, 31,
                     sqjit_a64_local_disp(write_log_slot)) &&
@@ -3395,9 +3394,36 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
         return false;
     };
 
+    // Root-based helpers embed a pointer into the observed weak reference.
+    // setroot() and another closure sharing this prototype must guard out.
+    if(root_object &&
+        (!sqjit_a64_emit_ldr_x(&buf, 9, 21, (SQInteger)((char *)&closure->_root - (char *)closure)) ||
+        !sqjit_a64_emit_mov_imm_x(&buf, 10, (SQInteger)(intptr_t)closure->_root) ||
+        !sqjit_a64_emit_cmp_reg(&buf, 9, 10) ||
+        !emit_guard_fail_branch(SQ_JIT_A64_NE))) {
+        return false;
+    }
+
+    // Parameter loads must dominate all branch arms and stay outside backedges
+    // that change the parameter. Linear lowering alone cannot establish this.
+    SQSlotSet entry_parameters;
+    bool has_branches = false;
+    for(SQInteger ip=0; ip<proto->_ninstructions; ++ip) {
+        entry_parameters |= analysis.loop_written[ip];
+        has_branches = has_branches || analysis.facts[ip].target >= 0;
+    }
+    if(has_branches) entry_parameters |= analysis.live_in[0];
+    for(SQInteger n=0; n<proto->_nparameters; ++n) if(entry_parameters.test(n)) {
+        if(sq_type(entry_stack[n]) == OT_INTEGER) { if(!ensure_int_slot(n)) return false; }
+        else if(sq_type(entry_stack[n]) == OT_FLOAT) { if(!ensure_float_slot(n)) return false; }
+    }
+
     bool previous_effective_return = false;
     SQInteger dead_until_ip = -1;
     for(SQInteger ip = 0; ip < proto->_ninstructions; ip++) {
+        if(analysis.leaders[ip]) for(SQInteger n = 0; n < proto->_stacksize; ++n) {
+            slots[n].known_const = false; slots[n].const_value = 0;
+        }
         ip_to_offset[ip] = buf.size;
         if(dead_until_ip >= 0) {
             if(ip < dead_until_ip) {
@@ -3451,6 +3477,8 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
                 if(!emit_load_int(inst._arg0, inst._arg1 ? 1 : 0) || !mark_bool_slot(inst._arg0)) {
                     return false;
                 }
+                slots[inst._arg0].known_const = true;
+                slots[inst._arg0].const_value = inst._arg1 != 0;
                 break;
             case _OP_LOADNULLS:
                 if(!emit_load_nulls(inst._arg0, inst._arg1)) {
@@ -3482,7 +3510,7 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
                     SQObjectType observed = OT_NULL;
                     SQArray *observed_array = NULL;
                     if(inst._arg2 >= 0 && inst._arg2 < MAX_FUNC_STACKSIZE &&
-                        slots[inst._arg2].kind == SQ_JIT_A64_SLOT_ARRAY_PTR) {
+                        slots[inst._arg2].kind == SQ_JIT_SLOT_ARRAY_PTR) {
                         observed = sqjit_a64_observed_array_ptr_value_type(
                             slots[inst._arg2].array_ptr_observed, index, &observed_array);
                         if(!emit_array_ptr_get(inst._arg0, inst._arg2, index, observed,
@@ -3514,7 +3542,7 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
                     SQInteger observed_object_ptr = 0;
                     SQObjectType observed = OT_NULL;
                     if(inst._arg2 >= 0 && inst._arg2 < MAX_FUNC_STACKSIZE &&
-                        slots[inst._arg2].kind == SQ_JIT_A64_SLOT_OBJECT_PTR) {
+                        slots[inst._arg2].kind == SQ_JIT_SLOT_OBJECT_PTR) {
                         observed = sqjit_a64_observed_object_ptr_value_type(
                             slots[inst._arg2].object_ptr_observed,
                             slots[inst._arg2].object_ptr_observed_type,
@@ -3546,7 +3574,7 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
                     SQObjectType observed = OT_NULL;
                     SQArray *observed_array = NULL;
                     if(inst._arg1 >= 0 && inst._arg1 < MAX_FUNC_STACKSIZE &&
-                        slots[inst._arg1].kind == SQ_JIT_A64_SLOT_ARRAY_PTR) {
+                        slots[inst._arg1].kind == SQ_JIT_SLOT_ARRAY_PTR) {
                         observed = sqjit_a64_observed_array_ptr_value_type(
                             slots[inst._arg1].array_ptr_observed, slots[inst._arg2].const_value,
                             &observed_array);
@@ -3578,13 +3606,13 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
                 else {
                     bool key_can_be_dynamic_member = inst._arg2 >= 0 &&
                         inst._arg2 < MAX_FUNC_STACKSIZE &&
-                        (slots[inst._arg2].kind == SQ_JIT_A64_SLOT_OBJECT_PTR ||
-                        (slots[inst._arg2].kind == SQ_JIT_A64_SLOT_STACK_OBJECT &&
+                        (slots[inst._arg2].kind == SQ_JIT_SLOT_OBJECT_PTR ||
+                        (slots[inst._arg2].kind == SQ_JIT_SLOT_STACK_OBJECT &&
                         slots[inst._arg2].stack_object_reg >= 0));
                     bool base_can_be_dynamic_member = inst._arg1 >= 0 &&
                         inst._arg1 < MAX_FUNC_STACKSIZE &&
-                        (slots[inst._arg1].kind == SQ_JIT_A64_SLOT_STACK_OBJECT ||
-                        slots[inst._arg1].kind == SQ_JIT_A64_SLOT_OBJECT_PTR);
+                        (slots[inst._arg1].kind == SQ_JIT_SLOT_STACK_OBJECT ||
+                        slots[inst._arg1].kind == SQ_JIT_SLOT_OBJECT_PTR);
                     if(key_can_be_dynamic_member && base_can_be_dynamic_member) {
                         if(!emit_member_get_dynamic_key(inst._arg0, inst._arg1,
                             inst._arg2)) {
@@ -3595,7 +3623,7 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
                     SQObjectType observed = OT_NULL;
                     SQArray *observed_array = NULL;
                     if(inst._arg1 >= 0 && inst._arg1 < MAX_FUNC_STACKSIZE &&
-                        slots[inst._arg1].kind == SQ_JIT_A64_SLOT_ARRAY_PTR) {
+                        slots[inst._arg1].kind == SQ_JIT_SLOT_ARRAY_PTR) {
                         SQInteger observed_index = 0;
                         if(inst._arg2 >= 0 && inst._arg2 < MAX_FUNC_STACKSIZE &&
                             slots[inst._arg2].known_const) {
@@ -3634,12 +3662,12 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
                                     (SQInt32)inst._arg1,
                                     (SQInt32)((inst._arg1 >= 0 &&
                                     inst._arg1 < MAX_FUNC_STACKSIZE) ?
-                                    slots[inst._arg1].kind : SQ_JIT_A64_SLOT_UNKNOWN),
+                                    slots[inst._arg1].kind : SQ_JIT_SLOT_UNKNOWN),
                                     (SQInt32)observed_reg, (SQInt32)stack_type,
                                     (SQInt32)inst._arg2,
                                     (SQInt32)((inst._arg2 >= 0 &&
                                     inst._arg2 < MAX_FUNC_STACKSIZE) ?
-                                    slots[inst._arg2].kind : SQ_JIT_A64_SLOT_UNKNOWN),
+                                    slots[inst._arg2].kind : SQ_JIT_SLOT_UNKNOWN),
                                     (SQInt32)observed);
                             }
                             return attempt.Reject(ip, SQ_JIT_REJECT_ARRAY, "unsupported dynamic GET array read");
@@ -3677,10 +3705,10 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
 
                 const SQObjectPtr *key = &proto->_literals[key_literal];
                 const SQChar *member_name = _stringval(*key);
-                bool base_is_number = slots[receiver_slot].kind == SQ_JIT_A64_SLOT_INT ||
-                    slots[receiver_slot].kind == SQ_JIT_A64_SLOT_FLOAT ||
-                    slots[receiver_slot].kind == SQ_JIT_A64_SLOT_BOOL;
-                if(slots[receiver_slot].kind == SQ_JIT_A64_SLOT_STACK_OBJECT &&
+                bool base_is_number = slots[receiver_slot].kind == SQ_JIT_SLOT_INT ||
+                    slots[receiver_slot].kind == SQ_JIT_SLOT_FLOAT ||
+                    slots[receiver_slot].kind == SQ_JIT_SLOT_BOOL;
+                if(slots[receiver_slot].kind == SQ_JIT_SLOT_STACK_OBJECT &&
                     slots[receiver_slot].stack_object_reg >= 0) {
                     SQObjectType base_type =
                         sq_type(entry_stack[slots[receiver_slot].stack_object_reg]);
@@ -3688,6 +3716,7 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
                         base_type == OT_FLOAT || base_type == OT_BOOL;
                 }
                 if(base_is_number && scstrcmp(member_name, _SC("tofloat")) == 0) {
+                    if(!emit_conversion_guard(key)) return false;
                     prepared_number_conversion[inst._arg0] =
                         SQ_JIT_A64_NUMBER_CONVERSION_TOFLOAT;
                     prepared_number_conversion_base[inst._arg0] = receiver_slot;
@@ -3703,7 +3732,7 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
                 }
                 else if(scstrcmp(member_name, _SC("append")) == 0 ||
                     scstrcmp(member_name, _SC("push")) == 0) {
-                    if(slots[receiver_slot].kind != SQ_JIT_A64_SLOT_ARRAY_PTR ||
+                    if(slots[receiver_slot].kind != SQ_JIT_SLOT_ARRAY_PTR ||
                         !slots[receiver_slot].array_ptr_fresh) {
                         return attempt.Reject(ip, SQ_JIT_REJECT_ARRAY_APPEND, "unsupported PREPCALL append base");
                     }
@@ -3711,7 +3740,7 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
                 }
                 else {
                     SQNativeClosure *native_callee = NULL;
-                    SQJitA64MathIntrinsic intrinsic = SQ_JIT_A64_MATH_NONE;
+                    SQNativeMathKind intrinsic = SQ_NATIVE_MATH_NONE;
                     SQInteger math_nargs = 0;
                     if(observed_member_native_closure_key(receiver_slot, key,
                         &native_callee) &&
@@ -3771,10 +3800,10 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
                 }
 
                 const SQChar *member_name = _stringval(proto->_literals[inst._arg1]);
-                bool base_is_number = slots[receiver_slot].kind == SQ_JIT_A64_SLOT_INT ||
-                    slots[receiver_slot].kind == SQ_JIT_A64_SLOT_FLOAT ||
-                    slots[receiver_slot].kind == SQ_JIT_A64_SLOT_BOOL;
-                if(slots[receiver_slot].kind == SQ_JIT_A64_SLOT_STACK_OBJECT &&
+                bool base_is_number = slots[receiver_slot].kind == SQ_JIT_SLOT_INT ||
+                    slots[receiver_slot].kind == SQ_JIT_SLOT_FLOAT ||
+                    slots[receiver_slot].kind == SQ_JIT_SLOT_BOOL;
+                if(slots[receiver_slot].kind == SQ_JIT_SLOT_STACK_OBJECT &&
                     slots[receiver_slot].stack_object_reg >= 0) {
                     SQObjectType base_type =
                         sq_type(entry_stack[slots[receiver_slot].stack_object_reg]);
@@ -3782,6 +3811,7 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
                         base_type == OT_FLOAT || base_type == OT_BOOL;
                 }
                 if(base_is_number && scstrcmp(member_name, _SC("tofloat")) == 0) {
+                    if(!emit_conversion_guard(&proto->_literals[inst._arg1])) return false;
                     prepared_number_conversion[inst._arg0] =
                         SQ_JIT_A64_NUMBER_CONVERSION_TOFLOAT;
                     prepared_number_conversion_base[inst._arg0] = receiver_slot;
@@ -3797,7 +3827,7 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
                 }
                 else if(scstrcmp(member_name, _SC("append")) == 0 ||
                     scstrcmp(member_name, _SC("push")) == 0) {
-                    if(slots[receiver_slot].kind != SQ_JIT_A64_SLOT_ARRAY_PTR ||
+                    if(slots[receiver_slot].kind != SQ_JIT_SLOT_ARRAY_PTR ||
                         !slots[receiver_slot].array_ptr_fresh) {
                         return attempt.Reject(ip, SQ_JIT_REJECT_ARRAY_APPEND, "unsupported PREPCALLK append base");
                     }
@@ -3805,7 +3835,7 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
                 }
                 else {
                     SQNativeClosure *native_callee = NULL;
-                    SQJitA64MathIntrinsic intrinsic = SQ_JIT_A64_MATH_NONE;
+                    SQNativeMathKind intrinsic = SQ_NATIVE_MATH_NONE;
                     SQInteger math_nargs = 0;
                     if(observed_member_native_closure_key(receiver_slot,
                         &proto->_literals[inst._arg1], &native_callee) &&
@@ -3848,7 +3878,7 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
                                         (SQInt32)((receiver_slot >= 0 &&
                                         receiver_slot < MAX_FUNC_STACKSIZE) ?
                                         slots[receiver_slot].kind :
-                                        SQ_JIT_A64_SLOT_UNKNOWN),
+                                        SQ_JIT_SLOT_UNKNOWN),
                                         (SQInt32)observed_reg,
                                         (SQInt32)stack_type,
                                         receiver_slot >= 0 &&
@@ -3892,8 +3922,8 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
                     clear_prepared_call_slot(inst._arg1);
                 }
                 else if(prepared_math_intrinsic[inst._arg1] !=
-                    SQ_JIT_A64_MATH_NONE) {
-                    SQJitA64MathIntrinsic intrinsic =
+                    SQ_NATIVE_MATH_NONE) {
+                    SQNativeMathKind intrinsic =
                         prepared_math_intrinsic[inst._arg1];
                     SQInteger math_nargs = prepared_math_nargs[inst._arg1];
                     if(inst._arg0 == SQ_JIT_A64_NO_RESULT_SLOT || math_nargs <= 0 ||
@@ -3969,20 +3999,20 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
                 if(key_literal < 0) {
                     bool dynamic_member_key = inst._arg2 >= 0 &&
                         inst._arg2 < MAX_FUNC_STACKSIZE &&
-                        slots[inst._arg2].kind == SQ_JIT_A64_SLOT_STACK_OBJECT &&
+                        slots[inst._arg2].kind == SQ_JIT_SLOT_STACK_OBJECT &&
                         slots[inst._arg2].stack_object_reg >= 0;
                     bool dynamic_member_base = inst._arg1 >= 0 &&
                         inst._arg1 < MAX_FUNC_STACKSIZE &&
-                        (slots[inst._arg1].kind == SQ_JIT_A64_SLOT_STACK_OBJECT ||
-                        slots[inst._arg1].kind == SQ_JIT_A64_SLOT_OBJECT_PTR);
+                        (slots[inst._arg1].kind == SQ_JIT_SLOT_STACK_OBJECT ||
+                        slots[inst._arg1].kind == SQ_JIT_SLOT_OBJECT_PTR);
                     if(dynamic_member_key && dynamic_member_base &&
                         !(inst._arg3 >= 0 && inst._arg3 < MAX_FUNC_STACKSIZE &&
-                        slots[inst._arg3].kind == SQ_JIT_A64_SLOT_BOOL) &&
+                        slots[inst._arg3].kind == SQ_JIT_SLOT_BOOL) &&
                         !slot_observed_is_float(inst._arg3)) {
                         return attempt.Reject(ip, SQ_JIT_REJECT_MEMBER, "unsupported SET dynamic member");
                     }
                     else if(inst._arg3 >= 0 && inst._arg3 < MAX_FUNC_STACKSIZE &&
-                        slots[inst._arg3].kind == SQ_JIT_A64_SLOT_BOOL) {
+                        slots[inst._arg3].kind == SQ_JIT_SLOT_BOOL) {
                         if(!emit_array_set_bool(inst._arg0, inst._arg1,
                             inst._arg2, inst._arg3)) {
                             return attempt.Reject(ip, SQ_JIT_REJECT_ARRAY, "unsupported SET bool array");
@@ -4011,7 +4041,7 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
                     }
                 }
                 if(inst._arg3 >= 0 && inst._arg3 < MAX_FUNC_STACKSIZE &&
-                    slots[inst._arg3].kind == SQ_JIT_A64_SLOT_BOOL) {
+                    slots[inst._arg3].kind == SQ_JIT_SLOT_BOOL) {
                     if(!emit_member_set_bool_key(inst._arg0, inst._arg1,
                         &proto->_literals[key_literal], inst._arg3)) {
                         return attempt.Reject(ip, SQ_JIT_REJECT_MEMBER, "unsupported SET bool member");
@@ -4218,7 +4248,7 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
                     }
                     break;
                 }
-                if(!ensure_int_slot(inst._arg0) ||
+                if(!ensure_word_slot(inst._arg0) ||
                     !sqjit_a64_emit_ldr_x(&buf, 9, 31, sqjit_a64_local_disp(inst._arg0)) ||
                     !sqjit_a64_emit_cmp_imm(&buf, 9, 0) ||
                     !sqjit_a64_emit_bcond_placeholder(&buf, SQ_JIT_A64_EQ, &patch_offset) ||
@@ -4243,12 +4273,12 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
                     false_cond == 0) {
                     return false;
                 }
-                if(slots[inst._arg2].kind == SQ_JIT_A64_SLOT_FLOAT ||
-                    slots[inst._arg0].kind == SQ_JIT_A64_SLOT_FLOAT) {
+                if(slots[inst._arg2].kind == SQ_JIT_SLOT_FLOAT ||
+                    slots[inst._arg0].kind == SQ_JIT_SLOT_FLOAT) {
                     if(!ensure_float_slot(inst._arg2) || !ensure_float_slot(inst._arg0) ||
-                        !sqjit_a64_emit_ldr_s(&buf, 0, 31, sqjit_a64_local_disp(inst._arg2)) ||
-                        !sqjit_a64_emit_ldr_s(&buf, 1, 31, sqjit_a64_local_disp(inst._arg0)) ||
-                        !sqjit_a64_emit_fcmp_s(&buf, 0, 1) ||
+                        !sqjit_a64_emit_ldr_float(&buf, 0, 31, sqjit_a64_local_disp(inst._arg2)) ||
+                        !sqjit_a64_emit_ldr_float(&buf, 1, 31, sqjit_a64_local_disp(inst._arg0)) ||
+                        !sqjit_a64_emit_fcmp_float(&buf, 0, 1) ||
                         !sqjit_a64_emit_bcond_placeholder(&buf, false_cond, &patch_offset) ||
                         !sqjit_a64_record_reloc(relocs, &nrelocs, SQ_JIT_A64_MAX_RELOCS, patch_offset,
                             target_ip, true, false_cond)) {
@@ -4266,6 +4296,12 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
                 }
                 break;
             }
+            case _OP_THROW:
+                if(!native->_scalarized || !sqjit_a64_emit_cmp_reg(&buf, 9, 9) ||
+                    !emit_guard_fail_branch(SQ_JIT_A64_EQ)) {
+                    return attempt.Reject(ip, SQ_JIT_REJECT_OPCODE, "unsupported THROW");
+                }
+                break;
             case _OP_RETURN:
                 previous_effective_return = true;
                 if(inst._arg0 == SQ_JIT_A64_NO_RESULT_SLOT) {
@@ -4282,9 +4318,9 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
                     }
                     break;
                 }
-                if(slots[inst._arg1].kind == SQ_JIT_A64_SLOT_ARRAY_PTR ||
-                    slots[inst._arg1].kind == SQ_JIT_A64_SLOT_OBJECT_PTR ||
-                    slots[inst._arg1].kind == SQ_JIT_A64_SLOT_STACK_OBJECT) {
+                if(slots[inst._arg1].kind == SQ_JIT_SLOT_ARRAY_PTR ||
+                    slots[inst._arg1].kind == SQ_JIT_SLOT_OBJECT_PTR ||
+                    slots[inst._arg1].kind == SQ_JIT_SLOT_STACK_OBJECT) {
                     if(return_shape_reachable) {
                         record_return_shape(inst._arg1);
                     }
@@ -4299,10 +4335,10 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
                 if(return_shape_reachable) {
                     record_unknown_return_shape();
                 }
-                if((slots[inst._arg1].kind == SQ_JIT_A64_SLOT_FLOAT ?
-                    !ensure_float_slot(inst._arg1) : !ensure_int_slot(inst._arg1)) ||
+                if((slots[inst._arg1].kind == SQ_JIT_SLOT_FLOAT ?
+                    !ensure_float_slot(inst._arg1) : !ensure_word_slot(inst._arg1)) ||
                     !sqjit_a64_emit_store_out_scalar(&buf,
-                        slots[inst._arg1].kind == SQ_JIT_A64_SLOT_FLOAT ? OT_FLOAT : OT_INTEGER,
+                        slots[inst._arg1].kind == SQ_JIT_SLOT_FLOAT ? OT_FLOAT : OT_INTEGER,
                         inst._arg1, slots[inst._arg1].kind) ||
                     !emit_write_log_release(false) ||
                     !sqjit_a64_emit_epilogue(&buf, frame_size, SQ_JIT_NATIVE_RETURNED)) {
@@ -4312,7 +4348,10 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
             default:
                 return attempt.Reject(ip, SQ_JIT_REJECT_OPCODE, sqjit_a64_unsupported_opcode_reason(inst.op));
         }
+        typeflow.Record(ip, slots);
     }
+    if(!typeflow.Validate(proto, entry_stack))
+        return attempt.Reject(-1, SQ_JIT_REJECT_OTHER, "incompatible scalar types at branch join");
 
     SQInteger guard_fail_offset = buf.size;
     if(!emit_write_log_release(true) ||
@@ -4338,6 +4377,7 @@ static bool sqjit_a64_compile_integer_proto(SQFunctionProto *proto, SQObjectPtr 
     if(!native->_code.Install(buf.bytes, buf.size)) {
         return attempt.Reject(-1, SQ_JIT_REJECT_RESOURCE, "executable memory installation failed");
     }
+    if(root_object) native->_code.RetainWeakReference(closure->_root);
     if(return_shape_seen && !return_shape_conflict && return_shape_class) {
         native->_return_shape = SQ_JIT_NATIVE_RETURN_ARRAY_FIELD_INSTANCE;
         native->_return_shape_class = return_shape_class;

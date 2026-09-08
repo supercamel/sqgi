@@ -18,6 +18,10 @@
 #include <math.h>
 #include <stddef.h>
 #include <stdint.h>
+#include "sqjit_write_log.h"
+#include "sqbytecode.h"
+#include "sqjit_value.h"
+#include "sqjit_intrinsics.h"
 #include <string.h>
 
 enum {
@@ -29,22 +33,11 @@ enum {
     SQ_JIT_A64_MAX_GUARD_RELOCS = MAX_FUNC_STACKSIZE + SQ_JIT_A64_MAX_RELOCS
 };
 
-enum SQJitA64SlotKind {
-    SQ_JIT_A64_SLOT_UNKNOWN = 0,
-    SQ_JIT_A64_SLOT_INT,
-    SQ_JIT_A64_SLOT_FLOAT,
-    SQ_JIT_A64_SLOT_BOOL,
-    SQ_JIT_A64_SLOT_STACK_OBJECT,
-    SQ_JIT_A64_SLOT_ARRAY_PTR,
-    SQ_JIT_A64_SLOT_OBJECT_PTR
-};
 
 static inline bool sqjit_a64_slot_index_valid(SQInteger slot);
 static inline bool sqjit_a64_type_is_object_ptr(SQObjectType type);
 
-struct SQJitA64SlotState {
-    SQJitA64SlotKind kind;
-    SQInteger stack_object_reg;
+struct SQJitA64SlotState : SQJitSlotState {
     SQArray *array_ptr_observed;
     bool array_ptr_fresh;
     SQInteger object_ptr_observed;
@@ -52,24 +45,20 @@ struct SQJitA64SlotState {
     bool object_ptr_fresh_table;
     SQObjectType stack_object_observed_type;
     SQInteger stack_object_observed_ptr;
-    bool known_const;
-    SQInteger const_value;
-    bool dirty;
-    bool entry_loaded;
 
     void AssertConsistent() const
     {
 #ifndef NDEBUG
-        if(kind != SQ_JIT_A64_SLOT_STACK_OBJECT) {
+        if(kind != SQ_JIT_SLOT_STACK_OBJECT) {
             assert(stack_object_reg == -1);
             assert(stack_object_observed_type == OT_NULL);
             assert(stack_object_observed_ptr == 0);
         }
-        if(kind != SQ_JIT_A64_SLOT_ARRAY_PTR) {
+        if(kind != SQ_JIT_SLOT_ARRAY_PTR) {
             assert(array_ptr_observed == NULL);
             assert(!array_ptr_fresh);
         }
-        if(kind != SQ_JIT_A64_SLOT_OBJECT_PTR) {
+        if(kind != SQ_JIT_SLOT_OBJECT_PTR) {
             assert(object_ptr_observed == 0);
             assert(object_ptr_observed_type == OT_NULL);
             assert(!object_ptr_fresh_table);
@@ -99,44 +88,42 @@ struct SQJitA64SlotState {
 
     void Reset()
     {
-        kind = SQ_JIT_A64_SLOT_UNKNOWN;
+        SQJitSlotState::Reset();
         ClearDerived();
-        dirty = false;
-        entry_loaded = false;
         AssertConsistent();
     }
 
     void MarkUnknown()
     {
-        kind = SQ_JIT_A64_SLOT_UNKNOWN;
+        kind = SQ_JIT_SLOT_UNKNOWN;
         ClearDerived();
         AssertConsistent();
     }
 
     void MarkInt()
     {
-        kind = SQ_JIT_A64_SLOT_INT;
+        MarkScalar(SQ_JIT_SLOT_INT, false);
         ClearDerived();
         AssertConsistent();
     }
 
     void MarkFloat()
     {
-        kind = SQ_JIT_A64_SLOT_FLOAT;
+        MarkScalar(SQ_JIT_SLOT_FLOAT, false);
         ClearDerived();
         AssertConsistent();
     }
 
     void MarkBool()
     {
-        kind = SQ_JIT_A64_SLOT_BOOL;
+        MarkScalar(SQ_JIT_SLOT_BOOL, false);
         ClearDerived();
         AssertConsistent();
     }
 
     void MarkStackObject(SQInteger reg)
     {
-        kind = SQ_JIT_A64_SLOT_STACK_OBJECT;
+        kind = SQ_JIT_SLOT_STACK_OBJECT;
         ClearDerived();
         stack_object_reg = reg;
         AssertConsistent();
@@ -144,7 +131,7 @@ struct SQJitA64SlotState {
 
     void MarkArrayPtr(SQArray *observed, bool fresh)
     {
-        kind = SQ_JIT_A64_SLOT_ARRAY_PTR;
+        kind = SQ_JIT_SLOT_ARRAY_PTR;
         ClearDerived();
         array_ptr_observed = observed;
         array_ptr_fresh = fresh;
@@ -153,7 +140,7 @@ struct SQJitA64SlotState {
 
     void MarkObjectPtr(SQObjectType type, SQInteger observed, bool fresh_table)
     {
-        kind = SQ_JIT_A64_SLOT_OBJECT_PTR;
+        kind = SQ_JIT_SLOT_OBJECT_PTR;
         ClearDerived();
         object_ptr_observed_type = type;
         object_ptr_observed = observed;
@@ -163,13 +150,13 @@ struct SQJitA64SlotState {
 
     void CopyArrayPtrFrom(const SQJitA64SlotState &src)
     {
-        assert(src.kind == SQ_JIT_A64_SLOT_ARRAY_PTR);
+        assert(src.kind == SQ_JIT_SLOT_ARRAY_PTR);
         MarkArrayPtr(src.array_ptr_observed, src.array_ptr_fresh);
     }
 
     void CopyObjectPtrFrom(const SQJitA64SlotState &src)
     {
-        assert(src.kind == SQ_JIT_A64_SLOT_OBJECT_PTR);
+        assert(src.kind == SQ_JIT_SLOT_OBJECT_PTR);
         MarkObjectPtr(src.object_ptr_observed_type, src.object_ptr_observed,
             src.object_ptr_fresh_table);
     }
@@ -186,7 +173,7 @@ struct SQJitA64SlotState {
 
     void SetStackObjectReg(SQInteger reg)
     {
-        assert(kind == SQ_JIT_A64_SLOT_STACK_OBJECT);
+        assert(kind == SQ_JIT_SLOT_STACK_OBJECT);
         stack_object_reg = reg;
         AssertConsistent();
     }
@@ -346,30 +333,7 @@ static inline bool sqjit_a64_slot_state_mark_object_ptr(
     return true;
 }
 
-enum SQJitA64WriteKind {
-    SQ_JIT_A64_WRITE_ARRAY_INDEX,
-    SQ_JIT_A64_WRITE_ARRAY_SIZE,
-    SQ_JIT_A64_WRITE_MEMBER_VALUE
-};
 
-enum SQJitA64MathIntrinsic {
-    SQ_JIT_A64_MATH_NONE = 0,
-    SQ_JIT_A64_MATH_SQRT,
-    SQ_JIT_A64_MATH_SIN,
-    SQ_JIT_A64_MATH_COS,
-    SQ_JIT_A64_MATH_ASIN,
-    SQ_JIT_A64_MATH_ACOS,
-    SQ_JIT_A64_MATH_LOG,
-    SQ_JIT_A64_MATH_LOG10,
-    SQ_JIT_A64_MATH_TAN,
-    SQ_JIT_A64_MATH_ATAN,
-    SQ_JIT_A64_MATH_FLOOR,
-    SQ_JIT_A64_MATH_CEIL,
-    SQ_JIT_A64_MATH_EXP,
-    SQ_JIT_A64_MATH_FABS,
-    SQ_JIT_A64_MATH_ATAN2,
-    SQ_JIT_A64_MATH_POW
-};
 
 enum SQJitA64NumberConversion {
     SQ_JIT_A64_NUMBER_CONVERSION_NONE = 0,
@@ -380,7 +344,7 @@ enum SQJitA64NumberConversion {
 struct SQJitA64CommonPreparedCallState {
     SQInteger array_len_base[MAX_FUNC_STACKSIZE];
     SQClosure *direct_closure[MAX_FUNC_STACKSIZE];
-    SQJitA64MathIntrinsic math_intrinsic[MAX_FUNC_STACKSIZE];
+    SQNativeMathKind math_intrinsic[MAX_FUNC_STACKSIZE];
     SQInteger math_nargs[MAX_FUNC_STACKSIZE];
     SQJitA64NumberConversion number_conversion[MAX_FUNC_STACKSIZE];
     SQInteger number_conversion_base[MAX_FUNC_STACKSIZE];
@@ -392,7 +356,7 @@ struct SQJitA64CommonPreparedCallState {
         }
         array_len_base[slot] = -1;
         direct_closure[slot] = NULL;
-        math_intrinsic[slot] = SQ_JIT_A64_MATH_NONE;
+        math_intrinsic[slot] = SQ_NATIVE_MATH_NONE;
         math_nargs[slot] = 0;
         number_conversion[slot] = SQ_JIT_A64_NUMBER_CONVERSION_NONE;
         number_conversion_base[slot] = -1;
@@ -435,27 +399,6 @@ enum SQJitA64CtorArrayFieldMode {
     SQ_JIT_A64_CTOR_ARRAY_FIELD_PACK2,
     SQ_JIT_A64_CTOR_ARRAY_FIELD_PACK3,
     SQ_JIT_A64_CTOR_ARRAY_FIELD_PACK4
-};
-
-struct SQJitA64WriteLogEntry {
-    SQJitA64WriteKind kind;
-    SQInteger target_index;
-    SQObjectPtr key;
-    SQObjectPtr old_value;
-    SQInteger index;
-};
-
-struct SQJitA64WriteLog {
-    SQJitA64WriteLog()
-        : last_target_type(OT_NULL), last_target_raw(0), last_target_index(-1)
-    {
-    }
-
-    sqvector<SQObjectPtr> targets;
-    sqvector<SQJitA64WriteLogEntry> entries;
-    SQObjectType last_target_type;
-    SQRawObjectVal last_target_raw;
-    SQInteger last_target_index;
 };
 
 struct SQJitA64InstanceFieldObservation {

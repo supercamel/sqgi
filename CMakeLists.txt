@@ -8,6 +8,41 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 include(GNUInstallDirs)
 
+option(SQGI_ENABLE_LTO "Optimize across translation units in Release builds" OFF)
+if(SQGI_ENABLE_LTO)
+    include(CheckIPOSupported)
+    check_ipo_supported(RESULT SQGI_IPO_SUPPORTED OUTPUT SQGI_IPO_ERROR)
+    if(NOT SQGI_IPO_SUPPORTED)
+        message(FATAL_ERROR "SQGI LTO is unavailable: ${SQGI_IPO_ERROR}")
+    endif()
+    set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE ON)
+endif()
+
+set(SQGI_PGO_MODE "OFF" CACHE STRING "GCC profile mode: OFF, GENERATE or USE")
+set_property(CACHE SQGI_PGO_MODE PROPERTY STRINGS OFF GENERATE USE)
+set(SQGI_PGO_DIRECTORY "${CMAKE_BINARY_DIR}/profiles" CACHE PATH "GCC profile storage")
+if(NOT SQGI_PGO_MODE MATCHES "^(OFF|GENERATE|USE)$")
+    message(FATAL_ERROR "SQGI_PGO_MODE must be OFF, GENERATE or USE")
+endif()
+if(NOT SQGI_PGO_MODE STREQUAL "OFF")
+    if(NOT CMAKE_C_COMPILER_ID STREQUAL "GNU" OR NOT CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+        message(FATAL_ERROR "SQGI PGO currently requires GCC for C and C++")
+    endif()
+    if(SQGI_ENABLE_ASAN)
+        message(FATAL_ERROR "Use separate builds for SQGI PGO and sanitizers")
+    endif()
+    if(SQGI_PGO_MODE STREQUAL "GENERATE")
+        add_compile_options("-fprofile-generate=${SQGI_PGO_DIRECTORY}" -fprofile-update=atomic)
+        add_link_options("-fprofile-generate=${SQGI_PGO_DIRECTORY}")
+    else()
+        file(GLOB_RECURSE SQGI_PGO_PROFILES "${SQGI_PGO_DIRECTORY}/*.gcda")
+        if(NOT SQGI_PGO_PROFILES)
+            message(FATAL_ERROR "No PGO training data in ${SQGI_PGO_DIRECTORY}; run the GENERATE build first")
+        endif()
+        add_compile_options("-fprofile-use=${SQGI_PGO_DIRECTORY}" -fprofile-correction -fprofile-partial-training)
+    endif()
+endif()
+
 # ── Optional sanitizers (must be set before targets are created so the
 # instrumentation flags propagate to libsqgi, sqgi-bin and all test binaries) ──
 option(SQGI_ENABLE_ASAN "Build with AddressSanitizer + UndefinedBehaviorSanitizer" OFF)
@@ -120,6 +155,7 @@ set(LIBSQGI_SRC
     src/sqgi_vm.c
     src/sqgi_marshal.c
     src/sqgi_gi.c
+    src/sqgi_gi_call_plan.c
     src/sqgi_gi_object.c
     src/sqgi_signal.c
     src/sqgi_import.c
@@ -140,6 +176,8 @@ set(SQUIRREL3_SRC
     Squirrel3/squirrel/sqcompiler.cpp
     Squirrel3/squirrel/sqdebug.cpp
     Squirrel3/squirrel/sqfuncstate.cpp
+    Squirrel3/squirrel/sqbytecode.cpp
+    Squirrel3/squirrel/sqoptimizer.cpp
     Squirrel3/squirrel/sqlexer.cpp
     Squirrel3/squirrel/sqmem.cpp
     Squirrel3/squirrel/sqobject.cpp
@@ -165,12 +203,21 @@ if(SQ_ENABLE_JIT)
         Squirrel3/squirrel/jit/sqjit_diagnostics.cpp
         Squirrel3/squirrel/jit/sqjit_artifact.cpp
         Squirrel3/squirrel/jit/sqjit_code.cpp
+        Squirrel3/squirrel/jit/sqjit_write_log.cpp
+        Squirrel3/squirrel/jit/sqjit_member_plan.cpp
+        Squirrel3/squirrel/jit/sqjit_intrinsics.cpp
+        Squirrel3/squirrel/jit/sqjit_leaf.cpp
+        Squirrel3/squirrel/jit/sqjit_object_plan.cpp
         Squirrel3/squirrel/jit/sqjit_specialize.cpp
     )
     if(SQGI_JIT_BACKEND STREQUAL "x64")
         list(APPEND SQUIRREL3_SRC
             Squirrel3/squirrel/jit/sqjit_backend_x64.cpp
             Squirrel3/squirrel/jit/sqjit_backend_x64_emit.cpp
+            Squirrel3/squirrel/jit/sqjit_backend_x64_calls.cpp
+            Squirrel3/squirrel/jit/sqjit_backend_x64_leaf.cpp
+            Squirrel3/squirrel/jit/sqjit_backend_x64_float_loops.cpp
+            Squirrel3/squirrel/jit/sqjit_backend_x64_memory.cpp
             Squirrel3/squirrel/jit/sqjit_backend_x64_helpers.cpp)
     elseif(SQGI_JIT_BACKEND STREQUAL "aarch64")
         list(APPEND SQUIRREL3_SRC
@@ -210,9 +257,12 @@ target_link_libraries(sqgi-core PUBLIC ${SQGI_DEPS})
 
 # ── libsqgi shared library ────────────────────────────────────────────────────
 add_library(sqgi SHARED $<TARGET_OBJECTS:sqgi-core>)
+# The binary64 C API is incompatible with the original float32 ABI. Keep
+# shared-library ABI versioning separate from the application release number.
+set(SQGI_ABI_VERSION 1)
 set_target_properties(sqgi PROPERTIES
-    VERSION   ${PROJECT_VERSION}
-    SOVERSION ${PROJECT_VERSION_MAJOR}
+    VERSION   ${SQGI_ABI_VERSION}.0.0
+    SOVERSION ${SQGI_ABI_VERSION}
     LINKER_LANGUAGE CXX
 )
 target_include_directories(sqgi
@@ -665,9 +715,20 @@ add_sqgi_c_test(sqgi_test_c_signal_crossthread test/c/test_signal_crossthread.c)
 add_sqgi_c_test(sqgi_test_c_signal_crossthread_sync test/c/test_signal_crossthread_sync.c)
 add_sqgi_c_test(sqgi_test_c_signal_vm_closing test/c/test_signal_vm_closing.c)
 add_sqgi_c_test(sqgi_test_c_gvalue_branches test/c/test_gvalue_branches.c)
+add_sqgi_c_test(sqgi_test_c_gi_call_plan test/c/test_gi_call_plan.c)
 add_sqgi_c_test(sqgi_test_c_list_ownership test/c/test_list_ownership.c)
 add_sqgi_c_test(sqgi_test_c_squirrel_core_hardening test/c/test_squirrel_core_hardening.c)
+add_sqgi_c_test(sqgi_test_c_numeric64 test/c/test_numeric64.c)
+add_sqgi_c_test(sqgi_test_cpp_sqvm_hotpaths test/cpp/test_sqvm_hotpaths.cpp)
+add_test(NAME sqgi_test_c_numeric64_runtime COMMAND sqgi_test_c_numeric64)
+set_tests_properties(sqgi_test_c_numeric64_runtime PROPERTIES
+    ENVIRONMENT "${SQGI_TEST_ENV};SQGI_JIT=1;SQGI_JIT_THRESHOLD=1"
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    LABELS "jit;math")
 add_sqgi_c_test(sqgi_test_cpp_sqvector test/cpp/test_sqvector.cpp)
+add_sqgi_c_test(sqgi_test_cpp_sqbytecode test/cpp/test_sqbytecode.cpp)
+add_sqgi_c_test(sqgi_test_cpp_sqoptimizer test/cpp/test_sqoptimizer.cpp)
+add_sqgi_c_test(sqgi_test_cpp_sqmembercache test/cpp/test_sqmembercache.cpp)
 add_sqgi_c_test(sqgi_test_c_vm_lifecycle test/c/test_vm_lifecycle.c recreate)
 add_test(NAME sqgi_test_c_vm_lifecycle_pending COMMAND sqgi_test_c_vm_lifecycle pending)
 set_tests_properties(sqgi_test_c_vm_lifecycle_pending PROPERTIES
@@ -697,6 +758,28 @@ if(SQ_ENABLE_JIT)
     set_tests_properties(sqgi_test_cpp_sqjit_x64_win64_emit PROPERTIES LABELS "jit")
     add_sqgi_c_test(sqgi_test_cpp_sqjit_contracts test/cpp/test_sqjit_contracts.cpp)
     set_tests_properties(sqgi_test_cpp_sqjit_contracts PROPERTIES LABELS "jit")
+    add_sqgi_c_test(sqgi_test_cpp_sqjit_values test/cpp/test_sqjit_values.cpp)
+    set_tests_properties(sqgi_test_cpp_sqjit_values PROPERTIES LABELS "jit")
+    add_sqgi_c_test(sqgi_test_cpp_sqjit_memory test/cpp/test_sqjit_memory.cpp)
+    set_tests_properties(sqgi_test_cpp_sqjit_memory PROPERTIES LABELS "jit")
+    add_sqgi_c_test(sqgi_test_cpp_sqjit_leaf test/cpp/test_sqjit_leaf.cpp)
+    set_tests_properties(sqgi_test_cpp_sqjit_leaf PROPERTIES LABELS "jit")
+    add_sqgi_c_test(sqgi_test_cpp_sqjit_arithmetic test/cpp/test_sqjit_arithmetic.cpp)
+    set_tests_properties(sqgi_test_cpp_sqjit_arithmetic PROPERTIES LABELS "jit;math")
+    add_sqgi_c_test(sqgi_test_cpp_sqjit_virtual_array test/cpp/test_sqjit_virtual_array.cpp)
+    set_tests_properties(sqgi_test_cpp_sqjit_virtual_array PROPERTIES LABELS "jit")
+    add_sqgi_c_test(sqgi_test_cpp_sqjit_objects test/cpp/test_sqjit_objects.cpp)
+    set_tests_properties(sqgi_test_cpp_sqjit_objects PROPERTIES LABELS "jit")
+    add_sqgi_c_test(sqgi_test_cpp_sqjit_object_plan test/cpp/test_sqjit_object_plan.cpp)
+    set_tests_properties(sqgi_test_cpp_sqjit_object_plan PROPERTIES LABELS "jit")
+    add_sqgi_c_test(sqgi_test_cpp_sqjit_write_log test/cpp/test_sqjit_write_log.cpp)
+    set_tests_properties(sqgi_test_cpp_sqjit_write_log PROPERTIES LABELS "jit")
+    add_sqgi_c_test(sqgi_test_cpp_sqjit_member_plan test/cpp/test_sqjit_member_plan.cpp)
+    set_tests_properties(sqgi_test_cpp_sqjit_member_plan PROPERTIES LABELS "jit")
+    add_sqgi_c_test(sqgi_test_cpp_sqjit_float_cache test/cpp/test_sqjit_float_cache.cpp)
+    set_tests_properties(sqgi_test_cpp_sqjit_float_cache PROPERTIES LABELS "jit;math")
+    add_sqgi_c_test(sqgi_test_cpp_sqjit_intrinsics test/cpp/test_sqjit_intrinsics.cpp)
+    set_tests_properties(sqgi_test_cpp_sqjit_intrinsics PROPERTIES LABELS "jit;math")
 endif()
 if(SQ_ENABLE_JIT AND CMAKE_SYSTEM_NAME STREQUAL "Linux" AND
     CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64|ARM64)$")
@@ -727,6 +810,14 @@ add_custom_target(check
 # canonical entry point; the marshal/async/signal/object headers are exposed
 # as a public surface so out-of-tree extensions can use the same helpers.
 set(SQGI_PUBLIC_HEADERS
+    Squirrel3/include/squirrel.h
+    Squirrel3/include/sqconfig.h
+    Squirrel3/include/sqstdaux.h
+    Squirrel3/include/sqstdio.h
+    Squirrel3/include/sqstdmath.h
+    Squirrel3/include/sqstdstring.h
+    Squirrel3/include/sqstdblob.h
+    Squirrel3/include/sqstdsystem.h
     src/sqgi_vm.h
     src/sqgi_marshal.h
     src/sqgi_async.h

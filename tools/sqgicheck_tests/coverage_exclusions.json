@@ -20,7 +20,7 @@
   "branches": [
     {
       "file": "tools/sqgicheck/analyzer.cpp",
-      "line": 396,
+      "line": 397,
       "source": "if (arguments.empty() || arguments[0].kind != ValueKind::String)",
       "uncovered": 1,
       "reason": "The empty-vector outcome is unreachable after the import arity guard; zero arguments returns earlier with SQGI103.",
@@ -28,7 +28,7 @@
     },
     {
       "file": "tools/sqgicheck/analyzer.cpp",
-      "line": 477,
+      "line": 478,
       "source": "!arguments.empty() && arguments[0].kind == ValueKind::String) {",
       "uncovered": 1,
       "reason": "GCC emits one duplicate arc for the chained get/set_property predicate.",
@@ -36,7 +36,7 @@
     },
     {
       "file": "tools/sqgicheck/analyzer.cpp",
-      "line": 481,
+      "line": 482,
       "source": "!arguments.empty() && arguments[0].kind == ValueKind::String) {",
       "uncovered": 1,
       "reason": "GCC emits one duplicate arc for the chained connect/emit predicate.",
@@ -44,7 +44,7 @@
     },
     {
       "file": "tools/sqgicheck/analyzer.cpp",
-      "line": 488,
+      "line": 489,
       "source": "callable.member_name == \"new_object\" && arguments.size() >= 2 &&",
       "uncovered": 1,
       "reason": "GCC emits a duplicate std::string comparison arc.",
@@ -52,7 +52,7 @@
     },
     {
       "file": "tools/sqgicheck/analyzer.cpp",
-      "line": 508,
+      "line": 509,
       "source": "int index = sq_type(outer._src) == OT_INTEGER ?",
       "uncovered": 1,
       "reason": "The bundled compiler only serializes integer outer indices; a non-integer source means corrupt compiler-owned AST data.",
@@ -60,7 +60,7 @@
     },
     {
       "file": "tools/sqgicheck/analyzer.cpp",
-      "line": 510,
+      "line": 511,
       "source": "if (outer._type == otLOCAL && index >= 0 &&",
       "uncovered": 1,
       "reason": "GCC emits a duplicate conjunction arc around the compiler-invariant local capture index.",
@@ -68,7 +68,7 @@
     },
     {
       "file": "tools/sqgicheck/analyzer.cpp",
-      "line": 513,
+      "line": 514,
       "source": "} else if (outer._type == otOUTER && index >= 0 &&",
       "uncovered": 2,
       "reason": "GCC emits duplicate conjunction arcs; the compiler does not produce negative transitive indices.",
@@ -76,7 +76,7 @@
     },
     {
       "file": "tools/sqgicheck/analyzer.cpp",
-      "line": 528,
+      "line": 529,
       "source": "if (std::find(contexts.begin(), contexts.end(), outer_values) != contexts.end())",
       "uncovered": 1,
       "reason": "The bundled compiler emits one closure instruction per prototype, so identical closure/context revisits cannot arise from valid bytecode.",
@@ -84,7 +84,7 @@
     },
     {
       "file": "tools/sqgicheck/analyzer.cpp",
-      "line": 554,
+      "line": 555,
       "source": "if (index == 0xFF || index < 0 ||",
       "uncovered": 1,
       "reason": "GCC emits a duplicate disjunction arc for the destination-register sentinel/bounds guard.",
@@ -92,7 +92,7 @@
     },
     {
       "file": "tools/sqgicheck/analyzer.cpp",
-      "line": 639,
+      "line": 640,
       "source": "if (arg1 >= 0 && static_cast<size_t>(arg1) < state.outers.size())",
       "uncovered": 1,
       "reason": "GCC emits a duplicate conjunction arc for GETOUTER bounds.",
@@ -100,7 +100,7 @@
     },
     {
       "file": "tools/sqgicheck/analyzer.cpp",
-      "line": 645,
+      "line": 646,
       "source": "if (arg1 >= 0 && static_cast<size_t>(arg1) < state.outers.size())",
       "uncovered": 3,
       "reason": "Two source outcomes are covered; GCC emits four extra conjunction/assignment cleanup arcs.",
@@ -108,7 +108,7 @@
     },
     {
       "file": "tools/sqgicheck/analyzer.cpp",
-      "line": 652,
+      "line": 653,
       "source": "if (arg1 >= 0 && arg1 < prototype->_nfunctions &&",
       "uncovered": 1,
       "reason": "GCC emits a duplicate conjunction arc for the compiler-owned child index.",
@@ -116,7 +116,7 @@
     },
     {
       "file": "tools/sqgicheck/analyzer.cpp",
-      "line": 653,
+      "line": 654,
       "source": "sq_type(prototype->_functions[arg1]) == OT_FUNCPROTO) {",
       "uncovered": 1,
       "reason": "The bundled compiler's _functions array is typed to OT_FUNCPROTO; a different tag requires memory corruption.",
@@ -124,7 +124,7 @@
     },
     {
       "file": "tools/sqgicheck/analyzer.cpp",
-      "line": 770,
+      "line": 771,
       "source": "if (target >= 0 && target < instruction_count &&",
       "uncovered": 2,
       "reason": "Duplicate successor and negative jump destinations cannot be emitted by the bundled compiler; out-of-range positive and all valid control-flow forms are covered.",
@@ -132,15 +132,7 @@
     },
     {
       "file": "tools/sqgicheck/analyzer.cpp",
-      "line": 827,
-      "source": "result_.return_value = found_return ? returned : Value::scalar();",
-      "uncovered": 1,
-      "reason": "The bundled compiler always emits a reachable return instruction, including an implicit return for source without one; the fallback handles corrupt compiler-owned bytecode.",
-      "mitigation": "Explicit, implicit, early, branch, scalar, table, class, and incompatible return values are tested, including multi-module propagation and fuzz-generated programs."
-    },
-    {
-      "file": "tools/sqgicheck/analyzer.cpp",
-      "line": 829,
+      "line": 809,
       "source": "if (!collecting_diagnostics_) return;",
       "uncovered": 1,
       "reason": "Nested prototypes are intentionally deferred during transfer; only the false outcome reaches the post-convergence emission pass.",
@@ -148,7 +140,7 @@
     },
     {
       "file": "tools/sqgicheck/analyzer.cpp",
-      "line": 881,
+      "line": 861,
       "source": "if (arg1 >= 0 && arg1 < prototype->_nfunctions &&",
       "uncovered": 1,
       "reason": "GCC emits a duplicate conjunction arc in the post-convergence closure pass.",
@@ -156,7 +148,7 @@
     },
     {
       "file": "tools/sqgicheck/analyzer.cpp",
-      "line": 882,
+      "line": 862,
       "source": "sq_type(prototype->_functions[arg1]) == OT_FUNCPROTO) {",
       "uncovered": 1,
       "reason": "The compiler-owned child table cannot contain a non-prototype tag in valid bytecode.",
@@ -164,7 +156,7 @@
     },
     {
       "file": "tools/sqgicheck/analyzer.cpp",
-      "line": 891,
+      "line": 871,
       "source": "}",
       "uncovered": 4,
       "reason": "GCC attaches four std::vector/Value temporary-cleanup arcs to the closing brace of the diagnostic pass.",

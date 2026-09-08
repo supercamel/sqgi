@@ -36,8 +36,8 @@ bool sqjit_a64_emit_ldr_x(SQJitA64Buffer *buf, unsigned rt, unsigned rn, SQInteg
 bool sqjit_a64_emit_str_x(SQJitA64Buffer *buf, unsigned rt, unsigned rn, SQInteger offset);
 bool sqjit_a64_emit_ldr_w(SQJitA64Buffer *buf, unsigned rt, unsigned rn, SQInteger offset);
 bool sqjit_a64_emit_str_w(SQJitA64Buffer *buf, unsigned rt, unsigned rn, SQInteger offset);
-bool sqjit_a64_emit_ldr_s(SQJitA64Buffer *buf, unsigned rt, unsigned rn, SQInteger offset);
-bool sqjit_a64_emit_str_s(SQJitA64Buffer *buf, unsigned rt, unsigned rn, SQInteger offset);
+bool sqjit_a64_emit_ldr_float(SQJitA64Buffer *buf, unsigned rt, unsigned rn, SQInteger offset);
+bool sqjit_a64_emit_str_float(SQJitA64Buffer *buf, unsigned rt, unsigned rn, SQInteger offset);
 bool sqjit_a64_emit_add_imm(SQJitA64Buffer *buf, unsigned rd, unsigned rn, SQInteger imm);
 bool sqjit_a64_emit_sub_imm(SQJitA64Buffer *buf, unsigned rd, unsigned rn, SQInteger imm);
 bool sqjit_a64_emit_add_reg(SQJitA64Buffer *buf, unsigned rd, unsigned rn, unsigned rm);
@@ -48,10 +48,10 @@ bool sqjit_a64_emit_mul_reg(SQJitA64Buffer *buf, unsigned rd, unsigned rn, unsig
 bool sqjit_a64_emit_sdiv_reg(SQJitA64Buffer *buf, unsigned rd, unsigned rn, unsigned rm);
 bool sqjit_a64_emit_msub_reg(SQJitA64Buffer *buf, unsigned rd, unsigned rn, unsigned rm, unsigned ra);
 bool sqjit_a64_emit_blr_x16(SQJitA64Buffer *buf);
-bool sqjit_a64_emit_scvtf_s_x(SQJitA64Buffer *buf, unsigned sd, unsigned rn);
-bool sqjit_a64_emit_fop_s(SQJitA64Buffer *buf, SQOpcode op, unsigned rd, unsigned rn, unsigned rm);
-bool sqjit_a64_emit_fneg_s(SQJitA64Buffer *buf, unsigned rd, unsigned rn);
-bool sqjit_a64_emit_fcmp_s(SQJitA64Buffer *buf, unsigned rn, unsigned rm);
+bool sqjit_a64_emit_scvtf_float_x(SQJitA64Buffer *buf, unsigned sd, unsigned rn);
+bool sqjit_a64_emit_fop_float(SQJitA64Buffer *buf, SQOpcode op, unsigned rd, unsigned rn, unsigned rm);
+bool sqjit_a64_emit_fneg_float(SQJitA64Buffer *buf, unsigned rd, unsigned rn);
+bool sqjit_a64_emit_fcmp_float(SQJitA64Buffer *buf, unsigned rn, unsigned rm);
 bool sqjit_a64_emit_cmp_reg(SQJitA64Buffer *buf, unsigned rn, unsigned rm);
 bool sqjit_a64_emit_cmp_imm(SQJitA64Buffer *buf, unsigned rn, SQInteger imm);
 bool sqjit_a64_emit_cset(SQJitA64Buffer *buf, unsigned rd, unsigned cond);

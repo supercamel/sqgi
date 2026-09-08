@@ -36,16 +36,16 @@ private:
     _HashNode *_nodes;
     SQInteger _numofnodes;
     SQInteger _usednodes;
-    SQUnsignedInteger _version;
+    SQUnsignedInteger _layout_version;
 
 ///////////////////////////
     void AllocNodes(SQInteger nSize);
     void Rehash(bool force);
-    void BumpVersion()
+    void BumpLayoutVersion()
     {
-        _version++;
-        if(_version == 0) {
-            _version = 1;
+        _layout_version++;
+        if(_layout_version == 0) {
+            _layout_version = 1;
         }
     }
     SQTable(SQSharedState *ss, SQInteger nInitialSize);
@@ -106,6 +106,15 @@ public:
         return false;
     }
     bool Get(const SQObjectPtr &key,SQObjectPtr &val);
+    bool GetRaw(const SQObjectPtr &key,SQObjectPtr &val);
+    // Borrowed storage: valid only until a structural mutation or callback.
+    // Unlike Get(), this preserves weakref tags and does not retain the value.
+    SQObjectPtr *GetRawSlot(const SQObjectPtr &key)
+    {
+        if(sq_type(key) == OT_NULL) return NULL;
+        _HashNode *n = _Get(key, HashObj(key) & (_numofnodes - 1));
+        return n ? &n->val : NULL;
+    }
     bool GetCacheSlot(const SQObjectPtr &key,SQInteger &index,
         SQUnsignedInteger &version,SQObjectPtr &val);
     bool GetCachedSlot(SQInteger index,SQUnsignedInteger version,

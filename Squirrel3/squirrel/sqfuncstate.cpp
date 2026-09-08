@@ -9,6 +9,8 @@
 #include "sqtable.h"
 #include "sqopcodes.h"
 #include "sqfuncstate.h"
+#include "sqbytecode.h"
+#include "sqoptimizer.h"
 
 #ifdef _DEBUG_DUMP
 SQInstructionDesc g_InstrDesc[]={
@@ -616,23 +618,7 @@ static bool sqfs_threadable_branch(SQOpcode op)
 
 static bool sqfs_branch_target(const SQInstructionVec &instructions,SQInteger ip,SQInteger &target)
 {
-    const SQInstruction &inst = instructions[ip];
-    switch(inst.op) {
-    case _OP_JMP:
-    case _OP_JZ:
-    case _OP_JCMP:
-    case _OP_AND:
-    case _OP_OR:
-    case _OP_FOREACH:
-    case _OP_PUSHTRAP:
-        target = ip + 1 + sqfs_signed_arg1(inst);
-        return true;
-    case _OP_POSTFOREACH:
-        target = ip + sqfs_signed_arg1(inst);
-        return true;
-    default:
-        return false;
-    }
+    return sq_bytecode_branch_target(instructions[ip], ip, target);
 }
 
 static bool sqfs_has_branch_targeting(const SQInstructionVec &instructions,SQInteger target)
@@ -669,6 +655,7 @@ static bool sqfs_is_terminal(const SQInstruction &inst)
 
 void SQFuncState::OptimizeBytecode()
 {
+    if(_sharedstate->_bytecode_optimization) sq_optimize_bytecode(*this);
     const SQInteger maxjumps = 16;
     for(SQInteger ip = 0; ip < (SQInteger)_instructions.size(); ip++) {
         SQInstruction &inst = _instructions[ip];

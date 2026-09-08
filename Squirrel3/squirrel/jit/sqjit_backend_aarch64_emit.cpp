@@ -113,20 +113,18 @@ bool sqjit_a64_emit_str_w(SQJitA64Buffer *buf, unsigned rt, unsigned rn, SQInteg
     return sqjit_a64_emit_u32(buf, 0xB9000000u | (((uint32_t)(offset / 4)) << 10) | (rn << 5) | rt);
 }
 
-bool sqjit_a64_emit_ldr_s(SQJitA64Buffer *buf, unsigned rt, unsigned rn, SQInteger offset)
+bool sqjit_a64_emit_ldr_float(SQJitA64Buffer *buf, unsigned rt, unsigned rn, SQInteger offset)
 {
-    if(offset < 0 || (offset & 3) != 0 || offset / 4 > 4095) {
-        return false;
-    }
-    return sqjit_a64_emit_u32(buf, 0xBD400000u | (((uint32_t)(offset / 4)) << 10) | (rn << 5) | rt);
+    static_assert(sizeof(SQFloat) == 8, "AArch64 floating instructions require binary64");
+    if(offset < 0 || (offset & 7) != 0 || offset / 8 > 4095) return false;
+    return sqjit_a64_emit_u32(buf, 0xFD400000u | (((uint32_t)(offset / 8)) << 10) | (rn << 5) | rt);
 }
 
-bool sqjit_a64_emit_str_s(SQJitA64Buffer *buf, unsigned rt, unsigned rn, SQInteger offset)
+bool sqjit_a64_emit_str_float(SQJitA64Buffer *buf, unsigned rt, unsigned rn, SQInteger offset)
 {
-    if(offset < 0 || (offset & 3) != 0 || offset / 4 > 4095) {
-        return false;
-    }
-    return sqjit_a64_emit_u32(buf, 0xBD000000u | (((uint32_t)(offset / 4)) << 10) | (rn << 5) | rt);
+    static_assert(sizeof(SQFloat) == 8, "AArch64 floating instructions require binary64");
+    if(offset < 0 || (offset & 7) != 0 || offset / 8 > 4095) return false;
+    return sqjit_a64_emit_u32(buf, 0xFD000000u | (((uint32_t)(offset / 8)) << 10) | (rn << 5) | rt);
 }
 
 bool sqjit_a64_emit_add_imm(SQJitA64Buffer *buf, unsigned rd, unsigned rn, SQInteger imm)
@@ -185,32 +183,32 @@ bool sqjit_a64_emit_blr_x16(SQJitA64Buffer *buf)
     return sqjit_a64_emit_u32(buf, 0xD63F0200u);
 }
 
-bool sqjit_a64_emit_scvtf_s_x(SQJitA64Buffer *buf, unsigned sd, unsigned rn)
+bool sqjit_a64_emit_scvtf_float_x(SQJitA64Buffer *buf, unsigned sd, unsigned rn)
 {
-    return sqjit_a64_emit_u32(buf, 0x9E220000u | (rn << 5) | sd);
+    return sqjit_a64_emit_u32(buf, 0x9E620000u | (rn << 5) | sd);
 }
 
-bool sqjit_a64_emit_fop_s(SQJitA64Buffer *buf, SQOpcode op, unsigned rd, unsigned rn, unsigned rm)
+bool sqjit_a64_emit_fop_float(SQJitA64Buffer *buf, SQOpcode op, unsigned rd, unsigned rn, unsigned rm)
 {
     uint32_t base = 0;
     switch(op) {
-        case _OP_ADD: base = 0x1E202800u; break;
-        case _OP_SUB: base = 0x1E203800u; break;
-        case _OP_MUL: base = 0x1E200800u; break;
-        case _OP_DIV: base = 0x1E201800u; break;
+        case _OP_ADD: base = 0x1E602800u; break;
+        case _OP_SUB: base = 0x1E603800u; break;
+        case _OP_MUL: base = 0x1E600800u; break;
+        case _OP_DIV: base = 0x1E601800u; break;
         default: return false;
     }
     return sqjit_a64_emit_u32(buf, base | (rm << 16) | (rn << 5) | rd);
 }
 
-bool sqjit_a64_emit_fneg_s(SQJitA64Buffer *buf, unsigned rd, unsigned rn)
+bool sqjit_a64_emit_fneg_float(SQJitA64Buffer *buf, unsigned rd, unsigned rn)
 {
-    return sqjit_a64_emit_u32(buf, 0x1E214000u | (rn << 5) | rd);
+    return sqjit_a64_emit_u32(buf, 0x1E614000u | (rn << 5) | rd);
 }
 
-bool sqjit_a64_emit_fcmp_s(SQJitA64Buffer *buf, unsigned rn, unsigned rm)
+bool sqjit_a64_emit_fcmp_float(SQJitA64Buffer *buf, unsigned rn, unsigned rm)
 {
-    return sqjit_a64_emit_u32(buf, 0x1E202000u | (rm << 16) | (rn << 5));
+    return sqjit_a64_emit_u32(buf, 0x1E602000u | (rm << 16) | (rn << 5));
 }
 
 bool sqjit_a64_emit_cmp_reg(SQJitA64Buffer *buf, unsigned rn, unsigned rm)

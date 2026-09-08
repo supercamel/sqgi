@@ -10,6 +10,7 @@
 #include "sqjit_context.h"
 #include "sqjit_diagnostics.h"
 #include "sqjit_policy.h"
+#include "sqjit_object_plan.h"
 
 static SQJitProto *sqjit_ensure_proto(SQFunctionProto *proto)
 {
@@ -62,6 +63,20 @@ static bool sqjit_compile_proto(SQFunctionProto *proto, SQObjectPtr *entry_stack
     SQJitCompileResult result = sqjit_compile_specialized_proto(proto, native) ?
         SQJitCompileResult::Success(SQ_JIT_BACKEND_CPP) :
         sqjit_backend_compile_proto(proto, entry_stack, closure, native);
+    if(!result) {
+        std::unique_ptr<SQJitObjectPlan> plan(new SQJitObjectPlan());
+        if(plan->Build(proto,entry_stack,closure)) {
+            plan->body._scalarized = true;
+            plan->body._ninstructions = plan->Lowered()->_ninstructions;
+            SQJitCompileResult lowered = sqjit_backend_compile_proto(plan->Lowered(),entry_stack,closure,&plan->body);
+            if(lowered) {
+                native->_code.SetStub((void *)sqjit_object_plan_entry);
+                native->_object_plan = plan.release();
+                result = lowered;
+            }
+        }
+        else if(plan->retryable) result.retryable = true;
+    }
     if(ctx.collect_stats) {
         SQJitDiagProtoStats *entry = sqjit_diag_get_proto(proto);
         if(entry) entry->compile_result = result;
@@ -104,6 +119,12 @@ static bool sqjit_compile_proto(SQFunctionProto *proto, SQObjectPtr *entry_stack
 
     if(ctx.trace) {
         scprintf(_SC("[sqjit] compiled native proto '%s'\n"), sqjit_diag_proto_name(proto));
+        if(native->_object_plan) {
+            const SQJitObjectPlan &plan = *native->_object_plan;
+            scprintf(_SC("[sqjit] scalarized '%s': %d allocation sites, %d calls, %d scalar instructions\n"),
+                sqjit_diag_proto_name(proto), (SQInt32)plan.allocations_removed,
+                (SQInt32)plan.calls_inlined, (SQInt32)plan.Lowered()->_ninstructions);
+        }
     }
     return true;
 }

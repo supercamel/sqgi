@@ -13,7 +13,7 @@ SQTable::SQTable(SQSharedState *ss,SQInteger nInitialSize)
     while(nInitialSize>pow2size)pow2size=pow2size<<1;
     AllocNodes(pow2size);
     _usednodes = 0;
-    _version = 1;
+    _layout_version = 1;
     _delegate = NULL;
     INIT_CHAIN();
     ADD_TO_CHAIN(&_sharedstate->_gc_chain,this);
@@ -28,7 +28,7 @@ void SQTable::Remove(const SQObjectPtr &key)
         n->key.Null();
         _usednodes--;
         Rehash(false);
-        BumpVersion();
+        BumpLayoutVersion();
     }
 }
 
@@ -48,7 +48,7 @@ void SQTable::AllocNodes(SQInteger nSize)
 void SQTable::Rehash(bool force)
 {
     SQInteger oldsize=_numofnodes;
-    SQUnsignedInteger oldversion=_version;
+    SQUnsignedInteger oldversion=_layout_version;
     //prevent problems with the integer division
     if(oldsize<4)oldsize=4;
     _HashNode *nold=_nodes;
@@ -71,7 +71,7 @@ void SQTable::Rehash(bool force)
     for(SQInteger k=0;k<oldsize;k++)
         nold[k].~_HashNode();
     SQ_FREE(nold,oldsize*sizeof(_HashNode));
-    _version=oldversion;
+    _layout_version=oldversion;
 }
 
 SQTable *SQTable::Clone()
@@ -121,6 +121,14 @@ bool SQTable::Get(const SQObjectPtr &key,SQObjectPtr &val)
     return false;
 }
 
+bool SQTable::GetRaw(const SQObjectPtr &key,SQObjectPtr &val)
+{
+    SQObjectPtr *slot = GetRawSlot(key);
+    if(!slot) return false;
+    val = *slot;
+    return true;
+}
+
 bool SQTable::GetCacheSlot(const SQObjectPtr &key,SQInteger &index,
     SQUnsignedInteger &version,SQObjectPtr &val)
 {
@@ -129,7 +137,7 @@ bool SQTable::GetCacheSlot(const SQObjectPtr &key,SQInteger &index,
     _HashNode *n = _Get(key, HashObj(key) & (_numofnodes - 1));
     if (n) {
         index = (SQInteger)(n - _nodes);
-        version = _version;
+        version = _layout_version;
         val = _realval(n->val);
         return true;
     }
@@ -139,7 +147,7 @@ bool SQTable::GetCacheSlot(const SQObjectPtr &key,SQInteger &index,
 bool SQTable::GetCachedSlot(SQInteger index,SQUnsignedInteger version,
     SQObjectPtr &val)
 {
-    if(version != _version || index < 0 || index >= _numofnodes ||
+    if(version != _layout_version || index < 0 || index >= _numofnodes ||
         sq_type(_nodes[index].key) == OT_NULL) {
         return false;
     }
@@ -153,8 +161,8 @@ bool SQTable::NewSlot(const SQObjectPtr &key,const SQObjectPtr &val)
     SQHash h = HashObj(key) & (_numofnodes - 1);
     _HashNode *n = _Get(key, h);
     if (n) {
+        // Replacing a value preserves every cached slot location.
         n->val = val;
-        BumpVersion();
         return false;
     }
     _HashNode *mp = &_nodes[h];
@@ -196,7 +204,7 @@ bool SQTable::NewSlot(const SQObjectPtr &key,const SQObjectPtr &val)
         if (sq_type(_firstfree->key) == OT_NULL && _firstfree->next == NULL) {
             mp->val = val;
             _usednodes++;
-            BumpVersion();
+            BumpLayoutVersion();
             return true;  /* OK; table still has a free place */
         }
         else if (_firstfree == _nodes) break;  /* cannot decrement from here */
@@ -229,8 +237,8 @@ bool SQTable::Set(const SQObjectPtr &key, const SQObjectPtr &val)
 {
     _HashNode *n = _Get(key, HashObj(key) & (_numofnodes - 1));
     if (n) {
+        // Replacing a value preserves every cached slot location.
         n->val = val;
-        BumpVersion();
         return true;
     }
     return false;
@@ -252,5 +260,5 @@ void SQTable::Clear()
     _ClearNodes();
     _usednodes = 0;
     Rehash(true);
-    BumpVersion();
+    BumpLayoutVersion();
 }

@@ -83,6 +83,52 @@ SINGLE_ARG_FUNC(floor)
 SINGLE_ARG_FUNC(ceil)
 SINGLE_ARG_FUNC(exp)
 
+#ifdef SQ_ENABLE_JIT
+#include "../squirrel/sqnativebuiltins.h"
+static SQFloat native_sqrt(SQFloat x) { return (SQFloat)sqrt(x); }
+static SQFloat native_sin(SQFloat x) { return (SQFloat)sin(x); }
+static SQFloat native_cos(SQFloat x) { return (SQFloat)cos(x); }
+static SQFloat native_asin(SQFloat x) { return (SQFloat)asin(x); }
+static SQFloat native_acos(SQFloat x) { return (SQFloat)acos(x); }
+static SQFloat native_log(SQFloat x) { return (SQFloat)log(x); }
+static SQFloat native_log10(SQFloat x) { return (SQFloat)log10(x); }
+static SQFloat native_tan(SQFloat x) { return (SQFloat)tan(x); }
+static SQFloat native_atan(SQFloat x) { return (SQFloat)atan(x); }
+static SQFloat native_floor(SQFloat x) { return (SQFloat)floor(x); }
+static SQFloat native_ceil(SQFloat x) { return (SQFloat)ceil(x); }
+static SQFloat native_exp(SQFloat x) { return (SQFloat)exp(x); }
+static SQFloat native_fabs(SQFloat x) { return (SQFloat)fabs(x); }
+static SQFloat native_atan2(SQFloat x, SQFloat y) { return (SQFloat)atan2(x, y); }
+static SQFloat native_pow(SQFloat x, SQFloat y) { return (SQFloat)pow(x, y); }
+static const SQNativeMathSpec native_math_specs[] = {
+    {SQ_NATIVE_MATH_NONE, NULL, 0, NULL, NULL},
+    {SQ_NATIVE_MATH_SQRT, math_sqrt, 1, native_sqrt, NULL},
+    {SQ_NATIVE_MATH_SIN, math_sin, 1, native_sin, NULL},
+    {SQ_NATIVE_MATH_COS, math_cos, 1, native_cos, NULL},
+    {SQ_NATIVE_MATH_ASIN, math_asin, 1, native_asin, NULL},
+    {SQ_NATIVE_MATH_ACOS, math_acos, 1, native_acos, NULL},
+    {SQ_NATIVE_MATH_LOG, math_log, 1, native_log, NULL},
+    {SQ_NATIVE_MATH_LOG10, math_log10, 1, native_log10, NULL},
+    {SQ_NATIVE_MATH_TAN, math_tan, 1, native_tan, NULL},
+    {SQ_NATIVE_MATH_ATAN, math_atan, 1, native_atan, NULL},
+    {SQ_NATIVE_MATH_FLOOR, math_floor, 1, native_floor, NULL},
+    {SQ_NATIVE_MATH_CEIL, math_ceil, 1, native_ceil, NULL},
+    {SQ_NATIVE_MATH_EXP, math_exp, 1, native_exp, NULL},
+    {SQ_NATIVE_MATH_FABS, math_fabs, 1, native_fabs, NULL},
+    {SQ_NATIVE_MATH_ATAN2, math_atan2, 2, NULL, native_atan2},
+    {SQ_NATIVE_MATH_POW, math_pow, 2, NULL, native_pow},
+};
+const SQNativeMathSpec *sq_native_math_spec(SQNativeMathKind kind)
+{
+    return kind > SQ_NATIVE_MATH_NONE && kind <= SQ_NATIVE_MATH_POW ? &native_math_specs[kind] : NULL;
+}
+const SQNativeMathSpec *sq_native_math_spec(SQFUNCTION function)
+{
+    for(const SQNativeMathSpec &spec : native_math_specs) if(spec.function && spec.function == function) return &spec;
+    return NULL;
+}
+#endif
+
 #define _DECL_FUNC(name,nparams,tycheck) {_SC(#name),math_##name,nparams,tycheck}
 static const SQRegFunction mathlib_funcs[] = {
     _DECL_FUNC(sqrt,2,_SC(".n")),
