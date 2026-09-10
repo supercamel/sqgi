@@ -1,1 +1,0 @@
-Native side-exit behavior is checked by generated_exit_sites in test_sqjit_side_exit.cpp: eight distinct late divide failures, exact committed prefixes, eight native SIDE_EXIT observations and no entry guard failures. Existing lifetime and invalid-resume witnesses remain unchanged. Native common-return assembly will be checked in profiles.

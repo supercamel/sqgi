@@ -127,11 +127,11 @@ options shown above. This alternates the two builds and preserves checksums,
 raw timings, and executable/source hashes. The full cross-runtime runner's
 JIT-off reference remains the independent correctness check.
 
-The [AArch64 scalar-call report](../../devdocs/internals/aarch64-leaf-control-flow-2026-09-09.md)
+The [AArch64 scalar-call report](https://github.com/supercamel/sqgi/blob/7de5513c2feb807d4587fcece54ba8f88477fe28/devdocs/internals/aarch64-leaf-control-flow-2026-09-09.md)
 records the initial results, sanitizer-discovered ownership fix, final PGO/LTO
 comparison, independent seeds and timing variability.
 
-The [checked table slots and direct math report](../../devdocs/internals/guarded-slots-direct-math-2026-09-09.md)
+The [checked table slots and direct math report](https://github.com/supercamel/sqgi/blob/7de5513c2feb807d4587fcece54ba8f88477fe28/devdocs/internals/guarded-slots-direct-math-2026-09-09.md)
 records the subsequent runtime/AArch64 iteration, final cross-runtime results,
 independent member/method holdouts, and the rejected cache-only experiment.
 It preserves regressions, confirmation runs, counter evidence and remaining gaps.
@@ -160,16 +160,16 @@ and saves every sample and checksum. These source rewrites measure where
 execution time goes; their speedups are not compiler improvements to the
 original object program. The runner requires Linux `taskset`.
 
-The [Vec3 object inlining report](../../devdocs/internals/vec3-implementation-2026-09-08.md)
+The [Vec3 object inlining report](https://github.com/supercamel/sqgi/blob/7de5513c2feb807d4587fcece54ba8f88477fe28/devdocs/internals/vec3-implementation-2026-09-08.md)
 records the next implementation step: the unchanged array-backed vector kernel
 now becomes native scalar code. It includes fresh SQGI/Node/GJS/Python results,
 allocation measurements, native-route tests, and the remaining optimization limits.
 
-The [fresh PGO/LTO comparison](../../devdocs/internals/pgo-lto-after-vec3-2026-09-08.md)
+The [fresh PGO/LTO comparison](https://github.com/supercamel/sqgi/blob/7de5513c2feb807d4587fcece54ba8f88477fe28/devdocs/internals/pgo-lto-after-vec3-2026-09-08.md)
 compares the same implementation with ordinary Release, LTO-only and trained
 PGO/LTO builds across 19 kernels, then repeats the JavaScript/Python comparison.
 
-The [member-access optimization report](../../devdocs/internals/member-optimization-2026-09-08.md)
+The [member-access optimization report](https://github.com/supercamel/sqgi/blob/7de5513c2feb807d4587fcece54ba8f88477fe28/devdocs/internals/member-optimization-2026-09-08.md)
 profiles the remaining object/dynamic-member and matrix costs. Its independent
 workloads vary table layouts, receiver kinds and array sizes:
 
@@ -186,14 +186,14 @@ PGO training when using them to check whether an optimization generalises.
 
 Add `--suite owners` to run ten table/class workloads with varying numbers of
 displaced array owners and mixed integer/double field writes. Keep these out
-of PGO training too. The [object-store optimization report](../../devdocs/internals/object-store-optimization-2026-09-08.md)
+of PGO training too. The [object-store optimization report](https://github.com/supercamel/sqgi/blob/7de5513c2feb807d4587fcece54ba8f88477fe28/devdocs/internals/object-store-optimization-2026-09-08.md)
 includes the original kernels, both independent suites, and the remaining
 large-owner-set costs.
 
 Add `--suite methods` for six mutating-call workloads covering table, class and
 mixed-layout receivers, payload exchange and state publication. Keep
 `test/bench_member_methods.nut` out of PGO training. The
-[dynamic-member report](../../devdocs/internals/dynamic-member-optimization-2026-09-08.md)
+[dynamic-member report](https://github.com/supercamel/sqgi/blob/7de5513c2feb807d4587fcece54ba8f88477fe28/devdocs/internals/dynamic-member-optimization-2026-09-08.md)
 records native method execution, frame-local undo storage, before/after
 measurements and the remaining interpreter overhead.
 
@@ -202,6 +202,6 @@ filtering, multiple channels, integration, retained arguments, branched calls
 and a math-helper control. Keep `test/bench_float_workloads.nut` out of PGO
 training. Its Node port preserves arithmetic order and the runner requires
 exact final checksums against the interpreter. The
-[floating-call report](../../devdocs/internals/float-call-optimization-2026-09-08.md)
+[floating-call report](https://github.com/supercamel/sqgi/blob/7de5513c2feb807d4587fcece54ba8f88477fe28/devdocs/internals/float-call-optimization-2026-09-08.md)
 includes the original float-call kernel, these independent workloads, hardware
 counters and the remaining Node performance gaps.

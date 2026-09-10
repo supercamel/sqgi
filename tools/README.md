@@ -2440,7 +2440,7 @@ python3 tools/run_member_benchmarks.py \
 It checks results against an interpreter run, uses fresh processes and rotating
 order, and records binary/source hashes, commands and all timing samples.
 Exclude `test/bench_member_workloads.nut` from PGO training to retain it as an
-independent check. See the [member optimization report](../devdocs/internals/member-optimization-2026-09-08.md)
+independent check. See the [member optimization report](https://github.com/supercamel/sqgi/blob/7de5513c2feb807d4587fcece54ba8f88477fe28/devdocs/internals/member-optimization-2026-09-08.md)
 for measured gains and remaining limits.
 
 Use `--suite owners` to compare table and class fields cycling through 1, 2, 5,
@@ -2448,7 +2448,7 @@ Use `--suite owners` to compare table and class fields cycling through 1, 2, 5,
 additional workloads from `test/bench_member_owners.nut` and its JavaScript port.
 Keep that suite out of PGO training as well. It exposes both the benefit of
 repeated stores and the remaining cost of large displaced-owner sets. The
-[object-store report](../devdocs/internals/object-store-optimization-2026-09-08.md)
+[object-store report](https://github.com/supercamel/sqgi/blob/7de5513c2feb807d4587fcece54ba8f88477fe28/devdocs/internals/object-store-optimization-2026-09-08.md)
 records the field-cache implementation, ownership contracts and measurements.
 
 Use `--suite methods` for six mutating-call workloads with table, class and
@@ -2456,7 +2456,7 @@ mixed-layout receivers. Payload transfers use 17 receivers; state publication
 uses 97 receivers and 13 array payloads. The SQGI and Node ports perform the
 same operations and are checked against the interpreter. Exclude
 `test/bench_member_methods.nut` from PGO training. See the
-[dynamic-member report](../devdocs/internals/dynamic-member-optimization-2026-09-08.md)
+[dynamic-member report](https://github.com/supercamel/sqgi/blob/7de5513c2feb807d4587fcece54ba8f88477fe28/devdocs/internals/dynamic-member-optimization-2026-09-08.md)
 for native-call coverage, undo-log costs and measured limits.
 
 Use `--suite floats` for seven independent floating workloads: filtering,
@@ -2464,5 +2464,5 @@ four/eight channels, integration, retained call arguments, branched leaves and
 a math-helper control. The SQGI and Node programs preserve operation order;
 the runner checks exact final double values against an interpreter reference.
 Exclude `test/bench_float_workloads.nut` from PGO training. The
-[floating-call report](../devdocs/internals/float-call-optimization-2026-09-08.md)
+[floating-call report](https://github.com/supercamel/sqgi/blob/7de5513c2feb807d4587fcece54ba8f88477fe28/devdocs/internals/float-call-optimization-2026-09-08.md)
 records the register-cache changes and before/after measurements.

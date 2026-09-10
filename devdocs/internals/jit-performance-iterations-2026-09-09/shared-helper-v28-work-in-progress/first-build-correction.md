@@ -1,1 +1,0 @@
-The new native test used SQJitCode private size rather than its public MappedSize() accessor. The first compile failed in that test; the backend object compiled. Corrected the test accessor only. Initial compiler diagnostics are retained in sqgi-v28-first-build-private-size-failure.log.
