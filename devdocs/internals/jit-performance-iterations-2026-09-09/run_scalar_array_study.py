@@ -18,10 +18,16 @@ OLD=args.baseline.resolve()
 for subdir in ['results','profiles']:
     (ROOT/subdir).mkdir(parents=True,exist_ok=True)
 ENV = dict(os.environ, PYTHONDONTWRITEBYTECODE='1', SQGI_JIT='1', SQGI_JIT_THRESHOLD='1', SQGI_JIT_TRACE='0')
+# DWARF stack samples can capture environment memory. Start perf and its
+# benchmark child with only the environment required by these workloads.
+PROFILE_ENV = {key: ENV[key] for key in ('PATH', 'HOME', 'LANG', 'LC_ALL') if key in ENV}
+PROFILE_ENV.update(PYTHONDONTWRITEBYTECODE='1', SQGI_JIT='1', SQGI_JIT_THRESHOLD='1', SQGI_JIT_TRACE='0')
 sys.path.insert(0, str(SOURCE / 'tools'))
 from run_execution_benchmarks import parse, host_snapshot
 
 def run(name, command, env=ENV, timeout=1800):
+    if command[:2] == ['perf', 'record']:
+        env = PROFILE_ENV
     print('START', name, flush=True)
     with (ROOT / (name + '.log')).open('w') as log:
         p = subprocess.run(list(map(str, command)), cwd=SOURCE, env=env, stdout=log, stderr=subprocess.STDOUT, timeout=timeout)
