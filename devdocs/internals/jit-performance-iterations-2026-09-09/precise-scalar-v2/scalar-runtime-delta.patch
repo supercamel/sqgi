@@ -1,0 +1,142 @@
+--- a/Squirrel3/squirrel/jit/sqjit_backend_aarch64_precise.inc
++++ b/Squirrel3/squirrel/jit/sqjit_backend_aarch64_precise.inc
+@@ -42,9 +42,8 @@
+ }
+ 
+ static SQInteger sqjit_a64_precise_step(SQJitWriteLog *log, SQObjectPtr *stack,
+-    SQClosure *closure, SQInteger ip, SQObjectPtr *out)
+-{
+-    SQVM *vm = sqjit_context(closure->_function->_sharedstate).active_vm;
++    SQClosure *closure, SQInteger ip, SQObjectPtr *out, SQVM *vm)
++{
+     const SQInstruction &i = closure->_function->_instructions[ip];
+     SQObjectPtr value;
+     SQInteger dst = i._arg0;
+@@ -147,6 +146,95 @@
+     if(!log->CanRelease(stack[dst])) return 0;
+     stack[dst] = value;
+     return 1;
++}
++
++// Fast scalar writes never release an owner and never call a helper. Every
++// slow branch precedes the first VM write, so it can retry the same bytecode.
++static bool sqjit_a64_precise_fast(SQJitA64Buffer *buf, SQFunctionProto *proto,
++    const SQInstruction &i, SQInteger &done)
++{
++    done = -1;
++    SQObjectType literal_type = OT_INTEGER;
++    SQInteger literal_bits = 0;
++    switch(i.op) {
++    case _OP_LOAD:
++        if(ISREFCOUNTED(sq_type(proto->_literals[i._arg1]))) return true;
++        literal_type = sq_type(proto->_literals[i._arg1]);
++        literal_bits = (SQInteger)_rawval(proto->_literals[i._arg1]); break;
++    case _OP_LOADINT: literal_bits = sqjit_loadint_value(i); break;
++    case _OP_LOADBOOL: literal_type = OT_BOOL; literal_bits = i._arg1 != 0; break;
++    case _OP_LOADFLOAT: {
++        SQFloat value;
++        if(!sqjit_loadfloat_value(i,&value)) return false;
++        if(sizeof(value) > sizeof(literal_bits)) return true;
++        literal_type = OT_FLOAT; memcpy(&literal_bits,&value,sizeof(value)); break;
++    }
++    case _OP_MOVE: case _OP_ADD: case _OP_SUB: case _OP_MUL:
++    case _OP_DIV: case _OP_MOD: case _OP_INCL: case _OP_PINCL: break;
++    default: return true;
++    }
++    SQInteger dst = i.op == _OP_INCL ? i._arg1 : i._arg0;
++    SQInteger owning = -1, source_owning = -1;
++    SQJitA64Reloc guards[8]; SQInteger nguards = 0;
++    auto guard = [&](unsigned cond) {
++        SQInteger patch;
++        return sqjit_a64_emit_bcond_placeholder(buf,cond,&patch) &&
++            sqjit_a64_record_reloc(guards,&nguards,8,patch,-1,true,cond);
++    };
++    if(!sqjit_a64_emit_ldr_w(buf,9,19,sqjit_a64_stack_type_disp(dst)) ||
++        !sqjit_a64_emit_test_branch(buf,9,SQ_JIT_A64_REF_COUNTED_BIT,true,&owning)) return false;
++    switch(i.op) {
++    case _OP_LOAD: case _OP_LOADINT: case _OP_LOADFLOAT: case _OP_LOADBOOL:
++        if(!sqjit_a64_emit_mov_imm_x(buf,9,literal_bits) ||
++            !sqjit_a64_emit_mov_imm_w(buf,10,(uint32_t)literal_type)) return false;
++        break;
++    case _OP_MOVE:
++        if(!sqjit_a64_emit_ldr_w(buf,10,19,sqjit_a64_stack_type_disp(i._arg1)) ||
++            !sqjit_a64_emit_test_branch(buf,10,SQ_JIT_A64_REF_COUNTED_BIT,true,&source_owning) ||
++            !sqjit_a64_emit_ldr_x(buf,9,19,sqjit_a64_stack_value_disp(i._arg1))) return false;
++        break;
++    case _OP_INCL: case _OP_PINCL:
++        if(!sqjit_a64_emit_type_guard(buf,i._arg1,OT_INTEGER,guards,&nguards) ||
++            !sqjit_a64_emit_ldr_x(buf,9,19,sqjit_a64_stack_value_disp(i._arg1)) ||
++            !sqjit_a64_emit_mov_imm_x(buf,10,(SQInteger)(signed char)i._arg3) ||
++            !sqjit_a64_emit_add_reg(buf,11,9,10)) return false;
++        if(i.op == _OP_PINCL &&
++            (!sqjit_a64_emit_str_x(buf,9,19,sqjit_a64_stack_value_disp(dst)) ||
++            !sqjit_a64_emit_mov_imm_w(buf,10,(uint32_t)OT_INTEGER) ||
++            !sqjit_a64_emit_str_w(buf,10,19,sqjit_a64_stack_type_disp(dst)))) return false;
++        dst = i._arg1;
++        if(!sqjit_a64_emit_mov_reg(buf,9,11) ||
++            !sqjit_a64_emit_mov_imm_w(buf,10,(uint32_t)OT_INTEGER)) return false;
++        break;
++    default:
++        if(!sqjit_a64_emit_type_guard(buf,i._arg2,OT_INTEGER,guards,&nguards) ||
++            !sqjit_a64_emit_type_guard(buf,i._arg1,OT_INTEGER,guards,&nguards) ||
++            !sqjit_a64_emit_ldr_x(buf,9,19,sqjit_a64_stack_value_disp(i._arg2)) ||
++            !sqjit_a64_emit_ldr_x(buf,10,19,sqjit_a64_stack_value_disp(i._arg1))) return false;
++        switch(i.op) {
++        case _OP_ADD: if(!sqjit_a64_emit_add_reg(buf,9,9,10)) return false; break;
++        case _OP_SUB: if(!sqjit_a64_emit_sub_reg(buf,9,9,10)) return false; break;
++        case _OP_MUL: if(!sqjit_a64_emit_mul_reg(buf,9,9,10)) return false; break;
++        case _OP_DIV: case _OP_MOD:
++            if(!sqjit_a64_emit_cmp_imm(buf,10,0) || !guard(SQ_JIT_A64_EQ) ||
++                !sqjit_a64_emit_mov_imm_x(buf,11,-1) || !sqjit_a64_emit_cmp_reg(buf,10,11) ||
++                !guard(SQ_JIT_A64_EQ)) return false;
++            if(i.op == _OP_DIV) { if(!sqjit_a64_emit_sdiv_reg(buf,9,9,10)) return false; }
++            else if(!sqjit_a64_emit_sdiv_reg(buf,11,9,10) ||
++                !sqjit_a64_emit_msub_reg(buf,9,11,10,9)) return false;
++            break;
++        default: return false;
++        }
++        if(!sqjit_a64_emit_mov_imm_w(buf,10,(uint32_t)OT_INTEGER)) return false;
++    }
++    if(!sqjit_a64_emit_str_x(buf,9,19,sqjit_a64_stack_value_disp(dst)) ||
++        !sqjit_a64_emit_str_w(buf,10,19,sqjit_a64_stack_type_disp(dst)) ||
++        !sqjit_a64_emit_b_placeholder(buf,&done) ||
++        !sqjit_a64_patch_test_branch(buf,owning,buf->size)) return false;
++    if(source_owning >= 0 && !sqjit_a64_patch_test_branch(buf,source_owning,buf->size)) return false;
++    for(SQInteger n=0;n<nguards;++n)
++        if(!sqjit_a64_patch_branch(buf,guards[n].patch_offset,buf->size,true,guards[n].cond)) return false;
++    return true;
+ }
+ 
+ static bool sqjit_a64_compile_precise(SQFunctionProto *proto, SQObjectPtr *entry_stack, SQJitNative *native)
+@@ -187,6 +275,10 @@
+     SQInteger frame_size = (sizeof(SQJitWriteLog) + sizeof(SQInteger) + 15) & ~SQInteger(15);
+     if(frame_size > 4095 || !sqjit_a64_emit_prologue(&buf, frame_size) ||
+         !sqjit_a64_emit_init_write_log(&buf, log_slot, log_storage, &sqjit_context(proto->_sharedstate))) return false;
++    // No helper in this tier can reenter the VM or relocate its stack. Keep
++    // the active VM in a callee-saved register instead of looking it up per op.
++    if(!sqjit_a64_emit_mov_imm_x(&buf,22,(SQInteger)(intptr_t)&sqjit_context(proto->_sharedstate).active_vm) ||
++        !sqjit_a64_emit_ldr_x(&buf,22,22,0)) return false;
+     SQInteger offsets[SQ_JIT_A64_IP_TABLE_SIZE];
+     SQJitA64Reloc branches[SQ_JIT_A64_MAX_RELOCS], guards[SQ_JIT_A64_MAX_GUARD_RELOCS];
+     SQInteger nbranches = 0, nguards = 0;
+@@ -206,9 +298,12 @@
+                     patch, ip+1+sqjit_signed_arg1(i), false, 0)) return false;
+             continue;
+         }
++        SQInteger fast_done = -1;
++        if(!sqjit_a64_precise_fast(&buf,proto,i,fast_done)) return false;
+         if(!sqjit_a64_emit_ldr_x(&buf, 0, 31, sqjit_a64_local_disp(log_slot)) ||
+             !sqjit_a64_emit_mov_reg(&buf, 1, 19) || !sqjit_a64_emit_mov_reg(&buf, 2, 21) ||
+             !sqjit_a64_emit_mov_imm_x(&buf, 3, ip) || !sqjit_a64_emit_mov_reg(&buf, 4, 20) ||
++            !sqjit_a64_emit_mov_reg(&buf, 5, 22) ||
+             !sqjit_a64_emit_mov_imm_x(&buf, 16, (SQInteger)(intptr_t)sqjit_a64_precise_step) ||
+             !sqjit_a64_emit_blr_x16(&buf)) return false;
+         if(i.op == _OP_RETURN) {
+@@ -219,6 +314,7 @@
+             !sqjit_a64_emit_bcond_placeholder(&buf, SQ_JIT_A64_EQ, &patch) ||
+             !sqjit_a64_record_reloc(guards, &nguards, SQ_JIT_A64_MAX_GUARD_RELOCS,
+                 patch, ip, true, SQ_JIT_A64_EQ)) return false;
++        if(fast_done >= 0 && !sqjit_a64_patch_branch(&buf,fast_done,buf.size,false,0)) return false;
+         if(i.op == _OP_JZ || i.op == _OP_JCMP) {
+             if(!sqjit_a64_emit_cmp_imm(&buf, 0, 1) ||
+                 !sqjit_a64_emit_bcond_placeholder(&buf, SQ_JIT_A64_EQ, &patch) ||

@@ -1,0 +1,67 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 1K of event 'cycles:u'
+# Event count (approx.): 4580400389
+#
+# Children      Self  Command  Shared Object                 Symbol                                         
+# ........  ........  .......  ............................  ...............................................
+#
+    56.41%     0.00%  sqgi     [JIT] tid 648302              [.] 0x0000ffffb80b9af7
+            |
+            ---0xffffb80b9af7
+               |          
+                --15.39%--0xffffb80b9af7
+                          |          
+                           --15.04%--sqjit_a64_precise_step<(SQOpcode)39, false>
+                                     |          
+                                      --2.79%--sqjit_a64_precise_step<(SQOpcode)39, false>
+                                                SQJitWriteLog::CanReleaseInContext
+
+    43.13%     0.00%  sqgi     [JIT] tid 648302              [.] 0x0000ffffb80b8e9f
+            |
+            ---0xffffb80b8e9f
+               |          
+                --12.42%--0xffffb80b8e9f
+                          sqjit_a64_precise_step<(SQOpcode)4, false>
+                          |          
+                           --2.39%--SQObjectPtr::operator= (inlined)
+
+    15.39%    12.60%  sqgi     sqgi                          [.] sqjit_a64_precise_step<(SQOpcode)39, false>
+            |          
+            |--12.60%--0xffffb80b9af7
+            |          0xffffb80b9af7
+            |          |          
+            |           --12.25%--sqjit_a64_precise_step<(SQOpcode)39, false>
+            |          
+             --2.79%--sqjit_a64_precise_step<(SQOpcode)39, false>
+                       sqjit_a64_precise_step<(SQOpcode)39, false>
+                       SQJitWriteLog::CanReleaseInContext
+
+    12.42%    10.73%  sqgi     sqgi                          [.] sqjit_a64_precise_step<(SQOpcode)4, false>
+            |          
+             --10.73%--0xffffb80b8e9f
+                       0xffffb80b8e9f
+                       sqjit_a64_precise_step<(SQOpcode)4, false>
+                       |          
+                        --2.39%--SQObjectPtr::operator= (inlined)
+
+     4.48%     4.48%  sqgi     sqgi                          [.] SQJitWriteLog::CanReleaseInContext
+            |          
+             --2.79%--0xffffb80b9af7
+                       0xffffb80b9af7
+                       sqjit_a64_precise_step<(SQOpcode)39, false>
+                       sqjit_a64_precise_step<(SQOpcode)39, false>
+                       SQJitWriteLog::CanReleaseInContext
+
+     2.39%     0.00%  sqgi     sqgi                          [.] SQObjectPtr::operator= (inlined)
+            |
+            ---SQObjectPtr::operator= (inlined)
+
+
+
+#
+# (Cannot load tips.txt file, please install perf!)
+#

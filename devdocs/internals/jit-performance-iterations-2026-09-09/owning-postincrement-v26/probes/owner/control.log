@@ -1,0 +1,36 @@
+[Thread debugging using libthread_db enabled]
+Using host libthread_db library "/lib/aarch64-linux-gnu/libthread_db.so.1".
+BENCH	table_owners_1	19	318.315789474	1538.25
+BENCH	table_owners_2	19	239.052631579	1713.25
+BENCH	table_owners_5	19	250.315789474	2152.25
+BENCH	table_owners_19	19	334.368421053	3209.25
+BENCH	table_owners_257	19	333.368421053	45216.25
+BENCH	class_owners_1	19	339.631578947	1538.25
+BENCH	class_owners_2	19	515.157894737	1713.25
+BENCH	class_owners_5	19	361.105263158	2152.25
+BENCH	class_owners_19	19	341.210526316	3209.25
+BENCH	class_owners_257	19	340.578947368	45216.25
+[sqjit:stats] proto enters=42 hot=5 compile=5 success=1 fail=4
+[sqjit:stats] proto exec attempts=42 success=20 guard_fail=0
+[sqjit:stats] proto side_exits=0
+[sqjit:stats] direct calls attempts=19 success=0 miss=19 guard_fail=0
+[sqjit:stats] loops try=47 find_fail=6 compile=2 success=0 fail=2 exec=0 exec_success=0 guard_fail=0
+[sqjit:stats] rejects=6 unique_reasons=5
+[sqjit:stats] backoff proto=0 proto_skips=0 loop=0 loop_skips=0
+[sqjit:stats] reject category count=1 category=loop
+[sqjit:stats] reject category count=1 category=array-append
+[sqjit:stats] reject category count=2 category=call
+[sqjit:stats] reject category count=2 category=other
+[sqjit:stats] reject reason count=2 reason=unsupported function shape or instruction limit
+[sqjit:stats] reject reason count=1 reason=deferred CALL direct closure
+[sqjit:stats] reject reason count=1 reason=unsupported loop array append PREPCALLK
+[sqjit:stats] reject reason count=1 reason=unsupported loop branch shape
+[sqjit:stats] reject reason count=1 reason=unsupported CALL direct closure
+[sqjit:stats] reject_site rank=1 proto=(nil) name=main source=<sqgi async bootstrap> line=-1 ip=-1 count=1 reason=unsupported function shape or instruction limit
+[sqjit:stats] reject_site rank=2 proto=(nil) name=main source=test/bench_member_owners.nut line=-1 ip=-1 count=1 reason=unsupported function shape or instruction limit
+[sqjit:stats] reject_site rank=3 proto=(nil) name=owners source=test/bench_member_owners.nut line=26 ip=34 count=1 reason=deferred CALL direct closure
+[sqjit:stats] reject_site rank=4 proto=(nil) name=owners source=test/bench_member_owners.nut line=23 ip=3 count=1 reason=unsupported loop array append PREPCALLK
+[sqjit:stats] reject_site rank=5 proto=(nil) name=main source=test/bench_member_owners.nut line=32 ip=92 count=1 reason=unsupported loop branch shape
+[sqjit:stats] reject_site rank=6 proto=(nil) name=owners source=test/bench_member_owners.nut line=26 ip=34 count=1 reason=unsupported CALL direct closure
+[Inferior 1 (process 690132) exited normally]
+POSTINCREMENT_CAPTURE {'pid': 690132, 'address': 281474841985024, 'mapped_bytes': 8192, 'helper_address': 187649985185248, 'entries': [19, 19, 19, 19, 19, 19, 19, 19, 19, 19, 19, 19, 19, 19, 19, 19, 19, 19, 19, 19], 'helper_calls': 380, 'helper_sites': {6904: 380}}

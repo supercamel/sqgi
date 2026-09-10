@@ -1,0 +1,80 @@
+static int generated_shared_helpers()
+{
+    int failures=0;
+#if SQJIT_HAS_EXTERNAL_NATIVE
+    ++native_test_groups;
+    SQVM *v=sq_open(64);SQJitContext &ctx=sqjit_context(v->_sharedstate);
+    ctx.enabled=ctx.precise_exits=true;ctx.threshold=1;sqjit_observe_enable(v);
+    {
+    const SQInteger repeats=24;
+    std::basic_string<SQChar> source=_SC("function shared_region(r,x) { r.count=r.count+1; local s=0; local flag=!x; if(flag) s=s+1;");
+    for(SQInteger n=0;n<repeats;++n) source+=_SC("s=s+x;");
+    source+=_SC("return s+r.tail; }");
+    CHECK(run(v,source.c_str()),"define a rich shared-helper region with committed stores and late reads");
+    SQObjectPtr fn=named(v,_SC("shared_region"));SQFunctionProto *p=_closure(fn)->_function;
+    SQObjectPtr count_key(SQString::Create(v->_sharedstate,_SC("count")));
+    SQObjectPtr tail_key(SQString::Create(v->_sharedstate,_SC("tail")));
+    SQObjectPtr record(SQTable::Create(v->_sharedstate,4));
+    // An equal noninterned key forces checked lookup, independently of the
+    // first bucket or optional cold-literal layout. It exercises the helper's
+    // activation-cache argument before a cached SET writes the committed count.
+    SQObjectPtr distinct(SQString::Create(v->_sharedstate,_SC("coun")));
+    SQString *appended=v->_sharedstate->_stringtable->Append(_string(distinct),_SC("t"),1);
+    CHECK(appended!=NULL,"construct a distinct count-key identity");
+    if(appended) distinct._unVal.pString=appended;
+    CHECK(_rawval(distinct)!=_rawval(count_key) && !scstrcmp(_stringval(distinct),_stringval(count_key)),
+        "shared helper fixture forces the ordinary constant-key resolver");
+    _table(record)->NewSlot(distinct,SQObjectPtr(SQInteger(0)));
+    _table(record)->NewSlot(tail_key,SQObjectPtr(SQInteger(7)));
+    for(SQInteger x:{SQInteger(2),SQInteger(0),SQInteger(-2)}) {
+        SQInteger reference=-1,result=-1;
+        for(int jit=0;jit<2;++jit) {
+            ctx.enabled=jit!=0;v->temp_reg.Null();*_table(record)->GetRawSlot(count_key)=SQInteger(0);
+            SQJitObservation before={},after={};sqjit_observe_proto(p,before);
+            CHECK(call(v,fn,record,x,result) && result==repeats*x+(x==0 ? 1 : 0)+7 &&
+                _integer(*_table(record)->GetRawSlot(count_key))==1,
+                "shared helper arguments, branch status and result match canonical execution");
+            if(!jit) reference=result;
+            else CHECK(result==reference && sqjit_observe_proto(p,after) &&
+                after.frame.successes==before.frame.successes+1,
+                "the shared-helper fixture completes through actual native code");
+        }
+    }
+    bool shared_call=false,integer_add=false;
+    if(p->_jit && p->_jit->_entry && p->_jit->_entry->_requires_vm_frame) {
+        const SQJitCode &code=p->_jit->_entry->_code;
+        for(SQInteger offset=0;offset+4<=code.MappedSize();offset+=4) {
+            uint32_t word;memcpy(&word,(const unsigned char *)code.Entry()+offset,4);
+            shared_call=shared_call || (word&0xfc000000u)==0x94000000u;
+            integer_add=integer_add || word==0x8b0a0129u; // ADD x9,x9,x10
+        }
+    }
+    CHECK(shared_call && integer_add,"the executed artifact combines shared calls with native arithmetic, not the helper-only tier");
+    SQInteger late_ip=-1;
+    for(SQInteger ip=0;ip<p->_ninstructions;++ip) {
+        const SQInstruction &i=p->_instructions[ip];
+        if(i.op==_OP_GETK && i._arg1>=0 && i._arg1<p->_nliterals &&
+            sq_type(p->_literals[i._arg1])==OT_STRING && !scstrcmp(_stringval(p->_literals[i._arg1]),_SC("tail"))) late_ip=ip;
+    }
+    CHECK(late_ip>=0,"find the late read's exact resume bytecode");
+    if(late_ip>=0 && p->_jit && p->_jit->_entry && p->_jit->_entry->_requires_vm_frame) {
+        SQObjectPtr missing(SQTable::Create(v->_sharedstate,4));
+        _table(missing)->NewSlot(distinct,SQObjectPtr(SQInteger(0)));
+        std::vector<SQObjectPtr> frame((size_t)p->_stacksize);
+        frame[0]=v->_roottable;frame[1]=missing;frame[2]=SQInteger(2);v->temp_reg.Null();
+        SQObjectPtr result;SQInteger status;
+        { SQJitExecutionScope scope(ctx,v);
+          status=((SQJitNativeObjectFn)p->_jit->_entry->_code.Entry())(frame.data(),&result,_closure(fn)); }
+        CHECK(status==SQ_JIT_NATIVE_SIDE_EXIT && sq_type(result)==OT_INTEGER && _integer(result)==late_ip &&
+            _integer(*_table(missing)->GetRawSlot(count_key))==1 && _integer(frame[2])==2 &&
+            _table(missing)->CountUsed()==1,
+            "a late shared-helper miss retains its committed prefix and exact continuation without creating a member");
+        CHECK(!ctx.active_logs,"shared canonical helpers leave no ancestor journal");
+    }
+    }
+    sq_close(v);
+    printf("[coverage] executed AArch64 shared precise helper contracts\n");
+#endif
+    return failures;
+}
+

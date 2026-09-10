@@ -1,0 +1,43 @@
+[Thread debugging using libthread_db enabled]
+Using host libthread_db library "/lib/aarch64-linux-gnu/libthread_db.so.1".
+BENCH	array_append	19	1200.473684	917
+[sqjit:stats] proto enters=1176 hot=32 compile=32 success=17 fail=15
+[sqjit:stats] proto exec attempts=1176 success=1011 guard_fail=122
+[sqjit:stats] proto side_exits=0
+[sqjit:stats] direct calls attempts=882 success=603 miss=279 guard_fail=0
+[sqjit:stats] loops try=169 find_fail=9 compile=10 success=5 fail=5 exec=5 exec_success=5 guard_fail=0
+[sqjit:stats] rejects=20 unique_reasons=11
+[sqjit:stats] backoff proto=0 proto_skips=0 loop=0 loop_skips=0
+[sqjit:stats] reject category count=2 category=opcode
+[sqjit:stats] reject category count=5 category=loop
+[sqjit:stats] reject category count=3 category=member
+[sqjit:stats] reject category count=5 category=call
+[sqjit:stats] reject category count=5 category=other
+[sqjit:stats] reject reason count=2 reason=unsupported function shape or instruction limit
+[sqjit:stats] reject reason count=5 reason=deferred CALL direct closure
+[sqjit:stats] reject reason count=1 reason=unsupported PREPCALLK member
+[sqjit:stats] reject reason count=2 reason=unsupported instruction or operand combination
+[sqjit:stats] reject reason count=1 reason=unsupported loop object preload
+[sqjit:stats] reject reason count=2 reason=unsupported SET dynamic member
+[sqjit:stats] reject reason count=2 reason=unsupported loop dynamic member SET
+[sqjit:stats] reject reason count=1 reason=unsupported loop branch shape
+[sqjit:stats] reject reason count=1 reason=unsupported float arithmetic operands
+[sqjit:stats] reject reason count=2 reason=unsupported opcode _OP_FOREACH
+[sqjit:stats] reject reason count=1 reason=unsupported loop direct CALL
+[sqjit:stats] proto_guard rank=1 proto=(nil) name=cross source=/tmp/sqgi-precise-length-study/append-regression/only-array_append.nut guard_fail=120 exec=121 exec_ok=1 direct=239 direct_ok=119 backoffs=0 skips=0 rejects=0 last_reject_ip=-1 reason=none
+[sqjit:stats] proto_guard rank=2 proto=(nil) name=object_member_write_fallback_kernel source=/tmp/sqgi-precise-length-study/append-regression/only-array_append.nut guard_fail=1 exec=1 exec_ok=0 direct=0 direct_ok=0 backoffs=0 skips=0 rejects=1 last_reject_ip=29 reason=unsupported loop branch shape
+[sqjit:stats] proto_guard rank=3 proto=(nil) name=math_intrinsic_kernel source=/tmp/sqgi-precise-length-study/append-regression/only-array_append.nut guard_fail=1 exec=1 exec_ok=0 direct=0 direct_ok=0 backoffs=0 skips=0 rejects=0 last_reject_ip=-1 reason=none
+[sqjit:stats] reject_site rank=1 proto=(nil) name=main source=<sqgi async bootstrap> line=-1 ip=-1 count=1 reason=unsupported function shape or instruction limit
+[sqjit:stats] reject_site rank=2 proto=(nil) name=main source=/tmp/sqgi-precise-length-study/append-regression/only-array_append.nut line=-1 ip=-1 count=1 reason=unsupported function shape or instruction limit
+[sqjit:stats] reject_site rank=3 proto=(nil) name=run_correctness source=/tmp/sqgi-precise-length-study/append-regression/only-array_append.nut line=334 ip=3 count=1 reason=deferred CALL direct closure
+[sqjit:stats] reject_site rank=4 proto=(nil) name=check_eq source=/tmp/sqgi-precise-length-study/append-regression/only-array_append.nut line=11 ip=2 count=1 reason=unsupported PREPCALLK member
+[sqjit:stats] reject_site rank=5 proto=(nil) name=approx source=/tmp/sqgi-precise-length-study/append-regression/only-array_append.nut line=21 ip=0 count=1 reason=unsupported instruction or operand combination
+[sqjit:stats] reject_site rank=6 proto=(nil) name=direct_call_kernel source=/tmp/sqgi-precise-length-study/append-regression/only-array_append.nut line=48 ip=9 count=1 reason=deferred CALL direct closure
+[sqjit:stats] reject_site rank=7 proto=(nil) name=branch_call_kernel source=/tmp/sqgi-precise-length-study/append-regression/only-array_append.nut line=62 ip=5 count=1 reason=deferred CALL direct closure
+[sqjit:stats] reject_site rank=8 proto=(nil) name=float_call_kernel source=/tmp/sqgi-precise-length-study/append-regression/only-array_append.nut line=72 ip=7 count=1 reason=deferred CALL direct closure
+[sqjit:stats] reject_site rank=9 proto=(nil) name=vector_kernel source=/tmp/sqgi-precise-length-study/append-regression/only-array_append.nut line=141 ip=43 count=1 reason=deferred CALL direct closure
+[sqjit:stats] reject_site rank=10 proto=(nil) name=vector_kernel source=/tmp/sqgi-precise-length-study/append-regression/only-array_append.nut line=137 ip=14 count=1 reason=unsupported loop object preload
+[sqjit:stats] reject_site rank=11 proto=(nil) name=dynamic_member_kernel source=/tmp/sqgi-precise-length-study/append-regression/only-array_append.nut line=190 ip=46 count=1 reason=unsupported SET dynamic member
+[sqjit:stats] reject_site rank=12 proto=(nil) name=dynamic_member_kernel source=/tmp/sqgi-precise-length-study/append-regression/only-array_append.nut line=190 ip=46 count=1 reason=unsupported loop dynamic member SET
+[Inferior 1 (process 678024) exited normally]
+APPEND_HELPER_COUNTS {'pid': 678024, 'entries': [300, 19], 'symbols': {'sqjit_a64_helper_publish_stack_write': 187649985086048, 'sqjit_a64_publish_array_len_preparation': 187649985101744, 'sqjit_a64_helper_array_ptr_append_integer': 187649985236448}, 'ranges': [(281474839814144, 281474839818240)], 'counts': {'sqjit_a64_helper_publish_stack_write': 325, 'sqjit_a64_helper_array_ptr_append_integer': 319, 'sqjit_a64_publish_array_len_preparation': 2}, 'sites': [{'helper': 'sqjit_a64_helper_publish_stack_write', 'return_offset': 300, 'count': 319}, {'helper': 'sqjit_a64_helper_array_ptr_append_integer', 'return_offset': 420, 'count': 319}, {'helper': 'sqjit_a64_publish_array_len_preparation', 'return_offset': 1200, 'count': 2}, {'helper': 'sqjit_a64_helper_publish_stack_write', 'return_offset': 1280, 'count': 2}, {'helper': 'sqjit_a64_helper_publish_stack_write', 'return_offset': 1348, 'count': 2}, {'helper': 'sqjit_a64_helper_publish_stack_write', 'return_offset': 224, 'count': 1}, {'helper': 'sqjit_a64_helper_publish_stack_write', 'return_offset': 368, 'count': 1}]}

@@ -1,0 +1,32 @@
+set pagination off
+set confirm off
+set debuginfod enabled off
+set environment SQGI_JIT 1
+set environment SQGI_JIT_THRESHOLD 1
+set environment SQGI_JIT_PRECISE_EXITS 1
+set environment SQGI_JIT_TRACE stats
+start /tmp/sqgi-precise-native-scalars-study/route/scalars.nut
+python
+import gdb,json,pathlib
+out=pathlib.Path('/tmp/sqgi-precise-native-scalars-study/route')
+hits=[]
+class Catch(gdb.Breakpoint):
+    def stop(self):
+        closure=gdb.parse_and_eval('(SQClosure*)$x2')
+        name=closure['_function'].dereference()['_name']['_unVal']['pString'].dereference()['_val'].address.cast(gdb.lookup_type('char').pointer()).string()
+        if name.startswith('route_'):
+            hits.append(dict(name=name,ip=int(gdb.parse_and_eval('$x3'))))
+            print('SCALAR_HELPER_HIT',name,hits[-1]['ip'])
+        return False
+breakpoints=[]
+for name in json.loads((out/'symbols.json').read_text()):
+    address=int(gdb.parse_and_eval('&'+name))
+    breakpoints.append(Catch('*'+str(address),internal=True))
+print('SCALAR_HELPER_BREAKPOINTS',len(breakpoints))
+end
+continue
+python
+(out/'v9-helper-hits.json').write_text(json.dumps(hits,indent=2)+'\n')
+assert len(hits)==45,hits
+print('V9_CONTROL_HELPER_HITS',len(hits))
+end

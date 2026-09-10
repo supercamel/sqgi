@@ -1,0 +1,1054 @@
+{
+  "metadata": {
+    "runtimes": {
+      "sqgi": {
+        "binary": "/home/sam/Programming/sqgi/build-jit-audit-20260909/precise-loop-variants-v9/sqgi",
+        "sha256": "782913eac3f51bc556d6ced35760ac0009e54bdd3c759d7fbf9715ee20ac29e7",
+        "integer_bytes": 8,
+        "float_bytes": 8,
+        "build": {},
+        "profile_identity": null
+      },
+      "sqgi_baseline": {
+        "binary": "/home/sam/Programming/sqgi/build-jit-audit-20260909/baseline/sqgi",
+        "sha256": "d8f47927295731c40bd5fd5e6a5eefed310b924de205d1fb4d310ca54b82f52e",
+        "integer_bytes": 8,
+        "float_bytes": 8,
+        "build": {
+          "CMAKE_BUILD_TYPE": "Release",
+          "CMAKE_CXX_COMPILER": "/usr/bin/c++",
+          "SQGI_ENABLE_ASAN": "OFF",
+          "SQGI_ENABLE_LTO": "OFF",
+          "SQGI_PGO_DIRECTORY": "/tmp/sqgi-profile-20260909/baseline/profiles",
+          "SQGI_PGO_MODE": "OFF",
+          "SQ_ENABLE_JIT": "ON"
+        },
+        "profile_identity": null
+      },
+      "node": {
+        "binary": "/usr/bin/node",
+        "version": "v18.19.1"
+      },
+      "gjs": {
+        "binary": "/usr/bin/gjs",
+        "version": "gjs 1.80.2",
+        "mode": "module"
+      },
+      "python": {
+        "binary": "/home/sam/miniconda3/bin/python3",
+        "version": "Python 3.13.2"
+      }
+    },
+    "platform": "Linux-6.1.0-1025-rockchip-aarch64-with-glibc2.39",
+    "runs": 5,
+    "iterations": 200000,
+    "warmups": 5,
+    "threshold": 1,
+    "cpu": 4,
+    "suite": "applications",
+    "seed": 17,
+    "started_utc": "2026-09-09T14:23:18.205318+00:00",
+    "load_average_start": [
+      1.435546875,
+      1.55859375,
+      1.6318359375
+    ],
+    "source_hashes": {
+      "test/bench_application_workloads.nut": "e4f09e52633d4a5bc4ae6c1aafe4b4d73919bfeece799b4ee3a14136dd4060b6",
+      "demo/benchmarks/node_application_workloads.js": "0bb8454049cd153c6293a8ad7cc8271432ca2310c2521216bfb31862eb9a9a86",
+      "demo/benchmarks/python_application_workloads.py": "72176916ac1ec5b295571503f16079f9e60de24014af365c305bbfc04af29e9f"
+    },
+    "order": "rotating runtime order, one fresh process per runtime per round",
+    "cpu_frequency": {
+      "cpuinfo_max_freq": "2304000",
+      "scaling_governor": "ondemand"
+    },
+    "cpu_model": "unknown",
+    "finished_utc": "2026-09-09T14:23:52.502161+00:00",
+    "load_average_end": [
+      1.90380859375,
+      1.66455078125,
+      1.6650390625
+    ]
+  },
+  "completed_rounds": 5,
+  "medians": {
+    "route_balanced": {
+      "sqgi": 0.0526,
+      "sqgi_baseline": 0.052155,
+      "node": 0.005992215,
+      "gjs": 0.006575,
+      "python": 0.261544535
+    },
+    "route_skewed": {
+      "sqgi": 0.05142,
+      "sqgi_baseline": 0.051475,
+      "node": 0.00580847,
+      "gjs": 0.00668,
+      "python": 0.259402275
+    },
+    "pricing_events": {
+      "sqgi": 0.056835,
+      "sqgi_baseline": 0.057715,
+      "node": 0.011157575,
+      "gjs": 0.01745,
+      "python": 0.432822255
+    },
+    "filter_stream": {
+      "sqgi": 0.055755,
+      "sqgi_baseline": 0.055755,
+      "node": 0.00505306,
+      "gjs": 0.010855,
+      "python": 0.24037855
+    },
+    "records_64": {
+      "sqgi": 0.137855,
+      "sqgi_baseline": 0.13545,
+      "node": 0.015767305,
+      "gjs": 0.038545,
+      "python": 0.56540502
+    },
+    "records_4096": {
+      "sqgi": 0.280005,
+      "sqgi_baseline": 0.26678,
+      "node": 0.02063225,
+      "gjs": 0.04364,
+      "python": 0.672998095
+    },
+    "word_count": {
+      "sqgi": 0.26645,
+      "sqgi_baseline": 0.26654,
+      "node": 0.074521385,
+      "gjs": 0.1242,
+      "python": 0.362016655
+    },
+    "graph_walk": {
+      "sqgi": 0.01239,
+      "sqgi_baseline": 0.012435,
+      "node": 0.00483286,
+      "gjs": 0.008465,
+      "python": 0.12892677
+    }
+  },
+  "sqgi_over_other_time": {
+    "route_balanced": {
+      "sqgi_baseline": 1.0085322596107755,
+      "node": 8.778056194579133,
+      "gjs": 8.0,
+      "python": 0.20111297680144605
+    },
+    "route_skewed": {
+      "sqgi_baseline": 0.9989315201554153,
+      "node": 8.852589408226264,
+      "gjs": 7.697604790419161,
+      "python": 0.19822493846671158
+    },
+    "pricing_events": {
+      "sqgi_baseline": 0.9847526639521788,
+      "node": 5.093848797789843,
+      "gjs": 3.25702005730659,
+      "python": 0.1313125638606545
+    },
+    "filter_stream": {
+      "sqgi_baseline": 1.0,
+      "node": 11.033908166536712,
+      "gjs": 5.136342699216951,
+      "python": 0.23194665247793533
+    },
+    "records_64": {
+      "sqgi_baseline": 1.0177556293835366,
+      "node": 8.743092113712523,
+      "gjs": 3.5764690621351667,
+      "python": 0.24381637078496401
+    },
+    "records_4096": {
+      "sqgi_baseline": 1.0495726816103155,
+      "node": 13.571229507203528,
+      "gjs": 6.4162465627864345,
+      "python": 0.4160561554041249
+    },
+    "word_count": {
+      "sqgi_baseline": 0.9996623396113155,
+      "node": 3.5754837353063156,
+      "gjs": 2.145330112721417,
+      "python": 0.7360158609277244
+    },
+    "graph_walk": {
+      "sqgi_baseline": 0.9963811821471653,
+      "node": 2.563699341590694,
+      "gjs": 1.4636739515652688,
+      "python": 0.0961010657445308
+    }
+  },
+  "spread": {
+    "route_balanced": {
+      "sqgi": {
+        "min": 0.05215,
+        "max": 0.05333,
+        "relative_range": 0.022433460076045637
+      },
+      "sqgi_baseline": {
+        "min": 0.05172,
+        "max": 0.05221,
+        "relative_range": 0.009395072380404513
+      },
+      "node": {
+        "min": 0.005977635,
+        "max": 0.00619201,
+        "relative_range": 0.03577558548883846
+      },
+      "gjs": {
+        "min": 0.0064,
+        "max": 0.006685,
+        "relative_range": 0.043346007604562684
+      },
+      "python": {
+        "min": 0.26005268,
+        "max": 0.26212057,
+        "relative_range": 0.007906454631139651
+      }
+    },
+    "route_skewed": {
+      "sqgi": {
+        "min": 0.05088,
+        "max": 0.052145,
+        "relative_range": 0.024601322442629234
+      },
+      "sqgi_baseline": {
+        "min": 0.050515,
+        "max": 0.051725,
+        "relative_range": 0.023506556580864552
+      },
+      "node": {
+        "min": 0.005763265,
+        "max": 0.005839095,
+        "relative_range": 0.013055073022672033
+      },
+      "gjs": {
+        "min": 0.006665,
+        "max": 0.00669,
+        "relative_range": 0.0037425149700598577
+      },
+      "python": {
+        "min": 0.25763771,
+        "max": 0.25964873,
+        "relative_range": 0.00775251489216883
+      }
+    },
+    "pricing_events": {
+      "sqgi": {
+        "min": 0.056485,
+        "max": 0.057255,
+        "relative_range": 0.013547989795020672
+      },
+      "sqgi_baseline": {
+        "min": 0.057085,
+        "max": 0.058315,
+        "relative_range": 0.021311617430477377
+      },
+      "node": {
+        "min": 0.01111674,
+        "max": 0.011275695,
+        "relative_range": 0.01424637522042205
+      },
+      "gjs": {
+        "min": 0.017315,
+        "max": 0.017565,
+        "relative_range": 0.014326647564469927
+      },
+      "python": {
+        "min": 0.429266875,
+        "max": 0.43368849,
+        "relative_range": 0.010215775526607313
+      }
+    },
+    "filter_stream": {
+      "sqgi": {
+        "min": 0.05564,
+        "max": 0.056605,
+        "relative_range": 0.017307864765491895
+      },
+      "sqgi_baseline": {
+        "min": 0.055135,
+        "max": 0.055895,
+        "relative_range": 0.013631064478522048
+      },
+      "node": {
+        "min": 0.00503556,
+        "max": 0.005322855,
+        "relative_range": 0.05685564786485811
+      },
+      "gjs": {
+        "min": 0.009415,
+        "max": 0.01246,
+        "relative_range": 0.28051589129433446
+      },
+      "python": {
+        "min": 0.239458345,
+        "max": 0.240907915,
+        "relative_range": 0.006030363358128298
+      }
+    },
+    "records_64": {
+      "sqgi": {
+        "min": 0.12964,
+        "max": 0.139405,
+        "relative_range": 0.07083529795799931
+      },
+      "sqgi_baseline": {
+        "min": 0.129875,
+        "max": 0.139315,
+        "relative_range": 0.06969361387966043
+      },
+      "node": {
+        "min": 0.015615645,
+        "max": 0.01623543,
+        "relative_range": 0.03930823942328759
+      },
+      "gjs": {
+        "min": 0.038445,
+        "max": 0.03856,
+        "relative_range": 0.0029835257491243232
+      },
+      "python": {
+        "min": 0.56056341,
+        "max": 0.56661688,
+        "relative_range": 0.010706431294154418
+      }
+    },
+    "records_4096": {
+      "sqgi": {
+        "min": 0.23123,
+        "max": 0.313445,
+        "relative_range": 0.29361975679005725
+      },
+      "sqgi_baseline": {
+        "min": 0.229345,
+        "max": 0.29032,
+        "relative_range": 0.22855911237723978
+      },
+      "node": {
+        "min": 0.020480585,
+        "max": 0.02193161,
+        "relative_range": 0.07032800591307306
+      },
+      "gjs": {
+        "min": 0.043435,
+        "max": 0.04691,
+        "relative_range": 0.07962878093492207
+      },
+      "python": {
+        "min": 0.65667662,
+        "max": 0.691890575,
+        "relative_range": 0.05232400397804976
+      }
+    },
+    "word_count": {
+      "sqgi": {
+        "min": 0.26544,
+        "max": 0.267895,
+        "relative_range": 0.009213736160630455
+      },
+      "sqgi_baseline": {
+        "min": 0.26624,
+        "max": 0.267285,
+        "relative_range": 0.003920612290838216
+      },
+      "node": {
+        "min": 0.073261405,
+        "max": 0.07536138,
+        "relative_range": 0.028179495053668208
+      },
+      "gjs": {
+        "min": 0.124015,
+        "max": 0.12449,
+        "relative_range": 0.0038244766505636327
+      },
+      "python": {
+        "min": 0.35943689,
+        "max": 0.36292081,
+        "relative_range": 0.009623645630337017
+      }
+    },
+    "graph_walk": {
+      "sqgi": {
+        "min": 0.01236,
+        "max": 0.012435,
+        "relative_range": 0.006053268765133206
+      },
+      "sqgi_baseline": {
+        "min": 0.012405,
+        "max": 0.012545,
+        "relative_range": 0.011258544431041516
+      },
+      "node": {
+        "min": 0.004790565,
+        "max": 0.00507494,
+        "relative_range": 0.0588419693514813
+      },
+      "gjs": {
+        "min": 0.007615,
+        "max": 0.009795,
+        "relative_range": 0.25753101004134665
+      },
+      "python": {
+        "min": 0.12859136,
+        "max": 0.131209035,
+        "relative_range": 0.020303580086587246
+      }
+    }
+  },
+  "samples": {
+    "route_balanced": {
+      "sqgi": [
+        0.052435,
+        0.05323,
+        0.05215,
+        0.0526,
+        0.05333
+      ],
+      "sqgi_baseline": [
+        0.052155,
+        0.05221,
+        0.051755,
+        0.052175,
+        0.05172
+      ],
+      "node": [
+        0.00619201,
+        0.00599951,
+        0.005977635,
+        0.005992215,
+        0.005987845
+      ],
+      "gjs": [
+        0.00662,
+        0.0064,
+        0.006685,
+        0.006575,
+        0.00656
+      ],
+      "python": [
+        0.26005268,
+        0.261544535,
+        0.26212057,
+        0.262027245,
+        0.261468705
+      ]
+    },
+    "route_skewed": {
+      "sqgi": [
+        0.051585,
+        0.052145,
+        0.05131,
+        0.05142,
+        0.05088
+      ],
+      "sqgi_baseline": [
+        0.051475,
+        0.05168,
+        0.050605,
+        0.051725,
+        0.050515
+      ],
+      "node": [
+        0.00583472,
+        0.00579097,
+        0.005763265,
+        0.00580847,
+        0.005839095
+      ],
+      "gjs": [
+        0.00668,
+        0.00668,
+        0.00668,
+        0.00669,
+        0.006665
+      ],
+      "python": [
+        0.25763771,
+        0.259622475,
+        0.25931186,
+        0.259402275,
+        0.25964873
+      ]
+    },
+    "pricing_events": {
+      "sqgi": [
+        0.056485,
+        0.056745,
+        0.057105,
+        0.056835,
+        0.057255
+      ],
+      "sqgi_baseline": [
+        0.05728,
+        0.057085,
+        0.057715,
+        0.058315,
+        0.05782
+      ],
+      "node": [
+        0.011275695,
+        0.011129865,
+        0.01116049,
+        0.01111674,
+        0.011157575
+      ],
+      "gjs": [
+        0.017565,
+        0.01745,
+        0.017465,
+        0.01734,
+        0.017315
+      ],
+      "python": [
+        0.429266875,
+        0.43368849,
+        0.43367537,
+        0.432822255,
+        0.432180595
+      ]
+    },
+    "filter_stream": {
+      "sqgi": [
+        0.0557,
+        0.056605,
+        0.05626,
+        0.05564,
+        0.055755
+      ],
+      "sqgi_baseline": [
+        0.05524,
+        0.055135,
+        0.055895,
+        0.055805,
+        0.055755
+      ],
+      "node": [
+        0.00505306,
+        0.005322855,
+        0.00503556,
+        0.005042855,
+        0.00510994
+      ],
+      "gjs": [
+        0.010855,
+        0.00999,
+        0.01115,
+        0.009415,
+        0.01246
+      ],
+      "python": [
+        0.239458345,
+        0.240907915,
+        0.240706665,
+        0.239792305,
+        0.24037855
+      ]
+    },
+    "records_64": {
+      "sqgi": [
+        0.12964,
+        0.132895,
+        0.139405,
+        0.137855,
+        0.139355
+      ],
+      "sqgi_baseline": [
+        0.13545,
+        0.13323,
+        0.129875,
+        0.136865,
+        0.139315
+      ],
+      "node": [
+        0.015720645,
+        0.015767305,
+        0.01600356,
+        0.01623543,
+        0.015615645
+      ],
+      "gjs": [
+        0.038445,
+        0.038545,
+        0.038505,
+        0.03856,
+        0.038555
+      ],
+      "python": [
+        0.56056341,
+        0.56661688,
+        0.566398135,
+        0.56540502,
+        0.564419205
+      ]
+    },
+    "records_4096": {
+      "sqgi": [
+        0.313445,
+        0.280005,
+        0.23123,
+        0.234615,
+        0.293085
+      ],
+      "sqgi_baseline": [
+        0.26678,
+        0.255815,
+        0.229345,
+        0.29032,
+        0.2822
+      ],
+      "node": [
+        0.02063225,
+        0.020480585,
+        0.02051121,
+        0.02150724,
+        0.02193161
+      ],
+      "gjs": [
+        0.04344,
+        0.04364,
+        0.04691,
+        0.043435,
+        0.04369
+      ],
+      "python": [
+        0.65667662,
+        0.660231995,
+        0.68137028,
+        0.691890575,
+        0.672998095
+      ]
+    },
+    "word_count": {
+      "sqgi": [
+        0.265555,
+        0.267895,
+        0.26544,
+        0.266725,
+        0.26645
+      ],
+      "sqgi_baseline": [
+        0.267285,
+        0.26624,
+        0.267285,
+        0.266325,
+        0.26654
+      ],
+      "node": [
+        0.07460597,
+        0.074454305,
+        0.07536138,
+        0.074521385,
+        0.073261405
+      ],
+      "gjs": [
+        0.1242,
+        0.12441,
+        0.12407,
+        0.124015,
+        0.12449
+      ],
+      "python": [
+        0.35943689,
+        0.362016655,
+        0.36292081,
+        0.362416235,
+        0.35989481
+      ]
+    },
+    "graph_walk": {
+      "sqgi": [
+        0.01239,
+        0.01242,
+        0.01236,
+        0.012365,
+        0.012435
+      ],
+      "sqgi_baseline": [
+        0.01242,
+        0.012545,
+        0.01246,
+        0.012405,
+        0.012435
+      ],
+      "node": [
+        0.00483286,
+        0.004862025,
+        0.004790565,
+        0.004800775,
+        0.00507494
+      ],
+      "gjs": [
+        0.008565,
+        0.008125,
+        0.008465,
+        0.009795,
+        0.007615
+      ],
+      "python": [
+        0.12859136,
+        0.131209035,
+        0.129145515,
+        0.12892677,
+        0.128759065
+      ]
+    }
+  },
+  "raw": [
+    {
+      "runtime": "interpreter_reference",
+      "command": [
+        "/home/sam/Programming/sqgi/build-jit-audit-20260909/precise-loop-variants-v9/sqgi",
+        "/home/sam/Programming/sqgi/test/bench_application_workloads.nut",
+        "--bench",
+        "--iterations=200000",
+        "--warmups=0",
+        "--seed=17"
+      ],
+      "stdout": "BENCH\troute_balanced\t200000\t0.279625000\t300346\nBENCH\troute_skewed\t200000\t0.275940000\t122121\nBENCH\tpricing_events\t200000\t0.364425000\t636940\nBENCH\tfilter_stream\t200000\t0.297980000\t10704.521037291815\nBENCH\trecords_64\t200000\t0.298440000\t599323\nBENCH\trecords_4096\t200000\t0.375955000\t385702\nBENCH\tword_count\t200000\t0.264290000\t116910\nBENCH\tgraph_walk\t200000\t0.065600000\t386354\n",
+      "stderr": ""
+    },
+    {
+      "round": 1,
+      "runtime": "sqgi",
+      "command": [
+        "/home/sam/Programming/sqgi/build-jit-audit-20260909/precise-loop-variants-v9/sqgi",
+        "/home/sam/Programming/sqgi/test/bench_application_workloads.nut",
+        "--bench",
+        "--iterations=200000",
+        "--warmups=5",
+        "--seed=17"
+      ],
+      "stdout": "BENCH\troute_balanced\t200000\t0.052435000\t300346\nBENCH\troute_skewed\t200000\t0.051585000\t122121\nBENCH\tpricing_events\t200000\t0.056485000\t636940\nBENCH\tfilter_stream\t200000\t0.055700000\t10704.521037291815\nBENCH\trecords_64\t200000\t0.129640000\t599323\nBENCH\trecords_4096\t200000\t0.313445000\t385702\nBENCH\tword_count\t200000\t0.265555000\t116910\nBENCH\tgraph_walk\t200000\t0.012390000\t386354\n",
+      "stderr": ""
+    },
+    {
+      "round": 1,
+      "runtime": "sqgi_baseline",
+      "command": [
+        "/home/sam/Programming/sqgi/build-jit-audit-20260909/baseline/sqgi",
+        "/home/sam/Programming/sqgi/test/bench_application_workloads.nut",
+        "--bench",
+        "--iterations=200000",
+        "--warmups=5",
+        "--seed=17"
+      ],
+      "stdout": "BENCH\troute_balanced\t200000\t0.052155000\t300346\nBENCH\troute_skewed\t200000\t0.051475000\t122121\nBENCH\tpricing_events\t200000\t0.057280000\t636940\nBENCH\tfilter_stream\t200000\t0.055240000\t10704.521037291815\nBENCH\trecords_64\t200000\t0.135450000\t599323\nBENCH\trecords_4096\t200000\t0.266780000\t385702\nBENCH\tword_count\t200000\t0.267285000\t116910\nBENCH\tgraph_walk\t200000\t0.012420000\t386354\n",
+      "stderr": ""
+    },
+    {
+      "round": 1,
+      "runtime": "node",
+      "command": [
+        "/usr/bin/node",
+        "/home/sam/Programming/sqgi/demo/benchmarks/node_application_workloads.js",
+        "200000",
+        "5",
+        "17"
+      ],
+      "stdout": "BENCH\troute_balanced\t200000\t0.006192010\t300346\nBENCH\troute_skewed\t200000\t0.005834720\t122121\nBENCH\tpricing_events\t200000\t0.011275695\t636940\nBENCH\tfilter_stream\t200000\t0.005053060\t10704.521037291815\nBENCH\trecords_64\t200000\t0.015720645\t599323\nBENCH\trecords_4096\t200000\t0.020632250\t385702\nBENCH\tword_count\t200000\t0.074605970\t116910\nBENCH\tgraph_walk\t200000\t0.004832860\t386354\n",
+      "stderr": ""
+    },
+    {
+      "round": 1,
+      "runtime": "gjs",
+      "command": [
+        "/usr/bin/gjs",
+        "-m",
+        "/home/sam/Programming/sqgi/demo/benchmarks/node_application_workloads.js",
+        "200000",
+        "5",
+        "17"
+      ],
+      "stdout": "BENCH\troute_balanced\t200000\t0.006620000\t300346\nBENCH\troute_skewed\t200000\t0.006680000\t122121\nBENCH\tpricing_events\t200000\t0.017565000\t636940\nBENCH\tfilter_stream\t200000\t0.010855000\t10704.521037291815\nBENCH\trecords_64\t200000\t0.038445000\t599323\nBENCH\trecords_4096\t200000\t0.043440000\t385702\nBENCH\tword_count\t200000\t0.124200000\t116910\nBENCH\tgraph_walk\t200000\t0.008565000\t386354\n",
+      "stderr": ""
+    },
+    {
+      "round": 1,
+      "runtime": "python",
+      "command": [
+        "/home/sam/miniconda3/bin/python3",
+        "/home/sam/Programming/sqgi/demo/benchmarks/python_application_workloads.py",
+        "200000",
+        "5",
+        "17"
+      ],
+      "stdout": "BENCH\troute_balanced\t200000\t0.260052680\t300346\nBENCH\troute_skewed\t200000\t0.257637710\t122121\nBENCH\tpricing_events\t200000\t0.429266875\t636940\nBENCH\tfilter_stream\t200000\t0.239458345\t10704.521037291815\nBENCH\trecords_64\t200000\t0.560563410\t599323\nBENCH\trecords_4096\t200000\t0.656676620\t385702\nBENCH\tword_count\t200000\t0.359436890\t116910\nBENCH\tgraph_walk\t200000\t0.128591360\t386354\n",
+      "stderr": ""
+    },
+    {
+      "round": 2,
+      "runtime": "sqgi_baseline",
+      "command": [
+        "/home/sam/Programming/sqgi/build-jit-audit-20260909/baseline/sqgi",
+        "/home/sam/Programming/sqgi/test/bench_application_workloads.nut",
+        "--bench",
+        "--iterations=200000",
+        "--warmups=5",
+        "--seed=17"
+      ],
+      "stdout": "BENCH\troute_balanced\t200000\t0.052210000\t300346\nBENCH\troute_skewed\t200000\t0.051680000\t122121\nBENCH\tpricing_events\t200000\t0.057085000\t636940\nBENCH\tfilter_stream\t200000\t0.055135000\t10704.521037291815\nBENCH\trecords_64\t200000\t0.133230000\t599323\nBENCH\trecords_4096\t200000\t0.255815000\t385702\nBENCH\tword_count\t200000\t0.266240000\t116910\nBENCH\tgraph_walk\t200000\t0.012545000\t386354\n",
+      "stderr": ""
+    },
+    {
+      "round": 2,
+      "runtime": "node",
+      "command": [
+        "/usr/bin/node",
+        "/home/sam/Programming/sqgi/demo/benchmarks/node_application_workloads.js",
+        "200000",
+        "5",
+        "17"
+      ],
+      "stdout": "BENCH\troute_balanced\t200000\t0.005999510\t300346\nBENCH\troute_skewed\t200000\t0.005790970\t122121\nBENCH\tpricing_events\t200000\t0.011129865\t636940\nBENCH\tfilter_stream\t200000\t0.005322855\t10704.521037291815\nBENCH\trecords_64\t200000\t0.015767305\t599323\nBENCH\trecords_4096\t200000\t0.020480585\t385702\nBENCH\tword_count\t200000\t0.074454305\t116910\nBENCH\tgraph_walk\t200000\t0.004862025\t386354\n",
+      "stderr": ""
+    },
+    {
+      "round": 2,
+      "runtime": "gjs",
+      "command": [
+        "/usr/bin/gjs",
+        "-m",
+        "/home/sam/Programming/sqgi/demo/benchmarks/node_application_workloads.js",
+        "200000",
+        "5",
+        "17"
+      ],
+      "stdout": "BENCH\troute_balanced\t200000\t0.006400000\t300346\nBENCH\troute_skewed\t200000\t0.006680000\t122121\nBENCH\tpricing_events\t200000\t0.017450000\t636940\nBENCH\tfilter_stream\t200000\t0.009990000\t10704.521037291815\nBENCH\trecords_64\t200000\t0.038545000\t599323\nBENCH\trecords_4096\t200000\t0.043640000\t385702\nBENCH\tword_count\t200000\t0.124410000\t116910\nBENCH\tgraph_walk\t200000\t0.008125000\t386354\n",
+      "stderr": ""
+    },
+    {
+      "round": 2,
+      "runtime": "python",
+      "command": [
+        "/home/sam/miniconda3/bin/python3",
+        "/home/sam/Programming/sqgi/demo/benchmarks/python_application_workloads.py",
+        "200000",
+        "5",
+        "17"
+      ],
+      "stdout": "BENCH\troute_balanced\t200000\t0.261544535\t300346\nBENCH\troute_skewed\t200000\t0.259622475\t122121\nBENCH\tpricing_events\t200000\t0.433688490\t636940\nBENCH\tfilter_stream\t200000\t0.240907915\t10704.521037291815\nBENCH\trecords_64\t200000\t0.566616880\t599323\nBENCH\trecords_4096\t200000\t0.660231995\t385702\nBENCH\tword_count\t200000\t0.362016655\t116910\nBENCH\tgraph_walk\t200000\t0.131209035\t386354\n",
+      "stderr": ""
+    },
+    {
+      "round": 2,
+      "runtime": "sqgi",
+      "command": [
+        "/home/sam/Programming/sqgi/build-jit-audit-20260909/precise-loop-variants-v9/sqgi",
+        "/home/sam/Programming/sqgi/test/bench_application_workloads.nut",
+        "--bench",
+        "--iterations=200000",
+        "--warmups=5",
+        "--seed=17"
+      ],
+      "stdout": "BENCH\troute_balanced\t200000\t0.053230000\t300346\nBENCH\troute_skewed\t200000\t0.052145000\t122121\nBENCH\tpricing_events\t200000\t0.056745000\t636940\nBENCH\tfilter_stream\t200000\t0.056605000\t10704.521037291815\nBENCH\trecords_64\t200000\t0.132895000\t599323\nBENCH\trecords_4096\t200000\t0.280005000\t385702\nBENCH\tword_count\t200000\t0.267895000\t116910\nBENCH\tgraph_walk\t200000\t0.012420000\t386354\n",
+      "stderr": ""
+    },
+    {
+      "round": 3,
+      "runtime": "node",
+      "command": [
+        "/usr/bin/node",
+        "/home/sam/Programming/sqgi/demo/benchmarks/node_application_workloads.js",
+        "200000",
+        "5",
+        "17"
+      ],
+      "stdout": "BENCH\troute_balanced\t200000\t0.005977635\t300346\nBENCH\troute_skewed\t200000\t0.005763265\t122121\nBENCH\tpricing_events\t200000\t0.011160490\t636940\nBENCH\tfilter_stream\t200000\t0.005035560\t10704.521037291815\nBENCH\trecords_64\t200000\t0.016003560\t599323\nBENCH\trecords_4096\t200000\t0.020511210\t385702\nBENCH\tword_count\t200000\t0.075361380\t116910\nBENCH\tgraph_walk\t200000\t0.004790565\t386354\n",
+      "stderr": ""
+    },
+    {
+      "round": 3,
+      "runtime": "gjs",
+      "command": [
+        "/usr/bin/gjs",
+        "-m",
+        "/home/sam/Programming/sqgi/demo/benchmarks/node_application_workloads.js",
+        "200000",
+        "5",
+        "17"
+      ],
+      "stdout": "BENCH\troute_balanced\t200000\t0.006685000\t300346\nBENCH\troute_skewed\t200000\t0.006680000\t122121\nBENCH\tpricing_events\t200000\t0.017465000\t636940\nBENCH\tfilter_stream\t200000\t0.011150000\t10704.521037291815\nBENCH\trecords_64\t200000\t0.038505000\t599323\nBENCH\trecords_4096\t200000\t0.046910000\t385702\nBENCH\tword_count\t200000\t0.124070000\t116910\nBENCH\tgraph_walk\t200000\t0.008465000\t386354\n",
+      "stderr": ""
+    },
+    {
+      "round": 3,
+      "runtime": "python",
+      "command": [
+        "/home/sam/miniconda3/bin/python3",
+        "/home/sam/Programming/sqgi/demo/benchmarks/python_application_workloads.py",
+        "200000",
+        "5",
+        "17"
+      ],
+      "stdout": "BENCH\troute_balanced\t200000\t0.262120570\t300346\nBENCH\troute_skewed\t200000\t0.259311860\t122121\nBENCH\tpricing_events\t200000\t0.433675370\t636940\nBENCH\tfilter_stream\t200000\t0.240706665\t10704.521037291815\nBENCH\trecords_64\t200000\t0.566398135\t599323\nBENCH\trecords_4096\t200000\t0.681370280\t385702\nBENCH\tword_count\t200000\t0.362920810\t116910\nBENCH\tgraph_walk\t200000\t0.129145515\t386354\n",
+      "stderr": ""
+    },
+    {
+      "round": 3,
+      "runtime": "sqgi",
+      "command": [
+        "/home/sam/Programming/sqgi/build-jit-audit-20260909/precise-loop-variants-v9/sqgi",
+        "/home/sam/Programming/sqgi/test/bench_application_workloads.nut",
+        "--bench",
+        "--iterations=200000",
+        "--warmups=5",
+        "--seed=17"
+      ],
+      "stdout": "BENCH\troute_balanced\t200000\t0.052150000\t300346\nBENCH\troute_skewed\t200000\t0.051310000\t122121\nBENCH\tpricing_events\t200000\t0.057105000\t636940\nBENCH\tfilter_stream\t200000\t0.056260000\t10704.521037291815\nBENCH\trecords_64\t200000\t0.139405000\t599323\nBENCH\trecords_4096\t200000\t0.231230000\t385702\nBENCH\tword_count\t200000\t0.265440000\t116910\nBENCH\tgraph_walk\t200000\t0.012360000\t386354\n",
+      "stderr": ""
+    },
+    {
+      "round": 3,
+      "runtime": "sqgi_baseline",
+      "command": [
+        "/home/sam/Programming/sqgi/build-jit-audit-20260909/baseline/sqgi",
+        "/home/sam/Programming/sqgi/test/bench_application_workloads.nut",
+        "--bench",
+        "--iterations=200000",
+        "--warmups=5",
+        "--seed=17"
+      ],
+      "stdout": "BENCH\troute_balanced\t200000\t0.051755000\t300346\nBENCH\troute_skewed\t200000\t0.050605000\t122121\nBENCH\tpricing_events\t200000\t0.057715000\t636940\nBENCH\tfilter_stream\t200000\t0.055895000\t10704.521037291815\nBENCH\trecords_64\t200000\t0.129875000\t599323\nBENCH\trecords_4096\t200000\t0.229345000\t385702\nBENCH\tword_count\t200000\t0.267285000\t116910\nBENCH\tgraph_walk\t200000\t0.012460000\t386354\n",
+      "stderr": ""
+    },
+    {
+      "round": 4,
+      "runtime": "gjs",
+      "command": [
+        "/usr/bin/gjs",
+        "-m",
+        "/home/sam/Programming/sqgi/demo/benchmarks/node_application_workloads.js",
+        "200000",
+        "5",
+        "17"
+      ],
+      "stdout": "BENCH\troute_balanced\t200000\t0.006575000\t300346\nBENCH\troute_skewed\t200000\t0.006690000\t122121\nBENCH\tpricing_events\t200000\t0.017340000\t636940\nBENCH\tfilter_stream\t200000\t0.009415000\t10704.521037291815\nBENCH\trecords_64\t200000\t0.038560000\t599323\nBENCH\trecords_4096\t200000\t0.043435000\t385702\nBENCH\tword_count\t200000\t0.124015000\t116910\nBENCH\tgraph_walk\t200000\t0.009795000\t386354\n",
+      "stderr": ""
+    },
+    {
+      "round": 4,
+      "runtime": "python",
+      "command": [
+        "/home/sam/miniconda3/bin/python3",
+        "/home/sam/Programming/sqgi/demo/benchmarks/python_application_workloads.py",
+        "200000",
+        "5",
+        "17"
+      ],
+      "stdout": "BENCH\troute_balanced\t200000\t0.262027245\t300346\nBENCH\troute_skewed\t200000\t0.259402275\t122121\nBENCH\tpricing_events\t200000\t0.432822255\t636940\nBENCH\tfilter_stream\t200000\t0.239792305\t10704.521037291815\nBENCH\trecords_64\t200000\t0.565405020\t599323\nBENCH\trecords_4096\t200000\t0.691890575\t385702\nBENCH\tword_count\t200000\t0.362416235\t116910\nBENCH\tgraph_walk\t200000\t0.128926770\t386354\n",
+      "stderr": ""
+    },
+    {
+      "round": 4,
+      "runtime": "sqgi",
+      "command": [
+        "/home/sam/Programming/sqgi/build-jit-audit-20260909/precise-loop-variants-v9/sqgi",
+        "/home/sam/Programming/sqgi/test/bench_application_workloads.nut",
+        "--bench",
+        "--iterations=200000",
+        "--warmups=5",
+        "--seed=17"
+      ],
+      "stdout": "BENCH\troute_balanced\t200000\t0.052600000\t300346\nBENCH\troute_skewed\t200000\t0.051420000\t122121\nBENCH\tpricing_events\t200000\t0.056835000\t636940\nBENCH\tfilter_stream\t200000\t0.055640000\t10704.521037291815\nBENCH\trecords_64\t200000\t0.137855000\t599323\nBENCH\trecords_4096\t200000\t0.234615000\t385702\nBENCH\tword_count\t200000\t0.266725000\t116910\nBENCH\tgraph_walk\t200000\t0.012365000\t386354\n",
+      "stderr": ""
+    },
+    {
+      "round": 4,
+      "runtime": "sqgi_baseline",
+      "command": [
+        "/home/sam/Programming/sqgi/build-jit-audit-20260909/baseline/sqgi",
+        "/home/sam/Programming/sqgi/test/bench_application_workloads.nut",
+        "--bench",
+        "--iterations=200000",
+        "--warmups=5",
+        "--seed=17"
+      ],
+      "stdout": "BENCH\troute_balanced\t200000\t0.052175000\t300346\nBENCH\troute_skewed\t200000\t0.051725000\t122121\nBENCH\tpricing_events\t200000\t0.058315000\t636940\nBENCH\tfilter_stream\t200000\t0.055805000\t10704.521037291815\nBENCH\trecords_64\t200000\t0.136865000\t599323\nBENCH\trecords_4096\t200000\t0.290320000\t385702\nBENCH\tword_count\t200000\t0.266325000\t116910\nBENCH\tgraph_walk\t200000\t0.012405000\t386354\n",
+      "stderr": ""
+    },
+    {
+      "round": 4,
+      "runtime": "node",
+      "command": [
+        "/usr/bin/node",
+        "/home/sam/Programming/sqgi/demo/benchmarks/node_application_workloads.js",
+        "200000",
+        "5",
+        "17"
+      ],
+      "stdout": "BENCH\troute_balanced\t200000\t0.005992215\t300346\nBENCH\troute_skewed\t200000\t0.005808470\t122121\nBENCH\tpricing_events\t200000\t0.011116740\t636940\nBENCH\tfilter_stream\t200000\t0.005042855\t10704.521037291815\nBENCH\trecords_64\t200000\t0.016235430\t599323\nBENCH\trecords_4096\t200000\t0.021507240\t385702\nBENCH\tword_count\t200000\t0.074521385\t116910\nBENCH\tgraph_walk\t200000\t0.004800775\t386354\n",
+      "stderr": ""
+    },
+    {
+      "round": 5,
+      "runtime": "python",
+      "command": [
+        "/home/sam/miniconda3/bin/python3",
+        "/home/sam/Programming/sqgi/demo/benchmarks/python_application_workloads.py",
+        "200000",
+        "5",
+        "17"
+      ],
+      "stdout": "BENCH\troute_balanced\t200000\t0.261468705\t300346\nBENCH\troute_skewed\t200000\t0.259648730\t122121\nBENCH\tpricing_events\t200000\t0.432180595\t636940\nBENCH\tfilter_stream\t200000\t0.240378550\t10704.521037291815\nBENCH\trecords_64\t200000\t0.564419205\t599323\nBENCH\trecords_4096\t200000\t0.672998095\t385702\nBENCH\tword_count\t200000\t0.359894810\t116910\nBENCH\tgraph_walk\t200000\t0.128759065\t386354\n",
+      "stderr": ""
+    },
+    {
+      "round": 5,
+      "runtime": "sqgi",
+      "command": [
+        "/home/sam/Programming/sqgi/build-jit-audit-20260909/precise-loop-variants-v9/sqgi",
+        "/home/sam/Programming/sqgi/test/bench_application_workloads.nut",
+        "--bench",
+        "--iterations=200000",
+        "--warmups=5",
+        "--seed=17"
+      ],
+      "stdout": "BENCH\troute_balanced\t200000\t0.053330000\t300346\nBENCH\troute_skewed\t200000\t0.050880000\t122121\nBENCH\tpricing_events\t200000\t0.057255000\t636940\nBENCH\tfilter_stream\t200000\t0.055755000\t10704.521037291815\nBENCH\trecords_64\t200000\t0.139355000\t599323\nBENCH\trecords_4096\t200000\t0.293085000\t385702\nBENCH\tword_count\t200000\t0.266450000\t116910\nBENCH\tgraph_walk\t200000\t0.012435000\t386354\n",
+      "stderr": ""
+    },
+    {
+      "round": 5,
+      "runtime": "sqgi_baseline",
+      "command": [
+        "/home/sam/Programming/sqgi/build-jit-audit-20260909/baseline/sqgi",
+        "/home/sam/Programming/sqgi/test/bench_application_workloads.nut",
+        "--bench",
+        "--iterations=200000",
+        "--warmups=5",
+        "--seed=17"
+      ],
+      "stdout": "BENCH\troute_balanced\t200000\t0.051720000\t300346\nBENCH\troute_skewed\t200000\t0.050515000\t122121\nBENCH\tpricing_events\t200000\t0.057820000\t636940\nBENCH\tfilter_stream\t200000\t0.055755000\t10704.521037291815\nBENCH\trecords_64\t200000\t0.139315000\t599323\nBENCH\trecords_4096\t200000\t0.282200000\t385702\nBENCH\tword_count\t200000\t0.266540000\t116910\nBENCH\tgraph_walk\t200000\t0.012435000\t386354\n",
+      "stderr": ""
+    },
+    {
+      "round": 5,
+      "runtime": "node",
+      "command": [
+        "/usr/bin/node",
+        "/home/sam/Programming/sqgi/demo/benchmarks/node_application_workloads.js",
+        "200000",
+        "5",
+        "17"
+      ],
+      "stdout": "BENCH\troute_balanced\t200000\t0.005987845\t300346\nBENCH\troute_skewed\t200000\t0.005839095\t122121\nBENCH\tpricing_events\t200000\t0.011157575\t636940\nBENCH\tfilter_stream\t200000\t0.005109940\t10704.521037291815\nBENCH\trecords_64\t200000\t0.015615645\t599323\nBENCH\trecords_4096\t200000\t0.021931610\t385702\nBENCH\tword_count\t200000\t0.073261405\t116910\nBENCH\tgraph_walk\t200000\t0.005074940\t386354\n",
+      "stderr": ""
+    },
+    {
+      "round": 5,
+      "runtime": "gjs",
+      "command": [
+        "/usr/bin/gjs",
+        "-m",
+        "/home/sam/Programming/sqgi/demo/benchmarks/node_application_workloads.js",
+        "200000",
+        "5",
+        "17"
+      ],
+      "stdout": "BENCH\troute_balanced\t200000\t0.006560000\t300346\nBENCH\troute_skewed\t200000\t0.006665000\t122121\nBENCH\tpricing_events\t200000\t0.017315000\t636940\nBENCH\tfilter_stream\t200000\t0.012460000\t10704.521037291815\nBENCH\trecords_64\t200000\t0.038555000\t599323\nBENCH\trecords_4096\t200000\t0.043690000\t385702\nBENCH\tword_count\t200000\t0.124490000\t116910\nBENCH\tgraph_walk\t200000\t0.007615000\t386354\n",
+      "stderr": ""
+    }
+  ]
+}

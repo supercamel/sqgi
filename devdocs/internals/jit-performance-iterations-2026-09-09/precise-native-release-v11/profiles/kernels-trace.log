@@ -1,0 +1,53 @@
+BENCH	direct_call	400060	0.033605	947294
+BENCH	branch_call	400060	0.031700	205768
+BENCH	float_call	400060	0.020862	3.7637795275590551
+BENCH	numeric_loop	400060	0.023124	199950300
+BENCH	vector	20003	0.382493	0.045339967538632835
+BENCH	dynamic_member	20003	1.649803	1799772
+BENCH	dynamic_key_get_set	20003	0.185472	2283803
+BENCH	object_member_write_fallback	20003	0.554917	813966
+BENCH	array_append	20003	0.099735	1234372
+BENCH	array_write	20003	0.037294	940581
+BENCH	array_read	400060	0.007109	1000150
+BENCH	array_float	400060	0.007076	800120
+BENCH	math_intrinsic	20003	0.206619	302268.14627941005
+BENCH	math_variable	20003	0.220667	39179.493084427042
+BENCH	matrix	20003	0.312603	-0.26504986435296141
+[sqjit:stats] proto enters=121266 hot=51 compile=51 success=18 fail=33
+[sqjit:stats] proto exec attempts=121266 success=121031 guard_fail=124
+[sqjit:stats] proto side_exits=0
+[sqjit:stats] direct calls attempts=120952 success=649 miss=120303 guard_fail=3
+[sqjit:stats] loops try=120280 find_fail=8 compile=9 success=4 fail=5 exec=28 exec_success=28 guard_fail=0
+[sqjit:stats] rejects=38 unique_reasons=12
+[sqjit:stats] backoff proto=1 proto_skips=6 loop=0 loop_skips=0
+[sqjit:stats] reject category count=2 category=opcode
+[sqjit:stats] reject category count=5 category=loop
+[sqjit:stats] reject category count=3 category=member
+[sqjit:stats] reject category count=24 category=call
+[sqjit:stats] reject category count=4 category=other
+[sqjit:stats] reject reason count=2 reason=unsupported function shape or instruction limit
+[sqjit:stats] reject reason count=23 reason=deferred CALL direct closure
+[sqjit:stats] reject reason count=1 reason=unsupported PREPCALLK member
+[sqjit:stats] reject reason count=1 reason=unsupported instruction or operand combination
+[sqjit:stats] reject reason count=1 reason=unsupported loop object preload
+[sqjit:stats] reject reason count=2 reason=unsupported SET dynamic member
+[sqjit:stats] reject reason count=2 reason=unsupported loop dynamic member SET
+[sqjit:stats] reject reason count=1 reason=unsupported loop branch shape
+[sqjit:stats] reject reason count=1 reason=unsupported float arithmetic operands
+[sqjit:stats] reject reason count=2 reason=unsupported opcode _OP_FOREACH
+[sqjit:stats] reject reason count=1 reason=unsupported CALL direct closure
+[sqjit:stats] reject reason count=1 reason=unsupported loop direct CALL
+[sqjit:stats] proto_guard rank=1 proto=(nil) name=cross source=/home/sam/Programming/sqgi/test/test_jit_perf_correctness.nut guard_fail=120 exec=121 exec_ok=1 direct=239 direct_ok=119 backoffs=0 skips=0 rejects=0 last_reject_ip=-1 reason=none
+[sqjit:stats] proto_guard rank=2 proto=(nil) name=object_member_write_fallback_kernel source=/home/sam/Programming/sqgi/test/test_jit_perf_correctness.nut guard_fail=7 exec=7 exec_ok=0 direct=6 direct_ok=0 backoffs=1 skips=6 rejects=1 last_reject_ip=29 reason=unsupported loop branch shape
+[sqjit:stats] reject_site rank=1 proto=(nil) name=direct_call_kernel source=/home/sam/Programming/sqgi/test/test_jit_perf_correctness.nut line=48 ip=9 count=7 reason=deferred CALL direct closure
+[sqjit:stats] reject_site rank=2 proto=(nil) name=branch_call_kernel source=/home/sam/Programming/sqgi/test/test_jit_perf_correctness.nut line=62 ip=5 count=7 reason=deferred CALL direct closure
+[sqjit:stats] reject_site rank=3 proto=(nil) name=float_call_kernel source=/home/sam/Programming/sqgi/test/test_jit_perf_correctness.nut line=72 ip=7 count=7 reason=deferred CALL direct closure
+[sqjit:stats] reject_site rank=4 proto=(nil) name=main source=<sqgi async bootstrap> line=-1 ip=-1 count=1 reason=unsupported function shape or instruction limit
+[sqjit:stats] reject_site rank=5 proto=(nil) name=main source=/home/sam/Programming/sqgi/test/test_jit_perf_correctness.nut line=-1 ip=-1 count=1 reason=unsupported function shape or instruction limit
+[sqjit:stats] reject_site rank=6 proto=(nil) name=run_correctness source=/home/sam/Programming/sqgi/test/test_jit_perf_correctness.nut line=334 ip=3 count=1 reason=deferred CALL direct closure
+[sqjit:stats] reject_site rank=7 proto=(nil) name=check_eq source=/home/sam/Programming/sqgi/test/test_jit_perf_correctness.nut line=11 ip=2 count=1 reason=unsupported PREPCALLK member
+[sqjit:stats] reject_site rank=8 proto=(nil) name=approx source=/home/sam/Programming/sqgi/test/test_jit_perf_correctness.nut line=21 ip=0 count=1 reason=unsupported instruction or operand combination
+[sqjit:stats] reject_site rank=9 proto=(nil) name=vector_kernel source=/home/sam/Programming/sqgi/test/test_jit_perf_correctness.nut line=141 ip=43 count=1 reason=deferred CALL direct closure
+[sqjit:stats] reject_site rank=10 proto=(nil) name=vector_kernel source=/home/sam/Programming/sqgi/test/test_jit_perf_correctness.nut line=137 ip=14 count=1 reason=unsupported loop object preload
+[sqjit:stats] reject_site rank=11 proto=(nil) name=dynamic_member_kernel source=/home/sam/Programming/sqgi/test/test_jit_perf_correctness.nut line=190 ip=46 count=1 reason=unsupported SET dynamic member
+[sqjit:stats] reject_site rank=12 proto=(nil) name=dynamic_member_kernel source=/home/sam/Programming/sqgi/test/test_jit_perf_correctness.nut line=190 ip=46 count=1 reason=unsupported loop dynamic member SET

@@ -1,0 +1,21 @@
+from pathlib import Path
+import json,hashlib,shutil,ast
+R=Path('/home/sam/Programming/sqgi');W=R/'devdocs/internals/jit-performance-iterations-2026-09-09/constant-division-v30-work-in-progress'
+S=Path('/tmp/sqgi-constant-division-study');P=Path('/tmp/sqgi-v30-pilot');S.mkdir(exist_ok=True);P.mkdir(exist_ok=True)
+h=lambda p:hashlib.sha256(p.read_bytes()).hexdigest()
+for p,v in json.loads((W/'applied-source-manifest.json').read_text()).items():assert h(R/p)==v
+expected='e2d9658d4001b5711069d19f41d431875bf9e5387be06b2cd0b3b9f26d696728'
+assert h(Path('/tmp/sqgi-scalar-leaf-20260909/sqgi'))==expected
+for name in ['test-gates-verification.json','prior-contract-probes-verification.json','constant-probes-verification.json']:assert json.loads((W/name).read_text())['verified']
+assert not (P/'sqgi').exists();shutil.copy2('/tmp/sqgi-scalar-leaf-20260909/sqgi',P/'sqgi')
+def convert(s):return s.replace('v29','V30_TEMP').replace('v28','v29').replace('V30_TEMP','v30').replace('shared-helper-v29','shared-helper-tail-v29').replace('/tmp/sqgi-shared-helper-tail-study',str(S)).replace('24b4f8c1961001ffbad7a4735b998a912b87853f93bf71a10eab369a96ea9718',expected)
+for name in ['pilot-timings.sh','verify-pilots.py']:
+ s=convert(Path('/tmp/sqgi-v29-'+name).read_text());Path('/tmp/sqgi-v30-'+name).write_text(s)
+ if name.endswith('.py'):ast.parse(s)
+policy={'runs':5,'warmups':[5,4],'iterations':200000,'cpu':4,'suites':['methods','members','owners'],'rotation':['v29','v30','v29_repeat','v30_repeat','node'],'purpose':'Compare candidate with latest accepted build, retain primary-baseline >5% flags and paired copy diagnostics. Both copies of both versions measured. No benchmark changes.','interpreter_checksum_reference':True,'candidate_sha256':expected}
+assert not (S/'pilot-policy.json').exists();(S/'pilot-policy.json').write_text(json.dumps(policy,indent=2)+'\n')
+(W/'application-status-before-probe-verification.json').write_bytes((W/'application-status.json').read_bytes())
+status={'status':'correctness_and_probes_complete_pilots_next','source_files':97,'binary_sha256':expected,'engine_sha256':h(Path('/tmp/sqgi-scalar-leaf-20260909/libsqgi.so.1')),'terminal_handles':[33508,47792,66221,26728,55897,42821],'v30_timings_available':False,'retry_gap':'Existing private proto/loop permanent resource rejection, reproduced unchanged in V29/V30; follow-up required.'}
+(W/'application-status.json').write_text(json.dumps(status,indent=2)+'\n')
+(W/'continuation.md').write_text('''# V30 continuation\n\nV29 remains latest accepted full56 result: 1.882226095x audit, Node 8.119330 / p90 23.761645, GJS 5.370798 / p90 12.629266. Goal unmet.\n\nV30 compiled and all four 100-test runs, two 41-holdout runs, 16 native groups, and eight x64 tests (same 32 known member assertions) verified. Original 13 allocation cases, 24 tail fixtures, 16 previous budget layouts, six native captures and 1244 buffer helpers verified. New 48 paired budget fixtures, 14 installation reference/fault cases and six copied-constant fixtures across reference/release/strict sanitizers verified. See verification JSONs and copied evidence.\n\nThe new 24 repeated-call reference/fault cases expose an unchanged runtime retry gap: precise functions retry on the next call; private proto/loop reject permanently after an executable-allocation failure. Results and prefix effects remain correct. Do not claim automatic retry for all compiler paths. Preserve this as a follow-up improvement with bounded resource backoff and static-rejection behavior retained.\n\nNo V30 timings yet. Pilot candidate /tmp/sqgi-v30-pilot/sqgi is frozen from verified release. Run /tmp/sqgi-v30-pilot-timings.sh then /tmp/sqgi-v30-verify-pilots.py; output /tmp/sqgi-constant-division-study. Both versions repeated, five rotating rounds, warmups4/5. All old handles listed in application-status are terminal. Then freeze full candidate and run unchanged full56, both application seeds/counts, profitability, seven fresh profiles, full paired controls and native captures. Current source manifest has 97 files (includes arithmetic.cpp). No PGO/LTO yet; goal stays active.\n''')
+print('V30 pilots prepared;97 source files and all prerequisite verification identities checked')

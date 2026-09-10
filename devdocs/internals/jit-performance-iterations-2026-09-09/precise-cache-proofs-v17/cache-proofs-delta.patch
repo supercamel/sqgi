@@ -1,0 +1,248 @@
+--- a/Squirrel3/squirrel/jit/sqjit_backend_aarch64_precise.inc
++++ b/Squirrel3/squirrel/jit/sqjit_backend_aarch64_precise.inc
+@@ -15,6 +15,11 @@
+     SQObjectType owner_type, key_type;
+     SQRawObjectVal owner_bits, key_bits;
+     SQObjectPtr *slot;
++};
++
++enum SQJitA64PreciseCacheProof {
++    SQ_JIT_A64_CACHE_FIXED_OWNER = 1,
++    SQ_JIT_A64_CACHE_FIXED_KEY = 2
+ };
+ 
+ static void sqjit_a64_precise_init_caches(void *storage, SQInteger count)
+@@ -256,7 +261,7 @@
+ // caller's checked helper. Only the array receiver-type miss may try the cache.
+ // Neither an unchecked cached pointer nor a weak slot value is dereferenced here.
+ static bool sqjit_a64_precise_address(SQJitA64Buffer *buf, SQFunctionProto *proto,
+-    const SQInstruction &i, bool constant_key, SQInteger cache_offset, bool array,
++    const SQInstruction &i, bool constant_key, SQInteger cache_offset, unsigned cache_proof, bool array,
+     SQJitA64Reloc *guards, SQInteger &nguards, SQInteger &cache_start)
+ {
+     const bool cached = cache_offset >= 0;
+@@ -283,18 +288,19 @@
+     }
+     cache_start = buf->size;
+     if(cached) {
+-        // Read the slot pointer but never dereference it until all identity
+-        // checks pass. Misses, changed receiver/key tags and changed raw bits
+-        // retain the checked resolver, which replaces the activation entry.
++        // Read the slot pointer but never dereference it until it is nonnull
++        // and every mutable identity matches. Proven fixed parameters cannot
++        // change tag/bits inside this activation. Misses retain the resolver.
+         if(!sqjit_a64_emit_ldr_x(buf,11,31,cache_offset+offsetof(SQJitA64PreciseMemberCache,slot)) ||
+-            !sqjit_a64_emit_cmp_imm(buf,11,0) || !guard(SQ_JIT_A64_EQ) ||
+-            !sqjit_a64_emit_ldr_w(buf,9,19,sqjit_a64_stack_type_disp(base)) ||
++            !sqjit_a64_emit_cmp_imm(buf,11,0) || !guard(SQ_JIT_A64_EQ)) return false;
++        if(!(cache_proof & SQ_JIT_A64_CACHE_FIXED_OWNER) &&
++            (!sqjit_a64_emit_ldr_w(buf,9,19,sqjit_a64_stack_type_disp(base)) ||
+             !sqjit_a64_emit_ldr_w(buf,10,31,cache_offset+offsetof(SQJitA64PreciseMemberCache,owner_type)) ||
+             !sqjit_a64_emit_cmp_reg(buf,9,10) || !guard(SQ_JIT_A64_NE) ||
+             !sqjit_a64_emit_ldr_x(buf,9,19,sqjit_a64_stack_value_disp(base)) ||
+             !sqjit_a64_emit_ldr_x(buf,10,31,cache_offset+offsetof(SQJitA64PreciseMemberCache,owner_bits)) ||
+-            !sqjit_a64_emit_cmp_reg(buf,9,10) || !guard(SQ_JIT_A64_NE)) return false;
+-        if(!constant_key &&
++            !sqjit_a64_emit_cmp_reg(buf,9,10) || !guard(SQ_JIT_A64_NE))) return false;
++        if(!constant_key && !(cache_proof & SQ_JIT_A64_CACHE_FIXED_KEY) &&
+             (!sqjit_a64_emit_ldr_w(buf,9,19,sqjit_a64_stack_type_disp(i._arg2)) ||
+              !sqjit_a64_emit_ldr_w(buf,10,31,cache_offset+offsetof(SQJitA64PreciseMemberCache,key_type)) ||
+              !sqjit_a64_emit_cmp_reg(buf,9,10) || !guard(SQ_JIT_A64_NE) ||
+@@ -316,7 +322,7 @@
+ // acquired before dropping the old temporary, including aliases. Final drops
+ // and weak sources retain the checked helper; no callback can occur here.
+ static bool sqjit_a64_precise_get(SQJitA64Buffer *buf, SQFunctionProto *proto,
+-    const SQInstruction &i, bool constant_key, SQInteger cache_offset, bool owning_reads, SQInteger &done)
++    const SQInstruction &i, bool constant_key, SQInteger cache_offset, unsigned cache_proof, bool owning_reads, SQInteger &done)
+ {
+     done = -1;
+     const bool array = (i.op == _OP_GET && !constant_key) ||
+@@ -334,7 +340,7 @@
+         return sqjit_a64_emit_bcond_placeholder(buf,cond,&patch) &&
+             sqjit_a64_record_reloc(guards,&nguards,12,patch,-1,true,cond);
+     };
+-    if(!sqjit_a64_precise_address(buf,proto,i,constant_key,cache_offset,array,
++    if(!sqjit_a64_precise_address(buf,proto,i,constant_key,cache_offset,cache_proof,array,
+         guards,nguards,cache_start)) return false;
+     if(!sqjit_a64_emit_ldr_w(buf,13,11,type)) return false;
+     if(owning_reads) {
+@@ -485,14 +491,14 @@
+ // objects verbatim, as ordinary assignment does. Missing slots, sensitive final
+ // releases and result-producing SETs keep the existing combined-drop helper.
+ static bool sqjit_a64_precise_store(SQJitA64Buffer *buf, SQFunctionProto *proto,
+-    const SQInstruction &i, bool constant_key, SQInteger cache_offset, SQInteger &done)
++    const SQInstruction &i, bool constant_key, SQInteger cache_offset, unsigned cache_proof, SQInteger &done)
+ {
+     done = -1;
+     if(i._arg0 != SQ_JIT_A64_NO_RESULT_SLOT && i._arg0 != i._arg3) return true;
+     const bool array = !constant_key, cached = cache_offset >= 0;
+     if(!array && !cached) return true;
+     SQJitA64Reloc guards[12]; SQInteger nguards = 0, cache_start;
+-    if(!sqjit_a64_precise_address(buf,proto,i,constant_key,cache_offset,array,
++    if(!sqjit_a64_precise_address(buf,proto,i,constant_key,cache_offset,cache_proof,array,
+         guards,nguards,cache_start) ||
+         !sqjit_a64_emit_ldr_w(buf,13,19,sqjit_a64_stack_type_disp(i._arg3)) ||
+         !sqjit_a64_emit_ldr_x(buf,12,19,sqjit_a64_stack_value_disp(i._arg3)) ||
+@@ -507,13 +513,13 @@
+ // Fast scalar writes never release an owner and never call a helper. Every
+ // slow branch precedes the first VM write, so it can retry the same bytecode.
+ static bool sqjit_a64_precise_fast(SQJitA64Buffer *buf, SQFunctionProto *proto,
+-    const SQInstruction &i, bool extended, bool constant_key, SQInteger cache_offset, bool owning_reads, bool owning_copies, bool owning_stores, SQInteger &done)
++    const SQInstruction &i, bool extended, bool constant_key, SQInteger cache_offset, unsigned cache_proof, bool owning_reads, bool owning_copies, bool owning_stores, SQInteger &done)
+ {
+     done = -1;
+     if(extended && (i.op == _OP_GET || i.op == _OP_GETK))
+-        return sqjit_a64_precise_get(buf,proto,i,constant_key,cache_offset,owning_reads,done);
++        return sqjit_a64_precise_get(buf,proto,i,constant_key,cache_offset,cache_proof,owning_reads,done);
+     if(owning_stores && i.op == _OP_SET)
+-        return sqjit_a64_precise_store(buf,proto,i,constant_key,cache_offset,done);
++        return sqjit_a64_precise_store(buf,proto,i,constant_key,cache_offset,cache_proof,done);
+     if(owning_copies) {
+         if(!sqjit_a64_precise_copy(buf,proto,i,done)) return false;
+         if(done>=0) return true;
+@@ -686,8 +692,8 @@
+     // This experiment addresses effectful functions. Pure scalar functions
+     // continue using the existing private-register compiler.
+     if(!has_store) return false;
+-    // Share a cache between sites using the same operand locations. This is
+-    // only a grouping heuristic: every use still checks both runtime operands.
++    // Share caches by operand locations. Mutable identities remain guarded;
++    // complete write facts below can prove canonical parameters invariant.
+     // Bound frame storage; extra sites simply keep the uncached helper path.
+     enum { MAX_CACHES = 64 };
+     struct CacheOperands { SQInteger base, key; bool literal; } operands[MAX_CACHES];
+@@ -711,6 +717,35 @@
+         if(n == cache_count) operands[cache_count++] = item;
+         cache_at[ip] = n;
+     }
++    // A first lexical use can still hit on later iterations or after a later
++    // site branches backward. Cover every backward-branch span, not just a
++    // selected loop header. Otherwise a group with no earlier use is cold.
++    bool in_backedge[SQ_JIT_A64_IP_TABLE_SIZE] = {};
++    SQSlotSet written;
++    for(SQInteger ip=0;ip<proto->_ninstructions;++ip) {
++        written |= analysis.facts[ip].writes;
++        const SQInteger target = analysis.facts[ip].target;
++        if(target >= 0 && target <= ip)
++            for(SQInteger n=target;n<=ip;++n) in_backedge[n] = true;
++    }
++    bool cache_seen[MAX_CACHES] = {}, cache_may_hit[SQ_JIT_A64_IP_TABLE_SIZE] = {};
++    unsigned cache_proof[MAX_CACHES] = {};
++    for(SQInteger n=0;n<cache_count;++n) {
++        const CacheOperands &item = operands[n];
++        if(item.base < proto->_nparameters && !written.test(item.base))
++            cache_proof[n] |= SQ_JIT_A64_CACHE_FIXED_OWNER;
++        if(item.literal || (item.key < proto->_nparameters && !written.test(item.key)))
++            cache_proof[n] |= SQ_JIT_A64_CACHE_FIXED_KEY;
++    }
++    for(SQInteger ip=0;ip<proto->_ninstructions;++ip) {
++        const SQInteger n = cache_at[ip];
++        if(n < 0) continue;
++        cache_may_hit[ip] = in_backedge[ip] || cache_seen[n];
++        cache_seen[n] = true;
++    }
++    // Fixed parameters retain their original tag/bits throughout this no-call,
++    // no-allocation activation. A nonnull helper-filled slot still gates every
++    // use, and the loaded value may change. Nothing persists across activation.
+     bool exhausted = false;
+     auto emit = [&](unsigned tier) -> bool {
+     const bool extended = tier != 0;
+@@ -753,7 +788,9 @@
+         const SQInteger cache_offset = cache_at[ip] < 0 ? -1 :
+             cache_storage + cache_at[ip] * sizeof(SQJitA64PreciseMemberCache);
+         if(!sqjit_a64_precise_fast(&buf,proto,i,extended,constant_key[ip],
+-            tier >= 2 ? cache_offset : -1,tier >= 3,tier >= 4,tier >= 5,fast_done)) return false;
++            tier >= 2 && cache_may_hit[ip] ? cache_offset : -1,
++            cache_at[ip] >= 0 ? cache_proof[cache_at[ip]] : 0,
++            tier >= 3,tier >= 4,tier >= 5,fast_done)) return false;
+         SQJitA64PreciseStep step = sqjit_a64_precise_step_for(i.op,constant_key[ip]);
+         if(!step) return false;
+         if(cache_at[ip] >= 0) {
+--- a/test/cpp/test_sqjit_side_exit.cpp
++++ b/test/cpp/test_sqjit_side_exit.cpp
+@@ -767,6 +767,76 @@
+     return failures;
+ }
+ 
++static int generated_cache_proofs()
++{
++    int failures=0;
++#if defined(SQJIT_CPU_AARCH64)
++    SQVM *v=sq_open(64);SQJitContext &ctx=sqjit_context(v->_sharedstate);
++    ctx.enabled=ctx.precise_exits=true;ctx.threshold=1;sqjit_observe_enable(v);
++    {
++    CHECK(run(v,_SC(
++        "function proof_loop(r,o,key,n) { r.count=r.count+1; local sum=0;"
++        " for(local i=0;i<n;i++) { o[key]=i; sum=sum+o[key]; } return sum; }\n"
++        "function proof_owner(r,o,next,key) { r.count=r.count+1; o[key]=3; o=next; o[key]=5; return o[key]; }\n"
++        "function proof_key(r,o,key,next) { r.count=r.count+1; o[key]=3; key=next; o[key]=5; return o[key]; }\n"
++        "function proof_branch(r,o,key,n) { r.count=r.count+1; if(n<1) o[key]=3; else o[key]=5; return o[key]; }\n"
++        "proof_record <- {count=0}; proof_a <- {}; proof_b <- {};"
++        " proof_a[false]<-0; proof_a[0]<-0; proof_b[false]<-0; proof_b[0]<-0;\n"
++        "if(proof_loop(proof_record,proof_a,false,4)!=6 || proof_a[false]!=3) throw \"fixed bool key\";"
++        "if(proof_loop(proof_record,proof_b,0,5)!=10 || proof_b[0]!=4) throw \"fixed integer key\";"
++        "local a=[0]; if(proof_loop(proof_record,a,0,6)!=15 || a[0]!=5) throw \"fixed array\";"
++        "class ProofOne { value=0; } class ProofTwo { padding=19; value=0; } local x=ProofOne(),y=ProofTwo();"
++        "if(proof_loop(proof_record,x,\"value\",4)!=6 || proof_loop(proof_record,y,\"value\",5)!=10"
++        " || x.value!=3 || y.value!=4) throw \"fixed instance layouts\";"
++        "if(proof_loop(proof_record,1,\"missing\",0)!=0) throw \"unused invalid receiver\";"
++        "if(proof_owner(proof_record,proof_a,proof_b,false)!=5 || proof_a[false]!=3 || proof_b[false]!=5) throw \"written receiver parameter\";"
++        "if(proof_key(proof_record,proof_a,false,0)!=5 || proof_a[false]!=3 || proof_a[0]!=5) throw \"written key tag\";"
++        "if(proof_branch(proof_record,proof_a,false,0)!=3 || proof_branch(proof_record,proof_a,false,1)!=5) throw \"conditional first use\";"
++        "if(proof_record.count!=10) throw \"cache-proof prefixes\";\n")),"cache proofs preserve changing activations, parameter writes, conditional first uses and loop-first hits");
++    for(const SQChar *name : {_SC("proof_loop"),_SC("proof_owner"),_SC("proof_key"),_SC("proof_branch")}) {
++        SQObjectPtr fn=named(v,name);SQFunctionProto *p=_closure(fn)->_function;SQJitObservation seen={};
++        CHECK(p->_jit && p->_jit->_entry && p->_jit->_entry->_requires_vm_frame &&
++            sqjit_observe_proto(p,seen) && seen.frame.successes>0 && seen.frame.side_exits==0 &&
++            native_word(p,0xf900056cu),"cache-proof witnesses retain native heap-store coverage");
++    }
++    SQObjectPtr a=named(v,_SC("proof_a"));
++    _table(v->_roottable)->NewSlot(SQObjectPtr(SQString::Create(v->_sharedstate,_SC("proof_pointer_bits"))),
++        SQObjectPtr((SQInteger)_rawval(a)));
++    CHECK(run(v,_SC(
++        "proof_record.count=0; local caught=false; try { proof_owner(proof_record,proof_a,proof_pointer_bits,false); } catch(e) { caught=true; }"
++        "if(!caught || proof_record.count!=1 || proof_a[false]!=3) throw \"mutated owner tag\";"
++        "caught=false; try { proof_key(proof_record,proof_a,false,\"missing\"); } catch(e) { caught=true; }"
++        "if(!caught || proof_record.count!=2 || proof_a[false]!=3 || (\"missing\" in proof_a)) throw \"mutated missing key\";"
++        "caught=false; try { proof_loop(proof_record,1,\"missing\",2); } catch(e) { caught=true; }"
++        "if(!caught || proof_record.count!=3) throw \"fixed invalid receiver\";"
++        "caught=false; try { proof_branch(proof_record,1,\"missing\",1); } catch(e) { caught=true; }"
++        "if(!caught || proof_record.count!=4) throw \"conditional null cache\";\n")),"omitted identity checks never omit null-slot or mutable-operand guards");
++    for(const SQChar *name : {_SC("proof_loop"),_SC("proof_owner"),_SC("proof_key"),_SC("proof_branch")}) {
++        SQObjectPtr fn=named(v,name);SQJitObservation seen={};
++        CHECK(sqjit_observe_proto(_closure(fn)->_function,seen) && seen.frame.side_exits==1 && seen.frame.guard_failures==0,
++            "each invalid cache-proof operand exits precisely without replaying its prefix");
++    }
++    // The second DLOAD destination must also invalidate a receiver proof.
++    CHECK(run(v,_SC("function proof_double(r,scratch,o,key) { r.count=r.count+1; o[key]=3;"
++        " scratch=\"proof-unused\"; o=\"proof-replacement\"; o[key]=5; return o[key]; }")),"define multi-output receiver write");
++    SQObjectPtr fn=named(v,_SC("proof_double")),b=named(v,_SC("proof_b"));SQFunctionProto *p=_closure(fn)->_function;
++    bool dload=false;
++    for(SQInteger ip=0;ip<p->_ninstructions;++ip) {
++        const SQInstruction &i=p->_instructions[ip];
++        if(i.op==_OP_DLOAD && i._arg2==3) { p->_literals[i._arg3]=b; dload=true; }
++    }
++    CHECK(dload,"DLOAD fixture writes the receiver through its second destination");
++    CHECK(run(v,_SC("proof_record.count=0; if(proof_double(proof_record,0,proof_a,false)!=5"
++        " || proof_record.count!=1 || proof_a[false]!=3 || proof_b[false]!=5) throw \"DLOAD receiver proof\";")),
++        "complete write facts prevent stale addresses after a multi-output parameter assignment");
++    SQJitObservation seen={};CHECK(sqjit_observe_proto(p,seen) && seen.frame.successes==1 && seen.frame.side_exits==0 &&
++        p->_jit->_entry->_requires_vm_frame,"multi-output receiver witness completes natively");
++    }
++    sq_close(v);
++#endif
++    return failures;
++}
++
+ static int generated_copy_release()
+ {
+     int failures=0;
+@@ -1246,7 +1316,7 @@
+ 
+ int main()
+ {
+-    int failures = generated_exits() + generated_exit_sites() + generated_store_release() + generated_caches() + generated_scalars() + generated_cached_release() + generated_reference_reads() + generated_copy_release();
++    int failures = generated_exits() + generated_exit_sites() + generated_store_release() + generated_cache_proofs() + generated_caches() + generated_scalars() + generated_cached_release() + generated_reference_reads() + generated_copy_release();
+     SQVM *v = sq_open(64);
+     SQJitContext &ctx = sqjit_context(v->_sharedstate);
+     ctx.enabled = true; ctx.threshold = 1000000;

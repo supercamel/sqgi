@@ -177,6 +177,8 @@ void sqjit_diag_dump_stats(SQJitContext &ctx)
         (SQInt32)ctx.Diagnostics().total.proto_exec_attempts,
         (SQInt32)ctx.Diagnostics().total.proto_exec_successes,
         (SQInt32)ctx.Diagnostics().total.proto_exec_guard_failures);
+    scprintf(_SC("[sqjit:stats] proto side_exits=%d\n"),
+        (SQInt32)ctx.Diagnostics().total.proto_exec_side_exits);
     scprintf(_SC("[sqjit:stats] direct calls attempts=%d success=%d miss=%d guard_fail=%d\n"),
         (SQInt32)ctx.Diagnostics().total.direct_call_attempts,
         (SQInt32)ctx.Diagnostics().total.direct_call_successes,

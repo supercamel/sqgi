@@ -6,6 +6,7 @@
 #include "sqarray.h"
 #include "sqtable.h"
 #include "sqclass.h"
+#include "sqmemberslot.h"
 #include "sqclosure.h"
 #include "sqjit.h"
 #include "sqjit_backend.h"
@@ -937,11 +938,32 @@ static bool sqjit_compile_guarded_setter_proto(SQFunctionProto *proto, SQJitNati
     return true;
 }
 
-bool sqjit_compile_specialized_proto(SQFunctionProto *proto, SQJitNative *native)
+bool sqjit_compile_specialized_proto(SQFunctionProto *proto, SQObjectPtr *entry_stack,
+    SQJitNative *native)
 {
-    return sqjit_compile_numeric_select_proto(proto, native) ||
+    bool compiled = sqjit_compile_numeric_select_proto(proto, native) ||
         sqjit_compile_accessor_proto(proto, native) ||
         sqjit_compile_guarded_accessor_proto(proto, native) ||
         sqjit_compile_setter_proto(proto, native) ||
         sqjit_compile_guarded_setter_proto(proto, native);
+    if(compiled && entry_stack && native->_native_kind == SQ_JIT_NATIVE_SETTER) {
+        for(SQInteger n = 0; n < native->_setter_count; ++n) {
+            SQInteger literal = native->_setter_field_literal_indices[n];
+            // The C++ stub only writes existing receiver fields. A missing
+            // implicit-receiver field may need VM-root fallback; leave that
+            // case to the backend's transactional, VM-aware store mechanism.
+            if(native->_setter_base_slots[n] == 0 &&
+                native->_setter_array_indices[n] < 0 && native->_setter_index_slots[n] < 0 &&
+                literal >= 0 && literal < proto->_nliterals &&
+                !sq_member_raw_slot(entry_stack[0], proto->_literals[literal])) {
+                native->~SQJitNative();
+                new (native) SQJitNative();
+                native->_ninstructions = proto->_ninstructions;
+                return false;
+            }
+        }
+    }
+    // These stubs read arguments and write only the separate result or heap.
+    if(compiled) native->_stack_live_slots = 0;
+    return compiled;
 }

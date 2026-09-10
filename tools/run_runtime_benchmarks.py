@@ -48,7 +48,7 @@ def main():
     parser.add_argument('--sqgi', type=Path, required=True)
     parser.add_argument('--sqgi-pgo', type=Path, help='also show a separately trained SQGI build')
     parser.add_argument('--sqgi-baseline', type=Path, help='also compare an earlier build with matching options')
-    parser.add_argument('--suite', choices=['kernels', 'applications'], default='kernels')
+    parser.add_argument('--suite', choices=['kernels', 'applications', 'roots'], default='kernels')
     parser.add_argument('--seed', type=positive, default=17, help='input seed for the applications suite')
     parser.add_argument('--node', default=shutil.which('node') or 'node')
     parser.add_argument('--gjs', default=shutil.which('gjs') or 'gjs')
@@ -66,13 +66,14 @@ def main():
         binaries['sqgi_pgo'] = args.sqgi_pgo.resolve()
     if args.sqgi_baseline:
         binaries['sqgi_baseline'] = args.sqgi_baseline.resolve()
-    application_suite = args.suite == 'applications'
-    sq_script = root / ('test/bench_application_workloads.nut' if application_suite
-                        else 'test/test_jit_perf_correctness.nut')
-    js_script = 'node_application_workloads.js' if application_suite else 'node_jit_kernels.js'
-    py_script = 'python_application_workloads.py' if application_suite else 'python_jit_kernels.py'
-    expected_count = 8 if application_suite else 15
-    float_kernels = {'filter_stream'} if application_suite else FLOAT_KERNELS
+    sq_name, port_name, expected_count, float_kernels = {
+        'kernels': ('test_jit_perf_correctness.nut', 'jit_kernels', 15, FLOAT_KERNELS),
+        'applications': ('bench_application_workloads.nut', 'application_workloads', 8, {'filter_stream'}),
+        'roots': ('bench_root_workloads.nut', 'root_workloads', 4, set()),
+    }[args.suite]
+    sq_script = root / 'test' / sq_name
+    js_script = f'node_{port_name}.js'
+    py_script = f'python_{port_name}.py'
     envs, commands, runtime_metadata = {}, {}, {}
     for name, binary in binaries.items():
         env = dict(os.environ, SQGI_JIT='1', SQGI_JIT_THRESHOLD=str(args.threshold), SQGI_JIT_TRACE='0')

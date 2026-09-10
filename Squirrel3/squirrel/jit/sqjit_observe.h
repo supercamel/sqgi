@@ -8,6 +8,7 @@ struct SQJitRouteStats {
     SQInteger attempts;
     SQInteger successes;
     SQInteger guard_failures;
+    SQInteger side_exits;
 };
 
 struct SQJitObservation {

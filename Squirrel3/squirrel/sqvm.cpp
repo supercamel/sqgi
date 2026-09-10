@@ -818,6 +818,7 @@ bool SQVM::Execute(SQObjectPtr &closure, SQInteger nargs, SQInteger stackbase,SQ
                     return false;
                 case SQ_JIT_EXEC_ERROR:
                     SQ_THROW();
+                case SQ_JIT_EXEC_RESUMED:
                 case SQ_JIT_EXEC_NOT_EXECUTED:
                     break;
             }
@@ -866,6 +867,23 @@ exception_restore:
                     if (last_top >= _top) {
                         _top = last_top;
                     }
+#ifdef SQ_ENABLE_JIT
+                    // Tail calls have entered the callee just like ordinary
+                    // calls. Heat and execute that real frame too; otherwise a
+                    // function reached only through tail calls never compiles.
+                    sqjit_on_function_enter(this, _closure(ci->_closure)->_function);
+                    switch(sqjit_try_execute_current(this, outres)) {
+                        case SQ_JIT_EXEC_ROOT_RETURNED:
+                            return true;
+                        case SQ_JIT_EXEC_FRAME_RETURNED:
+                            continue;
+                        case SQ_JIT_EXEC_ERROR:
+                            SQ_THROW();
+                        case SQ_JIT_EXEC_RESUMED:
+                        case SQ_JIT_EXEC_NOT_EXECUTED:
+                            break;
+                    }
+#endif
                     continue;
                 }
                               }
@@ -899,6 +917,7 @@ exception_restore:
                                 continue;
                             case SQ_JIT_EXEC_ERROR:
                                 SQ_THROW();
+                            case SQ_JIT_EXEC_RESUMED:
                             case SQ_JIT_EXEC_NOT_EXECUTED:
                                 break;
                         }

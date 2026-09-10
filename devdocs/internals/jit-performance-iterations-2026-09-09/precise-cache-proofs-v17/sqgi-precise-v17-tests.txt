@@ -1,0 +1,70 @@
+static int generated_cache_proofs()
+{
+    int failures=0;
+#if defined(SQJIT_CPU_AARCH64)
+    SQVM *v=sq_open(64);SQJitContext &ctx=sqjit_context(v->_sharedstate);
+    ctx.enabled=ctx.precise_exits=true;ctx.threshold=1;sqjit_observe_enable(v);
+    {
+    CHECK(run(v,_SC(
+        "function proof_loop(r,o,key,n) { r.count=r.count+1; local sum=0;"
+        " for(local i=0;i<n;i++) { o[key]=i; sum=sum+o[key]; } return sum; }\n"
+        "function proof_owner(r,o,next,key) { r.count=r.count+1; o[key]=3; o=next; o[key]=5; return o[key]; }\n"
+        "function proof_key(r,o,key,next) { r.count=r.count+1; o[key]=3; key=next; o[key]=5; return o[key]; }\n"
+        "function proof_branch(r,o,key,n) { r.count=r.count+1; if(n<1) o[key]=3; else o[key]=5; return o[key]; }\n"
+        "proof_record <- {count=0}; proof_a <- {}; proof_b <- {};"
+        " proof_a[false]<-0; proof_a[0]<-0; proof_b[false]<-0; proof_b[0]<-0;\n"
+        "if(proof_loop(proof_record,proof_a,false,4)!=6 || proof_a[false]!=3) throw \"fixed bool key\";"
+        "if(proof_loop(proof_record,proof_b,0,5)!=10 || proof_b[0]!=4) throw \"fixed integer key\";"
+        "local a=[0]; if(proof_loop(proof_record,a,0,6)!=15 || a[0]!=5) throw \"fixed array\";"
+        "class ProofOne { value=0; } class ProofTwo { padding=19; value=0; } local x=ProofOne(),y=ProofTwo();"
+        "if(proof_loop(proof_record,x,\"value\",4)!=6 || proof_loop(proof_record,y,\"value\",5)!=10"
+        " || x.value!=3 || y.value!=4) throw \"fixed instance layouts\";"
+        "if(proof_loop(proof_record,1,\"missing\",0)!=0) throw \"unused invalid receiver\";"
+        "if(proof_owner(proof_record,proof_a,proof_b,false)!=5 || proof_a[false]!=3 || proof_b[false]!=5) throw \"written receiver parameter\";"
+        "if(proof_key(proof_record,proof_a,false,0)!=5 || proof_a[false]!=3 || proof_a[0]!=5) throw \"written key tag\";"
+        "if(proof_branch(proof_record,proof_a,false,0)!=3 || proof_branch(proof_record,proof_a,false,1)!=5) throw \"conditional first use\";"
+        "if(proof_record.count!=10) throw \"cache-proof prefixes\";\n")),"cache proofs preserve changing activations, parameter writes, conditional first uses and loop-first hits");
+    for(const SQChar *name : {_SC("proof_loop"),_SC("proof_owner"),_SC("proof_key"),_SC("proof_branch")}) {
+        SQObjectPtr fn=named(v,name);SQFunctionProto *p=_closure(fn)->_function;SQJitObservation seen={};
+        CHECK(p->_jit && p->_jit->_entry && p->_jit->_entry->_requires_vm_frame &&
+            sqjit_observe_proto(p,seen) && seen.frame.successes>0 && seen.frame.side_exits==0 &&
+            native_word(p,0xf900056cu),"cache-proof witnesses retain native heap-store coverage");
+    }
+    SQObjectPtr a=named(v,_SC("proof_a"));
+    _table(v->_roottable)->NewSlot(SQObjectPtr(SQString::Create(v->_sharedstate,_SC("proof_pointer_bits"))),
+        SQObjectPtr((SQInteger)_rawval(a)));
+    CHECK(run(v,_SC(
+        "proof_record.count=0; local caught=false; try { proof_owner(proof_record,proof_a,proof_pointer_bits,false); } catch(e) { caught=true; }"
+        "if(!caught || proof_record.count!=1 || proof_a[false]!=3) throw \"mutated owner tag\";"
+        "caught=false; try { proof_key(proof_record,proof_a,false,\"missing\"); } catch(e) { caught=true; }"
+        "if(!caught || proof_record.count!=2 || proof_a[false]!=3 || (\"missing\" in proof_a)) throw \"mutated missing key\";"
+        "caught=false; try { proof_loop(proof_record,1,\"missing\",2); } catch(e) { caught=true; }"
+        "if(!caught || proof_record.count!=3) throw \"fixed invalid receiver\";"
+        "caught=false; try { proof_branch(proof_record,1,\"missing\",1); } catch(e) { caught=true; }"
+        "if(!caught || proof_record.count!=4) throw \"conditional null cache\";\n")),"omitted identity checks never omit null-slot or mutable-operand guards");
+    for(const SQChar *name : {_SC("proof_loop"),_SC("proof_owner"),_SC("proof_key"),_SC("proof_branch")}) {
+        SQObjectPtr fn=named(v,name);SQJitObservation seen={};
+        CHECK(sqjit_observe_proto(_closure(fn)->_function,seen) && seen.frame.side_exits==1 && seen.frame.guard_failures==0,
+            "each invalid cache-proof operand exits precisely without replaying its prefix");
+    }
+    // The second DLOAD destination must also invalidate a receiver proof.
+    CHECK(run(v,_SC("function proof_double(r,scratch,o,key) { r.count=r.count+1; o[key]=3;"
+        " scratch=\"proof-unused\"; o=\"proof-replacement\"; o[key]=5; return o[key]; }")),"define multi-output receiver write");
+    SQObjectPtr fn=named(v,_SC("proof_double")),b=named(v,_SC("proof_b"));SQFunctionProto *p=_closure(fn)->_function;
+    bool dload=false;
+    for(SQInteger ip=0;ip<p->_ninstructions;++ip) {
+        const SQInstruction &i=p->_instructions[ip];
+        if(i.op==_OP_DLOAD && i._arg2==3) { p->_literals[i._arg3]=b; dload=true; }
+    }
+    CHECK(dload,"DLOAD fixture writes the receiver through its second destination");
+    CHECK(run(v,_SC("proof_record.count=0; if(proof_double(proof_record,0,proof_a,false)!=5"
+        " || proof_record.count!=1 || proof_a[false]!=3 || proof_b[false]!=5) throw \"DLOAD receiver proof\";")),
+        "complete write facts prevent stale addresses after a multi-output parameter assignment");
+    SQJitObservation seen={};CHECK(sqjit_observe_proto(p,seen) && seen.frame.successes==1 && seen.frame.side_exits==0 &&
+        p->_jit->_entry->_requires_vm_frame,"multi-output receiver witness completes natively");
+    }
+    sq_close(v);
+#endif
+    return failures;
+}
+

@@ -1,0 +1,402 @@
+--- a/test/cpp/test_sqjit_side_exit.cpp
++++ b/test/cpp/test_sqjit_side_exit.cpp
+@@ -14,6 +14,10 @@
+ #include <stdio.h>
+ #include <initializer_list>
+ #include <string>
++#include <vector>
++#include <cmath>
++#include <limits>
++#include <cstring>
+ 
+ #define CHECK(c, text) do { if(!(c)) { fprintf(stderr, "FAIL: %s\n", text); ++failures; } } while(0)
+ 
+@@ -100,6 +104,202 @@
+     // The callback from the second drop must see the completed heap write.
+     if(sq_type(current) != OT_INTEGER || _integer(current) != 5) *witness->count = -100;
+     return release_witness(pointer,size);
++}
++
++static bool native_word(SQFunctionProto *proto, unsigned word)
++{
++    if(!proto->_jit || !proto->_jit->_entry) return false;
++    const SQJitCode &code = proto->_jit->_entry->_code;
++    const unsigned char *bytes = (const unsigned char *)code.Entry();
++    for(SQInteger n=0;n+4<=code.MappedSize();n+=4) {
++        unsigned actual; memcpy(&actual,bytes+n,4);
++        if(actual == word) return true;
++    }
++    return false;
++}
++
++static int generated_scalars()
++{
++    int failures = 0;
++#if defined(SQJIT_CPU_AARCH64)
++    SQVM *v = sq_open(64);
++    SQJitContext &ctx = sqjit_context(v->_sharedstate);
++    ctx.enabled = ctx.precise_exits = true; ctx.threshold = 1;
++    ctx.trace = ctx.trace_stats = false; sqjit_observe_enable(v);
++    {
++    CHECK(run(v,_SC(
++        "function scalar_add(box,x,y) { box[0]=box[0]+1; return x+y; }\n"
++        "function scalar_sub(box,x,y) { box[0]=box[0]+1; return x-y; }\n"
++        "function scalar_mul(box,x,y) { box[0]=box[0]+1; return x*y; }\n"
++        "function scalar_div(box,x,y) { box[0]=box[0]+1; return x/y; }\n"
++        "function scalar_get(box,items,key) { box[0]=box[0]+1; return items[key]; }\n"
++        "function scalar_getk(box,items,key) { box[0]=box[0]+1; return items.value; }\n"
++        "function scalar_temp_get(value,record,items,n) { record.count=record.count+1; value=items[0]; local next=items[1]; return next+record.seen*100; }\n"
++        "function scalar_alias(box,items,key) { box[0]=box[0]+1; items=items[key]; return items; }\n"
++        "function scalar_temp(value,record,items,n) { record.count=record.count+1; value=items[0]; if(n<2) return record.seen; return record.seen+1; }\n"
++        "scalar_record <- {count=0,seen=0};\n")),"define native scalar fixtures");
++    SQObjectPtr box = SQArray::Create(v->_sharedstate,1);
++    auto invoke = [&](const SQObjectPtr &fn,const SQObjectPtr &x,const SQObjectPtr &y,SQObjectPtr &out) -> bool {
++        _array(box)->_values[0] = SQInteger(0);
++        SQInteger top = sq_gettop(v);
++        sq_pushobject(v,fn);sq_pushroottable(v);sq_pushobject(v,box);sq_pushobject(v,x);sq_pushobject(v,y);
++        bool ok = SQ_SUCCEEDED(sq_call(v,4,SQTrue,SQFalse));
++        out = ok ? v->GetUp(-1) : v->_lasterror;
++        sq_settop(v,top);
++        CHECK(sq_type(_array(box)->_values[0]) == OT_INTEGER && _integer(_array(box)->_values[0]) == 1,
++            "scalar success or exit commits its prefix exactly once");
++        return ok;
++    };
++    auto equal = [](const SQObjectPtr &a,const SQObjectPtr &b) -> bool {
++        if(sq_type(a) != sq_type(b)) return false;
++        if(sq_type(a) == OT_FLOAT && std::isnan(_float(a)) && std::isnan(_float(b))) return true;
++        if(sq_type(a) == OT_STRING) return !scstrcmp(_stringval(a),_stringval(b));
++        return _rawval(a) == _rawval(b);
++    };
++    const SQFloat inf = std::numeric_limits<SQFloat>::infinity();
++    const SQFloat nan = std::numeric_limits<SQFloat>::quiet_NaN();
++    const SQFloat tiny = std::numeric_limits<SQFloat>::denorm_min();
++    const SQFloat huge = std::numeric_limits<SQFloat>::max();
++    std::vector<std::pair<SQObjectPtr,SQObjectPtr> > pairs = {
++        {SQObjectPtr(SQFloat(1.5)),SQObjectPtr(SQFloat(2.0))},
++        {SQObjectPtr(SQFloat(-3.5)),SQObjectPtr(SQInteger(2))},
++        {SQObjectPtr(SQInteger(-7)),SQObjectPtr(SQFloat(0.5))},
++        {SQObjectPtr(SQFloat(0.0)),SQObjectPtr(SQFloat(-0.0))},
++        {SQObjectPtr(SQFloat(-0.0)),SQObjectPtr(SQFloat(-2.0))},
++        {SQObjectPtr(SQFloat(1.0)),SQObjectPtr(SQFloat(-0.0))},
++        {SQObjectPtr(tiny),SQObjectPtr(SQFloat(2.0))},
++        {SQObjectPtr(huge),SQObjectPtr(SQFloat(2.0))},
++        {SQObjectPtr(inf),SQObjectPtr(-inf)},
++        {SQObjectPtr(nan),SQObjectPtr(SQInteger(3))},
++        {SQObjectPtr(std::numeric_limits<SQInteger>::min()),SQObjectPtr(SQFloat(1.25))},
++        {SQObjectPtr(std::numeric_limits<SQInteger>::max()),SQObjectPtr(SQFloat(-1.25))},
++        {SQObjectPtr(SQInteger(-1001)),SQObjectPtr(SQInteger(7))},
++        {SQObjectPtr(SQInteger(7)),SQObjectPtr(SQInteger(0))},
++        {SQObjectPtr(SQInteger(-37)),SQObjectPtr(SQInteger(-1))},
++        {SQObjectPtr(false),SQObjectPtr(SQFloat(2.0))},
++        {SQObjectPtr(SQString::Create(v->_sharedstate,_SC("x"))),SQObjectPtr(SQFloat(2.0))}
++    };
++    unsigned words[] = {0x1e612800u,0x1e613800u,0x1e610800u,0x1e611800u};
++    unsigned op = 0;
++    for(const SQChar *name : {_SC("scalar_add"),_SC("scalar_sub"),_SC("scalar_mul"),_SC("scalar_div")}) {
++        SQObjectPtr fn = named(v,name), expected, actual;
++        SQFunctionProto *proto = _closure(fn)->_function;
++        for(const auto &pair : pairs) {
++            ctx.enabled = false; bool reference = invoke(fn,pair.first,pair.second,expected);
++            ctx.enabled = true; SQJitObservation before = {}, after = {};
++            sqjit_observe_proto(proto,before);
++            bool native = invoke(fn,pair.first,pair.second,actual);
++            CHECK(reference == native && equal(expected,actual),
++                "native arithmetic matches interpreter tags, values, signed zero, NaN and errors");
++            CHECK(proto->_jit && proto->_jit->_entry && proto->_jit->_entry->_requires_vm_frame &&
++                sqjit_observe_proto(proto,after),"scalar arithmetic uses a real precise frame");
++            if(sq_isnumeric(pair.first) && sq_isnumeric(pair.second) && reference)
++                CHECK(after.frame.successes == before.frame.successes+1 && after.frame.side_exits == before.frame.side_exits,
++                    "numeric cases return through native code without a side exit");
++            else CHECK(after.frame.side_exits == before.frame.side_exits+1,
++                "nonnumeric and integer errors take one precise exit");
++        }
++        CHECK(native_word(proto,words[op++]),"generated code contains the selected binary64 arithmetic instruction");
++    }
++    SQObjectPtr items = SQArray::Create(v->_sharedstate,3), weak_owner = SQArray::Create(v->_sharedstate,1);
++    _array(items)->_values[0] = SQInteger(17);
++    _array(items)->_values[1] = SQFloat(-0.0);
++    _array(items)->_values[2] = true;
++    std::vector<SQObjectPtr> keys = {SQObjectPtr(SQInteger(0)),SQObjectPtr(SQInteger(1)),SQObjectPtr(SQInteger(2)),
++        SQObjectPtr(SQInteger(-1)),SQObjectPtr(SQInteger(3)),SQObjectPtr(std::numeric_limits<SQInteger>::max()),
++        SQObjectPtr(SQFloat(0.0)),SQObjectPtr(false),SQObjectPtr(SQString::Create(v->_sharedstate,_SC("0")))};
++    for(const SQChar *name : {_SC("scalar_get"),_SC("scalar_alias"),_SC("scalar_getk")}) {
++        SQObjectPtr fn = named(v,name), expected, actual;
++        SQFunctionProto *proto = _closure(fn)->_function;
++        if(!scstrcmp(name,_SC("scalar_getk"))) {
++            bool literal = false;
++            for(SQInteger n=0;n<proto->_nliterals;++n)
++                if(sq_type(proto->_literals[n]) == OT_STRING && !scstrcmp(_stringval(proto->_literals[n]),_SC("value"))) {
++                    proto->_literals[n] = SQInteger(0);literal = true;
++                }
++            CHECK(literal,"GETK fixture uses a literal integer array key before compilation");
++        }
++        if(!scstrcmp(name,_SC("scalar_alias"))) {
++            bool aliases = false;
++            for(SQInteger ip=0;ip<proto->_ninstructions;++ip) {
++                SQInstruction &i = proto->_instructions[ip];
++                if(i.op != _OP_GET || i._arg1 != 2) continue;
++                if(ip+1<proto->_ninstructions) {
++                    SQInstruction &next = proto->_instructions[ip+1];
++                    if(next.op == _OP_MOVE && next._arg0 == 2 && next._arg1 == i._arg0) {
++                        i._arg0 = 2;next.op = _OP_LINE;
++                    }
++                }
++                aliases = i._arg0 == 2;
++            }
++            CHECK(aliases,"array GET fixture overwrites its owning receiver directly");
++        }
++        for(const SQObjectPtr &key : keys) {
++            ctx.enabled = false;bool reference = invoke(fn,items,key,expected);
++            ctx.enabled = true;bool native = invoke(fn,items,key,actual);
++            CHECK(reference == native && equal(expected,actual),"array fast path preserves scalar tags, aliases, bounds and key fallback");
++        }
++        CHECK(proto->_jit && proto->_jit->_entry && proto->_jit->_entry->_requires_vm_frame,
++            "array read and receiver-alias fixtures execute the precise tier");
++        // Mutate contents and capacity between activations. The fast read must
++        // reload backing storage and leave weak dereference to the helper.
++        _array(items)->Append(SQObjectPtr(SQInteger(41)));
++        _array(items)->_values[0] = weak_owner;
++        ctx.enabled=false;bool reference=invoke(fn,items,SQObjectPtr(SQInteger(0)),expected);
++        ctx.enabled=true;bool native=invoke(fn,items,SQObjectPtr(SQInteger(0)),actual);
++        CHECK(reference && native && equal(expected,actual),"reference array sources retain the checked helper");
++        _array(items)->_values[0] = _array(weak_owner)->GetWeakRef(OT_ARRAY);
++        ctx.enabled=false;reference=invoke(fn,items,SQObjectPtr(SQInteger(0)),expected);
++        ctx.enabled=true;native=invoke(fn,items,SQObjectPtr(SQInteger(0)),actual);
++        CHECK(reference && native && equal(expected,actual) && sq_type(actual) == OT_ARRAY,
++            "weak array elements are dereferenced by the checked helper");
++        expected.Null();actual.Null();v->temp_reg.Null();weak_owner.Null();
++        ctx.enabled=false;reference=invoke(fn,items,SQObjectPtr(SQInteger(0)),expected);
++        ctx.enabled=true;native=invoke(fn,items,SQObjectPtr(SQInteger(0)),actual);
++        CHECK(reference && native && sq_type(expected) == OT_NULL && sq_type(actual) == OT_NULL,
++            "dead weak array elements still read as null");
++        weak_owner = SQArray::Create(v->_sharedstate,1);
++        _array(items)->_values[0] = SQInteger(17);
++    }
++    SQObjectPtr record = named(v,_SC("scalar_record"));
++    _array(items)->_values[1] = SQInteger(7);
++    for(const SQChar *name : {_SC("scalar_temp"),_SC("scalar_temp_get")}) {
++    SQObjectPtr fn = named(v,name);
++    SQFunctionProto *proto = _closure(fn)->_function;
++    bool aliases = false;
++    for(SQInteger ip=0;ip<proto->_ninstructions;++ip) {
++        SQInstruction &i=proto->_instructions[ip];
++        if(i.op != _OP_GET || i._arg1 != 3 || aliases) continue;
++        if(ip+1<proto->_ninstructions) {
++            SQInstruction &next=proto->_instructions[ip+1];
++            if(next.op == _OP_MOVE && next._arg0 == 1 && next._arg1 == i._arg0) {i._arg0=1;next.op=_OP_LINE;}
++        }
++        aliases = i._arg0 == 1;
++    }
++    std::basic_string<SQChar> warm = name;
++    warm += _SC("(0,scalar_record,[5,7],1);");
++    CHECK(aliases && run(v,warm.c_str()),"array temporary fixture overwrites its destination in generated code");
++    SQJitObservation before = {}, after = {};sqjit_observe_proto(proto,before);
++    CHECK(before.frame.successes > 0 && before.frame.side_exits == 0,"array temporary warmup returns natively");
++    CHECK(run(v,_SC("scalar_record.count=0; scalar_record.seen=0;")),"reset array release prefix");
++    int releases = 0;SQInteger top=sq_gettop(v),value=-1;
++    sq_pushobject(v,fn);sq_pushroottable(v);
++    ReleaseWitness *witness=(ReleaseWitness *)sq_newuserdata(v,sizeof(ReleaseWitness));
++    witness->record=&record;witness->count=&releases;sq_setreleasehook(v,-1,release_witness);
++    sq_pushobject(v,record);sq_pushobject(v,items);sq_pushinteger(v,1);
++    CHECK(SQ_SUCCEEDED(sq_call(v,5,SQTrue,SQFalse)) && SQ_SUCCEEDED(sq_getinteger(v,-1,&value)) &&
++        value == (!scstrcmp(name,_SC("scalar_temp")) ? 1 : 107) && releases == 1,
++        "array GET transfers ownership and a following GET or JCMP releases it in VM order");
++    sq_settop(v,top);
++    SQObjectPtr count;_table(record)->Get(SQObjectPtr(SQString::Create(v->_sharedstate,_SC("count"))),count);
++    CHECK(_integer(count) == 1 && sqjit_observe_proto(proto,after) && after.frame.side_exits == before.frame.side_exits+1,
++        "array temporary exit preserves exactly one committed prefix");
++    v->temp_reg.Null();
++    }
++    }
++    sq_close(v);
++#endif
++    return failures;
+ }
+ 
+ static int generated_exits()
+@@ -425,6 +625,8 @@
+         _closure(c)->_function->_jit->_entry && _closure(c)->_function->_jit->_entry->_requires_vm_frame &&
+         sqjit_observe_proto(_closure(c)->_function,after) && after.frame.successes > 0 &&
+         after.frame.side_exits == 0, "more than 64 member sites still execute native code");
++    CHECK(!native_word(_closure(c)->_function,0x1e612800u),
++        "large-function code budget retries without optional float lowering and preserves native coverage");
+     c.Null(); sq_close(v);
+ #endif
+     return failures;
+@@ -432,7 +634,7 @@
+ 
+ int main()
+ {
+-    int failures = generated_exits() + generated_caches();
++    int failures = generated_exits() + generated_caches() + generated_scalars();
+     SQVM *v = sq_open(64);
+     SQJitContext &ctx = sqjit_context(v->_sharedstate);
+     ctx.enabled = true; ctx.threshold = 1000000;
+--- a/Squirrel3/squirrel/jit/sqjit_backend_aarch64_precise.inc
++++ b/Squirrel3/squirrel/jit/sqjit_backend_aarch64_precise.inc
+@@ -252,12 +252,66 @@
+     }
+ }
+ 
++// Scalar array GET matches temp_reg = source; Swap(destination,temp_reg).
++// All checks and source loads precede writes. An owning old destination moves
++// into the non-owning temporary without a refcount change, even when it is the
++// receiver. Reference sources and owning temporaries retain the checked helper.
++static bool sqjit_a64_precise_array_get(SQJitA64Buffer *buf, SQFunctionProto *proto,
++    const SQInstruction &i, SQInteger &done)
++{
++    done = -1;
++    if(i.op != _OP_GET && (i.op != _OP_GETK ||
++        sq_type(proto->_literals[i._arg1]) != OT_INTEGER)) return true;
++    static_assert(sizeof(SQObjectPtr) == 16, "array slot address shift");
++    const SQInteger base = i.op == _OP_GET ? i._arg1 : i._arg2;
++    const SQInteger temp = (SQInteger)(size_t)&(((SQVM *)0)->temp_reg);
++    const SQInteger type = (SQInteger)offsetof(SQObject,_type);
++    const SQInteger value = (SQInteger)offsetof(SQObject,_unVal);
++    SQJitA64Reloc guards[8]; SQInteger nguards = 0, source_owning, temp_owning;
++    auto guard = [&](unsigned cond) -> bool {
++        SQInteger patch;
++        return sqjit_a64_emit_bcond_placeholder(buf,cond,&patch) &&
++            sqjit_a64_record_reloc(guards,&nguards,8,patch,-1,true,cond);
++    };
++    if(!sqjit_a64_emit_type_guard(buf,base,OT_ARRAY,guards,&nguards)) return false;
++    if(i.op == _OP_GET) {
++        if(!sqjit_a64_emit_type_guard(buf,i._arg2,OT_INTEGER,guards,&nguards) ||
++            !sqjit_a64_emit_ldr_x(buf,10,19,sqjit_a64_stack_value_disp(i._arg2))) return false;
++    }
++    else if(!sqjit_a64_emit_mov_imm_x(buf,10,_integer(proto->_literals[i._arg1]))) return false;
++    if(!sqjit_a64_emit_cmp_imm(buf,10,0) || !guard(SQ_JIT_A64_LT) ||
++        !sqjit_a64_emit_ldr_x(buf,11,19,sqjit_a64_stack_value_disp(base)) ||
++        !sqjit_a64_emit_ldr_x(buf,9,11,SQArray::RawSizeOffset()) ||
++        !sqjit_a64_emit_cmp_reg(buf,10,9) || !guard(SQ_JIT_A64_GE) ||
++        !sqjit_a64_emit_ldr_x(buf,11,11,SQArray::RawValuesOffset()) ||
++        !sqjit_a64_emit_add_reg_lsl(buf,11,11,10,4) ||
++        !sqjit_a64_emit_ldr_w(buf,13,11,type) ||
++        !sqjit_a64_emit_test_branch(buf,13,SQ_JIT_A64_REF_COUNTED_BIT,true,&source_owning) ||
++        !sqjit_a64_emit_ldr_w(buf,14,22,temp+type) ||
++        !sqjit_a64_emit_test_branch(buf,14,SQ_JIT_A64_REF_COUNTED_BIT,true,&temp_owning) ||
++        !sqjit_a64_emit_ldr_x(buf,12,11,value) ||
++        !sqjit_a64_emit_ldr_w(buf,14,19,sqjit_a64_stack_type_disp(i._arg0)) ||
++        !sqjit_a64_emit_ldr_x(buf,15,19,sqjit_a64_stack_value_disp(i._arg0)) ||
++        !sqjit_a64_emit_str_x(buf,15,22,temp+value) ||
++        !sqjit_a64_emit_str_w(buf,14,22,temp+type) ||
++        !sqjit_a64_emit_str_x(buf,12,19,sqjit_a64_stack_value_disp(i._arg0)) ||
++        !sqjit_a64_emit_str_w(buf,13,19,sqjit_a64_stack_type_disp(i._arg0)) ||
++        !sqjit_a64_emit_b_placeholder(buf,&done) ||
++        !sqjit_a64_patch_test_branch(buf,source_owning,buf->size) ||
++        !sqjit_a64_patch_test_branch(buf,temp_owning,buf->size)) return false;
++    for(SQInteger n=0;n<nguards;++n)
++        if(!sqjit_a64_patch_branch(buf,guards[n].patch_offset,buf->size,true,guards[n].cond)) return false;
++    return true;
++}
++
+ // Fast scalar writes never release an owner and never call a helper. Every
+ // slow branch precedes the first VM write, so it can retry the same bytecode.
+ static bool sqjit_a64_precise_fast(SQJitA64Buffer *buf, SQFunctionProto *proto,
+-    const SQInstruction &i, SQInteger &done)
++    const SQInstruction &i, bool extended, bool constant_key, SQInteger &done)
+ {
+     done = -1;
++    if(extended && ((i.op == _OP_GET && !constant_key) || i.op == _OP_GETK))
++        return sqjit_a64_precise_array_get(buf,proto,i,done);
+     SQObjectType literal_type = OT_INTEGER;
+     SQInteger literal_bits = 0;
+     switch(i.op) {
+@@ -280,6 +334,8 @@
+     SQInteger dst = i.op == _OP_INCL ? i._arg1 : i._arg0;
+     SQInteger owning = -1, source_owning = -1;
+     SQJitA64Reloc guards[8]; SQInteger nguards = 0;
++    const bool floating = extended && (i.op == _OP_ADD || i.op == _OP_SUB ||
++        i.op == _OP_MUL || i.op == _OP_DIV);
+     auto guard = [&](unsigned cond) {
+         SQInteger patch;
+         return sqjit_a64_emit_bcond_placeholder(buf,cond,&patch) &&
+@@ -333,11 +389,44 @@
+     }
+     if(!sqjit_a64_emit_str_x(buf,9,19,sqjit_a64_stack_value_disp(dst)) ||
+         !sqjit_a64_emit_str_w(buf,10,19,sqjit_a64_stack_type_disp(dst)) ||
+-        !sqjit_a64_emit_b_placeholder(buf,&done) ||
+-        !sqjit_a64_patch_test_branch(buf,owning,buf->size)) return false;
++        !sqjit_a64_emit_b_placeholder(buf,&done)) return false;
++    const SQInteger float_start = buf->size;
++    SQJitA64Reloc float_guards[2]; SQInteger nfloat_guards = 0;
++    if(floating) {
++        // Only integer TYPE failures reach here. Integer divide-by-zero/-1
++        // guards go straight to the helper. Both numeric operands therefore
++        // imply at least one float, preserving integer-only result semantics.
++        auto load_number = [&](SQInteger slot, unsigned fp) -> bool {
++            SQInteger is_float, loaded;
++            if(!sqjit_a64_emit_ldr_w(buf,9,19,sqjit_a64_stack_type_disp(slot)) ||
++                !sqjit_a64_emit_mov_imm_w(buf,10,(uint32_t)OT_FLOAT) ||
++                !sqjit_a64_emit_cmp_reg(buf,9,10) ||
++                !sqjit_a64_emit_bcond_placeholder(buf,SQ_JIT_A64_EQ,&is_float) ||
++                !sqjit_a64_emit_type_guard(buf,slot,OT_INTEGER,float_guards,&nfloat_guards) ||
++                !sqjit_a64_emit_ldr_x(buf,9,19,sqjit_a64_stack_value_disp(slot)) ||
++                !sqjit_a64_emit_scvtf_float_x(buf,fp,9) ||
++                !sqjit_a64_emit_b_placeholder(buf,&loaded) ||
++                !sqjit_a64_patch_branch(buf,is_float,buf->size,true,SQ_JIT_A64_EQ) ||
++                !sqjit_a64_emit_ldr_float(buf,fp,19,sqjit_a64_stack_value_disp(slot)) ||
++                !sqjit_a64_patch_branch(buf,loaded,buf->size,false,0)) return false;
++            return true;
++        };
++        SQInteger finished;
++        if(!load_number(i._arg2,0) || !load_number(i._arg1,1) ||
++            !sqjit_a64_emit_fop_float(buf,(SQOpcode)i.op,0,0,1) ||
++            !sqjit_a64_emit_str_float(buf,0,19,sqjit_a64_stack_value_disp(dst)) ||
++            !sqjit_a64_emit_mov_imm_w(buf,10,(uint32_t)OT_FLOAT) ||
++            !sqjit_a64_emit_str_w(buf,10,19,sqjit_a64_stack_type_disp(dst)) ||
++            !sqjit_a64_emit_b_placeholder(buf,&finished) ||
++            !sqjit_a64_patch_branch(buf,finished,done,false,0)) return false;
++    }
++    if(!sqjit_a64_patch_test_branch(buf,owning,buf->size)) return false;
+     if(source_owning >= 0 && !sqjit_a64_patch_test_branch(buf,source_owning,buf->size)) return false;
+     for(SQInteger n=0;n<nguards;++n)
+-        if(!sqjit_a64_patch_branch(buf,guards[n].patch_offset,buf->size,true,guards[n].cond)) return false;
++        if(!sqjit_a64_patch_branch(buf,guards[n].patch_offset,
++            floating && n < 2 ? float_start : buf->size,true,guards[n].cond)) return false;
++    for(SQInteger n=0;n<nfloat_guards;++n)
++        if(!sqjit_a64_patch_branch(buf,float_guards[n].patch_offset,buf->size,true,float_guards[n].cond)) return false;
+     return true;
+ }
+ 
+@@ -416,7 +505,14 @@
+         if(n == cache_count) operands[cache_count++] = item;
+         cache_at[ip] = n;
+     }
++    bool exhausted = false;
++    auto emit = [&](bool extended) -> bool {
+     SQJitA64Buffer buf; buf.size = 0;
++    bool emitted = false;
++    struct Budget {
++        SQJitA64Buffer &buf; bool &exhausted, &emitted;
++        ~Budget() { exhausted = !emitted && buf.size == (SQInteger)sizeof(buf.bytes); }
++    } budget = {buf,exhausted,emitted};
+     const SQInteger context_slot = 0;
+     const SQInteger cache_storage = 16;
+     SQInteger frame_size = (cache_storage + cache_count * sizeof(SQJitA64PreciseMemberCache) + 15) & ~SQInteger(15);
+@@ -447,7 +543,7 @@
+             continue;
+         }
+         SQInteger fast_done = -1;
+-        if(!sqjit_a64_precise_fast(&buf,proto,i,fast_done)) return false;
++        if(!sqjit_a64_precise_fast(&buf,proto,i,extended,constant_key[ip],fast_done)) return false;
+         SQJitA64PreciseStep step = sqjit_a64_precise_step_for(i.op,constant_key[ip]);
+         if(!step) return false;
+         if(cache_at[ip] >= 0) {
+@@ -491,9 +587,15 @@
+         if(b.target_ip < 0 || b.target_ip >= proto->_ninstructions ||
+             !sqjit_a64_patch_branch(&buf, b.patch_offset, offsets[b.target_ip], b.conditional, b.cond)) return false;
+     }
++    emitted = true;
+     if(!native->_code.Install(buf.bytes, buf.size)) return false;
+     native->_requires_vm_frame = true;
+     native->_stack_live_slots = proto->_stacksize;
+     native->_stack_storage_slots = proto->_stacksize;
+     return true;
+-}
++    };
++    // Optional code growth must not lose existing large-function coverage.
++    // Only a full emission buffer triggers retry; unsupported shapes and
++    // allocation/install failures do not receive a second compile attempt.
++    return emit(true) || (exhausted && emit(false));
++}

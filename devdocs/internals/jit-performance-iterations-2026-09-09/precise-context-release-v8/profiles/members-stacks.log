@@ -1,0 +1,208 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 1K of event 'cycles:u'
+# Event count (approx.): 6278296413
+#
+# Children      Self  Command  Shared Object          Symbol                                         
+# ........  ........  .......  .....................  ...............................................
+#
+    74.37%     0.00%  sqgi     libc.so.6              [.] __libc_start_call_main
+            |
+            ---__libc_start_call_main
+               __libc_start_call_main
+               main
+               |          
+                --74.26%--sq_call
+                          SQVM::Execute
+                          |          
+                          |--6.30%--sq_member_cache_hit (inlined)
+                          |          |          
+                          |           --3.99%--SQTable::GetCachedSlot (inlined)
+                          |          
+                          |--6.23%--SQObjectPtr::operator= (inlined)
+                          |          
+                          |--5.94%--sqjit_try_execute_current
+                          |          |          
+                          |           --2.46%--SQVM::Return
+                          |          
+                          |--2.90%--SQVM::Get
+                          |          
+                          |--2.89%--sqjit_try_execute_current_loop
+                          |          
+                          |--2.61%--sq_member_raw_slot (inlined)
+                          |          |          
+                          |           --2.54%--SQTable::GetRawSlot (inlined)
+                          |          
+                          |--2.17%--sq_vm_member_cache_for (inlined)
+                          |          
+                           --2.03%--SQVM::CMP_OP
+
+    74.37%     0.00%  sqgi     sqgi                   [.] main
+            |
+            ---main
+               |          
+                --74.26%--sq_call
+                          SQVM::Execute
+                          |          
+                          |--6.30%--sq_member_cache_hit (inlined)
+                          |          |          
+                          |           --3.99%--SQTable::GetCachedSlot (inlined)
+                          |          
+                          |--6.23%--SQObjectPtr::operator= (inlined)
+                          |          
+                          |--5.94%--sqjit_try_execute_current
+                          |          |          
+                          |           --2.46%--SQVM::Return
+                          |          
+                          |--2.90%--SQVM::Get
+                          |          
+                          |--2.89%--sqjit_try_execute_current_loop
+                          |          
+                          |--2.61%--sq_member_raw_slot (inlined)
+                          |          |          
+                          |           --2.54%--SQTable::GetRawSlot (inlined)
+                          |          
+                          |--2.17%--sq_vm_member_cache_for (inlined)
+                          |          
+                           --2.03%--SQVM::CMP_OP
+
+    74.26%    56.45%  sqgi     sqgi                   [.] SQVM::Execute
+            |          
+            |--56.45%--__libc_start_call_main
+            |          __libc_start_call_main
+            |          main
+            |          sq_call
+            |          SQVM::Execute
+            |          |          
+            |          |--6.23%--SQObjectPtr::operator= (inlined)
+            |          |          
+            |          |--6.16%--sq_member_cache_hit (inlined)
+            |          |          |          
+            |          |           --3.99%--SQTable::GetCachedSlot (inlined)
+            |          |          
+            |          |--2.61%--sq_member_raw_slot (inlined)
+            |          |          |          
+            |          |           --2.54%--SQTable::GetRawSlot (inlined)
+            |          |          
+            |           --2.17%--sq_vm_member_cache_for (inlined)
+            |          
+             --17.81%--SQVM::Execute
+                       |          
+                       |--5.94%--sqjit_try_execute_current
+                       |          |          
+                       |           --2.46%--SQVM::Return
+                       |          
+                       |--2.90%--SQVM::Get
+                       |          
+                       |--2.89%--sqjit_try_execute_current_loop
+                       |          
+                        --2.03%--SQVM::CMP_OP
+
+    74.26%     0.00%  sqgi     sqgi                   [.] sq_call
+            |
+            ---sq_call
+               SQVM::Execute
+               |          
+               |--6.30%--sq_member_cache_hit (inlined)
+               |          |          
+               |           --3.99%--SQTable::GetCachedSlot (inlined)
+               |          
+               |--6.23%--SQObjectPtr::operator= (inlined)
+               |          
+               |--5.94%--sqjit_try_execute_current
+               |          |          
+               |           --2.46%--SQVM::Return
+               |          
+               |--2.90%--SQVM::Get
+               |          
+               |--2.89%--sqjit_try_execute_current_loop
+               |          
+               |--2.61%--sq_member_raw_slot (inlined)
+               |          |          
+               |           --2.54%--SQTable::GetRawSlot (inlined)
+               |          
+               |--2.17%--sq_vm_member_cache_for (inlined)
+               |          
+                --2.03%--SQVM::CMP_OP
+
+     8.03%     7.82%  sqgi     sqgi                   [.] sqjit_a64_precise_step<(SQOpcode)14, false>
+     7.97%     0.00%  sqgi     sqgi                   [.] SQObjectPtr::operator= (inlined)
+            |
+            ---SQObjectPtr::operator= (inlined)
+
+     6.30%     0.00%  sqgi     sqgi                   [.] sq_member_cache_hit (inlined)
+            |
+            ---sq_member_cache_hit (inlined)
+               |          
+                --3.99%--SQTable::GetCachedSlot (inlined)
+
+     6.08%     2.24%  sqgi     sqgi                   [.] sqjit_try_execute_current
+            |          
+            |--3.84%--sqjit_try_execute_current
+            |          |          
+            |           --2.46%--SQVM::Return
+            |          
+             --2.24%--__libc_start_call_main
+                       __libc_start_call_main
+                       main
+                       sq_call
+                       SQVM::Execute
+                       sqjit_try_execute_current
+
+     4.27%     0.00%  sqgi     [JIT] tid 514330       [.] 0x0000ffffa576e42f
+            |
+            ---0xffffa576e42f
+
+     4.13%     4.05%  sqgi     sqgi                   [.] sqjit_a64_precise_step<(SQOpcode)9, true>
+     3.99%     0.00%  sqgi     sqgi                   [.] SQTable::GetCachedSlot (inlined)
+            |
+            ---SQTable::GetCachedSlot (inlined)
+
+     3.04%     0.00%  sqgi     sqgi                   [.] sqjit_a64_precise_member<false> (inlined)
+            |
+            ---sqjit_a64_precise_member<false> (inlined)
+
+     2.90%     0.36%  sqgi     sqgi                   [.] SQVM::Get
+            |          
+             --2.54%--SQVM::Get
+
+     2.89%     2.17%  sqgi     sqgi                   [.] sqjit_try_execute_current_loop
+            |          
+             --2.17%--__libc_start_call_main
+                       __libc_start_call_main
+                       main
+                       sq_call
+                       SQVM::Execute
+                       sqjit_try_execute_current_loop
+
+     2.61%     0.00%  sqgi     sqgi                   [.] sq_member_raw_slot (inlined)
+            |
+            ---sq_member_raw_slot (inlined)
+               |          
+                --2.54%--SQTable::GetRawSlot (inlined)
+
+     2.54%     0.00%  sqgi     sqgi                   [.] SQTable::GetRawSlot (inlined)
+            |
+            ---SQTable::GetRawSlot (inlined)
+
+     2.46%     1.23%  sqgi     sqgi                   [.] SQVM::Return
+     2.46%     1.59%  sqgi     sqgi                   [.] sqjit_number_conversion_guard
+     2.39%     2.39%  sqgi     sqgi                   [.] SQTable::Get
+     2.17%     0.00%  sqgi     sqgi                   [.] sq_vm_member_cache_for (inlined)
+            |
+            ---sq_vm_member_cache_for (inlined)
+
+     2.17%     2.17%  sqgi     sqgi                   [.] sqjit_a64_precise_step<(SQOpcode)13, false>
+     2.10%     0.00%  sqgi     [JIT] tid 514330       [.] 0x0000ffffa576f083
+            |
+            ---0xffffa576f083
+
+     2.03%     1.16%  sqgi     sqgi                   [.] SQVM::CMP_OP
+
+
+#
+# (Cannot load tips.txt file, please install perf!)
+#

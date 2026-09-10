@@ -1,0 +1,113 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 2K of event 'cycles:u'
+# Event count (approx.): 11211768440
+#
+# Children      Self  Command  Shared Object          Symbol                                           
+# ........  ........  .......  .....................  .................................................
+#
+    24.72%     0.00%  sqgi     libc.so.6              [.] __libc_start_call_main
+            |
+            ---__libc_start_call_main
+               __libc_start_call_main
+               main
+               |          
+                --24.70%--sq_call
+                          SQVM::Execute
+
+    24.72%     0.00%  sqgi     sqgi                   [.] main
+            |
+            ---main
+               |          
+                --24.70%--sq_call
+                          SQVM::Execute
+
+    24.72%     0.00%  sqgi     sqgi                   [.] sq_call
+            |
+            ---sq_call
+               SQVM::Execute
+
+    24.72%    20.22%  sqgi     sqgi                   [.] SQVM::Execute
+            |          
+            |--20.22%--__libc_start_call_main
+            |          __libc_start_call_main
+            |          main
+            |          |          
+            |           --20.19%--sq_call
+            |                     SQVM::Execute
+            |          
+             --4.50%--SQVM::Execute
+
+    13.19%     0.00%  sqgi     [JIT] tid 559976       [.] 0x0000ffffb1b66153
+            |
+            ---0xffffb1b66153
+               |          
+                --2.43%--0xffffb1b66240
+
+    12.31%     0.00%  sqgi     [JIT] tid 559976       [.] 0x0000ffffb1b65153
+            |
+            ---0xffffb1b65153
+               |          
+                --2.28%--0xffffb1b65268
+
+     8.13%     0.00%  sqgi     [JIT] tid 559976       [.] 0x0000ffffb1b64153
+            |
+            ---0xffffb1b64153
+
+     7.44%     0.00%  sqgi     [JIT] tid 559976       [.] 0x0000ffffb1b63043
+            |
+            ---0xffffb1b63043
+               |          
+                --2.11%--0xffffb1b63230
+
+     5.93%     0.00%  sqgi     [JIT] tid 559976       [.] 0x0000ffffb190e32b
+            |
+            ---0xffffb190e32b
+
+     5.12%     1.75%  sqgi     sqgi                   [.] sqjit_a64_helper_member_closure_guard
+            |          
+             --3.37%--sqjit_a64_helper_member_closure_guard
+                       sqjit_a64_helper_member_closure_guard
+                       sqjit_a64_borrow_member_ptr_value
+                       |          
+                        --2.03%--SQTable::GetRawSlot (inlined)
+
+     4.71%     4.71%  sqgi     sqgi                   [.] sqjit_a64_borrow_member_ptr_value
+     3.13%     0.00%  sqgi     sqgi                   [.] SQTable::GetRawSlot (inlined)
+            |
+            ---SQTable::GetRawSlot (inlined)
+
+     2.81%     2.81%  sqgi     [JIT] tid 559976       [.] 0x0000ffffb1b63230
+            |          
+             --2.11%--0xffffb1b63043
+                       0xffffb1b63230
+
+     2.63%     0.00%  sqgi     [JIT] tid 559976       [.] 0x0000ffffb195210f
+            |
+            ---0xffffb195210f
+
+     2.43%     2.43%  sqgi     [JIT] tid 559976       [.] 0x0000ffffb1b66240
+            |
+            ---0xffffb1b66153
+               0xffffb1b66240
+
+     2.28%     2.28%  sqgi     [JIT] tid 559976       [.] 0x0000ffffb1b65268
+            |
+            ---0xffffb1b65153
+               0xffffb1b65268
+
+     2.24%     0.00%  sqgi     sqgi                   [.] SQObjectPtr::operator= (inlined)
+            |
+            ---SQObjectPtr::operator= (inlined)
+
+     2.15%     2.15%  sqgi     sqgi                   [.] SQTable::Get
+     2.15%     1.38%  sqgi     sqgi                   [.] sqjit_number_conversion_guard
+     2.11%     0.77%  sqgi     sqgi                   [.] sqjit_a64_helper_member_native_closure_guard
+
+
+#
+# (Cannot load tips.txt file, please install perf!)
+#

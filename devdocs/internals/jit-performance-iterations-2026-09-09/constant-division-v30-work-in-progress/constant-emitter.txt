@@ -1,0 +1,48 @@
+// Signed dividend in x9, result in x9; x10/x11 are scratch. Only a proven
+// positive divisor is admitted. Zero and negative divisors retain the caller's
+// existing guards and hardware operation. NZCV is unchanged.
+bool sqjit_a64_emit_divmod_constant(SQJitA64Buffer *buf, SQInteger divisor, bool remainder)
+{
+    if(sizeof(SQInteger)!=8 || divisor<=0) return false;
+    if(divisor==1) return !remainder || sqjit_a64_emit_mov_imm_x(buf,9,0);
+    const uint64_t d=static_cast<uint64_t>(divisor);
+    auto shift=[&](unsigned rd,unsigned rn,unsigned amount,bool arithmetic) {
+        return amount<64 && sqjit_a64_emit_u32(buf,
+            (arithmetic ? 0x9340fc00u : 0xd340fc00u) |
+            (amount<<16) | (rn<<5) | rd);
+    };
+    if((d&(d-1))==0) {
+        unsigned power=0;
+        for(uint64_t n=d;n>1;n>>=1) ++power;
+        // Add 2^power-1 only for negative dividends, then arithmetic shift.
+        if(!shift(11,9,63,true) || !shift(11,11,64-power,false) ||
+            !sqjit_a64_emit_add_reg(buf,11,9,11) || !shift(11,11,power,true)) return false;
+    }
+    else {
+        // Same unsigned reciprocal derivation as the x64 emitter. Quotient
+        // and remainder doubling avoids host floating rounding and __int128.
+        const uint64_t half=UINT64_C(1)<<63;
+        const uint64_t boundary=half-1-half%d;
+        uint64_t q[2]={half/boundary,half/d}, r[2]={half%boundary,half%d};
+        const uint64_t denominators[2]={boundary,d};
+        unsigned power=63;
+        do {
+            ++power;
+            for(unsigned n=0;n<2;++n) {
+                q[n]<<=1; r[n]<<=1;
+                if(r[n]>=denominators[n]) { r[n]-=denominators[n]; ++q[n]; }
+            }
+        } while(q[0]<d-r[1] || (q[0]==d-r[1] && r[0]==0));
+        const uint64_t magic=q[1]+1;
+        SQInteger bits; memcpy(&bits,&magic,sizeof(bits));
+        if(!sqjit_a64_emit_mov_imm_x(buf,10,bits) ||
+            !sqjit_a64_emit_u32(buf,0x9b407c00u | (10u<<16) | (9u<<5) | 11u)) return false; // smulh x11,x9,x10
+        if((magic&half) && !sqjit_a64_emit_add_reg(buf,11,11,9)) return false;
+        if(power>64 && !shift(11,11,power-64,true)) return false;
+        // Correct the negative quotient toward zero: add x11,x11,x11,lsr #63.
+        if(!sqjit_a64_emit_u32(buf,0x8b400000u | (11u<<16) | (63u<<10) | (11u<<5) | 11u)) return false;
+    }
+    if(!remainder) return sqjit_a64_emit_mov_reg(buf,9,11);
+    return sqjit_a64_emit_mov_imm_x(buf,10,divisor) &&
+        sqjit_a64_emit_msub_reg(buf,9,11,10,9);
+}

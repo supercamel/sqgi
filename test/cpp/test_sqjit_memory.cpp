@@ -9,6 +9,7 @@
 #include "jit/sqjit_observe.h"
 #include "jit/sqjit_platform.h"
 #include "jit/sqjit_backend.h"
+#include "jit/sqjit_backend_aarch64_emit.h"
 #include <stdio.h>
 #include <initializer_list>
 
@@ -39,9 +40,65 @@ static SQJitObservation observe(SQVM *v, const SQChar *name)
     return result;
 }
 
+#if SQJIT_HAS_EXTERNAL_NATIVE && defined(__aarch64__)
+static int scalar_get_predicate()
+{
+    int rc = 0;
+#define CHECK(c, msg) do { if(!(c)) { puts("FAIL: " msg); ++rc; } } while(0)
+    // Execute the predicate itself for every real tag pair, independent of
+    // compiler route selection. Raw SQObject fixtures have no destructors:
+    // reference-tag payloads are deliberately never dereferenced by the test.
+    static_assert(sizeof(SQObject) == sizeof(SQObjectPtr), "predicate fixture uses VM slot stride");
+    SQObject raw_slots[2] = {}, first_vm[2] = {}, second_vm[2] = {};
+    SQObject *active_vm = first_vm;
+    SQJitA64Buffer predicate = {};
+    SQInteger skip_predicate = -1;
+    CHECK(sqjit_a64_emit_prologue(&predicate, 16) &&
+        sqjit_a64_emit_scalar_get_skip(&predicate, 1, (SQInteger)(intptr_t)&active_vm,
+            sizeof(SQObject) + offsetof(SQObject, _type), &skip_predicate) &&
+        sqjit_a64_emit_epilogue(&predicate, 16, 0) &&
+        sqjit_a64_patch_test_branch(&predicate, skip_predicate, predicate.size) &&
+        sqjit_a64_emit_epilogue(&predicate, 16, 1), "emit standalone scalar GET ownership predicate");
+    SQJitCode predicate_code;
+    CHECK(predicate_code.Install(predicate.bytes, predicate.size), "install ownership predicate");
+    if(predicate_code.Entry()) {
+        typedef SQInteger (*Predicate)(SQObject *);
+        Predicate check = (Predicate)predicate_code.Entry();
+        const SQObjectType types[] = {OT_NULL, OT_INTEGER, OT_FLOAT, OT_BOOL, OT_STRING,
+            OT_TABLE, OT_ARRAY, OT_USERDATA, OT_CLOSURE, OT_NATIVECLOSURE,
+            OT_GENERATOR, OT_USERPOINTER, OT_THREAD, OT_FUNCPROTO, OT_CLASS,
+            OT_INSTANCE, OT_WEAKREF, OT_OUTER};
+        for(SQObjectType destination : types) for(SQObjectType temporary : types) {
+            raw_slots[1]._type = destination;
+            first_vm[1]._type = temporary;
+            active_vm = first_vm;
+            SQInteger expected = !ISREFCOUNTED(destination) && !ISREFCOUNTED(temporary);
+            CHECK(check(raw_slots) == expected, "inline predicate matches C++ ownership tags");
+            active_vm = NULL;
+            CHECK(check(raw_slots) == 0, "raw native calls cannot elide the journal temporary");
+            second_vm[1]._type = OT_NULL;
+            active_vm = second_vm;
+            CHECK(check(raw_slots) == !ISREFCOUNTED(destination), "predicate reloads the active VM each call");
+        }
+        active_vm = NULL;
+        CHECK(check(NULL) == 0, "no-active-VM branch does not read VM or stack memory");
+    }
+#undef CHECK
+    return rc;
+}
+#endif
+
+static const SQChar *constructed_arrays = _SC(
+    "function local_ints(n) { local a=[3,5,7,11]; local s=0; for(local i=0;i<n;i++) s+=a[i%4]; return s }\n"
+    "function local_floats(n) { local a=[0.25,1.25,2.25]; local s=0.0; for(local i=0;i<n;i++) s+=a[i%3]; return s }\n"
+    "function local_alias(n) { local a=[2,7,13]; local b=a; local s=0; for(local i=0;i<n;i++) s+=b[i%3]; return s }\n");
+
 int main()
 {
     int failures = 0;
+#if SQJIT_HAS_EXTERNAL_NATIVE && defined(__aarch64__)
+    failures += scalar_get_predicate();
+#endif
     for(int enabled = 0; enabled < 2; ++enabled) {
         SQVM *v = sq_open(64);
         SQJitContext &ctx = sqjit_context(v->_sharedstate);
@@ -68,6 +125,76 @@ int main()
             "}\n"
             "local long_table={a=0,b=0,c=0,d=0};\n"
             "if(keys([\"a\",\"b\",\"c\",\"d\"],long_table,100000)!=1250050000 || long_table.a!=25000) throw \"long member loop\";\n"))) ++failures;
+        if(!run(v, constructed_arrays)) ++failures;
+        if(!run(v, _SC(
+            "function local_mixed(i) { local a=[3,1.5,7]; return a[i] }\n"
+            "function local_unknown(x,i) { local a=[x,3,5]; return a[i] }\n"
+            "function local_changed(t,change,i) { local a=[3,5,7]; local b=a; t.count=t.count+1; if(change) b[1]=1.5; return a[i] }\n"
+            "function local_replaced(t,change,i) { local a=[3,5,7]; t.count=t.count+1; if(change) a[1]=\"changed\"; return a[i] }\n"
+            "function local_branch(flag,i) { local a=null; if(flag) a=[3,5,7]; else a=[0.5,1.5,2.5]; return a[i] }\n"
+            "function local_empty(t,i) { local a=[]; t.count=t.count+1; return a[i] }\n"
+            "for(local j=0;j<4;j++) {\n"
+            " if(local_ints(28)!=182 || local_ints(0)!=0) throw \"constructed integer array\";\n"
+            " if(local_floats(21)!=26.25 || local_floats(0)!=0.0) throw \"constructed float array\";\n"
+            " if(local_alias(21)!=154 || local_alias(0)!=0) throw \"constructed array alias\";\n"
+            " if(local_mixed(0)!=3 || local_mixed(1)!=1.5 || local_mixed(2)!=7) throw \"mixed construction\";\n"
+            " local t={count=0}; if(local_changed(t,false,1)!=5 || t.count!=1) throw \"warm aliased construction\";\n"
+            " if(local_replaced(t,false,1)!=5 || t.count!=2) throw \"warm object replacement\";\n"
+            " if(local_branch(true,1)!=5 || local_branch(false,1)!=1.5) throw \"branch construction hint is not proof\";\n"
+            "}\n"))) ++failures;
+#if SQJIT_HAS_EXTERNAL_NATIVE && defined(__aarch64__)
+        if(enabled) {
+            for(const SQChar *name : {_SC("local_ints"), _SC("local_floats"), _SC("local_alias")}) {
+                // Separately prove the new whole-function routes with clean
+                // entry slots. The mixed-caller checks above also exercise
+                // the existing conservative destruction/replay guards.
+                SQVM *route_vm = sq_open(64);
+                SQJitContext &route_ctx = sqjit_context(route_vm->_sharedstate);
+                route_ctx.enabled = true; route_ctx.threshold = 1;
+                route_ctx.trace = route_ctx.trace_stats = false;
+                sqjit_observe_enable(route_vm);
+                if(!run(route_vm, constructed_arrays)) ++failures;
+                SQChar call[80]; scsprintf(call, sizeof(call) / sizeof(SQChar), _SC("%s(21);"), name);
+                if(!run(route_vm, call)) ++failures;
+                SQJitObservation o = observe(route_vm, name);
+                if(!o.compilation.compiled || !o.frame.successes) {
+                    scprintf(_SC("FAIL: native constructed array reads: %s (successes=%d guards=%d)\n"),
+                        name, (SQInt32)o.frame.successes, (SQInt32)o.frame.guard_failures); ++failures;
+                }
+                sq_close(route_vm);
+            }
+        }
+#endif
+        if(!run(v, _SC(
+            "local t={count=0};\n"
+            "if(local_changed(t,true,1)!=1.5 || t.count!=1) throw \"aliased element tag must guard and replay once\";\n"
+            "if(local_changed(t,false,1)!=5 || t.count!=2) throw \"construction after tag fallback\";\n"
+            "if(local_replaced(t,true,1)!=\"changed\" || t.count!=3) throw \"replacement object must guard and replay once\";\n"
+            "foreach(i in [-1,3,2147483647]) { local caught=false; local before=t.count;\n"
+            " try { local_changed(t,false,i) } catch(e) { caught=true }\n"
+            " if(!caught || t.count!=before+1) throw \"constructed bounds partial replay\"; }\n"
+            "local caught=false, before=t.count; try { local_empty(t,0) } catch(e) { caught=true }\n"
+            "if(!caught || t.count!=before+1) throw \"empty construction must not infer a scalar\";\n"
+            "foreach(x in [19,2.5,true,null,\"value\",[17]]) {\n"
+            " local result=local_unknown(x,0); if(result!=x || typeof result!=typeof x) throw \"unknown constructed element tag\"; }\n"
+            "local owner=[29]; if(local_unknown(owner.weakref(),0)!=owner) throw \"constructed weakref dereference\";\n"))) ++failures;
+        {
+            SQObjectPtr owner(SQArray::Create(v->_sharedstate, 0));
+            SQObjectPtr dead(_refcounted(owner)->GetWeakRef(OT_ARRAY));
+            owner.Null();
+            // Pass the raw weakref through the host API; fetching it from a
+            // root-table slot would already dereference it before the array.
+            SQInteger top = sq_gettop(v);
+            sq_pushroottable(v); sq_pushstring(v, _SC("local_unknown"), -1);
+            if(SQ_FAILED(sq_get(v, -2))) ++failures;
+            else {
+                sq_remove(v, -2); sq_pushroottable(v); sq_pushobject(v, dead); sq_pushinteger(v, 0);
+                if(SQ_FAILED(sq_call(v, 3, SQTrue, SQTrue)) || sq_gettype(v, -1) != OT_NULL) {
+                    puts("FAIL: constructed dead weakref reads null"); ++failures;
+                }
+            }
+            sq_settop(v, top);
+        }
 #if SQJIT_HAS_X64_NATIVE
         if(enabled) {
             for(const SQChar *name : {_SC("ints"), _SC("floats")}) {

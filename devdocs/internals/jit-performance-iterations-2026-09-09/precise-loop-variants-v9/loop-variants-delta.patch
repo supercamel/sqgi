@@ -1,0 +1,449 @@
+--- a/test/cpp/test_sqjit_contracts.cpp
++++ b/test/cpp/test_sqjit_contracts.cpp
+@@ -2,11 +2,18 @@
+ #include "sqvm.h"
+ #include "sqfuncproto.h"
+ #include "sqclosure.h"
++#include "sqtable.h"
++#include "sqstring.h"
++#include "sqclass.h"
++#include <vector>
+ #include "jit/sqjit.h"
+ #include "jit/sqjit_context.h"
+ #include "jit/sqjit_diagnostics.h"
+ #include "jit/sqjit_observe.h"
+ #include "jit/sqjit_platform.h"
++#if defined(SQJIT_CPU_AARCH64)
++#include "jit/sqjit_backend_aarch64_emit.h"
++#endif
+ #include <stdio.h>
+ #include <limits>
+ #include <type_traits>
+@@ -51,9 +58,166 @@
+ static SQInteger stub() { return 42; }
+ static void debug_hook(HSQUIRRELVM, SQInteger, const SQChar *, SQInteger, const SQChar *) {}
+ 
++#if defined(SQJIT_CPU_AARCH64)
++static SQVM *nested_loop_vm = NULL;
++static bool nested_loop_active = false, nested_loop_ok = false;
++// An injected mapped entry isolates executable-lifetime/reentry behavior. The
++// nested alternate is compiled from real bytecode. This does not claim that
++// ordinary compiled loops admit arbitrary callbacks.
++static SQInteger nested_loop_entry(SQObjectPtr *stack,SQInteger *next,SQClosure *closure)
++{
++    if(nested_loop_active) return SQ_JIT_NATIVE_GUARD_FAILED;
++    nested_loop_active = true;
++    SQJitContext &ctx=sqjit_context(closure->_function->_sharedstate);
++    SQVM *outer=ctx.active_vm;
++    nested_loop_ok = run(nested_loop_vm,_SC("if(nested_mapping(7)!=17 || nested_root!=6) throw \"nested mapping\";")) &&
++        ctx.active_vm==outer;
++    nested_loop_active = false;
++    // Model this fixture's completed outer loop before jumping to its exit.
++    _table(outer->_roottable)->Set(SQObjectPtr(SQString::Create(outer->_sharedstate,_SC("nested_root"))),
++        SQObjectPtr(_integer(stack[1])-1));
++    *next=closure->_function->_jit->_loop_exit_ip;
++    return SQ_JIT_NATIVE_RETURNED;
++}
++
++static void nested_loop_mapping_test(int &rc)
++{
++    SQVM *v=sq_open(64);
++    SQJitContext &ctx=sqjit_context(v->_sharedstate);
++    ctx.enabled=ctx.precise_exits=true;ctx.threshold=1;
++    ctx.trace=ctx.trace_stats=false;sqjit_observe_enable(v);
++    CHECK(run(v,_SC("nested_root <- 0; function nested_mapping(n) { nested_root=0;"
++        " for(local i=0;i<n;i++) nested_root=i; return 17; }")), "define nested mapping fixture");
++    SQFunctionProto *p=proto(v,_SC("nested_mapping"));
++    SQInteger start=-1,header=-1,end=-1,exit=-1;
++    for(SQInteger ip=0;p && ip<p->_ninstructions;++ip)
++        if(sqjit_backend_loop_find_region(p,ip,&start,&end,&exit)) { header=ip;break; }
++    CHECK(p && !p->_jit && header>=0, "nested mapping fixture exposes an uncompiled loop region");
++    if(!p || p->_jit || header<0) { sq_close(v);return; }
++    void *storage=sq_vm_malloc(sizeof(SQJitProto));
++    CHECK(storage, "allocate the nested mapping artifact");
++    if(!storage) { sq_close(v);return; }
++    SQJitProto *jit=p->_jit=new(storage) SQJitProto();
++    jit->_eligibility=SQ_JIT_NEVER; // Force the real VM loop-entry ABI.
++    jit->_loop_header_ip=header;jit->_loop_exit_ip=exit;jit->_loop_has_succeeded=true;
++    SQJitA64Buffer code;code.size=0;
++    // Preserve fp/lr across the callback; propagate its native status in x0.
++    bool built=sqjit_a64_emit_u32(&code,0xA9BF7BFDu) && sqjit_a64_emit_u32(&code,0x910003FDu) &&
++        sqjit_a64_emit_mov_imm_x(&code,16,(SQInteger)(intptr_t)nested_loop_entry) &&
++        sqjit_a64_emit_blr_x16(&code) && sqjit_a64_emit_u32(&code,0xA8C17BFDu) &&
++        sqjit_a64_emit_u32(&code,0xD65F03C0u) && jit->_loop_code.Install(code.bytes,code.size);
++    CHECK(built, "install the primary executable mapping for the reentry witness");
++    if(!built) { sq_close(v);return; }
++    void *primary=jit->_loop_code.Entry();
++    nested_loop_vm=sq_newthread(v,64);
++    SQObjectPtr thread_owner=v->GetUp(-1);sq_pop(v,1);
++    nested_loop_ok=false;
++    CHECK(run(v,_SC("if(nested_mapping(5)!=17 || nested_root!=4) throw \"outer mapping\";")) && nested_loop_ok,
++        "nested compilation returns through the still-live primary native mapping");
++    CHECK(jit->_loop_code.Entry()==primary && jit->_loop_alternate_code.Entry() &&
++        jit->_loop_alternate_attempted && !ctx.active_vm && !ctx.active_logs,
++        "nested loop adaptation preserves both mappings and restores VM context");
++    nested_loop_vm=NULL;thread_owner.Null();sq_close(v);
++}
++#endif
++
++static void loop_variant_tests(int &rc)
++{
++#if defined(SQJIT_CPU_AARCH64)
++    nested_loop_mapping_test(rc);
++    for(bool reversed : {false,true}) {
++        SQVM *v = sq_open(64);
++        SQJitContext &ctx = sqjit_context(v->_sharedstate);
++        ctx.enabled = ctx.precise_exits = true; ctx.threshold = 1;
++        ctx.trace = ctx.trace_stats = false; sqjit_observe_enable(v);
++        CHECK(run(v,_SC(
++            "variant_root <- 0;"
++            "class VariantLocal { value=0; function update(x) { value=x; return x; } }"
++            "class VariantRoot { function update(x) { variant_root=x; return x; } }"
++            "class VariantThird { value=0; function update(x) { value=x; return x+1; } }"
++            "function variants(n,kind) { variant_root=0;"
++            " local receiver=kind==0 ? VariantLocal() : (kind==1 ? VariantRoot() : VariantThird()),sum=0;"
++            " for(local i=0;i<n;i++) sum=(sum+receiver.update((i*13+7)%997))%100003;"
++            " return sum+(kind==1 ? variant_root : receiver.value); }")), "define independent receiver-history fixture");
++        SQFunctionProto *p = proto(v,_SC("variants"));
++        auto call_variant = [&](SQInteger kind, SQInteger extra) {
++            SQInteger top=sq_gettop(v),actual=-1,expected=0,last=0;
++            for(SQInteger i=0;i<37;++i) { last=(i*13+7)%997; expected=(expected+last+extra)%100003; }
++            expected+=last;
++            sq_pushroottable(v);sq_pushstring(v,_SC("variants"),-1);
++            bool ok=SQ_SUCCEEDED(sq_get(v,-2));
++            if(ok) {
++                sq_pushroottable(v);sq_pushinteger(v,37);sq_pushinteger(v,kind);
++                ok=SQ_SUCCEEDED(sq_call(v,3,SQTrue,SQFalse)) &&
++                    SQ_SUCCEEDED(sq_getinteger(v,-1,&actual)) && actual==expected;
++            }
++            sq_settop(v,top);return ok;
++        };
++        for(int n=0;n<3;++n) CHECK(call_variant(reversed?1:0,0), "first receiver's loop result and stores");
++        CHECK(p && p->_jit && p->_jit->_loop_code.Entry() && p->_jit->_loop_has_succeeded &&
++            !p->_jit->_loop_alternate_code.Entry(), "first receiver executes one native loop mapping");
++        if(!p || !p->_jit) { sq_close(v);continue; }
++        SQJitProto *jit=p->_jit;void *primary=jit->_loop_code.Entry();
++        for(int n=0;n<3;++n) CHECK(call_variant(reversed?0:1,0), "second receiver's loop result and stores");
++        CHECK(jit->_loop_alternate_attempted && jit->_loop_alternate_code.Entry() &&
++            jit->_loop_code.Entry()==primary, "second receiver installs an independent mapping without replacing the first");
++        void *alternate=jit->_loop_alternate_code.Entry();
++        SQJitObservation before={},after={};
++        for(int n=0;n<12;++n) {
++            sqjit_observe_proto(p,before);
++            CHECK(call_variant(n%2,0), "alternating receiver results remain correct");
++            CHECK(sqjit_observe_proto(p,after) && after.loop.successes>before.loop.successes,
++                "each alternating receiver actually executes a native loop");
++            CHECK(jit->_loop_code.Entry()==primary && jit->_loop_alternate_code.Entry()==alternate,
++                "alternating histories retain both immutable mappings");
++        }
++        // Remove an inlined closure, then deliberately obtain a new closure at
++        // its old allocator address. Pointer equality alone cannot identify a
++        // method after its lifetime ends. ASan quarantine may prevent reuse.
++        CHECK(run(v,_SC("variant_replacement <- function(x) { value=x; return x+1; };")),
++            "prepare a replacement before releasing the guarded method");
++        SQObjectPtr klass,key(SQString::Create(v->_sharedstate,_SC("update"))),old,replacement;
++        _table(v->_roottable)->Get(SQObjectPtr(SQString::Create(v->_sharedstate,_SC("VariantLocal"))),klass);
++        _table(v->_roottable)->Get(SQObjectPtr(SQString::Create(v->_sharedstate,_SC("variant_replacement"))),replacement);
++        _class(klass)->Get(key,old);
++        SQClosure *old_address=_closure(old);
++        SQObjectPtr weak(old_address->GetWeakRef(OT_CLOSURE));
++        old.Null();v->temp_reg.Null();
++        std::vector<SQObjectPtr> copies;copies.reserve(64);
++        CHECK(_class(klass)->NewSlot(v->_sharedstate,key,replacement,true), "replace the original inlined method");
++        CHECK(sq_type(_weakref(weak)->_obj)==OT_NULL, "inlining does not keep a removed method alive");
++        bool reused=false;
++        for(int n=0;n<64;++n) {
++            copies.push_back(SQObjectPtr(_closure(replacement)->Clone()));
++            if(_closure(copies.back())==old_address) {
++                reused=true;
++                CHECK(_class(klass)->NewSlot(v->_sharedstate,key,copies.back(),true), "publish a closure reusing the old address");
++                CHECK(call_variant(0,1), "reused closure address cannot authorize stale inlined code");
++                break;
++            }
++        }
++#ifndef __SANITIZE_ADDRESS__
++        CHECK(reused, "release build exercises actual closure-address reuse");
++#endif
++        copies.clear();klass.Null();old.Null();replacement.Null();weak.Null();key.Null();
++        SQInteger attempts=after.loop_compile_attempts;
++        CHECK(call_variant(2,1), "third receiver falls back with its distinct method result");
++        CHECK(run(v,_SC("VariantLocal.update=function(x) { value=x; return x+1; };")), "replace a warmed receiver method");
++        CHECK(call_variant(0,1), "method replacement cannot run the stale inlined method");
++        CHECK(sqjit_observe_proto(p,after) && after.loop_compile_attempts==attempts &&
++            jit->_loop_code.Entry()==primary && jit->_loop_alternate_code.Entry()==alternate,
++            "unsupported third shapes and replacement do not cause unbounded compilation or mapping replacement");
++        sq_close(v);
++    }
++#else
++    (void)rc;
++#endif
++}
++
+ int main()
+ {
+     int rc = 0;
++    loop_variant_tests(rc);
+     SQVM *v = sq_open(64);
+     SQVM *other = sq_open(64);
+     CHECK(v && other, "two live VMs open");
+@@ -120,6 +284,13 @@
+     CHECK(!invalid && invalid.category == SQ_JIT_REJECT_INVALID_BYTECODE && !invalid_loop._loop_code,
+         "loop end outside bytecode rejected without an artifact");
+ 
++    SQJitCode occupied;
++    occupied.SetStub((void *)stub);
++    invalid = sqjit_backend_compile_loop(add_proto,entry_stack,NULL,0,0,
++        add_proto->_ninstructions,add_proto->_ninstructions,&invalid_loop,&occupied);
++    CHECK(!invalid && invalid.category==SQ_JIT_REJECT_INVALID_BYTECODE &&
++        occupied.Entry()==(void *)stub, "explicit nonempty loop destination preserves its existing code");
++
+     sq_setnativedebughook(v, debug_hook);
+     CHECK(run(v, _SC("if(add(6)!=13) throw \"debugger\";")), "debugger preserves interpreter behavior");
+     SQJitObservation debug = {};
+--- a/Squirrel3/squirrel/jit/sqjit.cpp
++++ b/Squirrel3/squirrel/jit/sqjit.cpp
+@@ -11,6 +11,7 @@
+ #include "sqjit_diagnostics.h"
+ #include "sqjit_policy.h"
+ #include "sqjit_object_plan.h"
++#include <new>
+ 
+ static SQJitProto *sqjit_ensure_proto(SQFunctionProto *proto)
+ {
+@@ -464,34 +465,87 @@
+     }
+ 
+ execute_loop:
+-    if(ctx.collect_stats) {
+-        ctx.Diagnostics().total.loop_exec_attempts++;
+-        SQJitDiagLoopStats *entry = sqjit_diag_get_loop(proto, header_ip);
+-        if(entry) {
+-            entry->exec_attempts++;
+-        }
+-    }
+-    SQJitNativeLoopFn fn = (SQJitNativeLoopFn)jit->_loop_code.Entry();
+     SQInteger next_ip = header_ip;
+-    SQInteger status;
+-    { SQJitExecutionScope execution(ctx, v);
+-      status = fn(&v->_stack._vals[v->_stackbase], &next_ip, closure); }
+-    if(status != SQ_JIT_NATIVE_RETURNED) {
+-        if(ctx.collect_stats) {
++    // The experimental second mapping never replaces a live mapping. Keep the
++    // original backend rollback contract: retry only a GUARD_FAILED execution.
++    const bool adapt = ctx.precise_exits && SQJIT_HAS_EXTERNAL_NATIVE;
++    bool alternate = adapt && jit->_loop_alternate_code.Entry() && jit->_loop_prefer_alternate;
++    auto execute = [&](SQJitCode &code) -> SQInteger {
++        if(ctx.collect_stats) {
++            ctx.Diagnostics().total.loop_exec_attempts++;
++            SQJitDiagLoopStats *entry = sqjit_diag_get_loop(proto, header_ip);
++            if(entry) entry->exec_attempts++;
++        }
++        next_ip = header_ip;
++        SQJitNativeLoopFn fn = (SQJitNativeLoopFn)code.Entry();
++        SQInteger status;
++        { SQJitExecutionScope execution(ctx, v);
++          status = fn(&v->_stack._vals[v->_stackbase], &next_ip, closure); }
++        if(status != SQ_JIT_NATIVE_RETURNED && ctx.collect_stats) {
+             ctx.Diagnostics().total.loop_exec_guard_failures++;
+             SQJitDiagLoopStats *entry = sqjit_diag_get_loop(proto, header_ip);
+-            if(entry) {
+-                entry->exec_guard_failures++;
+-            }
+-        }
+-        if(status == SQ_JIT_NATIVE_GUARD_FAILED) {
+-            sqjit_loop_note_guard_fail(proto, jit, header_ip);
+-        }
+-        return false;
+-    }
+-    if(next_ip < 0 || next_ip > proto->_ninstructions) {
+-        return false;
+-    }
++            if(entry) entry->exec_guard_failures++;
++        }
++        return status;
++    };
++    SQInteger status = execute(alternate ? jit->_loop_alternate_code : jit->_loop_code);
++    if(status == SQ_JIT_NATIVE_GUARD_FAILED && adapt) {
++        if(jit->_loop_alternate_code.Entry()) {
++            alternate = !alternate;
++            status = execute(alternate ? jit->_loop_alternate_code : jit->_loop_code);
++        }
++        else if(jit->_loop_has_succeeded && !jit->_loop_alternate_attempted) {
++            // One extra compilation after demonstrated success, never an
++            // unbounded recompile loop on unsupported inputs or allocation failure.
++            jit->_loop_alternate_attempted = true;
++            if(sqjit_backend_loop_find_region(proto,header_ip,&start_ip,&end_ip,&exit_ip)) {
++                if(ctx.collect_stats) {
++                    ctx.Diagnostics().total.loop_compile_attempts++;
++                    SQJitDiagLoopStats *entry = sqjit_diag_get_loop(proto,header_ip);
++                    if(entry) entry->compile_attempts++;
++                }
++                SQJitCompileResult result = {false,true,SQ_JIT_BACKEND_AARCH64,
++                    SQ_JIT_REJECT_RESOURCE,-1,"alternate loop allocation failed"};
++                try {
++                    result = sqjit_backend_compile_loop(proto,
++                        &v->_stack._vals[v->_stackbase],closure,start_ip,header_ip,end_ip,exit_ip,jit,
++                        &jit->_loop_alternate_code);
++                }
++                catch(const std::bad_alloc &) {
++                    // Optional recompilation must not turn a replayable guard
++                    // into an allocation exception. This mapping has never run;
++                    // cleanup also covers failure while retaining dependencies.
++                    jit->_loop_alternate_code.Reset();
++                }
++                if(ctx.collect_stats) {
++                    SQJitDiagLoopStats *entry = sqjit_diag_get_loop(proto,header_ip);
++                    if(result) {
++                        ctx.Diagnostics().total.loop_compile_successes++;
++                        if(entry) entry->compile_successes++;
++                    }
++                    else {
++                        ctx.Diagnostics().total.loop_compile_failures++;
++                        if(entry) entry->compile_failures++;
++                    }
++                }
++                if(result) {
++                    ++jit->_version;
++                    alternate = true;
++                    status = execute(jit->_loop_alternate_code);
++                    if(ctx.trace) scprintf(_SC("[sqjit] compiled alternate loop in proto '%s' at ip %d\n"),
++                        sqjit_diag_proto_name(proto),(SQInt32)header_ip);
++                }
++                else sqjit_diag_record_reject(proto,result);
++            }
++        }
++    }
++    if(status != SQ_JIT_NATIVE_RETURNED) {
++        if(status == SQ_JIT_NATIVE_GUARD_FAILED) sqjit_loop_note_guard_fail(proto,jit,header_ip);
++        return false;
++    }
++    if(next_ip < 0 || next_ip > proto->_ninstructions) return false;
++    jit->_loop_has_succeeded = true;
++    jit->_loop_prefer_alternate = alternate;
+ 
+     v->ci->_ip = &proto->_instructions[next_ip];
+     if(ctx.collect_stats) {
+--- a/Squirrel3/squirrel/jit/sqjit_backend_aarch64_compile_loop.inc
++++ b/Squirrel3/squirrel/jit/sqjit_backend_aarch64_compile_loop.inc
+@@ -207,9 +207,9 @@
+ 
+ static bool compile_loop(SQFunctionProto *proto, SQObjectPtr *entry_stack,
+     SQClosure *closure, SQInteger start_ip, SQInteger header_ip,
+-    SQInteger end_ip, SQInteger exit_ip, SQJitProto *jit, SQJitCompileAttempt &attempt)
++    SQInteger end_ip, SQInteger exit_ip, SQJitCode *code, SQJitCompileAttempt &attempt)
+ {
+-    if(!proto || !entry_stack || !jit || start_ip < 0 || header_ip < start_ip ||
++    if(!proto || !entry_stack || !code || start_ip < 0 || header_ip < start_ip ||
+         end_ip < header_ip || end_ip >= proto->_ninstructions || exit_ip <= header_ip || exit_ip > proto->_ninstructions ||
+         proto->_stacksize <= 0 || proto->_stacksize > MAX_FUNC_STACKSIZE ||
+         proto->_nparameters > proto->_stacksize || proto->_ninstructions > SQ_JIT_A64_MAX_INSTRUCTIONS ||
+@@ -5019,17 +5019,19 @@
+         }
+     }
+ 
+-    if(!jit->_loop_code.Install(buf.bytes, buf.size))
++    if(!code->Install(buf.bytes, buf.size))
+         return attempt.Reject(-1, SQ_JIT_REJECT_RESOURCE, "executable memory installation failed");
+-    if(root_object) jit->_loop_code.RetainWeakReference(closure->_root);
++    if(root_object) code->RetainWeakReference(closure->_root);
+     return true;
+ }
+ 
+ SQJitCompileResult sqjit_backend_compile_loop(SQFunctionProto *proto,
+     SQObjectPtr *stack, SQClosure *closure, SQInteger start, SQInteger header,
+-    SQInteger end, SQInteger exit, SQJitProto *jit)
++    SQInteger end, SQInteger exit, SQJitProto *jit, SQJitCode *destination)
+ {
+     SQJitCompileAttempt attempt(proto, SQ_JIT_BACKEND_AARCH64);
++    if(destination && destination->Entry())
++        return attempt.Finish(attempt.Reject(-1, SQ_JIT_REJECT_INVALID_BYTECODE, "loop destination must be empty"));
+     return attempt.Finish(compile_loop(proto, stack, closure, start, header,
+-        end, exit, jit, attempt));
++        end, exit, jit ? (destination ? destination : &jit->_loop_code) : NULL, attempt));
+ }
+--- a/Squirrel3/squirrel/jit/sqjit_backend_x64.cpp
++++ b/Squirrel3/squirrel/jit/sqjit_backend_x64.cpp
+@@ -1459,9 +1459,9 @@
+ 
+ static bool compile_loop(SQFunctionProto *proto, SQObjectPtr *entry_stack,
+     SQClosure *closure, SQInteger start_ip, SQInteger header_ip, SQInteger end_ip, SQInteger exit_ip,
+-    SQJitProto *jit, SQJitCompileAttempt &attempt)
++    SQJitCode *code, SQJitCompileAttempt &attempt)
+ {
+-    if(!proto || !entry_stack || !jit || start_ip < 0 || header_ip < start_ip || end_ip < header_ip || end_ip >= proto->_ninstructions ||
++    if(!proto || !entry_stack || !code || start_ip < 0 || header_ip < start_ip || end_ip < header_ip || end_ip >= proto->_ninstructions ||
+         exit_ip <= header_ip || exit_ip > proto->_ninstructions ||
+         proto->_stacksize <= 0 || proto->_stacksize > MAX_FUNC_STACKSIZE ||
+         end_ip - start_ip > 512) {
+@@ -2543,9 +2543,9 @@
+         }
+     }
+ 
+-    if(!jit->_loop_code.Install(buf.bytes, buf.size))
++    if(!code->Install(buf.bytes, buf.size))
+         return attempt.Reject(-1, SQ_JIT_REJECT_RESOURCE, "executable memory installation failed");
+-    calls.RetainDependencies(jit->_loop_code);
++    calls.RetainDependencies(*code);
+     return true;
+ }
+ 
+@@ -2559,9 +2559,11 @@
+ 
+ SQJitCompileResult sqjit_backend_compile_loop(SQFunctionProto *proto,
+     SQObjectPtr *stack, SQClosure *closure, SQInteger start, SQInteger header,
+-    SQInteger end, SQInteger exit, SQJitProto *jit)
++    SQInteger end, SQInteger exit, SQJitProto *jit, SQJitCode *destination)
+ {
+     SQJitCompileAttempt attempt(proto, SQ_JIT_BACKEND_X64);
++    if(destination && destination->Entry())
++        return attempt.Finish(attempt.Reject(-1, SQ_JIT_REJECT_INVALID_BYTECODE, "loop destination must be empty"));
+     return attempt.Finish(compile_loop(proto, stack, closure, start, header,
+-        end, exit, jit, attempt));
++        end, exit, jit ? (destination ? destination : &jit->_loop_code) : NULL, attempt));
+ }
+--- a/Squirrel3/squirrel/jit/sqjit_artifact.cpp
++++ b/Squirrel3/squirrel/jit/sqjit_artifact.cpp
+@@ -7,6 +7,7 @@
+ SQJitProto::SQJitProto()
+ {
+     _entry = NULL;
++    _loop_alternate_attempted = _loop_has_succeeded = _loop_prefer_alternate = false;
+     _loop_header_ip = -1;
+     _loop_exit_ip = -1;
+     _loop_hot_count = 0;
+--- a/Squirrel3/squirrel/jit/sqjit_backend_none.cpp
++++ b/Squirrel3/squirrel/jit/sqjit_backend_none.cpp
+@@ -18,7 +18,7 @@
+     SQObjectPtr *SQ_UNUSED_ARG(entry_stack), SQClosure *SQ_UNUSED_ARG(closure),
+     SQInteger SQ_UNUSED_ARG(start_ip), SQInteger SQ_UNUSED_ARG(header_ip),
+     SQInteger SQ_UNUSED_ARG(end_ip), SQInteger SQ_UNUSED_ARG(exit_ip),
+-    SQJitProto *SQ_UNUSED_ARG(jit))
++    SQJitProto *SQ_UNUSED_ARG(jit), SQJitCode *SQ_UNUSED_ARG(destination))
+ {
+     return {false, false, SQ_JIT_BACKEND_NONE, SQ_JIT_REJECT_OTHER, -1, "no native backend"};
+ }
+--- a/Squirrel3/squirrel/jit/sqjit_backend.h
++++ b/Squirrel3/squirrel/jit/sqjit_backend.h
+@@ -137,7 +137,8 @@
+     SQInteger *start_ip, SQInteger *end_ip, SQInteger *exit_ip);
+ SQJitCompileResult sqjit_backend_compile_loop(SQFunctionProto *proto, SQObjectPtr *entry_stack,
+     SQClosure *closure, SQInteger start_ip, SQInteger header_ip,
+-    SQInteger end_ip, SQInteger exit_ip, SQJitProto *jit);
++    SQInteger end_ip, SQInteger exit_ip, SQJitProto *jit,
++    SQJitCode *destination = NULL); // Explicit destinations must be empty.
+ const SQChar *sqjit_diag_proto_name(SQFunctionProto *proto);
+ const char *sqjit_diag_reject_category_name(SQJitRejectCategory category);
+ bool sqjit_diag_trace_enabled(SQFunctionProto *proto);
+--- a/Squirrel3/squirrel/jit/sqjit.h
++++ b/Squirrel3/squirrel/jit/sqjit.h
+@@ -37,6 +37,10 @@
+     SQJitProto &operator=(const SQJitProto &) = delete;
+     SQJitNative *_entry;
+     SQJitCode _loop_code;
++    // Once installed, both mappings live until the prototype dies. A nested
++    // activation can keep executing either mapping while the other is compiled.
++    SQJitCode _loop_alternate_code;
++    bool _loop_alternate_attempted, _loop_has_succeeded, _loop_prefer_alternate;
+     SQInteger _loop_header_ip;
+     SQInteger _loop_exit_ip;
+     SQInteger _loop_hot_count;

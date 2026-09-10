@@ -24,7 +24,7 @@ bool sqjit_observe_proto(SQFunctionProto *proto, SQJitObservation &out)
         found = true;
         out.compilation = p.compile_result;
         out.compile_attempts = p.compile_attempts;
-        out.frame = {p.exec_attempts, p.exec_successes, p.exec_guard_failures};
+        out.frame = {p.exec_attempts, p.exec_successes, p.exec_guard_failures, p.exec_side_exits};
         out.direct = {p.direct_attempts, p.direct_successes, p.direct_guard_failures};
         break;
     }

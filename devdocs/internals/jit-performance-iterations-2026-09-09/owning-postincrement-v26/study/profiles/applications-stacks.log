@@ -1,0 +1,374 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 554  of event 'cycles:u'
+# Event count (approx.): 2358605776
+#
+# Children      Self  Command  Shared Object               Symbol                                                                                                                                                         
+# ........  ........  .......  ..........................  ...............................................................................................................................................................
+#
+    32.21%     0.00%  sqgi     sqgi                        [.] _start
+            |
+            ---_start
+               __libc_start_main_impl (inlined)
+               __libc_start_call_main
+               main
+               |          
+                --32.02%--sq_call
+                          SQVM::Execute
+                          |          
+                          |--6.76%--SQVM::Get
+                          |          |          
+                          |           --4.83%--SQTable::Get
+                          |                     |          
+                          |                      --2.70%--SQTable::_Get (inlined)
+                          |          
+                           --6.58%--SQVM::DerefInc
+                                     |          
+                                      --2.51%--SQVM::Set
+
+    32.21%     0.00%  sqgi     libc.so.6                   [.] __libc_start_main_impl (inlined)
+            |
+            ---__libc_start_main_impl (inlined)
+               __libc_start_call_main
+               main
+               |          
+                --32.02%--sq_call
+                          SQVM::Execute
+                          |          
+                          |--6.76%--SQVM::Get
+                          |          |          
+                          |           --4.83%--SQTable::Get
+                          |                     |          
+                          |                      --2.70%--SQTable::_Get (inlined)
+                          |          
+                           --6.58%--SQVM::DerefInc
+                                     |          
+                                      --2.51%--SQVM::Set
+
+    32.21%     0.00%  sqgi     libc.so.6                   [.] __libc_start_call_main
+            |
+            ---__libc_start_call_main
+               main
+               |          
+                --32.02%--sq_call
+                          SQVM::Execute
+                          |          
+                          |--6.76%--SQVM::Get
+                          |          |          
+                          |           --4.83%--SQTable::Get
+                          |                     |          
+                          |                      --2.70%--SQTable::_Get (inlined)
+                          |          
+                           --6.58%--SQVM::DerefInc
+                                     |          
+                                      --2.51%--SQVM::Set
+
+    32.21%     0.00%  sqgi     sqgi                        [.] main
+            |
+            ---main
+               |          
+                --32.02%--sq_call
+                          SQVM::Execute
+                          |          
+                          |--6.76%--SQVM::Get
+                          |          |          
+                          |           --4.83%--SQTable::Get
+                          |                     |          
+                          |                      --2.70%--SQTable::_Get (inlined)
+                          |          
+                           --6.58%--SQVM::DerefInc
+                                     |          
+                                      --2.51%--SQVM::Set
+
+    32.02%     0.00%  sqgi     sqgi                        [.] sq_call
+            |
+            ---sq_call
+               SQVM::Execute
+               |          
+               |--6.76%--SQVM::Get
+               |          |          
+               |           --4.83%--SQTable::Get
+               |                     |          
+               |                      --2.70%--SQTable::_Get (inlined)
+               |          
+                --6.58%--SQVM::DerefInc
+                          |          
+                           --2.51%--SQVM::Set
+
+    32.02%    15.00%  sqgi     sqgi                        [.] SQVM::Execute
+            |          
+            |--17.02%--SQVM::Execute
+            |          |          
+            |          |--6.76%--SQVM::Get
+            |          |          |          
+            |          |           --4.83%--SQTable::Get
+            |          |                     |          
+            |          |                      --2.70%--SQTable::_Get (inlined)
+            |          |          
+            |           --6.58%--SQVM::DerefInc
+            |                     |          
+            |                      --2.51%--SQVM::Set
+            |          
+             --15.00%--_start
+                       __libc_start_main_impl (inlined)
+                       __libc_start_call_main
+                       main
+                       sq_call
+                       SQVM::Execute
+
+    20.41%     4.37%  sqgi     sqgi                        [.] sqjit_a64_helper_member_set_integer_logged
+            |          
+            |--16.05%--sqjit_a64_helper_member_set_integer_logged
+            |          |          
+            |           --15.86%--sqjit_a64_helper_member_set_integer_logged
+            |                     SQJitWriteLog::RecordMember
+            |                     |          
+            |                     |--11.46%--SQJitWriteLog::ContainsMember<false> (inlined)
+            |                     |          |          
+            |                     |           --5.42%--SQJitWriteLog::ContainsMember<false>(SQObjectPtr const&, SQObjectPtr const&, SQObjectPtr const&) const::{lambda(SQJitWriteLog::Entry const&)#1}::operator() (inlined)
+            |                     |          
+            |                      --3.65%--SQJitWriteLog::CanRelease
+            |          
+             --2.68%--0xffff82e124d3
+                       0xffff82e124d3
+                       sqjit_a64_helper_member_set_integer_logged
+
+    16.46%     0.00%  sqgi     [JIT] tid 698549            [.] 0x0000ffff82e124d3
+            |
+            ---0xffff82e124d3
+               |          
+                --9.61%--0xffff82e124d3
+                          sqjit_a64_helper_member_set_integer_logged
+                          |          
+                           --7.13%--sqjit_a64_helper_member_set_integer_logged
+                                     |          
+                                      --6.94%--SQJitWriteLog::RecordMember
+                                                |          
+                                                 --5.03%--SQJitWriteLog::ContainsMember<false> (inlined)
+                                                           |          
+                                                            --2.02%--SQJitWriteLog::ContainsMember<false>(SQObjectPtr const&, SQObjectPtr const&, SQObjectPtr const&) const::{lambda(SQJitWriteLog::Entry const&)#1}::operator() (inlined)
+
+    15.86%    11.63%  sqgi     sqgi                        [.] SQJitWriteLog::RecordMember
+            |          
+            |--6.43%--0xffff82e123c3
+            |          0xffff82e123c3
+            |          sqjit_a64_helper_member_set_integer_logged
+            |          sqjit_a64_helper_member_set_integer_logged
+            |          SQJitWriteLog::RecordMember
+            |          |          
+            |           --6.24%--SQJitWriteLog::ContainsMember<false> (inlined)
+            |                     |          
+            |                      --3.40%--SQJitWriteLog::ContainsMember<false>(SQObjectPtr const&, SQObjectPtr const&, SQObjectPtr const&) const::{lambda(SQJitWriteLog::Entry const&)#1}::operator() (inlined)
+            |          
+            |--5.20%--0xffff82e124d3
+            |          0xffff82e124d3
+            |          sqjit_a64_helper_member_set_integer_logged
+            |          sqjit_a64_helper_member_set_integer_logged
+            |          SQJitWriteLog::RecordMember
+            |          |          
+            |           --4.84%--SQJitWriteLog::ContainsMember<false> (inlined)
+            |                     |          
+            |                      --2.02%--SQJitWriteLog::ContainsMember<false>(SQObjectPtr const&, SQObjectPtr const&, SQObjectPtr const&) const::{lambda(SQJitWriteLog::Entry const&)#1}::operator() (inlined)
+            |          
+             --4.23%--SQJitWriteLog::RecordMember
+                       |          
+                        --3.65%--SQJitWriteLog::CanRelease
+
+    13.10%     0.00%  sqgi     [JIT] tid 698549            [.] 0x0000ffff82e123c3
+            |
+            ---0xffff82e123c3
+               |          
+                --10.80%--0xffff82e123c3
+                          sqjit_a64_helper_member_set_integer_logged
+                          |          
+                           --9.11%--sqjit_a64_helper_member_set_integer_logged
+                                     |          
+                                      --8.92%--SQJitWriteLog::RecordMember
+                                                |          
+                                                |--6.43%--SQJitWriteLog::ContainsMember<false> (inlined)
+                                                |          |          
+                                                |           --3.40%--SQJitWriteLog::ContainsMember<false>(SQObjectPtr const&, SQObjectPtr const&, SQObjectPtr const&) const::{lambda(SQJitWriteLog::Entry const&)#1}::operator() (inlined)
+                                                |          
+                                                 --2.10%--SQJitWriteLog::CanRelease
+
+    12.35%     0.00%  sqgi     [JIT] tid 698549            [.] 0x0000ffff82e1518b
+            |
+            ---0xffff82e1518b
+               |          
+                --5.79%--0xffff82e1518b
+                          sqjit_a64_helper_member_closure_guard
+                          |          
+                          |--2.80%--sqjit_a64_borrow_member_value_with_root (inlined)
+                          |          |          
+                          |           --2.41%--sqjit_a64_helper_member_closure_guard
+                          |                     sqjit_a64_borrow_member_ptr_value
+                          |                     |          
+                          |                      --2.02%--SQTable::GetRawSlot (inlined)
+                          |          
+                           --2.61%--sqjit_a64_helper_member_closure_guard
+                                     sqjit_a64_root_fallback_safe
+
+    11.46%     0.00%  sqgi     sqgi                        [.] SQJitWriteLog::ContainsMember<false> (inlined)
+            |
+            ---SQJitWriteLog::ContainsMember<false> (inlined)
+               |          
+                --5.42%--SQJitWriteLog::ContainsMember<false>(SQObjectPtr const&, SQObjectPtr const&, SQObjectPtr const&) const::{lambda(SQJitWriteLog::Entry const&)#1}::operator() (inlined)
+
+    10.63%     1.16%  sqgi     sqgi                        [.] sqjit_a64_helper_member_closure_guard
+            |          
+             --9.47%--sqjit_a64_helper_member_closure_guard
+                       |          
+                       |--4.92%--sqjit_a64_borrow_member_value_with_root (inlined)
+                       |          |          
+                       |           --4.34%--sqjit_a64_helper_member_closure_guard
+                       |                     sqjit_a64_borrow_member_ptr_value
+                       |                     |          
+                       |                      --3.76%--SQTable::GetRawSlot (inlined)
+                       |          
+                        --4.55%--sqjit_a64_helper_member_closure_guard
+                                  sqjit_a64_root_fallback_safe
+                                  |          
+                                   --3.09%--SQTable::GetRawSlot (inlined)
+                                             |          
+                                              --2.89%--SQTable::_Get (inlined)
+
+    10.19%     0.00%  sqgi     [JIT] tid 698549            [.] 0x0000ffff82e121b3
+            |
+            ---0xffff82e121b3
+               |          
+                --5.26%--0xffff82e121b3
+                          sqjit_a64_helper_array_get_object
+                          |          
+                           --2.62%--SQObjectPtr::operator= (inlined)
+
+     8.70%     1.35%  sqgi     sqgi                        [.] SQVM::Get
+            |          
+             --7.34%--SQVM::Get
+                       |          
+                        --6.38%--SQTable::Get
+                                  |          
+                                   --3.48%--SQTable::_Get (inlined)
+
+     6.77%     0.00%  sqgi     [JIT] tid 698549            [.] 0x0000ffff82e14213
+            |
+            ---0xffff82e14213
+
+     6.58%     0.00%  sqgi     [JIT] tid 698549            [.] 0x0000ffff82e131af
+            |
+            ---0xffff82e131af
+               |          
+                --2.90%--0xffff82e131af
+                          sqjit_a64_helper_member_closure_guard
+
+     6.58%     1.55%  sqgi     sqgi                        [.] SQVM::DerefInc
+            |          
+             --5.03%--SQVM::DerefInc
+                       |          
+                        --2.51%--SQVM::Set
+
+     6.38%     5.99%  sqgi     sqgi                        [.] SQTable::Get
+            |          
+             --5.99%--_start
+                       __libc_start_main_impl (inlined)
+                       __libc_start_call_main
+                       main
+                       sq_call
+                       SQVM::Execute
+                       |          
+                        --4.63%--SQVM::Get
+                                  SQTable::Get
+                                  |          
+                                   --2.51%--SQTable::_Get (inlined)
+
+     5.42%     0.00%  sqgi     sqgi                        [.] SQJitWriteLog::ContainsMember<false>(SQObjectPtr const&, SQObjectPtr const&, SQObjectPtr const&) const::{lambda(SQJitWriteLog::Entry const&)#1}::operator() (inlined)
+            |
+            ---SQJitWriteLog::ContainsMember<false>(SQObjectPtr const&, SQObjectPtr const&, SQObjectPtr const&) const::{lambda(SQJitWriteLog::Entry const&)#1}::operator() (inlined)
+
+     5.26%     5.26%  sqgi     sqgi                        [.] sqjit_a64_helper_array_get_object
+            |
+            ---0xffff82e121b3
+               0xffff82e121b3
+               sqjit_a64_helper_array_get_object
+               |          
+                --2.62%--SQObjectPtr::operator= (inlined)
+
+     5.12%     0.00%  sqgi     sqgi                        [.] sqjit_a64_borrow_member_value_with_root (inlined)
+            |
+            ---sqjit_a64_borrow_member_value_with_root (inlined)
+               |          
+                --4.34%--sqjit_a64_helper_member_closure_guard
+                          sqjit_a64_borrow_member_ptr_value
+                          |          
+                           --3.76%--SQTable::GetRawSlot (inlined)
+
+     4.92%     4.92%  sqgi     sqgi                        [.] sqjit_a64_borrow_member_ptr_value
+            |          
+             --2.60%--0xffff82e1518b
+                       0xffff82e1518b
+                       sqjit_a64_helper_member_closure_guard
+                       sqjit_a64_borrow_member_value_with_root (inlined)
+                       |          
+                        --2.41%--sqjit_a64_helper_member_closure_guard
+                                  sqjit_a64_borrow_member_ptr_value
+                                  |          
+                                   --2.02%--SQTable::GetRawSlot (inlined)
+
+     4.55%     4.55%  sqgi     sqgi                        [.] sqjit_a64_root_fallback_safe
+            |          
+             --2.61%--0xffff82e1518b
+                       0xffff82e1518b
+                       sqjit_a64_helper_member_closure_guard
+                       sqjit_a64_helper_member_closure_guard
+                       sqjit_a64_root_fallback_safe
+
+     3.76%     0.00%  sqgi     sqgi                        [.] SQTable::GetRawSlot (inlined)
+            |
+            ---SQTable::GetRawSlot (inlined)
+
+     3.65%     3.65%  sqgi     sqgi                        [.] SQJitWriteLog::CanRelease
+            |          
+             --2.10%--0xffff82e123c3
+                       0xffff82e123c3
+                       sqjit_a64_helper_member_set_integer_logged
+                       sqjit_a64_helper_member_set_integer_logged
+                       SQJitWriteLog::RecordMember
+                       SQJitWriteLog::CanRelease
+
+     3.48%     0.00%  sqgi     sqgi                        [.] SQTable::_Get (inlined)
+            |
+            ---SQTable::_Get (inlined)
+
+     3.09%     0.00%  sqgi     sqgi                        [.] SQTable::GetRawSlot (inlined)
+            |
+            ---SQTable::GetRawSlot (inlined)
+               |          
+                --2.89%--SQTable::_Get (inlined)
+
+     2.89%     0.00%  sqgi     sqgi                        [.] SQTable::_Get (inlined)
+            |
+            ---SQTable::_Get (inlined)
+
+     2.62%     0.00%  sqgi     sqgi                        [.] SQObjectPtr::operator= (inlined)
+            |
+            ---SQObjectPtr::operator= (inlined)
+
+     2.51%     1.55%  sqgi     sqgi                        [.] SQVM::Set
+     2.29%     0.00%  sqgi     sqgi                        [.] sqjit_a64_member_store_slot (inlined)
+            |
+            ---sqjit_a64_member_store_slot (inlined)
+               |          
+                --2.10%--sqjit_a64_member_store_slot (inlined)
+                          sqjit_a64_resolve_store_slot (inlined)
+
+     2.10%     0.00%  sqgi     sqgi                        [.] sqjit_a64_resolve_store_slot (inlined)
+            |
+            ---sqjit_a64_resolve_store_slot (inlined)
+
+
+
+#
+# (Cannot load tips.txt file, please install perf!)
+#

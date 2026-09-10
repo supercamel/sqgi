@@ -1,0 +1,110 @@
+{
+  "metadata": {
+    "date": "2026-09-09",
+    "suite": "owners",
+    "iterations": 1000000,
+    "warmups": 1,
+    "initial_expected_runs": 1,
+    "pairs": 3,
+    "cpu": 4,
+    "jit": 1,
+    "threshold": 1,
+    "lto": true,
+    "pgo": "USE",
+    "asan": false,
+    "order": [
+      "baseline-1",
+      "candidate-1",
+      "candidate-2",
+      "baseline-2",
+      "baseline-3",
+      "candidate-3"
+    ],
+    "command": "perf stat -x, -e cycles:u,instructions:u,branches:u,branch-misses:u -- taskset -c 4 env SQGI_JIT=1 SQGI_JIT_THRESHOLD=1 SQGI_JIT_TRACE=0 BINARY test/bench_member_owners.nut --iterations=1000000 --warmups=1",
+    "binaries": {
+      "baseline": {
+        "path": "/tmp/sqgi-slot-math-pgo-20260909.wnI1gF/sqgi",
+        "sha256": "47ed9fec3299141b8ddaa94f7e6aecf5fdaf9e5c228851e21f271e62329fd9c7"
+      },
+      "candidate": {
+        "path": "/tmp/sqgi-table-read-hint-pgo-20260909.SglKJT/sqgi",
+        "sha256": "ac651a496ef53e4bfaaafeac0a9c22db6777f23a38ddceecc4a95652eef29207"
+      }
+    },
+    "script_sha256": "c8d1d73e70ec23fe9e99fd037a5ce9198236e7d9b56581c67c7c0c19b90e288e",
+    "all_checksums_match": true,
+    "notes": [
+      "Total branches event is unsupported; no branch-miss rate can be calculated.",
+      "Counts cover both table and class cases, including initial expected, warmup and measured invocations.",
+      "Counter runs are diagnostic, not replacement cross-runtime timings."
+    ]
+  },
+  "samples": [
+    {
+      "id": "baseline-1",
+      "counters": {
+        "cycles:u": 18281133338,
+        "instructions:u": 59722187963,
+        "branches:u": null,
+        "branch-misses:u": 219751
+      },
+      "raw_csv": "# started on Wed Sep  9 04:08:53 2026\n\n18281133338,,cycles:u,8010753892,100.00,,\n59722187963,,instructions:u,8010753892,100.00,3.27,insn per cycle\n<not supported>,,branches:u,0,100.00,,\n219751,,branch-misses:u,8010753892,100.00,,\n",
+      "stdout": "BENCH\ttable_owners_1\t1000000\t0.262016000\t125491370791\nBENCH\ttable_owners_2\t1000000\t0.261761000\t125492370822\nBENCH\ttable_owners_5\t1000000\t0.262373000\t125489370943\nBENCH\ttable_owners_19\t1000000\t0.262359000\t125493371544\nBENCH\ttable_owners_257\t1000000\t0.262321000\t125501494743\nBENCH\tclass_owners_1\t1000000\t0.269315000\t125491370791\nBENCH\tclass_owners_2\t1000000\t0.269242000\t125492370822\nBENCH\tclass_owners_5\t1000000\t0.269747000\t125489370943\nBENCH\tclass_owners_19\t1000000\t0.269659000\t125493371544\nBENCH\tclass_owners_257\t1000000\t0.269777000\t125501494743\n"
+    },
+    {
+      "id": "candidate-1",
+      "counters": {
+        "cycles:u": 18634575732,
+        "instructions:u": 59692199223,
+        "branches:u": null,
+        "branch-misses:u": 14471929
+      },
+      "raw_csv": "# started on Wed Sep  9 04:09:02 2026\n\n18634575732,,cycles:u,8163499430,100.00,,\n59692199223,,instructions:u,8163499430,100.00,3.20,insn per cycle\n<not supported>,,branches:u,0,100.00,,\n14471929,,branch-misses:u,8163499430,100.00,,\n",
+      "stdout": "BENCH\ttable_owners_1\t1000000\t0.272483000\t125491370791\nBENCH\ttable_owners_2\t1000000\t0.273309000\t125492370822\nBENCH\ttable_owners_5\t1000000\t0.274895000\t125489370943\nBENCH\ttable_owners_19\t1000000\t0.274011000\t125493371544\nBENCH\ttable_owners_257\t1000000\t0.274805000\t125501494743\nBENCH\tclass_owners_1\t1000000\t0.268376000\t125491370791\nBENCH\tclass_owners_2\t1000000\t0.268546000\t125492370822\nBENCH\tclass_owners_5\t1000000\t0.268851000\t125489370943\nBENCH\tclass_owners_19\t1000000\t0.268979000\t125493371544\nBENCH\tclass_owners_257\t1000000\t0.268784000\t125501494743\n"
+    },
+    {
+      "id": "candidate-2",
+      "counters": {
+        "cycles:u": 18608600265,
+        "instructions:u": 59692199282,
+        "branches:u": null,
+        "branch-misses:u": 14241764
+      },
+      "raw_csv": "# started on Wed Sep  9 04:09:10 2026\n\n18608600265,,cycles:u,8153475626,100.00,,\n59692199282,,instructions:u,8153475626,100.00,3.21,insn per cycle\n<not supported>,,branches:u,0,100.00,,\n14241764,,branch-misses:u,8153475626,100.00,,\n",
+      "stdout": "BENCH\ttable_owners_1\t1000000\t0.272311000\t125491370791\nBENCH\ttable_owners_2\t1000000\t0.270852000\t125492370822\nBENCH\ttable_owners_5\t1000000\t0.273633000\t125489370943\nBENCH\ttable_owners_19\t1000000\t0.274316000\t125493371544\nBENCH\ttable_owners_257\t1000000\t0.273851000\t125501494743\nBENCH\tclass_owners_1\t1000000\t0.268517000\t125491370791\nBENCH\tclass_owners_2\t1000000\t0.268530000\t125492370822\nBENCH\tclass_owners_5\t1000000\t0.269037000\t125489370943\nBENCH\tclass_owners_19\t1000000\t0.268967000\t125493371544\nBENCH\tclass_owners_257\t1000000\t0.269038000\t125501494743\n"
+    },
+    {
+      "id": "baseline-2",
+      "counters": {
+        "cycles:u": 18289377959,
+        "instructions:u": 59722187920,
+        "branches:u": null,
+        "branch-misses:u": 215689
+      },
+      "raw_csv": "# started on Wed Sep  9 04:09:18 2026\n\n18289377959,,cycles:u,8021307255,100.00,,\n59722187920,,instructions:u,8021307255,100.00,3.27,insn per cycle\n<not supported>,,branches:u,0,100.00,,\n215689,,branch-misses:u,8021307255,100.00,,\n",
+      "stdout": "BENCH\ttable_owners_1\t1000000\t0.262504000\t125491370791\nBENCH\ttable_owners_2\t1000000\t0.262185000\t125492370822\nBENCH\ttable_owners_5\t1000000\t0.262883000\t125489370943\nBENCH\ttable_owners_19\t1000000\t0.262742000\t125493371544\nBENCH\ttable_owners_257\t1000000\t0.262812000\t125501494743\nBENCH\tclass_owners_1\t1000000\t0.269744000\t125491370791\nBENCH\tclass_owners_2\t1000000\t0.269661000\t125492370822\nBENCH\tclass_owners_5\t1000000\t0.270132000\t125489370943\nBENCH\tclass_owners_19\t1000000\t0.269956000\t125493371544\nBENCH\tclass_owners_257\t1000000\t0.270016000\t125501494743\n"
+    },
+    {
+      "id": "baseline-3",
+      "counters": {
+        "cycles:u": 18275063750,
+        "instructions:u": 59722187792,
+        "branches:u": null,
+        "branch-misses:u": 217310
+      },
+      "raw_csv": "# started on Wed Sep  9 04:09:26 2026\n\n18275063750,,cycles:u,8009616315,100.00,,\n59722187792,,instructions:u,8009616315,100.00,3.27,insn per cycle\n<not supported>,,branches:u,0,100.00,,\n217310,,branch-misses:u,8009616315,100.00,,\n",
+      "stdout": "BENCH\ttable_owners_1\t1000000\t0.262478000\t125491370791\nBENCH\ttable_owners_2\t1000000\t0.262265000\t125492370822\nBENCH\ttable_owners_5\t1000000\t0.262890000\t125489370943\nBENCH\ttable_owners_19\t1000000\t0.262847000\t125493371544\nBENCH\ttable_owners_257\t1000000\t0.262809000\t125501494743\nBENCH\tclass_owners_1\t1000000\t0.269516000\t125491370791\nBENCH\tclass_owners_2\t1000000\t0.269546000\t125492370822\nBENCH\tclass_owners_5\t1000000\t0.269938000\t125489370943\nBENCH\tclass_owners_19\t1000000\t0.269914000\t125493371544\nBENCH\tclass_owners_257\t1000000\t0.269824000\t125501494743\n"
+    },
+    {
+      "id": "candidate-3",
+      "counters": {
+        "cycles:u": 18614292904,
+        "instructions:u": 59692199279,
+        "branches:u": null,
+        "branch-misses:u": 14354353
+      },
+      "raw_csv": "# started on Wed Sep  9 04:09:34 2026\n\n18614292904,,cycles:u,8163103972,100.00,,\n59692199279,,instructions:u,8163103972,100.00,3.21,insn per cycle\n<not supported>,,branches:u,0,100.00,,\n14354353,,branch-misses:u,8163103972,100.00,,\n",
+      "stdout": "BENCH\ttable_owners_1\t1000000\t0.272336000\t125491370791\nBENCH\ttable_owners_2\t1000000\t0.271265000\t125492370822\nBENCH\ttable_owners_5\t1000000\t0.273119000\t125489370943\nBENCH\ttable_owners_19\t1000000\t0.273674000\t125493371544\nBENCH\ttable_owners_257\t1000000\t0.274894000\t125501494743\nBENCH\tclass_owners_1\t1000000\t0.268709000\t125491370791\nBENCH\tclass_owners_2\t1000000\t0.268662000\t125492370822\nBENCH\tclass_owners_5\t1000000\t0.269214000\t125489370943\nBENCH\tclass_owners_19\t1000000\t0.268974000\t125493371544\nBENCH\tclass_owners_257\t1000000\t0.268940000\t125501494743\n"
+    }
+  ]
+}

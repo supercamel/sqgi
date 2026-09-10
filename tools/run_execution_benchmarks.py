@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Compare two SQGI builds using alternating, warmed, checksum-checked runs."""
 import argparse
+from datetime import datetime, timezone
 import hashlib
 import json
 import math
@@ -15,6 +16,22 @@ def positive(value):
     if number <= 0:
         raise argparse.ArgumentTypeError('must be positive')
     return number
+
+
+def host_snapshot(cpu=None):
+    """Record conditions around each process; never include them in its timing."""
+    snapshot = {'utc': datetime.now(timezone.utc).isoformat(),
+                'load_average': os.getloadavg()}
+    if cpu is not None:
+        frequency = {}
+        for name in ('scaling_governor', 'scaling_cur_freq', 'cpuinfo_max_freq'):
+            path = Path(f'/sys/devices/system/cpu/cpu{cpu}/cpufreq/{name}')
+            try:
+                frequency[name] = path.read_text().strip()
+            except OSError:
+                pass
+        snapshot['cpu_frequency'] = frequency
+    return snapshot
 
 
 def parse(output):
@@ -61,8 +78,10 @@ def main():
             binary = binaries[name]
             env = dict(os.environ, SQGI_JIT=str(args.jit), SQGI_JIT_THRESHOLD='1', SQGI_JIT_TRACE='0')
             env['LD_LIBRARY_PATH'] = str(binary.parent) + (':' + env['LD_LIBRARY_PATH'] if env.get('LD_LIBRARY_PATH') else '')
+            host_start = host_snapshot(args.cpu)
             proc = subprocess.run(prefix + [str(binary), str(script), *flags, f'--iterations={args.iterations}'],
                                   cwd=root, env=env, capture_output=True, text=True, check=True, timeout=300)
+            host_end = host_snapshot(args.cpu)
             rows = parse(proc.stdout)
             expected_rows = {'kernels': 15, 'execution': 4, 'applications': 8}[args.suite]
             if len(rows) != expected_rows:
@@ -82,7 +101,8 @@ def main():
                 if not math.isfinite(row['us']) or row['us'] <= 0:
                     raise ValueError(f'{kernel}: timing is too short; increase iterations')
                 samples[name].setdefault(kernel, []).append(row['us'])
-            raw.append(dict(run=run + 1, runtime=name, stdout=proc.stdout, stderr=proc.stderr))
+            raw.append(dict(run=run + 1, runtime=name, stdout=proc.stdout, stderr=proc.stderr,
+                            host_start=host_start, host_end=host_end))
         print(f'Completed pair {run + 1}/{args.runs}', flush=True)
     comparisons = {}
     for kernel in reference:

@@ -1,0 +1,853 @@
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -767,6 +767,8 @@
+     set_tests_properties(sqgi_test_cpp_sqjit_x64_win64_emit PROPERTIES LABELS "jit")
+     add_sqgi_c_test(sqgi_test_cpp_sqjit_contracts test/cpp/test_sqjit_contracts.cpp)
+     set_tests_properties(sqgi_test_cpp_sqjit_contracts PROPERTIES LABELS "jit")
++    add_sqgi_c_test(sqgi_test_cpp_sqjit_side_exit test/cpp/test_sqjit_side_exit.cpp)
++    set_tests_properties(sqgi_test_cpp_sqjit_side_exit PROPERTIES LABELS "jit")
+     add_sqgi_c_test(sqgi_test_cpp_sqjit_values test/cpp/test_sqjit_values.cpp)
+     set_tests_properties(sqgi_test_cpp_sqjit_values PROPERTIES LABELS "jit")
+     add_sqgi_c_test(sqgi_test_cpp_sqjit_memory test/cpp/test_sqjit_memory.cpp)
+--- a/Squirrel3/squirrel/jit/sqjit.cpp
++++ b/Squirrel3/squirrel/jit/sqjit.cpp
+@@ -128,6 +128,8 @@
+ 
+     if(ctx.trace) {
+         scprintf(_SC("[sqjit] compiled native proto '%s'\n"), sqjit_diag_proto_name(proto));
++        if(native->_requires_vm_frame)
++            scprintf(_SC("[sqjit] precise side-exit entry '%s'\n"), sqjit_diag_proto_name(proto));
+         if(native->_object_plan) {
+             const SQJitObjectPlan &plan = *native->_object_plan;
+             scprintf(_SC("[sqjit] scalarized '%s': %d allocation sites, %d calls, %d scalar instructions\n"),
+@@ -233,6 +235,7 @@
+     }
+     if(!proto || proto->_bgenerator || proto->_varparams || proto->_ndefaultparams != 0 ||
+         proto->_nparameters != nargs || !proto->_jit || !proto->_jit->_entry ||
++        proto->_jit->_entry->_requires_vm_frame ||
+         !sqjit_native_call_fits_stack(v, stack,
+             proto->_jit->_entry->_stack_storage_slots < 0 ? proto->_stacksize : proto->_jit->_entry->_stack_storage_slots,
+             proto->_jit->_entry->_stack_live_slots)) {
+@@ -356,6 +359,10 @@
+     SQInteger end_ip = -1;
+     SQInteger exit_ip = -1;
+     SQJitProto *jit = proto->_jit;
++    // A precise exit must execute the failing bytecode's remaining effects.
++    // Legacy loop entries do not yet model JCMP temporary release, so they
++    // cannot take over a continuation from this experimental frame tier.
++    if(jit && jit->_entry && jit->_entry->_requires_vm_frame) return false;
+     if(jit) {
+         if(sqjit_loop_header_is_rejected(jit, header_ip)) {
+             return false;
+@@ -545,7 +552,28 @@
+     SQJitNativeObjectFn fn = (SQJitNativeObjectFn)native->_code.Entry();
+     SQObjectPtr result;
+     SQInteger status;
++    const SQInteger frame_depth = v->_callsstacksize, frame_base = v->_stackbase;
+     { SQJitExecutionScope execution(ctx, v); status = fn(stack, &result, closure); }
++    if(status == SQ_JIT_NATIVE_SIDE_EXIT) {
++        // A native exit has committed effects. An invalid continuation is an
++        // execution error, never an invitation to replay from the beginning.
++        if(!native->_requires_vm_frame || native->_scalarized || native->_object_plan ||
++            sq_type(result) != OT_INTEGER || _integer(result) < 0 ||
++            _integer(result) >= proto->_ninstructions || !v->ci ||
++            v->_callsstacksize != frame_depth || v->_stackbase != frame_base ||
++            sq_type(v->ci->_closure) != OT_CLOSURE || _closure(v->ci->_closure) != closure) {
++            v->Raise_Error(_SC("invalid native side exit"));
++            return SQ_JIT_EXEC_ERROR;
++        }
++        v->ci->_ip = &proto->_instructions[_integer(result)];
++        if(ctx.collect_stats) {
++            ctx.Diagnostics().total.proto_exec_side_exits++;
++            SQJitDiagProtoStats *entry = sqjit_diag_get_proto(proto);
++            if(entry) entry->exec_side_exits++;
++        }
++        sqjit_proto_note_guard_fail(proto, proto->_jit);
++        return SQ_JIT_EXEC_RESUMED;
++    }
+     if(status == SQ_JIT_NATIVE_GUARD_FAILED) {
+         if(ctx.collect_stats) {
+             ctx.Diagnostics().total.proto_exec_guard_failures++;
+--- a/Squirrel3/squirrel/jit/sqjit.h
++++ b/Squirrel3/squirrel/jit/sqjit.h
+@@ -22,7 +22,8 @@
+     SQ_JIT_EXEC_NOT_EXECUTED = 0,
+     SQ_JIT_EXEC_FRAME_RETURNED = 1,
+     SQ_JIT_EXEC_ROOT_RETURNED = 2,
+-    SQ_JIT_EXEC_ERROR = 3
++    SQ_JIT_EXEC_ERROR = 3,
++    SQ_JIT_EXEC_RESUMED = 4
+ };
+ 
+ enum {
+--- a/Squirrel3/squirrel/jit/sqjit_artifact.cpp
++++ b/Squirrel3/squirrel/jit/sqjit_artifact.cpp
+@@ -33,6 +33,7 @@
+ {
+     _object_plan = NULL;
+     _scalarized = false;
++    _requires_vm_frame = false;
+     _ninstructions = 0;
+     _stack_live_slots = -1;
+     _stack_storage_slots = -1;
+--- a/Squirrel3/squirrel/jit/sqjit_backend.h
++++ b/Squirrel3/squirrel/jit/sqjit_backend.h
+@@ -14,7 +14,10 @@
+ 
+ enum SQJitNativeStatus {
+     SQ_JIT_NATIVE_GUARD_FAILED = 0,
+-    SQ_JIT_NATIVE_RETURNED = 1
++    SQ_JIT_NATIVE_RETURNED = 1,
++    // result is an integer bytecode IP. Completed effects and incoming state
++    // for that instruction are already published; never restart this function.
++    SQ_JIT_NATIVE_SIDE_EXIT = 2
+ };
+ 
+ typedef SQInteger (*SQJitNativeObjectFn)(SQObjectPtr *, SQObjectPtr *, SQClosure *);
+@@ -98,6 +101,9 @@
+     ~SQJitNative();
+     SQJitObjectPlan *_object_plan;
+     bool _scalarized;
++    // Side-exiting code requires the callee's real VM frame. Frameless native
++    // calls must reject this artifact before executing any of its effects.
++    bool _requires_vm_frame;
+     SQInteger _ninstructions;
+     // Exclusive upper bound of VM slots that can receive reference owners.
+     // -1 means the backend has not supplied a tighter bound than stacksize.
+--- a/Squirrel3/squirrel/jit/sqjit_backend_aarch64.cpp
++++ b/Squirrel3/squirrel/jit/sqjit_backend_aarch64.cpp
+@@ -451,6 +451,7 @@
+     }
+ }
+ 
++#include "sqjit_backend_aarch64_precise.inc"
+ #include "sqjit_backend_aarch64_compile_proto.inc"
+ 
+ #include "sqjit_backend_aarch64_compile_loop.inc"
+--- a/Squirrel3/squirrel/jit/sqjit_backend_aarch64_compile_proto.inc
++++ b/Squirrel3/squirrel/jit/sqjit_backend_aarch64_compile_proto.inc
+@@ -2275,7 +2275,7 @@
+         SQJitNative *callee_native = callee_proto->_jit->_entry;
+         return callee_native &&
+             callee_native->_ninstructions == callee_proto->_ninstructions &&
+-            callee_native->_code.Entry() &&
++            callee_native->_code.Entry() && !callee_native->_requires_vm_frame &&
+             callee_native->_native_kind != SQ_JIT_NATIVE_SETTER;
+     };
+ 
+@@ -2477,7 +2477,7 @@
+         SQJitNative *callee_native = callee_proto->_jit->_entry;
+         if(!callee_native ||
+             callee_native->_ninstructions != callee_proto->_ninstructions ||
+-            !callee_native->_code.Entry() ||
++            !callee_native->_code.Entry() || callee_native->_requires_vm_frame ||
+             callee_native->_native_kind == SQ_JIT_NATIVE_SETTER) {
+             return false;
+         }
+@@ -4647,6 +4647,9 @@
+     SQClosure *closure, SQJitNative *native)
+ {
+     SQJitCompileAttempt attempt(proto, SQ_JIT_BACKEND_AARCH64);
++    if(proto && native && !native->_scalarized && sqjit_context(proto->_sharedstate).precise_exits &&
++        sqjit_a64_compile_precise(proto, entry_stack, native))
++        return SQJitCompileResult::Success(SQ_JIT_BACKEND_AARCH64);
+     return attempt.Finish(sqjit_a64_compile_integer_proto(proto, entry_stack, closure, native, attempt));
+ }
+ 
+--- a/Squirrel3/squirrel/jit/sqjit_backend_aarch64_helpers.inc
++++ b/Squirrel3/squirrel/jit/sqjit_backend_aarch64_helpers.inc
+@@ -476,7 +476,8 @@
+     SQJitNative *native = proto->_jit->_entry;
+     const SQInteger storage_slots = native->_stack_storage_slots < 0 ? proto->_stacksize : native->_stack_storage_slots;
+     if(!native || native->_ninstructions != proto->_ninstructions ||
+-        !native->_code.Entry() || native->_native_kind == SQ_JIT_NATIVE_SETTER ||
++        !native->_code.Entry() || native->_requires_vm_frame ||
++        native->_native_kind == SQ_JIT_NATIVE_SETTER ||
+         storage_slots > MAX_FUNC_STACKSIZE - arg_base ||
+         !sqjit_native_call_fits_stack(sqjit_context(proto->_sharedstate).active_vm,
+             &stack[arg_base], storage_slots, native->_stack_live_slots)) {
+@@ -1829,7 +1830,8 @@
+     SQJitNative *native = proto->_jit->_entry;
+     const SQInteger storage_slots = native->_stack_storage_slots < 0 ? proto->_stacksize : native->_stack_storage_slots;
+     if(!native || native->_ninstructions != proto->_ninstructions ||
+-        !native->_code.Entry() || native->_native_kind == SQ_JIT_NATIVE_SETTER ||
++        !native->_code.Entry() || native->_requires_vm_frame ||
++        native->_native_kind == SQ_JIT_NATIVE_SETTER ||
+         storage_slots > MAX_FUNC_STACKSIZE - arg_base ||
+         !sqjit_native_call_fits_stack(sqjit_context(proto->_sharedstate).active_vm,
+             &stack[arg_base], storage_slots, native->_stack_live_slots)) {
+--- a/Squirrel3/squirrel/jit/sqjit_context.cpp
++++ b/Squirrel3/squirrel/jit/sqjit_context.cpp
+@@ -11,7 +11,8 @@
+ }
+ 
+ SQJitContext::SQJitContext()
+-    : enabled(truthy(getenv("SQGI_JIT"))), trace(false), trace_stats(false),
++    : enabled(truthy(getenv("SQGI_JIT"))), precise_exits(truthy(getenv("SQGI_JIT_PRECISE_EXITS"))),
++      trace(false), trace_stats(false),
+       collect_stats(false), threshold(1000), proto_tick(0), loop_tick(0), active_vm(NULL), active_logs(NULL),
+       diagnostics(NULL)
+ {
+--- a/Squirrel3/squirrel/jit/sqjit_context.h
++++ b/Squirrel3/squirrel/jit/sqjit_context.h
+@@ -15,6 +15,7 @@
+     SQJitDiagnostics &Diagnostics();
+     SQJitDiagnostics *ExistingDiagnostics() { return diagnostics; }
+     bool enabled;
++    bool precise_exits; // Experimental whole-function side-exit compiler.
+     bool trace;
+     bool trace_stats;
+     bool collect_stats;
+--- a/Squirrel3/squirrel/jit/sqjit_diagnostics.cpp
++++ b/Squirrel3/squirrel/jit/sqjit_diagnostics.cpp
+@@ -177,6 +177,8 @@
+         (SQInt32)ctx.Diagnostics().total.proto_exec_attempts,
+         (SQInt32)ctx.Diagnostics().total.proto_exec_successes,
+         (SQInt32)ctx.Diagnostics().total.proto_exec_guard_failures);
++    scprintf(_SC("[sqjit:stats] proto side_exits=%d\n"),
++        (SQInt32)ctx.Diagnostics().total.proto_exec_side_exits);
+     scprintf(_SC("[sqjit:stats] direct calls attempts=%d success=%d miss=%d guard_fail=%d\n"),
+         (SQInt32)ctx.Diagnostics().total.direct_call_attempts,
+         (SQInt32)ctx.Diagnostics().total.direct_call_successes,
+--- a/Squirrel3/squirrel/jit/sqjit_diagnostics.h
++++ b/Squirrel3/squirrel/jit/sqjit_diagnostics.h
+@@ -26,6 +26,7 @@
+     SQInteger proto_exec_attempts;
+     SQInteger proto_exec_successes;
+     SQInteger proto_exec_guard_failures;
++    SQInteger proto_exec_side_exits;
+     SQInteger direct_call_attempts;
+     SQInteger direct_call_successes;
+     SQInteger direct_call_misses;
+@@ -61,6 +62,7 @@
+     SQInteger exec_attempts;
+     SQInteger exec_successes;
+     SQInteger exec_guard_failures;
++    SQInteger exec_side_exits;
+     SQInteger direct_attempts;
+     SQInteger direct_successes;
+     SQInteger direct_misses;
+--- a/Squirrel3/squirrel/jit/sqjit_observe.cpp
++++ b/Squirrel3/squirrel/jit/sqjit_observe.cpp
+@@ -24,7 +24,7 @@
+         found = true;
+         out.compilation = p.compile_result;
+         out.compile_attempts = p.compile_attempts;
+-        out.frame = {p.exec_attempts, p.exec_successes, p.exec_guard_failures};
++        out.frame = {p.exec_attempts, p.exec_successes, p.exec_guard_failures, p.exec_side_exits};
+         out.direct = {p.direct_attempts, p.direct_successes, p.direct_guard_failures};
+         break;
+     }
+--- a/Squirrel3/squirrel/jit/sqjit_observe.h
++++ b/Squirrel3/squirrel/jit/sqjit_observe.h
+@@ -8,6 +8,7 @@
+     SQInteger attempts;
+     SQInteger successes;
+     SQInteger guard_failures;
++    SQInteger side_exits;
+ };
+ 
+ struct SQJitObservation {
+--- a/Squirrel3/squirrel/jit/sqjit_write_log.cpp
++++ b/Squirrel3/squirrel/jit/sqjit_write_log.cpp
+@@ -157,7 +157,7 @@
+     return true;
+ }
+ 
+-bool SQJitWriteLog::CanRelease(const SQObjectPtr &value)
++bool SQJitWriteLog::CanRelease(const SQObjectPtr &value, SQUnsignedInteger drops)
+ {
+     if(!ISREFCOUNTED(sq_type(value))) return true;
+     SQRefCounted *owner = _refcounted(value);
+@@ -176,7 +176,7 @@
+ #ifndef NO_GARBAGE_COLLECTOR
+     references &= ~MARK_FLAG;
+ #endif
+-    if(references > pins + 1) return true;
++    if(references > pins && references - pins > drops) return true;
+     if(_context && _context->trace) scprintf(_SC("[sqjit] release guard: tag=%u refs=%llu journal_pins=%llu\n"),
+         (unsigned)sq_type(value), (unsigned long long)references, (unsigned long long)pins);
+     return false;
+--- a/Squirrel3/squirrel/jit/sqjit_write_log.h
++++ b/Squirrel3/squirrel/jit/sqjit_write_log.h
+@@ -33,8 +33,9 @@
+     // owner or restore step. Snapshot and publish it with identical semantics.
+     bool PublishStackWrite(SQObjectPtr *slot, const SQObject &value, bool getter);
+     // Test a real reference drop, excluding pins in this and enclosing logs.
++    // drops includes other aliases discarded by the same atomic instruction.
+     // False means replay in the VM before observable destruction/weak death.
+-    bool CanRelease(const SQObjectPtr &value);
++    bool CanRelease(const SQObjectPtr &value, SQUnsignedInteger drops = 1);
+     void Rollback();
+     SQUnsignedInteger Size() const { return _size + _value_size; }
+ 
+--- a/Squirrel3/squirrel/sqvm.cpp
++++ b/Squirrel3/squirrel/sqvm.cpp
+@@ -818,6 +818,7 @@
+                     return false;
+                 case SQ_JIT_EXEC_ERROR:
+                     SQ_THROW();
++                case SQ_JIT_EXEC_RESUMED:
+                 case SQ_JIT_EXEC_NOT_EXECUTED:
+                     break;
+             }
+@@ -878,6 +879,7 @@
+                             continue;
+                         case SQ_JIT_EXEC_ERROR:
+                             SQ_THROW();
++                        case SQ_JIT_EXEC_RESUMED:
+                         case SQ_JIT_EXEC_NOT_EXECUTED:
+                             break;
+                     }
+@@ -915,6 +917,7 @@
+                                 continue;
+                             case SQ_JIT_EXEC_ERROR:
+                                 SQ_THROW();
++                            case SQ_JIT_EXEC_RESUMED:
+                             case SQ_JIT_EXEC_NOT_EXECUTED:
+                                 break;
+                         }
+--- /dev/null
++++ b/Squirrel3/squirrel/jit/sqjit_backend_aarch64_precise.inc
+@@ -0,0 +1,248 @@
++// Experimental canonical-slot tier. Each helper either completes one bytecode
++// or exits before its effects. No borrowed value survives between instructions,
++// so completed stores need no undo journal and every exit has an identity map.
++// Keep this separate from the private-spill compiler until its effect contract
++// and performance are established. SQGI_JIT_PRECISE_EXITS enables the experiment.
++#include <limits>
++
++static SQObjectPtr *sqjit_a64_precise_member(const SQObjectPtr &base, const SQObjectPtr &key)
++{
++    if(sq_type(base) == OT_ARRAY && sq_type(key) == OT_INTEGER) {
++        SQInteger index = _integer(key);
++        return (SQUnsignedInteger)index < (SQUnsignedInteger)_array(base)->Size() ?
++            &_array(base)->_values[index] : NULL;
++    }
++    return sq_member_raw_slot(base, key);
++}
++
++static bool sqjit_a64_precise_arith(SQVM *vm, unsigned op, const SQObjectPtr &a,
++    const SQObjectPtr &b, SQObjectPtr &result)
++{
++    if(!sq_isnumeric(a) || !sq_isnumeric(b)) return false;
++    if(sq_type(a) == OT_INTEGER && sq_type(b) == OT_INTEGER) {
++        SQInteger x = _integer(a), y = _integer(b);
++        // Match the machine-word integer arithmetic used by the native tier
++        // without invoking signed-overflow undefined behavior in these helpers.
++        switch(op) {
++        case '+': result = (SQInteger)((SQUnsignedInteger)x + (SQUnsignedInteger)y); return true;
++        case '-': result = (SQInteger)((SQUnsignedInteger)x - (SQUnsignedInteger)y); return true;
++        case '*': result = (SQInteger)((SQUnsignedInteger)x * (SQUnsignedInteger)y); return true;
++        case '/':
++            if(y == 0 || (y == -1 && x == std::numeric_limits<SQInteger>::min())) return false;
++            result = x / y; return true;
++        case '%':
++            if(y == 0) return false;
++            result = y == -1 ? SQInteger(0) : x % y; return true;
++        }
++        return false;
++    }
++    // Numeric inputs select only the VM's floating arithmetic, with no strings,
++    // allocation, metamethods or release callbacks (result is a fresh scalar).
++    return vm->ARITH_OP(op, result, a, b);
++}
++
++static SQInteger sqjit_a64_precise_step(SQJitWriteLog *log, SQObjectPtr *stack,
++    SQClosure *closure, SQInteger ip, SQObjectPtr *out)
++{
++    SQVM *vm = sqjit_context(closure->_function->_sharedstate).active_vm;
++    const SQInstruction &i = closure->_function->_instructions[ip];
++    SQObjectPtr value;
++    SQInteger dst = i._arg0;
++    switch(i.op) {
++    case _OP_LOADINT: value = sqjit_loadint_value(i); break;
++    case _OP_LOADFLOAT: {
++        SQFloat number;
++        if(!sqjit_loadfloat_value(i, &number)) return 0;
++        value = number; break;
++    }
++    case _OP_LOADBOOL: value = (i._arg1 != 0); break;
++    case _OP_LOAD:
++        // Literal pins belong to the prototype and cannot be the last owner.
++        value = closure->_function->_literals[i._arg1]; break;
++    case _OP_MOVE:
++        // Check before making a helper-local pin: such pins are not real owners.
++        if(!log->CanRelease(stack[dst])) return 0;
++        stack[dst] = stack[i._arg1]; return 1;
++    case _OP_LOADNULLS:
++        // Multiple drops can remove aliases of one another. Initially keep all
++        // owning multi-destination writes on their ordinary interpreter path.
++        for(SQInteger n=0; n<i._arg1; ++n)
++            if(ISREFCOUNTED(sq_type(stack[dst+n]))) return 0;
++        for(SQInteger n=0; n<i._arg1; ++n) stack[dst+n].Null();
++        return 1;
++    case _OP_DLOAD: {
++        SQUnsignedInteger drops = dst != i._arg2 && ISREFCOUNTED(sq_type(stack[dst])) &&
++            sq_type(stack[dst]) == sq_type(stack[i._arg2]) &&
++            _rawval(stack[dst]) == _rawval(stack[i._arg2]) ? 2 : 1;
++        if(!log->CanRelease(stack[dst]) || !log->CanRelease(stack[i._arg2], drops)) return 0;
++        stack[dst] = closure->_function->_literals[i._arg1];
++        stack[i._arg2] = closure->_function->_literals[i._arg3]; return 1;
++    }
++    case _OP_GET: case _OP_GETK: {
++        const SQObjectPtr &base = stack[i.op == _OP_GET ? i._arg1 : i._arg2];
++        const SQObjectPtr &key = i.op == _OP_GET ? stack[i._arg2] :
++            closure->_function->_literals[i._arg1];
++        SQObjectPtr *source = sqjit_a64_precise_member(base, key);
++        if(!source || !log->CanRelease(vm->temp_reg)) return 0;
++        // Read before the temporary drop, including raw weakref dereference.
++        // No checked release below can run a callback or destroy an observed
++        // graph. Destination/base/key aliases therefore remain valid here.
++        value = _realval(*source);
++        vm->temp_reg = value;
++        _Swap(stack[dst], vm->temp_reg);
++        return 1;
++    }
++    case _OP_SET: {
++        SQObjectPtr *target = sqjit_a64_precise_member(stack[i._arg1], stack[i._arg2]);
++        if(!target || (dst != SQ_JIT_A64_NO_RESULT_SLOT && ISREFCOUNTED(sq_type(stack[dst]))) ||
++            !log->CanRelease(*target)) return 0;
++        *target = stack[i._arg3];
++        if(dst != SQ_JIT_A64_NO_RESULT_SLOT) stack[dst] = stack[i._arg3];
++        return 1;
++    }
++    case _OP_ADD: case _OP_SUB: case _OP_MUL: case _OP_DIV: case _OP_MOD: {
++        unsigned op = i.op == _OP_ADD ? '+' : i.op == _OP_SUB ? '-' :
++            i.op == _OP_MUL ? '*' : i.op == _OP_DIV ? '/' : '%';
++        if(!sqjit_a64_precise_arith(vm, op, stack[i._arg2], stack[i._arg1], value)) return 0;
++        break;
++    }
++    case _OP_NEG:
++        if(sq_type(stack[i._arg1]) == OT_INTEGER)
++            value = (SQInteger)(SQUnsignedInteger(0) - (SQUnsignedInteger)_integer(stack[i._arg1]));
++        else if(sq_type(stack[i._arg1]) == OT_FLOAT) value = -_float(stack[i._arg1]);
++        else return 0;
++        break;
++    case _OP_NOT: value = vm->IsFalse(stack[i._arg1]); break;
++    case _OP_PINCL: {
++        SQObjectPtr increment((SQInteger)(signed char)i._arg3);
++        if(!sqjit_a64_precise_arith(vm, '+', stack[i._arg1], increment, value) ||
++            !log->CanRelease(stack[dst])) return 0;
++        stack[dst] = stack[i._arg1];
++        stack[i._arg1] = value;
++        return 1;
++    }
++    case _OP_INCL: {
++        dst = i._arg1;
++        SQObjectPtr increment((SQInteger)(signed char)i._arg3);
++        if(!sqjit_a64_precise_arith(vm, '+', stack[dst], increment, value)) return 0;
++        break;
++    }
++    case _OP_CMP: case _OP_JCMP: {
++        const SQObjectPtr &left = stack[i._arg2];
++        const SQObjectPtr &right = stack[i.op == _OP_JCMP ? i._arg0 : i._arg1];
++        if(!sq_isnumeric(left) || !sq_isnumeric(right)) return 0;
++        if(!vm->CMP_OP((CmpOP)i._arg3, left, right, value)) return 0;
++        if(i.op != _OP_JCMP) break;
++        if(!log->CanRelease(vm->temp_reg)) return 0;
++        vm->temp_reg = value;
++        return vm->IsFalse(value) ? 1 : 2;
++    }
++    case _OP_JZ: return vm->IsFalse(stack[i._arg0]) ? 1 : 2;
++    case _OP_RETURN:
++        if(i._arg0 == SQ_JIT_A64_NO_RESULT_SLOT) out->Null();
++        else *out = stack[i._arg1];
++        return 1;
++    default: return 0;
++    }
++    if(!log->CanRelease(stack[dst])) return 0;
++    stack[dst] = value;
++    return 1;
++}
++
++static bool sqjit_a64_compile_precise(SQFunctionProto *proto, SQObjectPtr *entry_stack, SQJitNative *native)
++{
++    if(!proto || !entry_stack || !native || proto->_varparams || proto->_ndefaultparams ||
++        proto->_bgenerator || proto->_nparameters < 1 || proto->_nparameters > proto->_stacksize || proto->_stacksize <= 0 ||
++        proto->_stacksize > MAX_FUNC_STACKSIZE || proto->_ninstructions <= 0 ||
++        proto->_ninstructions > SQ_JIT_A64_MAX_INSTRUCTIONS) return false;
++    if(proto->_instructions[proto->_ninstructions-1].op != _OP_RETURN) return false;
++    SQBytecodeAnalysis analysis;
++    if(!analysis.Build(proto->_instructions, proto->_ninstructions, proto->_stacksize)) return false;
++    bool has_store = false;
++    for(SQInteger ip=0; ip<proto->_ninstructions; ++ip) {
++        const SQInstruction &i = proto->_instructions[ip];
++        switch(i.op) {
++        case _OP_LINE: case _OP_LOADINT: case _OP_LOADFLOAT: case _OP_LOADBOOL:
++        case _OP_LOAD: case _OP_DLOAD: case _OP_LOADNULLS: case _OP_MOVE:
++        case _OP_GET: case _OP_GETK: case _OP_ADD: case _OP_SUB: case _OP_MUL:
++        case _OP_DIV: case _OP_MOD: case _OP_NEG: case _OP_NOT: case _OP_INCL: case _OP_PINCL:
++        case _OP_JZ: case _OP_JMP: case _OP_RETURN: break;
++        case _OP_SET: has_store = true; break;
++        case _OP_CMP: case _OP_JCMP:
++            if(i._arg3 != CMP_G && i._arg3 != CMP_GE && i._arg3 != CMP_L &&
++                i._arg3 != CMP_LE && (i.op == _OP_JCMP || i._arg3 != CMP_3W)) return false;
++            break;
++        default: return false;
++        }
++        if(i.op == _OP_PINCL && i._arg0 == SQ_JIT_A64_NO_RESULT_SLOT) return false;
++        if((i.op == _OP_LOAD || i.op == _OP_GETK || i.op == _OP_DLOAD) &&
++            (i._arg1 < 0 || i._arg1 >= proto->_nliterals)) return false;
++        if(i.op == _OP_DLOAD && i._arg3 >= proto->_nliterals) return false;
++    }
++    // This experiment addresses effectful functions. Pure scalar functions
++    // continue using the existing private-register compiler.
++    if(!has_store) return false;
++    SQJitA64Buffer buf; buf.size = 0;
++    const SQInteger log_slot = 0, log_storage = 1;
++    SQInteger frame_size = (sizeof(SQJitWriteLog) + sizeof(SQInteger) + 15) & ~SQInteger(15);
++    if(frame_size > 4095 || !sqjit_a64_emit_prologue(&buf, frame_size) ||
++        !sqjit_a64_emit_init_write_log(&buf, log_slot, log_storage, &sqjit_context(proto->_sharedstate))) return false;
++    SQInteger offsets[SQ_JIT_A64_IP_TABLE_SIZE];
++    SQJitA64Reloc branches[SQ_JIT_A64_MAX_RELOCS], guards[SQ_JIT_A64_MAX_GUARD_RELOCS];
++    SQInteger nbranches = 0, nguards = 0;
++    auto release = [&]() {
++        return sqjit_a64_emit_add_imm(&buf, 0, 31, sqjit_a64_local_disp(log_slot)) &&
++            sqjit_a64_emit_mov_imm_x(&buf, 16, (SQInteger)(intptr_t)sqjit_a64_helper_write_log_commit) &&
++            sqjit_a64_emit_blr_x16(&buf);
++    };
++    for(SQInteger ip=0; ip<proto->_ninstructions; ++ip) {
++        offsets[ip] = buf.size;
++        const SQInstruction &i = proto->_instructions[ip];
++        if(i.op == _OP_LINE) continue;
++        SQInteger patch = -1;
++        if(i.op == _OP_JMP) {
++            if(!sqjit_a64_emit_b_placeholder(&buf, &patch) ||
++                !sqjit_a64_record_reloc(branches, &nbranches, SQ_JIT_A64_MAX_RELOCS,
++                    patch, ip+1+sqjit_signed_arg1(i), false, 0)) return false;
++            continue;
++        }
++        if(!sqjit_a64_emit_ldr_x(&buf, 0, 31, sqjit_a64_local_disp(log_slot)) ||
++            !sqjit_a64_emit_mov_reg(&buf, 1, 19) || !sqjit_a64_emit_mov_reg(&buf, 2, 21) ||
++            !sqjit_a64_emit_mov_imm_x(&buf, 3, ip) || !sqjit_a64_emit_mov_reg(&buf, 4, 20) ||
++            !sqjit_a64_emit_mov_imm_x(&buf, 16, (SQInteger)(intptr_t)sqjit_a64_precise_step) ||
++            !sqjit_a64_emit_blr_x16(&buf)) return false;
++        if(i.op == _OP_RETURN) {
++            if(!release() || !sqjit_a64_emit_epilogue(&buf, frame_size, SQ_JIT_NATIVE_RETURNED)) return false;
++            continue;
++        }
++        if(!sqjit_a64_emit_cmp_imm(&buf, 0, 0) ||
++            !sqjit_a64_emit_bcond_placeholder(&buf, SQ_JIT_A64_EQ, &patch) ||
++            !sqjit_a64_record_reloc(guards, &nguards, SQ_JIT_A64_MAX_GUARD_RELOCS,
++                patch, ip, true, SQ_JIT_A64_EQ)) return false;
++        if(i.op == _OP_JZ || i.op == _OP_JCMP) {
++            if(!sqjit_a64_emit_cmp_imm(&buf, 0, 1) ||
++                !sqjit_a64_emit_bcond_placeholder(&buf, SQ_JIT_A64_EQ, &patch) ||
++                !sqjit_a64_record_reloc(branches, &nbranches, SQ_JIT_A64_MAX_RELOCS,
++                    patch, ip+1+sqjit_signed_arg1(i), true, SQ_JIT_A64_EQ)) return false;
++        }
++    }
++    for(SQInteger n=0; n<nguards; ++n) {
++        const SQJitA64Reloc &g = guards[n];
++        if(!sqjit_a64_patch_branch(&buf, g.patch_offset, buf.size, true, g.cond) || !release() ||
++            !sqjit_a64_emit_mov_imm_w(&buf, 9, (uint32_t)OT_INTEGER) ||
++            !sqjit_a64_emit_str_w(&buf, 9, 20, (SQInteger)offsetof(SQObject, _type)) ||
++            !sqjit_a64_emit_mov_imm_x(&buf, 9, g.target_ip) ||
++            !sqjit_a64_emit_str_x(&buf, 9, 20, (SQInteger)offsetof(SQObject, _unVal)) ||
++            !sqjit_a64_emit_epilogue(&buf, frame_size, SQ_JIT_NATIVE_SIDE_EXIT)) return false;
++    }
++    for(SQInteger n=0; n<nbranches; ++n) {
++        const SQJitA64Reloc &b = branches[n];
++        if(b.target_ip < 0 || b.target_ip >= proto->_ninstructions ||
++            !sqjit_a64_patch_branch(&buf, b.patch_offset, offsets[b.target_ip], b.conditional, b.cond)) return false;
++    }
++    if(!native->_code.Install(buf.bytes, buf.size)) return false;
++    native->_requires_vm_frame = true;
++    native->_stack_live_slots = proto->_stacksize;
++    native->_stack_storage_slots = proto->_stacksize;
++    return true;
++}
+--- /dev/null
++++ b/test/cpp/test_sqjit_side_exit.cpp
+@@ -0,0 +1,290 @@
++#include "sqpcheader.h"
++#include "sqvm.h"
++#include "sqfuncproto.h"
++#include "sqclosure.h"
++#include "sqarray.h"
++#include "sqtable.h"
++#include "sqstring.h"
++#include "jit/sqjit.h"
++#include "jit/sqjit_backend.h"
++#include "jit/sqjit_context.h"
++#include "jit/sqjit_observe.h"
++#include "jit/sqjit_platform.h"
++#include "jit/sqjit_write_log.h"
++#include <stdio.h>
++#include <initializer_list>
++
++#define CHECK(c, text) do { if(!(c)) { fprintf(stderr, "FAIL: %s\n", text); ++failures; } } while(0)
++
++static bool run(SQVM *v, const SQChar *source)
++{
++    SQInteger top = sq_gettop(v);
++    bool ok = SQ_SUCCEEDED(sq_compilebuffer(v, source, scstrlen(source), _SC("side-exit"), SQTrue));
++    if(ok) { sq_pushroottable(v); ok = SQ_SUCCEEDED(sq_call(v, 1, SQFalse, SQFalse)); }
++    if(!ok) {
++        sq_getlasterror(v); const SQChar *error = NULL;
++        if(SQ_SUCCEEDED(sq_getstring(v, -1, &error))) scprintf(_SC("script error: %s\n"), error);
++    }
++    sq_settop(v, top);
++    return ok;
++}
++
++static SQObjectPtr named(SQVM *v, const SQChar *name)
++{
++    SQObjectPtr result;
++    _table(v->_roottable)->Get(SQObjectPtr(SQString::Create(v->_sharedstate, name)), result);
++    return result;
++}
++
++enum ExitMode { COMMIT, ENTRY_GUARD, NEGATIVE_IP, END_IP, WRONG_TAG };
++static ExitMode mode = COMMIT;
++static int entered = 0;
++static SQInteger resume_ip = -1;
++static SQVM *nested_vm = NULL;
++static bool nested_ok = true;
++
++// This deliberately injected entry tests the runtime ABI independently of any
++// compiler's supported subset. It models native effects and publishes incoming
++// scalar state; it is not a claim of generated-code side-exit coverage.
++static SQInteger exit_entry(SQObjectPtr *stack, SQObjectPtr *result, SQClosure *closure)
++{
++    ++entered;
++    if(mode == ENTRY_GUARD) return SQ_JIT_NATIVE_GUARD_FAILED;
++    if(mode == NEGATIVE_IP) { *result = SQInteger(-1); return SQ_JIT_NATIVE_SIDE_EXIT; }
++    if(mode == END_IP) { *result = closure->_function->_ninstructions; return SQ_JIT_NATIVE_SIDE_EXIT; }
++    if(mode == WRONG_TAG) { *result = true; return SQ_JIT_NATIVE_SIDE_EXIT; }
++    SQArray *a = _array(stack[1]);
++    a->_values[0] = _integer(a->_values[0]) + 1;
++    stack[2] = _integer(stack[2]) + 3;
++    if(nested_vm) {
++        SQVM *child = nested_vm;
++        nested_vm = NULL;
++        SQJitContext &ctx = sqjit_context(closure->_function->_sharedstate);
++        SQVM *outer = ctx.active_vm;
++        nested_ok = run(child, _SC("if(resume_work(shared_array,4)!=14) throw \"nested resume\";")) &&
++            ctx.active_vm == outer;
++    }
++    *result = resume_ip;
++    return SQ_JIT_NATIVE_SIDE_EXIT;
++}
++
++static bool call(SQVM *v, const SQObjectPtr &closure, const SQObjectPtr &a, SQInteger x, SQInteger &value)
++{
++    SQInteger top = sq_gettop(v);
++    sq_pushobject(v, closure); sq_pushroottable(v); sq_pushobject(v, a); sq_pushinteger(v, x);
++    bool ok = SQ_SUCCEEDED(sq_call(v, 3, SQTrue, SQFalse));
++    if(ok) ok = SQ_SUCCEEDED(sq_getinteger(v, -1, &value));
++    sq_settop(v, top);
++    return ok;
++}
++static void debug_hook(HSQUIRRELVM, SQInteger, const SQChar *, SQInteger, const SQChar *) {}
++
++struct ReleaseWitness { SQObjectPtr *record; int *count; };
++static SQInteger release_witness(SQUserPointer pointer, SQInteger)
++{
++    ReleaseWitness *witness = (ReleaseWitness *)pointer;
++    ++*witness->count;
++    SQTable *record = _table(*witness->record);
++    SQObjectPtr *seen = record->GetRawSlot(SQObjectPtr(SQString::Create(record->_sharedstate, _SC("seen"))));
++    *seen = _integer(*seen) + 1;
++    return 0;
++}
++
++static int generated_exits()
++{
++    int failures = 0;
++#if SQJIT_HAS_EXTERNAL_NATIVE
++    SQVM *v = sq_open(64);
++    SQJitContext &ctx = sqjit_context(v->_sharedstate);
++    ctx.enabled = ctx.precise_exits = true; ctx.threshold = 1;
++    ctx.trace = ctx.trace_stats = false; sqjit_observe_enable(v);
++    CHECK(run(v, _SC(
++        "function native_resume(a,x) { a[0]=a[0]+1; local y=a[1]+x; a[2]=y; return y; }\n"
++        "function temp_loop(value,record,n) { record.count=record.count+1; value=record.payload; while(n<2) n++; return record.seen; }\n"
++        "function double_drop(x,y,record) { record.count=record.count+1; x=\"left\"; y=\"right\"; return record.seen; }\n"
++        "function temp_release(value,record,n) { record.count=record.count+1; value=record.payload; if(n<2) return record.seen; return record.seen+1; }\n"
++        "witness_record <- {count=0,payload=5,seen=0};\n"
++        "local a=[0,10,0]; if(native_resume(a,2)!=12 || a[0]!=1 || a[2]!=12) throw \"native warmup\";\n"
++        "if(temp_release(0,witness_record,1)!=0 || temp_loop(0,witness_record,1)!=0 || double_drop(0,0,witness_record)!=0) throw \"temporary warmup\";\n")), "warm the generated side-exit compiler");
++    SQObjectPtr closure = named(v, _SC("native_resume"));
++    SQFunctionProto *proto = sq_type(closure) == OT_CLOSURE ? _closure(closure)->_function : NULL;
++    SQJitObservation before = {}, after = {};
++    CHECK(proto && proto->_jit && proto->_jit->_entry && proto->_jit->_entry->_requires_vm_frame &&
++        proto->_jit->_entry->_code.MappedSize() > 0 && sqjit_observe_proto(proto, before) &&
++        before.frame.successes > 0 && before.frame.side_exits == 0,
++        "effectful function executes generated code with no warmup exit");
++    CHECK(run(v, _SC("local a=[0,\"x\",0]; if(native_resume(a,2)!=\"x2\" || a[0]!=1 || a[2]!=\"x2\") throw \"late side exit\";")),
++        "generated late type exit preserves the first store and retries only the failed addition");
++    CHECK(sqjit_observe_proto(proto, after) && after.frame.side_exits == before.frame.side_exits+1 &&
++        after.frame.guard_failures == 0, "late type mismatch takes a real native continuation");
++    SQObjectPtr temp_closure = named(v, _SC("temp_release"));
++    SQObjectPtr record = named(v, _SC("witness_record"));
++    SQFunctionProto *temp_proto = _closure(temp_closure)->_function;
++    CHECK(sqjit_observe_proto(temp_proto, before) && before.frame.successes > 0 &&
++        before.frame.side_exits == 0 && temp_proto->_jit->_entry->_requires_vm_frame,
++        "temporary-release witness warms through generated code");
++    CHECK(run(v, _SC("witness_record.count=0;")), "reset release witness count");
++    int releases = 0;
++    SQInteger top = sq_gettop(v), result = -1;
++    sq_pushobject(v, temp_closure); sq_pushroottable(v);
++    ReleaseWitness *witness = (ReleaseWitness *)sq_newuserdata(v, sizeof(ReleaseWitness));
++    witness->record = &record; witness->count = &releases;
++    sq_setreleasehook(v, -1, release_witness);
++    sq_pushobject(v, record); sq_pushinteger(v, 1);
++    CHECK(SQ_SUCCEEDED(sq_call(v, 4, SQTrue, SQFalse)) &&
++        SQ_SUCCEEDED(sq_getinteger(v,-1,&result)) && result == 1 && releases == 1,
++        "JCMP releases the previous GET temporary before the next member read");
++    sq_settop(v, top);
++    SQObjectPtr count;
++    _table(record)->Get(SQObjectPtr(SQString::Create(v->_sharedstate,_SC("count"))), count);
++    CHECK(_integer(count) == 1 && sqjit_observe_proto(temp_proto, after) &&
++        after.frame.side_exits == before.frame.side_exits+1,
++        "observable temporary release exits once without replaying the earlier member store");
++    SQObjectPtr loop_closure = named(v, _SC("temp_loop"));
++    SQFunctionProto *loop_proto = _closure(loop_closure)->_function;
++    CHECK(sqjit_observe_proto(loop_proto,before) && before.frame.successes > 0 &&
++        before.frame.side_exits == 0 && loop_proto->_jit->_entry->_requires_vm_frame,
++        "loop temporary-release witness warms through generated code");
++    CHECK(run(v, _SC("witness_record.count=0; witness_record.seen=0;")), "reset loop witness");
++    releases = 0;
++    sq_pushobject(v, loop_closure); sq_pushroottable(v);
++    witness = (ReleaseWitness *)sq_newuserdata(v, sizeof(ReleaseWitness));
++    witness->record = &record; witness->count = &releases;
++    sq_setreleasehook(v, -1, release_witness);
++    sq_pushobject(v,record); sq_pushinteger(v,1);
++    CHECK(SQ_SUCCEEDED(sq_call(v,4,SQTrue,SQFalse)) && SQ_SUCCEEDED(sq_getinteger(v,-1,&result)) &&
++        result == 1 && releases == 1, "loop side exit executes the failing comparison's temporary release");
++    sq_settop(v,top);
++    _table(record)->Get(SQObjectPtr(SQString::Create(v->_sharedstate,_SC("count"))), count);
++    CHECK(_integer(count) == 1 && sqjit_observe_proto(loop_proto,after) &&
++        after.frame.side_exits == before.frame.side_exits+1,
++        "loop continuation preserves its earlier store");
++    loop_closure.Null();
++    SQObjectPtr double_closure = named(v, _SC("double_drop"));
++    SQFunctionProto *double_proto = _closure(double_closure)->_function;
++    bool has_dload = false;
++    for(SQInteger ip=0; ip<double_proto->_ninstructions; ++ip)
++        has_dload = has_dload || double_proto->_instructions[ip].op == _OP_DLOAD;
++    CHECK(has_dload && sqjit_observe_proto(double_proto, before) && before.frame.successes > 0 &&
++        before.frame.side_exits == 0 && double_proto->_jit->_entry->_requires_vm_frame,
++        "two-owner release witness uses generated DLOAD");
++    CHECK(run(v, _SC("witness_record.count=0; witness_record.seen=0;")), "reset two-owner witness");
++    releases = 0;
++    sq_pushobject(v, double_closure); sq_pushroottable(v);
++    witness = (ReleaseWitness *)sq_newuserdata(v, sizeof(ReleaseWitness));
++    witness->record = &record; witness->count = &releases;
++    sq_setreleasehook(v, -1, release_witness);
++    sq_push(v, -1); sq_pushobject(v, record);
++    CHECK(SQ_SUCCEEDED(sq_call(v,4,SQTrue,SQFalse)) && SQ_SUCCEEDED(sq_getinteger(v,-1,&result)) &&
++        result == 1 && releases == 1, "atomic two-slot guard accounts for both discarded aliases");
++    sq_settop(v, top);
++    _table(record)->Get(SQObjectPtr(SQString::Create(v->_sharedstate,_SC("count"))), count);
++    CHECK(_integer(count) == 1 && sqjit_observe_proto(double_proto, after) &&
++        after.frame.side_exits == before.frame.side_exits+1,
++        "DLOAD alias release exits before either write and keeps the earlier member store");
++    closure.Null(); temp_closure.Null(); double_closure.Null(); record.Null(); count.Null();
++    sq_close(v);
++#endif
++    return failures;
++}
++
++int main()
++{
++    int failures = generated_exits();
++    SQVM *v = sq_open(64);
++    SQJitContext &ctx = sqjit_context(v->_sharedstate);
++    ctx.enabled = true; ctx.threshold = 1000000;
++    ctx.trace = ctx.trace_stats = false;
++    sqjit_observe_enable(v);
++    CHECK(run(v, _SC("shared_array <- [0];\n"
++        "function resume_work(a,x) { a[0]=a[0]+1; x=x+3; return x*2; }\n"
++        "function caller(a,x) { local r=resume_work(a,x); return r+1; }\n"
++        "function tail(a,x) { return resume_work(a,x); }\n")), "define continuation fixtures");
++    SQObjectPtr closure = named(v, _SC("resume_work"));
++    SQObjectPtr a = named(v, _SC("shared_array"));
++    if(sq_type(closure) != OT_CLOSURE || sq_type(a) != OT_ARRAY) {
++        closure.Null(); a.Null(); sq_close(v); return 1;
++    }
++    SQFunctionProto *proto = _closure(closure)->_function;
++    for(SQInteger ip=0; ip<proto->_ninstructions; ++ip) {
++        const SQInstruction &inst = proto->_instructions[ip];
++        if(inst.op == _OP_LOADINT && inst._arg1 == 2) resume_ip = ip;
++    }
++    CHECK(resume_ip > 0, "continuation starts before the final multiply's constant load");
++    if(resume_ip <= 0) { closure.Null(); a.Null(); sq_close(v); return 1; }
++    proto->_jit = new (sq_vm_malloc(sizeof(SQJitProto))) SQJitProto;
++    SQJitNative *native = new (sq_vm_malloc(sizeof(SQJitNative))) SQJitNative;
++    proto->_jit->_entry = native;
++    native->_ninstructions = proto->_ninstructions;
++    native->_requires_vm_frame = true;
++    native->_code.SetStub((void *)exit_entry);
++
++    SQInteger value = -1;
++    CHECK(call(v, closure, a, 4, value) && value == 14 && _integer(_array(a)->_values[0]) == 1,
++        "root side exit keeps the committed store and published scalar exactly once");
++    CHECK(run(v, _SC("if(caller(shared_array,5)!=17 || shared_array[0]!=2) throw \"caller continuation\";")),
++        "ordinary call resumes its callee and then returns to the caller");
++    CHECK(run(v, _SC("if(tail(shared_array,6)!=18 || shared_array[0]!=3) throw \"tail continuation\";")),
++        "tail call resumes its real callee frame");
++    CHECK(entered == 3, "frameless attempts never enter code requiring a VM frame");
++    SQJitObservation observation = {};
++    CHECK(sqjit_observe_proto(proto, observation) && observation.frame.side_exits == 3 &&
++        observation.frame.successes == 0 && observation.frame.guard_failures == 0 &&
++        observation.direct.attempts > 0 && observation.direct.successes == 0,
++        "side exits are observed separately from native returns and rollback failures");
++
++    {
++        SQObjectPtr owner = SQTable::Create(v->_sharedstate,0), alias = owner;
++        SQJitWriteLog log;
++        CHECK(log.CanRelease(owner) && !log.CanRelease(owner,2), "two real owners permit one drop, not two");
++        CHECK(log.RetainValue(owner) && log.CanRelease(owner) && !log.CanRelease(owner,2),
++            "journal pins do not make a two-owner drop safe");
++        SQObjectPtr extra = owner;
++        CHECK(log.CanRelease(owner,2), "a surviving real alias permits two drops");
++    }
++    SQObjectPtr raw[MAX_FUNC_STACKSIZE], out;
++    raw[0] = v->_roottable; raw[1] = a; raw[2] = SQInteger(4);
++    CHECK(!sqjit_try_execute_closure(v, _closure(closure), raw, 3, out) && entered == 3,
++        "caller-provided raw storage does not supply the required callee frame");
++
++    SQVM *thread = sq_newthread(v, 64);
++    SQObjectPtr thread_owner = v->GetUp(-1);
++    sq_pop(v, 1);
++    nested_vm = thread;
++    CHECK(call(v, closure, a, 4, value) && value == 14 && nested_ok && entered == 5 &&
++        _integer(_array(a)->_values[0]) == 5 && !ctx.active_vm && !ctx.active_logs,
++        "nested VM side exits restore the active VM and preserve both frames' writes");
++
++    const int before_debug = entered;
++    sq_setnativedebughook(v, debug_hook);
++    CHECK(call(v, closure, a, 7, value) && value == 20 && entered == before_debug &&
++        _integer(_array(a)->_values[0]) == 6, "debugger bypass still executes the original bytecode");
++    sq_setnativedebughook(v, NULL);
++
++    mode = ENTRY_GUARD;
++    CHECK(call(v, closure, a, 4, value) && value == 14 && _integer(_array(a)->_values[0]) == 7,
++        "ordinary entry guard still replays the unchanged entry state");
++    CHECK(sqjit_observe_proto(proto, observation) && observation.frame.side_exits == 5 &&
++        observation.frame.guard_failures == 1, "entry guard and side-exit counts stay distinct");
++    for(ExitMode invalid : {NEGATIVE_IP, END_IP, WRONG_TAG}) {
++        mode = invalid;
++        CHECK(!call(v, closure, a, 4, value) && _integer(_array(a)->_values[0]) == 7,
++            "invalid resume positions or tags raise an error without entry replay");
++        const SQChar *error = NULL;
++        sq_getlasterror(v);
++        CHECK(SQ_SUCCEEDED(sq_getstring(v,-1,&error)) && !scstrcmp(error,_SC("invalid native side exit")),
++            "invalid continuation has an explicit execution error");
++        sq_pop(v,1);
++    }
++    mode = COMMIT; native->_requires_vm_frame = false;
++    CHECK(!call(v, closure, a, 4, value) && _integer(_array(a)->_values[0]) == 8,
++        "unflagged side exit is an error and does not replay its committed effect");
++    native->_requires_vm_frame = true; native->_scalarized = true;
++    CHECK(!call(v, closure, a, 4, value) && _integer(_array(a)->_values[0]) == 9,
++        "lowered virtual-register artifacts cannot resume source bytecode");
++    native->_scalarized = false;
++    thread_owner.Null(); closure.Null(); a.Null(); raw[0].Null(); raw[1].Null();
++    sq_close(v);
++    if(!failures) puts("[OK] frame side-exit dispatch, committed state, reentry and invalid exits");
++    return failures ? 1 : 0;
++}

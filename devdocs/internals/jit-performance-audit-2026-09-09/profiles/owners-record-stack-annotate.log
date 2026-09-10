@@ -1,0 +1,171 @@
+ Percent |	Source code & Disassembly of sqgi for cycles:u (1240 samples, percent: local period)
+----------------------------------------------------------------------------------------------------
+         :
+         :
+         :
+         : 3     Disassembly of section .text:
+         :
+         : 5     00000000000852f0 <SQJitWriteLog::RecordStackSlot(SQObjectPtr*)>:
+         : 6     SQJitWriteLog::RecordStackSlot(SQObjectPtr*):
+         : 396   return FindValue<false>(NULL, value) || AppendValue(NULL, value);
+         : 397   }
+         :
+         : 399   bool SQJitWriteLog::RecordStackSlot(SQObjectPtr *slot)
+         : 400   {
+         : 401   if(!slot) return false;
+    2.58 :   852f0:  cbz     x1, 85444 <SQJitWriteLog::RecordStackSlot(SQObjectPtr*)+0x154>
+         : 395   {
+    0.81 :   852f4:  stp     x29, x30, [sp, #-48]!
+    0.16 :   852f8:  mov     x29, sp
+         : 398   SQJitWriteLog::EnsureValueIndex():
+         : 90    void IndexPin(const SQObjectPtr &value);
+         : 91    void ReleaseEntry(Entry &entry);
+         : 92    void ReleaseValue(ValueEntry &entry);
+         : 93    void ReplayEntry(Entry &entry);
+         : 94    bool GrowValues();
+         : 95    bool EnsureValueIndex() { return _value_buckets || _value_size <= INLINE_SIZE || BuildValueIndex(); }
+    0.16 :   852fc:  ldr     x6, [x0, #784]
+         : 97    SQJitWriteLog::RecordStackSlot(SQObjectPtr*):
+    0.72 :   85300:  str     x19, [sp, #16]
+    0.40 :   85304:  mov     x19, x0
+         : 397   SQJitWriteLog::EnsureValueIndex():
+    1.45 :   85308:  cbz     x6, 8539c <SQJitWriteLog::RecordStackSlot(SQObjectPtr*)+0xac>
+         : 91    SQJitWriteLog::ValueBucket(SQObjectPtr*, SQObjectPtr const&) const:
+         : 414   inline SQUnsignedInteger SQJitWriteLog::ValueBucket(SQObjectPtr *slot, const SQObjectPtr &value) const
+         : 415   {
+         : 416   uint64_t hash = slot ? (uint64_t)(uintptr_t)slot :
+         : 417   (uint64_t)_rawval(value) ^ ((uint64_t)sq_type(value) * UINT64_C(0x9e3779b97f4a7c15));
+         : 418   hash ^= hash >> 30;
+         : 419   hash *= UINT64_C(0xbf58476d1ce4e5b9);
+    2.63 :   8530c:  mov     x0, #0xe5b9                     // #58809
+         : 413   hash ^= hash >> 30;
+    0.08 :   85310:  eor     x4, x1, x1, lsr #30
+         : 414   hash *= UINT64_C(0xbf58476d1ce4e5b9);
+    0.16 :   85314:  movk    x0, #0x1ce4, lsl #16
+    0.08 :   85318:  movk    x0, #0x476d, lsl #32
+         : 416   hash ^= hash >> 27;
+         : 417   return (SQUnsignedInteger)hash & (2 * _value_capacity - 1);
+    0.24 :   8531c:  ldr     x5, [x19, #800]
+         : 414   hash *= UINT64_C(0xbf58476d1ce4e5b9);
+    0.49 :   85320:  movk    x0, #0xbf58, lsl #48
+    0.48 :   85324:  mul     x4, x4, x0
+         : 416   return (SQUnsignedInteger)hash & (2 * _value_capacity - 1);
+    1.78 :   85328:  lsl     x5, x5, #1
+    2.42 :   8532c:  sub     x5, x5, #0x1
+         : 415   hash ^= hash >> 27;
+    0.16 :   85330:  eor     x4, x4, x4, lsr #27
+         : 416   return (SQUnsignedInteger)hash & (2 * _value_capacity - 1);
+    0.00 :   85334:  and     x4, x4, x5
+         : 418   SQJitWriteLog::ValueEntry* SQJitWriteLog::FindValue<true>(SQObjectPtr*, SQObjectPtr const&):
+         : 447   return Stack ? e.slot == slot : (!e.slot &&
+         : 448   sq_type(e.value) == sq_type(value) && _rawval(e.value) == _rawval(value));
+         : 449   };
+         : 450   if(_value_buckets) {
+         : 451   SQUnsignedInteger bucket = ValueBucket(slot, value);
+         : 452   while(_value_buckets[bucket]) {
+    0.00 :   85338:  ldr     x3, [x6, x4, lsl #3]
+   32.97 :   8533c:  cbz     x3, 85424 <SQJitWriteLog::RecordStackSlot(SQObjectPtr*)+0x134>
+         : 448   ValueEntry &e = _values[_value_buckets[bucket] - 1];
+    4.36 :   85340:  ldr     x7, [x19, #776]
+    0.00 :   85344:  b       85350 <SQJitWriteLog::RecordStackSlot(SQObjectPtr*)+0x60>
+         : 447   while(_value_buckets[bucket]) {
+    0.00 :   85348:  ldr     x3, [x6, x4, lsl #3]
+    0.00 :   8534c:  cbz     x3, 85424 <SQJitWriteLog::RecordStackSlot(SQObjectPtr*)+0x134>
+         : 448   ValueEntry &e = _values[_value_buckets[bucket] - 1];
+    0.16 :   85350:  add     x3, x7, x3, lsl #5
+         : 450   if(matches(e)) return &e;
+         : 451   bucket = (bucket + 1) & (2 * _value_capacity - 1);
+    0.08 :   85354:  add     x4, x4, #0x1
+         : 448   ValueEntry &e = _values[_value_buckets[bucket] - 1];
+    0.00 :   85358:  sub     x3, x3, #0x20
+         : 450   bucket = (bucket + 1) & (2 * _value_capacity - 1);
+    0.00 :   8535c:  and     x4, x5, x4
+         : 449   if(matches(e)) return &e;
+    0.00 :   85360:  ldr     x2, [x3, #16]
+   29.30 :   85364:  cmp     x1, x2
+    0.00 :   85368:  b.ne    85348 <SQJitWriteLog::RecordStackSlot(SQObjectPtr*)+0x58>  // b.any
+         : 453   SQJitWriteLog::RecordStackSlot(SQObjectPtr*):
+         : 402   if(sq_type(saved->value) == sq_type(*slot) &&
+   11.52 :   8536c:  ldr     w0, [x1]
+    0.00 :   85370:  ldr     w2, [x3]
+    0.32 :   85374:  cmp     w2, w0
+    0.00 :   85378:  b.ne    8538c <SQJitWriteLog::RecordStackSlot(SQObjectPtr*)+0x9c>  // b.any
+    0.73 :   8537c:  ldr     x0, [x1, #8]
+    0.00 :   85380:  ldr     x2, [x3, #8]
+    0.00 :   85384:  cmp     x2, x0
+    0.00 :   85388:  b.eq    85404 <SQJitWriteLog::RecordStackSlot(SQObjectPtr*)+0x114>  // b.none
+         : 404   return RetainValue(*slot);
+    5.25 :   8538c:  mov     x0, x19
+         : 407   }
+    0.00 :   85390:  ldr     x19, [sp, #16]
+    0.00 :   85394:  ldp     x29, x30, [sp], #48
+         : 404   return RetainValue(*slot);
+    0.16 :   85398:  b       85170 <SQJitWriteLog::RetainValue(SQObjectPtr const&)>
+         : 406   SQJitWriteLog::EnsureValueIndex():
+    0.00 :   8539c:  ldr     x6, [x0, #792]
+    0.00 :   853a0:  cmp     x6, #0x8
+    0.00 :   853a4:  b.hi    853e4 <SQJitWriteLog::RecordStackSlot(SQObjectPtr*)+0xf4>  // b.pmore
+         : 93    SQJitWriteLog::ValueEntry* SQJitWriteLog::FindValue<true>(SQObjectPtr*, SQObjectPtr const&):
+         : 453   }
+         : 454   }
+         : 455   else for(SQUnsignedInteger n = _value_epoch; n < _value_size; ++n)
+    0.00 :   853a8:  ldr     x4, [x19, #808]
+    0.00 :   853ac:  cmp     x4, x6
+    0.00 :   853b0:  b.cs    85424 <SQJitWriteLog::RecordStackSlot(SQObjectPtr*)+0x134>  // b.hs, b.nlast
+    0.00 :   853b4:  ldr     x2, [x19, #776]
+    0.00 :   853b8:  add     x2, x2, x4, lsl #5
+    0.00 :   853bc:  b       853c8 <SQJitWriteLog::RecordStackSlot(SQObjectPtr*)+0xd8>
+    0.00 :   853c0:  cmp     x4, x6
+    0.00 :   853c4:  b.eq    85424 <SQJitWriteLog::RecordStackSlot(SQObjectPtr*)+0x134>  // b.none
+         : 454   if(matches(_values[n])) return &_values[n];
+    0.00 :   853c8:  ldr     x5, [x2, #16]
+    0.00 :   853cc:  mov     x3, x2
+         : 453   else for(SQUnsignedInteger n = _value_epoch; n < _value_size; ++n)
+    0.00 :   853d0:  add     x4, x4, #0x1
+    0.00 :   853d4:  add     x2, x2, #0x20
+         : 454   if(matches(_values[n])) return &_values[n];
+    0.00 :   853d8:  cmp     x1, x5
+    0.00 :   853dc:  b.ne    853c0 <SQJitWriteLog::RecordStackSlot(SQObjectPtr*)+0xd0>  // b.any
+    0.00 :   853e0:  b       8536c <SQJitWriteLog::RecordStackSlot(SQObjectPtr*)+0x7c>
+    0.00 :   853e4:  str     x1, [sp, #40]
+         : 459   SQJitWriteLog::EnsureValueIndex():
+    0.00 :   853e8:  bl      84df0 <SQJitWriteLog::BuildValueIndex()>
+    0.00 :   853ec:  ldr     x1, [sp, #40]
+    0.00 :   853f0:  tbz     w0, #0, 85414 <SQJitWriteLog::RecordStackSlot(SQObjectPtr*)+0x124>
+         : 92    SQJitWriteLog::ValueEntry* SQJitWriteLog::FindValue<true>(SQObjectPtr*, SQObjectPtr const&):
+         : 445   if(_value_buckets) {
+    0.00 :   853f4:  ldr     x6, [x19, #784]
+    0.00 :   853f8:  cbnz    x6, 8530c <SQJitWriteLog::RecordStackSlot(SQObjectPtr*)+0x1c>
+         : 453   else for(SQUnsignedInteger n = _value_epoch; n < _value_size; ++n)
+    0.00 :   853fc:  ldr     x6, [x19, #792]
+    0.00 :   85400:  b       853a8 <SQJitWriteLog::RecordStackSlot(SQObjectPtr*)+0xb8>
+         : 456   SQJitWriteLog::RecordStackSlot(SQObjectPtr*):
+         : 407   }
+    0.32 :   85404:  ldr     x19, [sp, #16]
+         : 403   _rawval(saved->value) == _rawval(*slot)) return true;
+    0.00 :   85408:  mov     w0, #0x1                        // #1
+         : 407   }
+    0.00 :   8540c:  ldp     x29, x30, [sp], #48
+    0.00 :   85410:  ret
+    0.00 :   85414:  ldr     x19, [sp, #16]
+         : 396   if(!slot) return false;
+    0.00 :   85418:  mov     w0, #0x0                        // #0
+         : 407   }
+    0.00 :   8541c:  ldp     x29, x30, [sp], #48
+    0.00 :   85420:  ret
+         : 406   return AppendValue(slot, *slot) != NULL;
+    0.00 :   85424:  mov     x0, x19
+    0.00 :   85428:  mov     x2, x1
+    0.00 :   8542c:  bl      85090 <SQJitWriteLog::AppendValue(SQObjectPtr*, SQObjectPtr const&)>
+    0.00 :   85430:  cmp     x0, #0x0
+         : 407   }
+    0.00 :   85434:  ldr     x19, [sp, #16]
+         : 406   return AppendValue(slot, *slot) != NULL;
+    0.00 :   85438:  cset    w0, ne  // ne = any
+         : 407   }
+    0.00 :   8543c:  ldp     x29, x30, [sp], #48
+    0.00 :   85440:  ret
+         : 396   if(!slot) return false;
+    0.00 :   85444:  mov     w0, #0x0                        // #0
+         : 407   }
+    0.00 :   85448:  ret

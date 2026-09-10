@@ -1,0 +1,132 @@
+--- a/Squirrel3/squirrel/jit/sqjit_backend_aarch64_compile_proto.inc
++++ b/Squirrel3/squirrel/jit/sqjit_backend_aarch64_compile_proto.inc
+@@ -3590,6 +3590,22 @@
+                 !sqjit_a64_emit_mov_imm_x(&buf, type_reg, scalar)) return false;
+         }
+         else if(!sqjit_a64_emit_reference_operand(&buf, slots, dst, bits_reg, type_reg)) return false;
++        SQInteger unchanged = -1;
++        if(!staged && !getter &&
++            (state.kind == SQ_JIT_SLOT_ARRAY_PTR || state.kind == SQ_JIT_SLOT_OBJECT_PTR)) {
++            // An exact self-assignment neither drops an owner nor changes the
++            // rollback state. Keep the real owning slot intact and avoid a
++            // journal round trip. A different tag or pointer still publishes
++            // normally; GET must always preserve its temporary-swap semantics.
++            SQInteger different_type = -1;
++            if(!sqjit_a64_emit_ldr_w(&buf, 9, 19, sqjit_a64_stack_type_disp(dst)) ||
++                !sqjit_a64_emit_cmp_reg(&buf, 9, type_reg) ||
++                !sqjit_a64_emit_bcond_placeholder(&buf, SQ_JIT_A64_NE, &different_type) ||
++                !sqjit_a64_emit_ldr_x(&buf, 9, 19, sqjit_a64_stack_value_disp(dst)) ||
++                !sqjit_a64_emit_cmp_reg(&buf, 9, bits_reg) ||
++                !sqjit_a64_emit_bcond_placeholder(&buf, SQ_JIT_A64_EQ, &unchanged) ||
++                !sqjit_a64_patch_branch(&buf, different_type, buf.size, true, SQ_JIT_A64_NE)) return false;
++        }
+         if(!staged && (!sqjit_a64_emit_mov_reg(&buf, 1, 19) ||
+             !sqjit_a64_emit_mov_imm_x(&buf, 2, dst))) return false;
+         if(!sqjit_a64_emit_mov_imm_x(&buf, staged ? 3 : 5, getter ? 1 : 0) ||
+@@ -3597,6 +3613,8 @@
+                 (const void *)sqjit_a64_helper_finish_stack_write :
+                 (const void *)sqjit_a64_helper_publish_stack_write)) ||
+             !sqjit_a64_emit_blr_x16(&buf) || !emit_guard_on_x0_zero()) return false;
++        if(unchanged >= 0 &&
++            !sqjit_a64_patch_branch(&buf, unchanged, buf.size, true, SQ_JIT_A64_EQ)) return false;
+         if(state.kind == SQ_JIT_SLOT_STACK_OBJECT && state.stack_object_reg != dst) {
+             // A semantic MOVE owns the copied value; it cannot remain an alias
+             // of an input register that another instruction will overwrite.
+--- a/test/cpp/test_sqjit_side_exit.cpp
++++ b/test/cpp/test_sqjit_side_exit.cpp
+@@ -1845,11 +1845,93 @@
+     return failures;
+ }
+ 
++static int generated_repeated_receiver()
++{
++    int failures=0;
++#if SQJIT_HAS_EXTERNAL_NATIVE
++    ++native_test_groups;
++    SQVM *v=sq_open(64);
++    SQJitContext &ctx=sqjit_context(v->_sharedstate);
++    ctx.enabled=ctx.precise_exits=true;ctx.threshold=1;
++    ctx.trace=ctx.trace_stats=false;sqjit_observe_enable(v);
++    {
++    CHECK(run(v,_SC(
++        "function repeated_receiver(r,n,index,counter) { counter=counter+1; r.count=counter; local values=[]; for(local j=0;j<n;j++) { values.append(j); } return values[index]+r.count; }\n"
++        "repeat_record <- {count=0,seen=0}; if(repeated_receiver(repeat_record,17,7,0)!=8) throw \"receiver warmup\";\n")),
++        "warm repeated ownership-preserving receiver publication");
++    SQObjectPtr fn=named(v,_SC("repeated_receiver")),record=named(v,_SC("repeat_record"));
++    SQFunctionProto *p=_closure(fn)->_function;
++    SQInteger receiver=-1;
++    for(SQInteger ip=0;ip<p->_ninstructions;++ip) {
++        const SQInstruction &i=p->_instructions[ip];
++        if(i.op==_OP_PREPCALLK && sq_type(p->_literals[i._arg1])==OT_STRING &&
++            !scstrcmp(_stringval(p->_literals[i._arg1]),_SC("append"))) receiver=i._arg3;
++    }
++    SQJitObservation observed={};
++    bool native=receiver>=5 && p->_jit && p->_jit->_entry &&
++        !p->_jit->_entry->_requires_vm_frame && p->_jit->_entry->_code.Entry() &&
++        sqjit_observe_proto(p,observed) && observed.frame.successes>0;
++    CHECK(native,"repeated array receivers execute actual private native code");
++    auto field=[&](const SQChar *key)->SQObjectPtr & {
++        return *_table(record)->GetRawSlot(SQObjectPtr(SQString::Create(v->_sharedstate,key)));
++    };
++    if(native) for(int mode=0;mode<6;++mode) {
++        v->temp_reg.Null();field(_SC("count"))=SQInteger(0);field(_SC("seen"))=SQInteger(0);
++        std::vector<SQObjectPtr> frame((size_t)p->_stacksize);
++        frame[0]=v->_roottable;frame[1]=record;frame[2]=SQInteger(17);
++        frame[3]=SQInteger(mode==5 ? 100 : 7);frame[4]=SQInteger(0);
++        SQObjectPtr survivor,weak;SQRefCounted *raw=NULL;int releases=0;
++        if(mode>0 && mode<5) {
++            ReleaseWitness *w=(ReleaseWitness *)sq_newuserdata(v,sizeof(ReleaseWitness));
++            w->record=&record;w->count=&releases;sq_setreleasehook(v,-1,release_witness);
++            frame[receiver]=v->GetUp(-1);sq_pop(v,1);raw=_refcounted(frame[receiver]);
++            weak=raw->GetWeakRef(OT_USERDATA);
++            if(mode==2 || mode==4) survivor=frame[receiver];
++#ifndef NO_GARBAGE_COLLECTOR
++            if(mode==4) raw->_uiRef|=MARK_FLAG;
++#endif
++        }
++        {
++            SQJitWriteLog parent(1000,sq_vm_malloc,mode==3 ? &ctx : NULL);
++            SQJitWriteLog ancestor(1000,sq_vm_malloc,mode==3 ? &ctx : NULL);
++            if(mode==3) CHECK(parent.RetainValue(frame[receiver]) && ancestor.RetainValue(frame[receiver]),
++                "repeated receiver test retains two ancestor pins");
++            SQObjectPtr result;SQInteger status;
++            { SQJitExecutionScope scope(ctx,v);
++              status=((SQJitNativeObjectFn)p->_jit->_entry->_code.Entry())(frame.data(),&result,_closure(fn)); }
++            if(mode==0 || mode==2 || mode==4) CHECK(status==SQ_JIT_NATIVE_RETURNED &&
++                sq_type(result)==OT_INTEGER && _integer(result)==8 && _integer(field(_SC("count")))==1,
++                "same-object repetitions stay native after checked initial publication");
++            else CHECK(status==SQ_JIT_NATIVE_GUARD_FAILED && _integer(field(_SC("count")))==0,
++                "final-owner or late-read guard restores the complete effectful prefix");
++            CHECK(releases==0 && _integer(field(_SC("seen")))==0,
++                "receiver publication never defers an observable release into native code");
++            if(mode==1 || mode==3) CHECK(sq_type(frame[receiver])==OT_USERDATA &&
++                _refcounted(frame[receiver])==raw && sq_type(_weakref(weak)->_obj)==OT_USERDATA,
++                "failed changed-owner publication restores the original strong and weak owner");
++            if(mode==5) CHECK(sq_type(frame[receiver])==OT_NULL,
++                "late failure after repeated self-publication restores the original receiver slot");
++#ifndef NO_GARBAGE_COLLECTOR
++            if(mode==4) { CHECK(raw->_uiRef&MARK_FLAG,"repeated receiver publication preserves the mark");raw->_uiRef&=~(SQUnsignedInteger)MARK_FLAG; }
++#endif
++            frame.clear();survivor.Null();v->temp_reg.Null();
++        }
++        if(mode>0 && mode<5) CHECK(releases==1 && sq_type(_weakref(weak)->_obj)==OT_NULL,
++            "repeated receiver cleanup releases exactly once with exact weak death");
++        CHECK(!ctx.active_logs,"repeated receiver restores the ancestor chain");
++    }
++    }
++    sq_close(v);
++    printf("[coverage] executed AArch64 repeated receiver publication contracts\n");
++#endif
++    return failures;
++}
++
+ int main()
+ {
+-    int failures = generated_length_intrinsics() + generated_exits() + generated_exit_sites() + generated_store_release() + generated_integer_comparisons() + generated_cache_proofs() + generated_caches() + generated_scalars() + generated_cached_release() + generated_reference_reads() + generated_copy_release();
++    int failures = generated_repeated_receiver() + generated_length_intrinsics() + generated_exits() + generated_exit_sites() + generated_store_release() + generated_integer_comparisons() + generated_cache_proofs() + generated_caches() + generated_scalars() + generated_cached_release() + generated_reference_reads() + generated_copy_release();
+ #if defined(__aarch64__) && defined(__linux__)
+-    CHECK(native_test_groups==11,"all eleven AArch64 generated-code test groups actually execute");
++    CHECK(native_test_groups==12,"all twelve AArch64 generated-code test groups actually execute");
+     fprintf(stdout,"[coverage] executed %d AArch64 generated-code groups\n",native_test_groups);
+ #endif
+     SQVM *v = sq_open(64);

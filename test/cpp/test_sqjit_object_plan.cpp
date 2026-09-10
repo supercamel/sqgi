@@ -2,6 +2,7 @@
 #include "sqvm.h"
 #include "sqfuncproto.h"
 #include "sqclosure.h"
+#include "sqarray.h"
 #include "jit/sqjit_context.h"
 #include "jit/sqjit_observe.h"
 #include "jit/sqjit_object_plan.h"
@@ -91,6 +92,21 @@ int main()
                     CHECK(status==SQ_JIT_NATIVE_RETURNED && sq_type(out)==OT_FLOAT &&
                         std::fabs(_float(out)-0.021712587807413163)<1e-12,"direct scalar artifact checksum");
                     for(SQInteger n=2;n<MAX_FUNC_STACKSIZE;++n) CHECK(sq_type(stack[n])==OT_NULL,"no virtual object reaches VM stack");
+                    // Synthetic registers must not alias a caller's live VM
+                    // cells. Null-filled storage alone would hide accidental
+                    // clears of those cells during scalarized execution.
+                    SQObjectPtr sentinel(SQArray::Create(v->_sharedstate,1));
+                    _array(sentinel)->_values[0]=(SQInteger)73;
+                    for(SQInteger n=2;n<MAX_FUNC_STACKSIZE;++n) stack[n]=sentinel;
+                    out.Null();
+                    status=sqjit_object_plan_entry(stack,&out,closure(v,name));
+                    CHECK(status==SQ_JIT_NATIVE_RETURNED && sq_type(out)==OT_FLOAT &&
+                        std::fabs(_float(out)-0.021712587807413163)<1e-12,"scalar artifact accepts populated caller storage");
+                    for(SQInteger n=2;n<MAX_FUNC_STACKSIZE;++n)
+                        CHECK(sq_type(stack[n])==OT_ARRAY && _array(stack[n])==_array(sentinel),
+                            "synthetic registers preserve unrelated caller owners");
+                    CHECK(_refcounted(sentinel)->_uiRef==MAX_FUNC_STACKSIZE-1,
+                        "scalar replacement retains no hidden caller owner");
                 }
             }
 #endif
@@ -145,6 +161,7 @@ int main()
 #endif
         CHECK(run(v,"class GuardBox {value=1;constructor(x){value=x}function make(x){return GuardBox(x)}function read(){return value}}\n"
             "function factory(n){local a=GuardBox(n);local b=a.make(n+1);return b.read()}\n"
+            "for(local i=0;i<3;i++){local warm=GuardBox(4);if(warm.make(4).read()!=4) throw \"warm object dependencies\";}\n"
             "for(local i=0;i<4;i++) {if(factory(4)!=5) throw \"initial factory\";}\n"
             "alternate_root<-{GuardBox=class {value=0;constructor(x){value=x+10}function read(){return value}}};\n"
             "GuardBox.make.setroot(alternate_root);\n"
@@ -158,8 +175,22 @@ int main()
             "if(boxed(4503599627370497)!=9007199254740994 || typeof boxed(4503599627370497)!=\"integer\") throw \"int64 object arithmetic\";\n"
         ),"root lookup guards and full-width numeric values");
 #if SQJIT_HAS_X64_NATIVE || SQJIT_HAS_EXTERNAL_NATIVE
-        if(enabled) CHECK(observe(v,"factory").direct.guard_failures>=3,
-            "mutated lookup dependencies invalidate scalarized calls");
+        if(enabled) {
+            const SQJitObservation o=observe(v,"factory");
+            CHECK(plan(v,"factory") && o.direct.successes>0,
+                "warming methods before their caller preserves allocation elimination");
+            if(o.direct.guard_failures<3) {
+                SQFunctionProto *p=closure(v,"factory")->_function;
+                SQJitNative *native=p->_jit ? p->_jit->_entry : NULL;
+                printf("factory invalidation: slots=%lld live=%lld plan=%d direct=%lld/%lld frame=%lld/%lld\n",
+                    (long long)p->_stacksize, (long long)(native ? native->_stack_live_slots : -1),
+                    native && native->_object_plan ? 1 : 0,
+                    (long long)o.direct.successes, (long long)o.direct.guard_failures,
+                    (long long)o.frame.successes, (long long)o.frame.guard_failures);
+            }
+            CHECK(o.direct.guard_failures>=3,
+                "mutated lookup dependencies invalidate scalarized calls");
+        }
 #endif
         // An instance's default delegate is searched before root fallback.
         sq_getdefaultdelegate(v,OT_INSTANCE); sq_pushstring(v,"Vec_arrays_operators",-1);

@@ -1,0 +1,349 @@
+--- a/Squirrel3/squirrel/jit/sqjit_backend_aarch64_compile_loop.inc
++++ b/Squirrel3/squirrel/jit/sqjit_backend_aarch64_compile_loop.inc
+@@ -1304,17 +1304,11 @@
+     // Temporary owners cover failed compilation; the installed code takes its
+     // own weak references only after executable installation succeeds.
+     std::vector<SQObjectPtr> closure_witnesses;
+-    auto emit_closure_lifetime_guard = [&](SQRefCounted *expected,SQObjectType type) -> bool {
+-        if(!expected) return false;
+-        SQWeakRef *weak=expected->GetWeakRef(type);
+-        if(!weak) return false;
+-        closure_witnesses.push_back(SQObjectPtr(weak));
+-        const SQInteger tag=(SQInteger)(size_t)&(((SQWeakRef *)0)->_obj._type);
+-        return sqjit_a64_emit_mov_imm_x(&buf,9,(SQInteger)(intptr_t)weak) &&
+-            sqjit_a64_emit_ldr_w(&buf,9,9,tag) &&
+-            sqjit_a64_emit_mov_imm_w(&buf,10,(uint32_t)type) &&
+-            sqjit_a64_emit_cmp_reg(&buf,9,10) &&
+-            emit_guard_fail_branch(SQ_JIT_A64_NE);
++    auto retain_closure_witness = [&](SQRefCounted *expected, SQObjectType type) -> SQWeakRef * {
++        if(!expected) return NULL;
++        SQWeakRef *weak = expected->GetWeakRef(type);
++        if(weak) closure_witnesses.push_back(SQObjectPtr(weak));
++        return weak;
+     };
+ 
+     auto emit_closure_slot_guard = [&](SQInteger closure_slot, SQClosure *expected) -> bool {
+@@ -1323,10 +1317,11 @@
+             slots[closure_slot].stack_object_reg < 0 || !expected) {
+             return false;
+         }
+-        if(!emit_closure_lifetime_guard(expected,OT_CLOSURE)) return false;
++        SQWeakRef *witness = retain_closure_witness(expected, OT_CLOSURE);
++        if(!witness) return false;
+         return sqjit_a64_emit_mov_reg(&buf, 0, 19) &&
+             sqjit_a64_emit_mov_imm_x(&buf, 1, slots[closure_slot].stack_object_reg) &&
+-            sqjit_a64_emit_mov_imm_x(&buf, 2, (SQInteger)(intptr_t)expected) &&
++            sqjit_a64_emit_mov_imm_x(&buf, 2, (SQInteger)(intptr_t)witness) &&
+             sqjit_a64_emit_mov_imm_x(&buf, 16,
+                 (SQInteger)(intptr_t)(const void *)sqjit_a64_helper_closure_slot_guard) &&
+             sqjit_a64_emit_blr_x16(&buf) &&
+@@ -1341,7 +1336,8 @@
+             slots[base_slot].kind != SQ_JIT_SLOT_OBJECT_PTR) || !expected) {
+             return false;
+         }
+-        if(!emit_closure_lifetime_guard(expected,OT_CLOSURE)) return false;
++        SQWeakRef *witness = retain_closure_witness(expected, OT_CLOSURE);
++        if(!witness) return false;
+         if(slots[base_slot].kind == SQ_JIT_SLOT_OBJECT_PTR) {
+             return slots[base_slot].object_ptr_observed_type != OT_NULL &&
+                 sqjit_a64_emit_ldr_x(&buf, 0, 31, sqjit_a64_local_disp(base_slot)) &&
+@@ -1349,7 +1345,7 @@
+                     (SQInteger)slots[base_slot].object_ptr_observed_type) &&
+                 sqjit_a64_emit_mov_imm_x(&buf, 2,
+                     (SQInteger)(intptr_t)&proto->_literals[literal_index]) &&
+-                sqjit_a64_emit_mov_imm_x(&buf, 3, (SQInteger)(intptr_t)expected) &&
++                sqjit_a64_emit_mov_imm_x(&buf, 3, (SQInteger)(intptr_t)witness) &&
+                 sqjit_a64_emit_mov_imm_x(&buf, 16,
+                     (SQInteger)(intptr_t)(const void *)sqjit_a64_helper_object_ptr_member_closure_guard) &&
+                 sqjit_a64_emit_blr_x16(&buf) &&
+@@ -1360,7 +1356,7 @@
+             sqjit_a64_emit_mov_imm_x(&buf, 1, slots[base_slot].stack_object_reg) &&
+             sqjit_a64_emit_mov_imm_x(&buf, 2,
+                 (SQInteger)(intptr_t)&proto->_literals[literal_index]) &&
+-            sqjit_a64_emit_mov_imm_x(&buf, 3, (SQInteger)(intptr_t)expected) &&
++            sqjit_a64_emit_mov_imm_x(&buf, 3, (SQInteger)(intptr_t)witness) &&
+             sqjit_a64_emit_mov_imm_x(&buf, 4,
+                 slots[base_slot].stack_object_reg == 0 && root_object ?
+                 (SQInteger)(intptr_t)root_object : 0) &&
+@@ -1415,7 +1411,8 @@
+             slots[base_slot].kind != SQ_JIT_SLOT_OBJECT_PTR) || !expected) {
+             return false;
+         }
+-        if(!emit_closure_lifetime_guard(expected,OT_NATIVECLOSURE)) return false;
++        SQWeakRef *witness = retain_closure_witness(expected, OT_NATIVECLOSURE);
++        if(!witness) return false;
+         if(slots[base_slot].kind == SQ_JIT_SLOT_OBJECT_PTR) {
+             return slots[base_slot].object_ptr_observed_type != OT_NULL &&
+                 sqjit_a64_emit_ldr_x(&buf, 0, 31, sqjit_a64_local_disp(base_slot)) &&
+@@ -1423,7 +1420,7 @@
+                     (SQInteger)slots[base_slot].object_ptr_observed_type) &&
+                 sqjit_a64_emit_mov_imm_x(&buf, 2,
+                     (SQInteger)(intptr_t)&proto->_literals[literal_index]) &&
+-                sqjit_a64_emit_mov_imm_x(&buf, 3, (SQInteger)(intptr_t)expected) &&
++                sqjit_a64_emit_mov_imm_x(&buf, 3, (SQInteger)(intptr_t)witness) &&
+                 sqjit_a64_emit_mov_imm_x(&buf, 16,
+                     (SQInteger)(intptr_t)(const void *)sqjit_a64_helper_object_ptr_member_native_closure_guard) &&
+                 sqjit_a64_emit_blr_x16(&buf) &&
+@@ -1434,7 +1431,7 @@
+             sqjit_a64_emit_mov_imm_x(&buf, 1, slots[base_slot].stack_object_reg) &&
+             sqjit_a64_emit_mov_imm_x(&buf, 2,
+                 (SQInteger)(intptr_t)&proto->_literals[literal_index]) &&
+-            sqjit_a64_emit_mov_imm_x(&buf, 3, (SQInteger)(intptr_t)expected) &&
++            sqjit_a64_emit_mov_imm_x(&buf, 3, (SQInteger)(intptr_t)witness) &&
+             sqjit_a64_emit_mov_imm_x(&buf, 4,
+                 slots[base_slot].stack_object_reg == 0 && root_object ?
+                 (SQInteger)(intptr_t)root_object : 0) &&
+--- a/Squirrel3/squirrel/jit/sqjit_backend_aarch64_compile_proto.inc
++++ b/Squirrel3/squirrel/jit/sqjit_backend_aarch64_compile_proto.inc
+@@ -2062,11 +2062,16 @@
+     // Temporary owners cover failed compilation; the installed code takes its
+     // own weak references only after executable installation succeeds.
+     std::vector<SQObjectPtr> closure_witnesses;
++    auto retain_closure_witness = [&](SQRefCounted *expected, SQObjectType type) -> SQWeakRef * {
++        if(!expected) return NULL;
++        SQWeakRef *weak = expected->GetWeakRef(type);
++        if(weak) closure_witnesses.push_back(SQObjectPtr(weak));
++        return weak;
++    };
++    // Direct calls still check before argument materialization.
+     auto emit_closure_lifetime_guard = [&](SQRefCounted *expected,SQObjectType type) -> bool {
+-        if(!expected) return false;
+-        SQWeakRef *weak=expected->GetWeakRef(type);
++        SQWeakRef *weak = retain_closure_witness(expected, type);
+         if(!weak) return false;
+-        closure_witnesses.push_back(SQObjectPtr(weak));
+         const SQInteger tag=(SQInteger)(size_t)&(((SQWeakRef *)0)->_obj._type);
+         return sqjit_a64_emit_mov_imm_x(&buf,9,(SQInteger)(intptr_t)weak) &&
+             sqjit_a64_emit_ldr_w(&buf,9,9,tag) &&
+@@ -2084,7 +2089,8 @@
+             !expected) {
+             return false;
+         }
+-        if(!emit_closure_lifetime_guard(expected,OT_CLOSURE)) return false;
++        SQWeakRef *witness = retain_closure_witness(expected, OT_CLOSURE);
++        if(!witness) return false;
+         if(slots[base_slot].kind == SQ_JIT_SLOT_OBJECT_PTR) {
+             return slots[base_slot].object_ptr_observed_type != OT_NULL &&
+                 sqjit_a64_emit_ldr_x(&buf, 0, 31,
+@@ -2094,7 +2100,7 @@
+                 sqjit_a64_emit_mov_imm_x(&buf, 2,
+                     (SQInteger)(intptr_t)&proto->_literals[literal_index]) &&
+                 sqjit_a64_emit_mov_imm_x(&buf, 3,
+-                    (SQInteger)(intptr_t)expected) &&
++                    (SQInteger)(intptr_t)witness) &&
+                 sqjit_a64_emit_mov_imm_x(&buf, 16,
+                     (SQInteger)(intptr_t)(const void *)
+                     sqjit_a64_helper_object_ptr_member_closure_guard) &&
+@@ -2107,7 +2113,7 @@
+             sqjit_a64_emit_mov_imm_x(&buf, 2,
+                 (SQInteger)(intptr_t)&proto->_literals[literal_index]) &&
+             sqjit_a64_emit_mov_imm_x(&buf, 3,
+-                (SQInteger)(intptr_t)expected) &&
++                (SQInteger)(intptr_t)witness) &&
+             sqjit_a64_emit_mov_imm_x(&buf, 4,
+                 slots[base_slot].stack_object_reg == 0 && root_object ?
+                 (SQInteger)(intptr_t)root_object : 0) &&
+@@ -2994,7 +3000,8 @@
+             !expected) {
+             return false;
+         }
+-        if(!emit_closure_lifetime_guard(expected,OT_NATIVECLOSURE)) return false;
++        SQWeakRef *witness = retain_closure_witness(expected, OT_NATIVECLOSURE);
++        if(!witness) return false;
+         if(slots[base_slot].kind == SQ_JIT_SLOT_OBJECT_PTR) {
+             return slots[base_slot].object_ptr_observed_type != OT_NULL &&
+                 sqjit_a64_emit_ldr_x(&buf, 0, 31,
+@@ -3004,7 +3011,7 @@
+                 sqjit_a64_emit_mov_imm_x(&buf, 2,
+                     (SQInteger)(intptr_t)key) &&
+                 sqjit_a64_emit_mov_imm_x(&buf, 3,
+-                    (SQInteger)(intptr_t)expected) &&
++                    (SQInteger)(intptr_t)witness) &&
+                 sqjit_a64_emit_mov_imm_x(&buf, 16,
+                     (SQInteger)(intptr_t)(const void *)
+                     sqjit_a64_helper_object_ptr_member_native_closure_guard) &&
+@@ -3016,7 +3023,7 @@
+             sqjit_a64_emit_mov_imm_x(&buf, 1, slots[base_slot].stack_object_reg) &&
+             sqjit_a64_emit_mov_imm_x(&buf, 2, (SQInteger)(intptr_t)key) &&
+             sqjit_a64_emit_mov_imm_x(&buf, 3,
+-                (SQInteger)(intptr_t)expected) &&
++                (SQInteger)(intptr_t)witness) &&
+             sqjit_a64_emit_mov_imm_x(&buf, 4,
+                 slots[base_slot].stack_object_reg == 0 && root_object ?
+                 (SQInteger)(intptr_t)root_object : 0) &&
+--- a/Squirrel3/squirrel/jit/sqjit_backend_aarch64_helpers.inc
++++ b/Squirrel3/squirrel/jit/sqjit_backend_aarch64_helpers.inc
+@@ -1292,56 +1292,59 @@
+     return true;
+ }
+ 
++// The retained weak object identifies one lifetime even if its former closure
++// address is reused. Validate it before looking up the current borrowed value;
++// this folds lifetime and identity checks into the existing helper call.
+ static SQInteger sqjit_a64_helper_closure_slot_guard(SQObjectPtr *stack,
+-    SQInteger closure_reg, SQClosure *expected)
+-{
+-    if(!stack || closure_reg < 0 || !expected ||
++    SQInteger closure_reg, SQWeakRef *witness)
++{
++    if(!stack || closure_reg < 0 || !witness || sq_type(witness->_obj) != OT_CLOSURE ||
+         sq_type(stack[closure_reg]) != OT_CLOSURE ||
+-        _closure(stack[closure_reg]) != expected) {
++        _closure(stack[closure_reg]) != _closure(witness->_obj)) {
+         return SQ_JIT_NATIVE_GUARD_FAILED;
+     }
+     return SQ_JIT_NATIVE_RETURNED;
+ }
+ 
+ static SQInteger sqjit_a64_helper_member_closure_guard(SQObjectPtr *stack,
+-    SQInteger base_reg, const SQObjectPtr *key, SQClosure *expected,
++    SQInteger base_reg, const SQObjectPtr *key, SQWeakRef *witness,
+     const SQObjectPtr *root)
+ {
+-    if(!stack || base_reg < 0 || !key || !expected) {
++    if(!stack || base_reg < 0 || !key || !witness || sq_type(witness->_obj) != OT_CLOSURE) {
+         return SQ_JIT_NATIVE_GUARD_FAILED;
+     }
+ 
+     const SQObject *value = sqjit_a64_borrow_member_value_with_root(stack, base_reg, key, root);
+-    if(!value || sq_type(*value) != OT_CLOSURE || _closure(*value) != expected) {
++    if(!value || sq_type(*value) != OT_CLOSURE || _closure(*value) != _closure(witness->_obj)) {
+         return SQ_JIT_NATIVE_GUARD_FAILED;
+     }
+     return SQ_JIT_NATIVE_RETURNED;
+ }
+ 
+ static SQInteger sqjit_a64_helper_object_ptr_member_closure_guard(SQInteger base_ptr,
+-    SQInteger base_type, const SQObjectPtr *key, SQClosure *expected)
+-{
+-    if(!key || !expected) {
++    SQInteger base_type, const SQObjectPtr *key, SQWeakRef *witness)
++{
++    if(!key || !witness || sq_type(witness->_obj) != OT_CLOSURE) {
+         return SQ_JIT_NATIVE_GUARD_FAILED;
+     }
+ 
+     const SQObject *value = sqjit_a64_borrow_member_ptr_value(base_ptr, (SQObjectType)base_type, key);
+-    if(!value || sq_type(*value) != OT_CLOSURE || _closure(*value) != expected) {
++    if(!value || sq_type(*value) != OT_CLOSURE || _closure(*value) != _closure(witness->_obj)) {
+         return SQ_JIT_NATIVE_GUARD_FAILED;
+     }
+     return SQ_JIT_NATIVE_RETURNED;
+ }
+ 
+ static SQInteger sqjit_a64_helper_member_native_closure_guard(SQObjectPtr *stack,
+-    SQInteger base_reg, const SQObjectPtr *key, SQNativeClosure *expected,
++    SQInteger base_reg, const SQObjectPtr *key, SQWeakRef *witness,
+     const SQObjectPtr *root)
+ {
+-    if(!stack || base_reg < 0 || !key || !expected) {
++    if(!stack || base_reg < 0 || !key || !witness || sq_type(witness->_obj) != OT_NATIVECLOSURE) {
+         return SQ_JIT_NATIVE_GUARD_FAILED;
+     }
+ 
+     const SQObject *value = sqjit_a64_borrow_member_value_with_root(stack, base_reg, key, root);
+-    if(!value || sq_type(*value) != OT_NATIVECLOSURE || _nativeclosure(*value) != expected) {
++    if(!value || sq_type(*value) != OT_NATIVECLOSURE || _nativeclosure(*value) != _nativeclosure(witness->_obj)) {
+         return SQ_JIT_NATIVE_GUARD_FAILED;
+     }
+     return SQ_JIT_NATIVE_RETURNED;
+@@ -1349,14 +1352,14 @@
+ 
+ static SQInteger sqjit_a64_helper_object_ptr_member_native_closure_guard(
+     SQInteger base_ptr, SQInteger base_type, const SQObjectPtr *key,
+-    SQNativeClosure *expected)
+-{
+-    if(!key || !expected) {
++    SQWeakRef *witness)
++{
++    if(!key || !witness || sq_type(witness->_obj) != OT_NATIVECLOSURE) {
+         return SQ_JIT_NATIVE_GUARD_FAILED;
+     }
+ 
+     const SQObject *value = sqjit_a64_borrow_member_ptr_value(base_ptr, (SQObjectType)base_type, key);
+-    if(!value || sq_type(*value) != OT_NATIVECLOSURE || _nativeclosure(*value) != expected) {
++    if(!value || sq_type(*value) != OT_NATIVECLOSURE || _nativeclosure(*value) != _nativeclosure(witness->_obj)) {
+         return SQ_JIT_NATIVE_GUARD_FAILED;
+     }
+     return SQ_JIT_NATIVE_RETURNED;
+--- a/test/cpp/test_sqjit_intrinsics.cpp
++++ b/test/cpp/test_sqjit_intrinsics.cpp
+@@ -2,6 +2,8 @@
+ #include "sqvm.h"
+ #include "sqfuncproto.h"
+ #include "sqclosure.h"
++#include "sqtable.h"
++#include <vector>
+ #include "sqstdmath.h"
+ #include "jit/sqjit_context.h"
+ #include "jit/sqjit_observe.h"
+@@ -52,6 +54,61 @@
+     }
+     sq_settop(v, top);
+     return ok;
++}
++
++static int native_closure_lifetime_contracts()
++{
++    int rc = 0;
++#if SQJIT_HAS_EXTERNAL_NATIVE
++    SQVM *v = sq_open(64);
++    sq_pushroottable(v); sqstd_register_mathlib(v); sq_pop(v, 1);
++    SQJitContext &ctx = sqjit_context(v->_sharedstate);
++    ctx.enabled = true; ctx.threshold = 1; ctx.trace = ctx.trace_stats = false;
++    sqjit_observe_enable(v);
++    {
++        SQObjectPtr key(SQString::Create(v->_sharedstate, _SC("sqrt"))), original;
++        CHECK(_table(v->_roottable)->Get(key, original), "obtain original math closure");
++        SQObjectPtr clone(_nativeclosure(original)->Clone());
++        SQNativeClosure *old_address = _nativeclosure(clone);
++        SQObjectPtr witness(old_address->GetWeakRef(OT_NATIVECLOSURE));
++        CHECK(_table(v->_roottable)->Set(key, clone), "install independently owned math closure");
++        CHECK(run(v, _SC(
++            "function marker(x) { return x } "
++            "function native_lifetime(n) { marker(0); local sum=0.0; "
++            "for(local i=0;i<n;i++) sum+=sqrt(4.0); return marker(sum); } "
++            "for(local j=0;j<3;j++) if(native_lifetime(37)!=74.0) throw \"math lifetime warmup\";"
++        )), "warm native math lifetime fixture");
++        SQJitObservation before = observe(v, _SC("native_lifetime"));
++        CHECK(before.loop.successes > 0, "native closure lifetime fixture executes compiled loop");
++        SQObjectPtr replacement(_nativeclosure(original)->Clone());
++        _nativeclosure(replacement)->_function = fake_sqrt;
++        clone.Null(); v->temp_reg.Null();
++        CHECK(_table(v->_roottable)->Set(key, replacement), "release guarded native closure");
++        CHECK(sq_type(_weakref(witness)->_obj) == OT_NULL,
++            "generated code does not keep native closure alive");
++        std::vector<SQObjectPtr> copies; copies.reserve(64);
++        bool reused = false;
++        for(int i=0;i<64;++i) {
++            copies.push_back(SQObjectPtr(_nativeclosure(replacement)->Clone()));
++            if(_nativeclosure(copies.back()) == old_address) {
++                reused = true;
++                CHECK(_table(v->_roottable)->Set(key, copies.back()), "publish reused native closure address");
++                break;
++            }
++        }
++#ifndef __SANITIZE_ADDRESS__
++        CHECK(reused, "release build exercises native closure address reuse");
++#endif
++        CHECK(run(v, _SC("if(native_lifetime(37)!=4551.0) throw \"stale native closure\";")),
++            "dead native closure witness rejects stale intrinsic even at reused address");
++        SQJitObservation after = observe(v, _SC("native_lifetime"));
++        CHECK(after.loop.guard_failures > before.loop.guard_failures,
++            "native closure replacement actually fails compiled loop guard");
++        printf("[coverage] executed AArch64 native closure lifetime contract (address reuse=%d)\n", reused);
++    }
++    sq_close(v);
++#endif
++    return rc;
+ }
+ 
+ static int floating_contracts(SQVM *v, bool enabled)
+@@ -257,6 +314,7 @@
+ int main()
+ {
+     int rc = 0;
++    rc += native_closure_lifetime_contracts();
+     for(int enabled = 0; enabled < 2; ++enabled) {
+         SQVM *v = sq_open(64);
+         sq_pushroottable(v); sqstd_register_mathlib(v); sq_pop(v, 1);

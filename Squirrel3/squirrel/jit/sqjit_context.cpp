@@ -11,8 +11,9 @@ static bool truthy(const char *value)
 }
 
 SQJitContext::SQJitContext()
-    : enabled(truthy(getenv("SQGI_JIT"))), trace(false), trace_stats(false),
-      collect_stats(false), threshold(1000), proto_tick(0), loop_tick(0),
+    : enabled(truthy(getenv("SQGI_JIT"))), precise_exits(truthy(getenv("SQGI_JIT_PRECISE_EXITS"))),
+      trace(false), trace_stats(false),
+      collect_stats(false), threshold(1000), proto_tick(0), loop_tick(0), active_vm(NULL), active_logs(NULL),
       diagnostics(NULL)
 {
     const char *value = getenv("SQGI_JIT_TRACE");

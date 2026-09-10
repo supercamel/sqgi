@@ -1,0 +1,1162 @@
+{
+  "metadata": {
+    "seed": 83,
+    "iterations": 400003,
+    "warmups": 4,
+    "runs": 5,
+    "cpu": 4,
+    "hashes": {
+      "/home/sam/Programming/sqgi/test/bench_application_workloads.nut": "e4f09e52633d4a5bc4ae6c1aafe4b4d73919bfeece799b4ee3a14136dd4060b6",
+      "/home/sam/Programming/sqgi/build-jit-audit-20260909/baseline/sqgi": "d8f47927295731c40bd5fd5e6a5eefed310b924de205d1fb4d310ca54b82f52e",
+      "/home/sam/Programming/sqgi/build-jit-audit-20260909/precise-native-cache-v12/sqgi": "53c29b0a2b82694d7e2ff1b5e2a2b4752484b3dceb7fd2c7734ece23a8e0d211",
+      "/home/sam/Programming/sqgi/build-jit-audit-20260909/precise-native-reference-v13/sqgi": "b22c01c31262464b473061400789601973384ba52ce080bd8cbdc5c1e967b2de"
+    },
+    "binaries": {
+      "audit": "/home/sam/Programming/sqgi/build-jit-audit-20260909/baseline/sqgi",
+      "v12": "/home/sam/Programming/sqgi/build-jit-audit-20260909/precise-native-cache-v12/sqgi",
+      "v13": "/home/sam/Programming/sqgi/build-jit-audit-20260909/precise-native-reference-v13/sqgi",
+      "v13_repeat": "/home/sam/Programming/sqgi/build-jit-audit-20260909/precise-native-reference-v13/sqgi"
+    },
+    "purpose": "Direct application regression investigation; identical V13 binary appears under two labels; unchanged full eight-case script, excluded from the fixed-56 aggregate."
+  },
+  "completed_rounds": 5,
+  "samples": {
+    "route_balanced": {
+      "audit": [
+        0.051894611,
+        0.051717112,
+        0.052092109,
+        0.052119609,
+        0.052402107
+      ],
+      "v12": [
+        0.053054602,
+        0.053242101,
+        0.052269608,
+        0.0533521,
+        0.052282108
+      ],
+      "v13": [
+        0.053459599,
+        0.052902103,
+        0.052884603,
+        0.053039602,
+        0.052489606
+      ],
+      "v13_repeat": [
+        0.052807104,
+        0.052512106,
+        0.052304608,
+        0.053254601,
+        0.052507106
+      ]
+    },
+    "route_skewed": {
+      "audit": [
+        0.050312123,
+        0.051572113,
+        0.051649613,
+        0.051597113,
+        0.051192116
+      ],
+      "v12": [
+        0.051204616,
+        0.051427114,
+        0.052227108,
+        0.052402107,
+        0.050964618
+      ],
+      "v13": [
+        0.052369607,
+        0.051022117,
+        0.052689605,
+        0.051142116,
+        0.052162109
+      ],
+      "v13_repeat": [
+        0.051314615,
+        0.051919611,
+        0.051632113,
+        0.051212116,
+        0.052399607
+      ]
+    },
+    "pricing_events": {
+      "audit": [
+        0.057497069,
+        0.058324563,
+        0.057707067,
+        0.057192071,
+        0.057664568
+      ],
+      "v12": [
+        0.056394577,
+        0.056637075,
+        0.056547076,
+        0.057074572,
+        0.056707075
+      ],
+      "v13": [
+        0.056669575,
+        0.056627075,
+        0.056722075,
+        0.056567076,
+        0.057079572
+      ],
+      "v13_repeat": [
+        0.056572076,
+        0.056492076,
+        0.056532076,
+        0.056797074,
+        0.056787074
+      ]
+    },
+    "filter_stream": {
+      "audit": [
+        0.055009587,
+        0.055302085,
+        0.055184586,
+        0.055159586,
+        0.054979588
+      ],
+      "v12": [
+        0.055582083,
+        0.056134579,
+        0.055114587,
+        0.055857081,
+        0.056314578
+      ],
+      "v13": [
+        0.056519576,
+        0.056214578,
+        0.055642083,
+        0.056309578,
+        0.05604958
+      ],
+      "v13_repeat": [
+        0.056494576,
+        0.056144579,
+        0.055569583,
+        0.055452084,
+        0.055264586
+      ]
+    },
+    "records_64": {
+      "audit": [
+        0.134931488,
+        0.135841481,
+        0.131266516,
+        0.138761459,
+        0.146778899
+      ],
+      "v12": [
+        0.133746497,
+        0.134773989,
+        0.131761512,
+        0.144296418,
+        0.128619035
+      ],
+      "v13": [
+        0.135081487,
+        0.133179001,
+        0.137128972,
+        0.136438977,
+        0.136673975
+      ],
+      "v13_repeat": [
+        0.134533991,
+        0.13727647,
+        0.129484029,
+        0.141743937,
+        0.138166464
+      ]
+    },
+    "records_4096": {
+      "audit": [
+        0.258573061,
+        0.280670395,
+        0.265568008,
+        0.253408099,
+        0.260183049
+      ],
+      "v12": [
+        0.267687992,
+        0.26006055,
+        0.27062797,
+        0.246960648,
+        0.261625538
+      ],
+      "v13": [
+        0.263158026,
+        0.243873171,
+        0.261658038,
+        0.258990558,
+        0.250135624
+      ],
+      "v13_repeat": [
+        0.256140579,
+        0.296455277,
+        0.285542858,
+        0.266985498,
+        0.266215503
+      ]
+    },
+    "word_count": {
+      "audit": [
+        0.266603,
+        0.266912998,
+        0.267310495,
+        0.266568001,
+        0.26537801
+      ],
+      "v12": [
+        0.267030497,
+        0.266792999,
+        0.265870506,
+        0.266160504,
+        0.265455509
+      ],
+      "v13": [
+        0.266365502,
+        0.266757999,
+        0.266897998,
+        0.266533001,
+        0.265938005
+      ],
+      "v13_repeat": [
+        0.267582993,
+        0.265718007,
+        0.264958013,
+        0.267067997,
+        0.265993005
+      ]
+    },
+    "graph_walk": {
+      "audit": [
+        0.012352407,
+        0.012424907,
+        0.012437407,
+        0.012412407,
+        0.012322408
+      ],
+      "v12": [
+        0.012357407,
+        0.012477406,
+        0.012317408,
+        0.012437407,
+        0.012314908
+      ],
+      "v13": [
+        0.012409907,
+        0.012512406,
+        0.012452407,
+        0.012337407,
+        0.012299908
+      ],
+      "v13_repeat": [
+        0.012474906,
+        0.012357407,
+        0.012422407,
+        0.012392407,
+        0.012297408
+      ]
+    }
+  },
+  "raw": [
+    {
+      "runtime": "interpreter_reference",
+      "stdout": "BENCH\troute_balanced\t400003\t0.279645403\t604010\nBENCH\troute_skewed\t400003\t0.276747924\t232196\nBENCH\tpricing_events\t400003\t0.365474759\t315050\nBENCH\tfilter_stream\t400003\t0.299320255\t20715.897184531241\nBENCH\trecords_64\t400003\t0.302765229\t596172\nBENCH\trecords_4096\t400003\t0.387099597\t146200\nBENCH\tword_count\t400003\t0.264120519\t731846\nBENCH\tgraph_walk\t400003\t0.065409509\t897810\n",
+      "stderr": ""
+    },
+    {
+      "round": 1,
+      "runtime": "audit",
+      "command": [
+        "taskset",
+        "-c",
+        "4",
+        "/home/sam/Programming/sqgi/build-jit-audit-20260909/baseline/sqgi",
+        "/home/sam/Programming/sqgi/test/bench_application_workloads.nut",
+        "--iterations=400003",
+        "--warmups=4",
+        "--seed=83"
+      ],
+      "stdout": "BENCH\troute_balanced\t400003\t0.051894611\t604010\nBENCH\troute_skewed\t400003\t0.050312123\t232196\nBENCH\tpricing_events\t400003\t0.057497069\t315050\nBENCH\tfilter_stream\t400003\t0.055009587\t20715.897184531241\nBENCH\trecords_64\t400003\t0.134931488\t596172\nBENCH\trecords_4096\t400003\t0.258573061\t146200\nBENCH\tword_count\t400003\t0.266603000\t731846\nBENCH\tgraph_walk\t400003\t0.012352407\t897810\n",
+      "stderr": "",
+      "host_start": {
+        "utc": "2026-09-09T16:15:50.468388+00:00",
+        "load_average": [
+          1.58203125,
+          1.771484375,
+          1.84716796875
+        ],
+        "cpu_frequency": {
+          "scaling_governor": "ondemand",
+          "scaling_cur_freq": "1200000",
+          "cpuinfo_max_freq": "2304000"
+        }
+      },
+      "host_end": {
+        "utc": "2026-09-09T16:15:52.297400+00:00",
+        "load_average": [
+          1.58203125,
+          1.771484375,
+          1.84716796875
+        ],
+        "cpu_frequency": {
+          "scaling_governor": "ondemand",
+          "scaling_cur_freq": "2304000",
+          "cpuinfo_max_freq": "2304000"
+        }
+      }
+    },
+    {
+      "round": 1,
+      "runtime": "v12",
+      "command": [
+        "taskset",
+        "-c",
+        "4",
+        "/home/sam/Programming/sqgi/build-jit-audit-20260909/precise-native-cache-v12/sqgi",
+        "/home/sam/Programming/sqgi/test/bench_application_workloads.nut",
+        "--iterations=400003",
+        "--warmups=4",
+        "--seed=83"
+      ],
+      "stdout": "BENCH\troute_balanced\t400003\t0.053054602\t604010\nBENCH\troute_skewed\t400003\t0.051204616\t232196\nBENCH\tpricing_events\t400003\t0.056394577\t315050\nBENCH\tfilter_stream\t400003\t0.055582083\t20715.897184531241\nBENCH\trecords_64\t400003\t0.133746497\t596172\nBENCH\trecords_4096\t400003\t0.267687992\t146200\nBENCH\tword_count\t400003\t0.267030497\t731846\nBENCH\tgraph_walk\t400003\t0.012357407\t897810\n",
+      "stderr": "",
+      "host_start": {
+        "utc": "2026-09-09T16:15:52.298630+00:00",
+        "load_average": [
+          1.58203125,
+          1.771484375,
+          1.84716796875
+        ],
+        "cpu_frequency": {
+          "scaling_governor": "ondemand",
+          "scaling_cur_freq": "2304000",
+          "cpuinfo_max_freq": "2304000"
+        }
+      },
+      "host_end": {
+        "utc": "2026-09-09T16:15:54.139559+00:00",
+        "load_average": [
+          1.53515625,
+          1.75830078125,
+          1.84228515625
+        ],
+        "cpu_frequency": {
+          "scaling_governor": "ondemand",
+          "scaling_cur_freq": "2304000",
+          "cpuinfo_max_freq": "2304000"
+        }
+      }
+    },
+    {
+      "round": 1,
+      "runtime": "v13",
+      "command": [
+        "taskset",
+        "-c",
+        "4",
+        "/home/sam/Programming/sqgi/build-jit-audit-20260909/precise-native-reference-v13/sqgi",
+        "/home/sam/Programming/sqgi/test/bench_application_workloads.nut",
+        "--iterations=400003",
+        "--warmups=4",
+        "--seed=83"
+      ],
+      "stdout": "BENCH\troute_balanced\t400003\t0.053459599\t604010\nBENCH\troute_skewed\t400003\t0.052369607\t232196\nBENCH\tpricing_events\t400003\t0.056669575\t315050\nBENCH\tfilter_stream\t400003\t0.056519576\t20715.897184531241\nBENCH\trecords_64\t400003\t0.135081487\t596172\nBENCH\trecords_4096\t400003\t0.263158026\t146200\nBENCH\tword_count\t400003\t0.266365502\t731846\nBENCH\tgraph_walk\t400003\t0.012409907\t897810\n",
+      "stderr": "",
+      "host_start": {
+        "utc": "2026-09-09T16:15:54.141015+00:00",
+        "load_average": [
+          1.53515625,
+          1.75830078125,
+          1.84228515625
+        ],
+        "cpu_frequency": {
+          "scaling_governor": "ondemand",
+          "scaling_cur_freq": "2304000",
+          "cpuinfo_max_freq": "2304000"
+        }
+      },
+      "host_end": {
+        "utc": "2026-09-09T16:15:55.960416+00:00",
+        "load_average": [
+          1.53515625,
+          1.75830078125,
+          1.84228515625
+        ],
+        "cpu_frequency": {
+          "scaling_governor": "ondemand",
+          "scaling_cur_freq": "2304000",
+          "cpuinfo_max_freq": "2304000"
+        }
+      }
+    },
+    {
+      "round": 1,
+      "runtime": "v13_repeat",
+      "command": [
+        "taskset",
+        "-c",
+        "4",
+        "/home/sam/Programming/sqgi/build-jit-audit-20260909/precise-native-reference-v13/sqgi",
+        "/home/sam/Programming/sqgi/test/bench_application_workloads.nut",
+        "--iterations=400003",
+        "--warmups=4",
+        "--seed=83"
+      ],
+      "stdout": "BENCH\troute_balanced\t400003\t0.052807104\t604010\nBENCH\troute_skewed\t400003\t0.051314615\t232196\nBENCH\tpricing_events\t400003\t0.056572076\t315050\nBENCH\tfilter_stream\t400003\t0.056494576\t20715.897184531241\nBENCH\trecords_64\t400003\t0.134533991\t596172\nBENCH\trecords_4096\t400003\t0.256140579\t146200\nBENCH\tword_count\t400003\t0.267582993\t731846\nBENCH\tgraph_walk\t400003\t0.012474906\t897810\n",
+      "stderr": "",
+      "host_start": {
+        "utc": "2026-09-09T16:15:55.962136+00:00",
+        "load_average": [
+          1.53515625,
+          1.75830078125,
+          1.84228515625
+        ],
+        "cpu_frequency": {
+          "scaling_governor": "ondemand",
+          "scaling_cur_freq": "2304000",
+          "cpuinfo_max_freq": "2304000"
+        }
+      },
+      "host_end": {
+        "utc": "2026-09-09T16:15:57.778834+00:00",
+        "load_average": [
+          1.4921875,
+          1.74560546875,
+          1.83740234375
+        ],
+        "cpu_frequency": {
+          "scaling_governor": "ondemand",
+          "scaling_cur_freq": "2304000",
+          "cpuinfo_max_freq": "2304000"
+        }
+      }
+    },
+    {
+      "round": 2,
+      "runtime": "v12",
+      "command": [
+        "taskset",
+        "-c",
+        "4",
+        "/home/sam/Programming/sqgi/build-jit-audit-20260909/precise-native-cache-v12/sqgi",
+        "/home/sam/Programming/sqgi/test/bench_application_workloads.nut",
+        "--iterations=400003",
+        "--warmups=4",
+        "--seed=83"
+      ],
+      "stdout": "BENCH\troute_balanced\t400003\t0.053242101\t604010\nBENCH\troute_skewed\t400003\t0.051427114\t232196\nBENCH\tpricing_events\t400003\t0.056637075\t315050\nBENCH\tfilter_stream\t400003\t0.056134579\t20715.897184531241\nBENCH\trecords_64\t400003\t0.134773989\t596172\nBENCH\trecords_4096\t400003\t0.260060550\t146200\nBENCH\tword_count\t400003\t0.266792999\t731846\nBENCH\tgraph_walk\t400003\t0.012477406\t897810\n",
+      "stderr": "",
+      "host_start": {
+        "utc": "2026-09-09T16:15:57.780345+00:00",
+        "load_average": [
+          1.4921875,
+          1.74560546875,
+          1.83740234375
+        ],
+        "cpu_frequency": {
+          "scaling_governor": "ondemand",
+          "scaling_cur_freq": "2304000",
+          "cpuinfo_max_freq": "2304000"
+        }
+      },
+      "host_end": {
+        "utc": "2026-09-09T16:15:59.581891+00:00",
+        "load_average": [
+          1.4921875,
+          1.74560546875,
+          1.83740234375
+        ],
+        "cpu_frequency": {
+          "scaling_governor": "ondemand",
+          "scaling_cur_freq": "2304000",
+          "cpuinfo_max_freq": "2304000"
+        }
+      }
+    },
+    {
+      "round": 2,
+      "runtime": "v13",
+      "command": [
+        "taskset",
+        "-c",
+        "4",
+        "/home/sam/Programming/sqgi/build-jit-audit-20260909/precise-native-reference-v13/sqgi",
+        "/home/sam/Programming/sqgi/test/bench_application_workloads.nut",
+        "--iterations=400003",
+        "--warmups=4",
+        "--seed=83"
+      ],
+      "stdout": "BENCH\troute_balanced\t400003\t0.052902103\t604010\nBENCH\troute_skewed\t400003\t0.051022117\t232196\nBENCH\tpricing_events\t400003\t0.056627075\t315050\nBENCH\tfilter_stream\t400003\t0.056214578\t20715.897184531241\nBENCH\trecords_64\t400003\t0.133179001\t596172\nBENCH\trecords_4096\t400003\t0.243873171\t146200\nBENCH\tword_count\t400003\t0.266757999\t731846\nBENCH\tgraph_walk\t400003\t0.012512406\t897810\n",
+      "stderr": "",
+      "host_start": {
+        "utc": "2026-09-09T16:15:59.583153+00:00",
+        "load_average": [
+          1.4921875,
+          1.74560546875,
+          1.83740234375
+        ],
+        "cpu_frequency": {
+          "scaling_governor": "ondemand",
+          "scaling_cur_freq": "2304000",
+          "cpuinfo_max_freq": "2304000"
+        }
+      },
+      "host_end": {
+        "utc": "2026-09-09T16:16:01.362222+00:00",
+        "load_average": [
+          1.4921875,
+          1.74560546875,
+          1.83740234375
+        ],
+        "cpu_frequency": {
+          "scaling_governor": "ondemand",
+          "scaling_cur_freq": "2304000",
+          "cpuinfo_max_freq": "2304000"
+        }
+      }
+    },
+    {
+      "round": 2,
+      "runtime": "v13_repeat",
+      "command": [
+        "taskset",
+        "-c",
+        "4",
+        "/home/sam/Programming/sqgi/build-jit-audit-20260909/precise-native-reference-v13/sqgi",
+        "/home/sam/Programming/sqgi/test/bench_application_workloads.nut",
+        "--iterations=400003",
+        "--warmups=4",
+        "--seed=83"
+      ],
+      "stdout": "BENCH\troute_balanced\t400003\t0.052512106\t604010\nBENCH\troute_skewed\t400003\t0.051919611\t232196\nBENCH\tpricing_events\t400003\t0.056492076\t315050\nBENCH\tfilter_stream\t400003\t0.056144579\t20715.897184531241\nBENCH\trecords_64\t400003\t0.137276470\t596172\nBENCH\trecords_4096\t400003\t0.296455277\t146200\nBENCH\tword_count\t400003\t0.265718007\t731846\nBENCH\tgraph_walk\t400003\t0.012357407\t897810\n",
+      "stderr": "",
+      "host_start": {
+        "utc": "2026-09-09T16:16:01.362948+00:00",
+        "load_average": [
+          1.4921875,
+          1.74560546875,
+          1.83740234375
+        ],
+        "cpu_frequency": {
+          "scaling_governor": "ondemand",
+          "scaling_cur_freq": "2304000",
+          "cpuinfo_max_freq": "2304000"
+        }
+      },
+      "host_end": {
+        "utc": "2026-09-09T16:16:03.200363+00:00",
+        "load_average": [
+          1.45263671875,
+          1.73291015625,
+          1.83251953125
+        ],
+        "cpu_frequency": {
+          "scaling_governor": "ondemand",
+          "scaling_cur_freq": "2304000",
+          "cpuinfo_max_freq": "2304000"
+        }
+      }
+    },
+    {
+      "round": 2,
+      "runtime": "audit",
+      "command": [
+        "taskset",
+        "-c",
+        "4",
+        "/home/sam/Programming/sqgi/build-jit-audit-20260909/baseline/sqgi",
+        "/home/sam/Programming/sqgi/test/bench_application_workloads.nut",
+        "--iterations=400003",
+        "--warmups=4",
+        "--seed=83"
+      ],
+      "stdout": "BENCH\troute_balanced\t400003\t0.051717112\t604010\nBENCH\troute_skewed\t400003\t0.051572113\t232196\nBENCH\tpricing_events\t400003\t0.058324563\t315050\nBENCH\tfilter_stream\t400003\t0.055302085\t20715.897184531241\nBENCH\trecords_64\t400003\t0.135841481\t596172\nBENCH\trecords_4096\t400003\t0.280670395\t146200\nBENCH\tword_count\t400003\t0.266912998\t731846\nBENCH\tgraph_walk\t400003\t0.012424907\t897810\n",
+      "stderr": "",
+      "host_start": {
+        "utc": "2026-09-09T16:16:03.201953+00:00",
+        "load_average": [
+          1.45263671875,
+          1.73291015625,
+          1.83251953125
+        ],
+        "cpu_frequency": {
+          "scaling_governor": "ondemand",
+          "scaling_cur_freq": "2304000",
+          "cpuinfo_max_freq": "2304000"
+        }
+      },
+      "host_end": {
+        "utc": "2026-09-09T16:16:05.061421+00:00",
+        "load_average": [
+          1.45263671875,
+          1.73291015625,
+          1.83251953125
+        ],
+        "cpu_frequency": {
+          "scaling_governor": "ondemand",
+          "scaling_cur_freq": "2304000",
+          "cpuinfo_max_freq": "2304000"
+        }
+      }
+    },
+    {
+      "round": 3,
+      "runtime": "v13",
+      "command": [
+        "taskset",
+        "-c",
+        "4",
+        "/home/sam/Programming/sqgi/build-jit-audit-20260909/precise-native-reference-v13/sqgi",
+        "/home/sam/Programming/sqgi/test/bench_application_workloads.nut",
+        "--iterations=400003",
+        "--warmups=4",
+        "--seed=83"
+      ],
+      "stdout": "BENCH\troute_balanced\t400003\t0.052884603\t604010\nBENCH\troute_skewed\t400003\t0.052689605\t232196\nBENCH\tpricing_events\t400003\t0.056722075\t315050\nBENCH\tfilter_stream\t400003\t0.055642083\t20715.897184531241\nBENCH\trecords_64\t400003\t0.137128972\t596172\nBENCH\trecords_4096\t400003\t0.261658038\t146200\nBENCH\tword_count\t400003\t0.266897998\t731846\nBENCH\tgraph_walk\t400003\t0.012452407\t897810\n",
+      "stderr": "",
+      "host_start": {
+        "utc": "2026-09-09T16:16:05.064720+00:00",
+        "load_average": [
+          1.45263671875,
+          1.73291015625,
+          1.83251953125
+        ],
+        "cpu_frequency": {
+          "scaling_governor": "ondemand",
+          "scaling_cur_freq": "2304000",
+          "cpuinfo_max_freq": "2304000"
+        }
+      },
+      "host_end": {
+        "utc": "2026-09-09T16:16:06.902411+00:00",
+        "load_average": [
+          1.45263671875,
+          1.73291015625,
+          1.83251953125
+        ],
+        "cpu_frequency": {
+          "scaling_governor": "ondemand",
+          "scaling_cur_freq": "2304000",
+          "cpuinfo_max_freq": "2304000"
+        }
+      }
+    },
+    {
+      "round": 3,
+      "runtime": "v13_repeat",
+      "command": [
+        "taskset",
+        "-c",
+        "4",
+        "/home/sam/Programming/sqgi/build-jit-audit-20260909/precise-native-reference-v13/sqgi",
+        "/home/sam/Programming/sqgi/test/bench_application_workloads.nut",
+        "--iterations=400003",
+        "--warmups=4",
+        "--seed=83"
+      ],
+      "stdout": "BENCH\troute_balanced\t400003\t0.052304608\t604010\nBENCH\troute_skewed\t400003\t0.051632113\t232196\nBENCH\tpricing_events\t400003\t0.056532076\t315050\nBENCH\tfilter_stream\t400003\t0.055569583\t20715.897184531241\nBENCH\trecords_64\t400003\t0.129484029\t596172\nBENCH\trecords_4096\t400003\t0.285542858\t146200\nBENCH\tword_count\t400003\t0.264958013\t731846\nBENCH\tgraph_walk\t400003\t0.012422407\t897810\n",
+      "stderr": "",
+      "host_start": {
+        "utc": "2026-09-09T16:16:06.904042+00:00",
+        "load_average": [
+          1.45263671875,
+          1.73291015625,
+          1.83251953125
+        ],
+        "cpu_frequency": {
+          "scaling_governor": "ondemand",
+          "scaling_cur_freq": "2304000",
+          "cpuinfo_max_freq": "2304000"
+        }
+      },
+      "host_end": {
+        "utc": "2026-09-09T16:16:08.752076+00:00",
+        "load_average": [
+          1.416015625,
+          1.720703125,
+          1.82763671875
+        ],
+        "cpu_frequency": {
+          "scaling_governor": "ondemand",
+          "scaling_cur_freq": "2304000",
+          "cpuinfo_max_freq": "2304000"
+        }
+      }
+    },
+    {
+      "round": 3,
+      "runtime": "audit",
+      "command": [
+        "taskset",
+        "-c",
+        "4",
+        "/home/sam/Programming/sqgi/build-jit-audit-20260909/baseline/sqgi",
+        "/home/sam/Programming/sqgi/test/bench_application_workloads.nut",
+        "--iterations=400003",
+        "--warmups=4",
+        "--seed=83"
+      ],
+      "stdout": "BENCH\troute_balanced\t400003\t0.052092109\t604010\nBENCH\troute_skewed\t400003\t0.051649613\t232196\nBENCH\tpricing_events\t400003\t0.057707067\t315050\nBENCH\tfilter_stream\t400003\t0.055184586\t20715.897184531241\nBENCH\trecords_64\t400003\t0.131266516\t596172\nBENCH\trecords_4096\t400003\t0.265568008\t146200\nBENCH\tword_count\t400003\t0.267310495\t731846\nBENCH\tgraph_walk\t400003\t0.012437407\t897810\n",
+      "stderr": "",
+      "host_start": {
+        "utc": "2026-09-09T16:16:08.752976+00:00",
+        "load_average": [
+          1.416015625,
+          1.720703125,
+          1.82763671875
+        ],
+        "cpu_frequency": {
+          "scaling_governor": "ondemand",
+          "scaling_cur_freq": "2304000",
+          "cpuinfo_max_freq": "2304000"
+        }
+      },
+      "host_end": {
+        "utc": "2026-09-09T16:16:10.583332+00:00",
+        "load_average": [
+          1.416015625,
+          1.720703125,
+          1.82763671875
+        ],
+        "cpu_frequency": {
+          "scaling_governor": "ondemand",
+          "scaling_cur_freq": "2304000",
+          "cpuinfo_max_freq": "2304000"
+        }
+      }
+    },
+    {
+      "round": 3,
+      "runtime": "v12",
+      "command": [
+        "taskset",
+        "-c",
+        "4",
+        "/home/sam/Programming/sqgi/build-jit-audit-20260909/precise-native-cache-v12/sqgi",
+        "/home/sam/Programming/sqgi/test/bench_application_workloads.nut",
+        "--iterations=400003",
+        "--warmups=4",
+        "--seed=83"
+      ],
+      "stdout": "BENCH\troute_balanced\t400003\t0.052269608\t604010\nBENCH\troute_skewed\t400003\t0.052227108\t232196\nBENCH\tpricing_events\t400003\t0.056547076\t315050\nBENCH\tfilter_stream\t400003\t0.055114587\t20715.897184531241\nBENCH\trecords_64\t400003\t0.131761512\t596172\nBENCH\trecords_4096\t400003\t0.270627970\t146200\nBENCH\tword_count\t400003\t0.265870506\t731846\nBENCH\tgraph_walk\t400003\t0.012317408\t897810\n",
+      "stderr": "",
+      "host_start": {
+        "utc": "2026-09-09T16:16:10.583846+00:00",
+        "load_average": [
+          1.416015625,
+          1.720703125,
+          1.82763671875
+        ],
+        "cpu_frequency": {
+          "scaling_governor": "ondemand",
+          "scaling_cur_freq": "2304000",
+          "cpuinfo_max_freq": "2304000"
+        }
+      },
+      "host_end": {
+        "utc": "2026-09-09T16:16:12.397764+00:00",
+        "load_average": [
+          1.416015625,
+          1.720703125,
+          1.82763671875
+        ],
+        "cpu_frequency": {
+          "scaling_governor": "ondemand",
+          "scaling_cur_freq": "2304000",
+          "cpuinfo_max_freq": "2304000"
+        }
+      }
+    },
+    {
+      "round": 4,
+      "runtime": "v13_repeat",
+      "command": [
+        "taskset",
+        "-c",
+        "4",
+        "/home/sam/Programming/sqgi/build-jit-audit-20260909/precise-native-reference-v13/sqgi",
+        "/home/sam/Programming/sqgi/test/bench_application_workloads.nut",
+        "--iterations=400003",
+        "--warmups=4",
+        "--seed=83"
+      ],
+      "stdout": "BENCH\troute_balanced\t400003\t0.053254601\t604010\nBENCH\troute_skewed\t400003\t0.051212116\t232196\nBENCH\tpricing_events\t400003\t0.056797074\t315050\nBENCH\tfilter_stream\t400003\t0.055452084\t20715.897184531241\nBENCH\trecords_64\t400003\t0.141743937\t596172\nBENCH\trecords_4096\t400003\t0.266985498\t146200\nBENCH\tword_count\t400003\t0.267067997\t731846\nBENCH\tgraph_walk\t400003\t0.012392407\t897810\n",
+      "stderr": "",
+      "host_start": {
+        "utc": "2026-09-09T16:16:12.400656+00:00",
+        "load_average": [
+          1.416015625,
+          1.720703125,
+          1.82763671875
+        ],
+        "cpu_frequency": {
+          "scaling_governor": "ondemand",
+          "scaling_cur_freq": "2304000",
+          "cpuinfo_max_freq": "2304000"
+        }
+      },
+      "host_end": {
+        "utc": "2026-09-09T16:16:14.197411+00:00",
+        "load_average": [
+          1.38232421875,
+          1.70849609375,
+          1.82275390625
+        ],
+        "cpu_frequency": {
+          "scaling_governor": "ondemand",
+          "scaling_cur_freq": "2304000",
+          "cpuinfo_max_freq": "2304000"
+        }
+      }
+    },
+    {
+      "round": 4,
+      "runtime": "audit",
+      "command": [
+        "taskset",
+        "-c",
+        "4",
+        "/home/sam/Programming/sqgi/build-jit-audit-20260909/baseline/sqgi",
+        "/home/sam/Programming/sqgi/test/bench_application_workloads.nut",
+        "--iterations=400003",
+        "--warmups=4",
+        "--seed=83"
+      ],
+      "stdout": "BENCH\troute_balanced\t400003\t0.052119609\t604010\nBENCH\troute_skewed\t400003\t0.051597113\t232196\nBENCH\tpricing_events\t400003\t0.057192071\t315050\nBENCH\tfilter_stream\t400003\t0.055159586\t20715.897184531241\nBENCH\trecords_64\t400003\t0.138761459\t596172\nBENCH\trecords_4096\t400003\t0.253408099\t146200\nBENCH\tword_count\t400003\t0.266568001\t731846\nBENCH\tgraph_walk\t400003\t0.012412407\t897810\n",
+      "stderr": "",
+      "host_start": {
+        "utc": "2026-09-09T16:16:14.198976+00:00",
+        "load_average": [
+          1.38232421875,
+          1.70849609375,
+          1.82275390625
+        ],
+        "cpu_frequency": {
+          "scaling_governor": "ondemand",
+          "scaling_cur_freq": "2304000",
+          "cpuinfo_max_freq": "2304000"
+        }
+      },
+      "host_end": {
+        "utc": "2026-09-09T16:16:16.000427+00:00",
+        "load_average": [
+          1.38232421875,
+          1.70849609375,
+          1.82275390625
+        ],
+        "cpu_frequency": {
+          "scaling_governor": "ondemand",
+          "scaling_cur_freq": "2304000",
+          "cpuinfo_max_freq": "2304000"
+        }
+      }
+    },
+    {
+      "round": 4,
+      "runtime": "v12",
+      "command": [
+        "taskset",
+        "-c",
+        "4",
+        "/home/sam/Programming/sqgi/build-jit-audit-20260909/precise-native-cache-v12/sqgi",
+        "/home/sam/Programming/sqgi/test/bench_application_workloads.nut",
+        "--iterations=400003",
+        "--warmups=4",
+        "--seed=83"
+      ],
+      "stdout": "BENCH\troute_balanced\t400003\t0.053352100\t604010\nBENCH\troute_skewed\t400003\t0.052402107\t232196\nBENCH\tpricing_events\t400003\t0.057074572\t315050\nBENCH\tfilter_stream\t400003\t0.055857081\t20715.897184531241\nBENCH\trecords_64\t400003\t0.144296418\t596172\nBENCH\trecords_4096\t400003\t0.246960648\t146200\nBENCH\tword_count\t400003\t0.266160504\t731846\nBENCH\tgraph_walk\t400003\t0.012437407\t897810\n",
+      "stderr": "",
+      "host_start": {
+        "utc": "2026-09-09T16:16:16.001637+00:00",
+        "load_average": [
+          1.38232421875,
+          1.70849609375,
+          1.82275390625
+        ],
+        "cpu_frequency": {
+          "scaling_governor": "ondemand",
+          "scaling_cur_freq": "2304000",
+          "cpuinfo_max_freq": "2304000"
+        }
+      },
+      "host_end": {
+        "utc": "2026-09-09T16:16:17.823766+00:00",
+        "load_average": [
+          1.3515625,
+          1.6962890625,
+          1.81787109375
+        ],
+        "cpu_frequency": {
+          "scaling_governor": "ondemand",
+          "scaling_cur_freq": "2304000",
+          "cpuinfo_max_freq": "2304000"
+        }
+      }
+    },
+    {
+      "round": 4,
+      "runtime": "v13",
+      "command": [
+        "taskset",
+        "-c",
+        "4",
+        "/home/sam/Programming/sqgi/build-jit-audit-20260909/precise-native-reference-v13/sqgi",
+        "/home/sam/Programming/sqgi/test/bench_application_workloads.nut",
+        "--iterations=400003",
+        "--warmups=4",
+        "--seed=83"
+      ],
+      "stdout": "BENCH\troute_balanced\t400003\t0.053039602\t604010\nBENCH\troute_skewed\t400003\t0.051142116\t232196\nBENCH\tpricing_events\t400003\t0.056567076\t315050\nBENCH\tfilter_stream\t400003\t0.056309578\t20715.897184531241\nBENCH\trecords_64\t400003\t0.136438977\t596172\nBENCH\trecords_4096\t400003\t0.258990558\t146200\nBENCH\tword_count\t400003\t0.266533001\t731846\nBENCH\tgraph_walk\t400003\t0.012337407\t897810\n",
+      "stderr": "",
+      "host_start": {
+        "utc": "2026-09-09T16:16:17.824949+00:00",
+        "load_average": [
+          1.3515625,
+          1.6962890625,
+          1.81787109375
+        ],
+        "cpu_frequency": {
+          "scaling_governor": "ondemand",
+          "scaling_cur_freq": "2304000",
+          "cpuinfo_max_freq": "2304000"
+        }
+      },
+      "host_end": {
+        "utc": "2026-09-09T16:16:19.641191+00:00",
+        "load_average": [
+          1.3515625,
+          1.6962890625,
+          1.81787109375
+        ],
+        "cpu_frequency": {
+          "scaling_governor": "ondemand",
+          "scaling_cur_freq": "2304000",
+          "cpuinfo_max_freq": "2304000"
+        }
+      }
+    },
+    {
+      "round": 5,
+      "runtime": "audit",
+      "command": [
+        "taskset",
+        "-c",
+        "4",
+        "/home/sam/Programming/sqgi/build-jit-audit-20260909/baseline/sqgi",
+        "/home/sam/Programming/sqgi/test/bench_application_workloads.nut",
+        "--iterations=400003",
+        "--warmups=4",
+        "--seed=83"
+      ],
+      "stdout": "BENCH\troute_balanced\t400003\t0.052402107\t604010\nBENCH\troute_skewed\t400003\t0.051192116\t232196\nBENCH\tpricing_events\t400003\t0.057664568\t315050\nBENCH\tfilter_stream\t400003\t0.054979588\t20715.897184531241\nBENCH\trecords_64\t400003\t0.146778899\t596172\nBENCH\trecords_4096\t400003\t0.260183049\t146200\nBENCH\tword_count\t400003\t0.265378010\t731846\nBENCH\tgraph_walk\t400003\t0.012322408\t897810\n",
+      "stderr": "",
+      "host_start": {
+        "utc": "2026-09-09T16:16:19.644323+00:00",
+        "load_average": [
+          1.3515625,
+          1.6962890625,
+          1.81787109375
+        ],
+        "cpu_frequency": {
+          "scaling_governor": "ondemand",
+          "scaling_cur_freq": "2304000",
+          "cpuinfo_max_freq": "2304000"
+        }
+      },
+      "host_end": {
+        "utc": "2026-09-09T16:16:21.479816+00:00",
+        "load_average": [
+          1.3515625,
+          1.6962890625,
+          1.81787109375
+        ],
+        "cpu_frequency": {
+          "scaling_governor": "ondemand",
+          "scaling_cur_freq": "2304000",
+          "cpuinfo_max_freq": "2304000"
+        }
+      }
+    },
+    {
+      "round": 5,
+      "runtime": "v12",
+      "command": [
+        "taskset",
+        "-c",
+        "4",
+        "/home/sam/Programming/sqgi/build-jit-audit-20260909/precise-native-cache-v12/sqgi",
+        "/home/sam/Programming/sqgi/test/bench_application_workloads.nut",
+        "--iterations=400003",
+        "--warmups=4",
+        "--seed=83"
+      ],
+      "stdout": "BENCH\troute_balanced\t400003\t0.052282108\t604010\nBENCH\troute_skewed\t400003\t0.050964618\t232196\nBENCH\tpricing_events\t400003\t0.056707075\t315050\nBENCH\tfilter_stream\t400003\t0.056314578\t20715.897184531241\nBENCH\trecords_64\t400003\t0.128619035\t596172\nBENCH\trecords_4096\t400003\t0.261625538\t146200\nBENCH\tword_count\t400003\t0.265455509\t731846\nBENCH\tgraph_walk\t400003\t0.012314908\t897810\n",
+      "stderr": "",
+      "host_start": {
+        "utc": "2026-09-09T16:16:21.481457+00:00",
+        "load_average": [
+          1.3515625,
+          1.6962890625,
+          1.81787109375
+        ],
+        "cpu_frequency": {
+          "scaling_governor": "ondemand",
+          "scaling_cur_freq": "2304000",
+          "cpuinfo_max_freq": "2304000"
+        }
+      },
+      "host_end": {
+        "utc": "2026-09-09T16:16:23.293024+00:00",
+        "load_average": [
+          1.3232421875,
+          1.6845703125,
+          1.8134765625
+        ],
+        "cpu_frequency": {
+          "scaling_governor": "ondemand",
+          "scaling_cur_freq": "2304000",
+          "cpuinfo_max_freq": "2304000"
+        }
+      }
+    },
+    {
+      "round": 5,
+      "runtime": "v13",
+      "command": [
+        "taskset",
+        "-c",
+        "4",
+        "/home/sam/Programming/sqgi/build-jit-audit-20260909/precise-native-reference-v13/sqgi",
+        "/home/sam/Programming/sqgi/test/bench_application_workloads.nut",
+        "--iterations=400003",
+        "--warmups=4",
+        "--seed=83"
+      ],
+      "stdout": "BENCH\troute_balanced\t400003\t0.052489606\t604010\nBENCH\troute_skewed\t400003\t0.052162109\t232196\nBENCH\tpricing_events\t400003\t0.057079572\t315050\nBENCH\tfilter_stream\t400003\t0.056049580\t20715.897184531241\nBENCH\trecords_64\t400003\t0.136673975\t596172\nBENCH\trecords_4096\t400003\t0.250135624\t146200\nBENCH\tword_count\t400003\t0.265938005\t731846\nBENCH\tgraph_walk\t400003\t0.012299908\t897810\n",
+      "stderr": "",
+      "host_start": {
+        "utc": "2026-09-09T16:16:23.294632+00:00",
+        "load_average": [
+          1.3232421875,
+          1.6845703125,
+          1.8134765625
+        ],
+        "cpu_frequency": {
+          "scaling_governor": "ondemand",
+          "scaling_cur_freq": "2304000",
+          "cpuinfo_max_freq": "2304000"
+        }
+      },
+      "host_end": {
+        "utc": "2026-09-09T16:16:25.117566+00:00",
+        "load_average": [
+          1.3232421875,
+          1.6845703125,
+          1.8134765625
+        ],
+        "cpu_frequency": {
+          "scaling_governor": "ondemand",
+          "scaling_cur_freq": "2304000",
+          "cpuinfo_max_freq": "2304000"
+        }
+      }
+    },
+    {
+      "round": 5,
+      "runtime": "v13_repeat",
+      "command": [
+        "taskset",
+        "-c",
+        "4",
+        "/home/sam/Programming/sqgi/build-jit-audit-20260909/precise-native-reference-v13/sqgi",
+        "/home/sam/Programming/sqgi/test/bench_application_workloads.nut",
+        "--iterations=400003",
+        "--warmups=4",
+        "--seed=83"
+      ],
+      "stdout": "BENCH\troute_balanced\t400003\t0.052507106\t604010\nBENCH\troute_skewed\t400003\t0.052399607\t232196\nBENCH\tpricing_events\t400003\t0.056787074\t315050\nBENCH\tfilter_stream\t400003\t0.055264586\t20715.897184531241\nBENCH\trecords_64\t400003\t0.138166464\t596172\nBENCH\trecords_4096\t400003\t0.266215503\t146200\nBENCH\tword_count\t400003\t0.265993005\t731846\nBENCH\tgraph_walk\t400003\t0.012297408\t897810\n",
+      "stderr": "",
+      "host_start": {
+        "utc": "2026-09-09T16:16:25.119127+00:00",
+        "load_average": [
+          1.3232421875,
+          1.6845703125,
+          1.8134765625
+        ],
+        "cpu_frequency": {
+          "scaling_governor": "ondemand",
+          "scaling_cur_freq": "2304000",
+          "cpuinfo_max_freq": "2304000"
+        }
+      },
+      "host_end": {
+        "utc": "2026-09-09T16:16:26.947409+00:00",
+        "load_average": [
+          1.3232421875,
+          1.6845703125,
+          1.8134765625
+        ],
+        "cpu_frequency": {
+          "scaling_governor": "ondemand",
+          "scaling_cur_freq": "2304000",
+          "cpuinfo_max_freq": "2304000"
+        }
+      }
+    }
+  ],
+  "medians": {
+    "route_balanced": {
+      "audit": 0.052092109,
+      "v12": 0.053054602,
+      "v13": 0.052902103,
+      "v13_repeat": 0.052512106
+    },
+    "route_skewed": {
+      "audit": 0.051572113,
+      "v12": 0.051427114,
+      "v13": 0.052162109,
+      "v13_repeat": 0.051632113
+    },
+    "pricing_events": {
+      "audit": 0.057664568,
+      "v12": 0.056637075,
+      "v13": 0.056669575,
+      "v13_repeat": 0.056572076
+    },
+    "filter_stream": {
+      "audit": 0.055159586,
+      "v12": 0.055857081,
+      "v13": 0.056214578,
+      "v13_repeat": 0.055569583
+    },
+    "records_64": {
+      "audit": 0.135841481,
+      "v12": 0.133746497,
+      "v13": 0.136438977,
+      "v13_repeat": 0.13727647
+    },
+    "records_4096": {
+      "audit": 0.260183049,
+      "v12": 0.261625538,
+      "v13": 0.258990558,
+      "v13_repeat": 0.266985498
+    },
+    "word_count": {
+      "audit": 0.266603,
+      "v12": 0.266160504,
+      "v13": 0.266533001,
+      "v13_repeat": 0.265993005
+    },
+    "graph_walk": {
+      "audit": 0.012412407,
+      "v12": 0.012357407,
+      "v13": 0.012409907,
+      "v13_repeat": 0.012392407
+    }
+  }
+}

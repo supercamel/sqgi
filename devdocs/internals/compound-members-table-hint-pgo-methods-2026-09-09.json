@@ -1,0 +1,300 @@
+{
+  "metadata": {
+    "suite": "methods",
+    "iterations": 200000,
+    "warmups": 5,
+    "runs": 5,
+    "cpu": 4,
+    "commands": {
+      "baseline": [
+        "/tmp/sqgi-slot-math-pgo-20260909.wnI1gF/sqgi",
+        "/home/sam/Programming/sqgi/test/bench_member_methods.nut",
+        "--iterations=200000",
+        "--warmups=5"
+      ],
+      "candidate": [
+        "/tmp/sqgi-table-read-hint-pgo-20260909.SglKJT/sqgi",
+        "/home/sam/Programming/sqgi/test/bench_member_methods.nut",
+        "--iterations=200000",
+        "--warmups=5"
+      ],
+      "node": [
+        "/usr/bin/node",
+        "/home/sam/Programming/sqgi/demo/benchmarks/node_member_methods.js",
+        "200000",
+        "5"
+      ]
+    },
+    "node_version": "v18.19.1",
+    "hashes": {
+      "/home/sam/Programming/sqgi/test/bench_member_methods.nut": "9d674aadefed4be5093e11a73bfa17cbdafc4bbca9ea716a03813c0655f8541e",
+      "/home/sam/Programming/sqgi/demo/benchmarks/node_member_methods.js": "c236dbc318bbed3c6ec9475aa061f62f139ba1f2e7e49c4a59b0aa179712256c",
+      "/tmp/sqgi-slot-math-pgo-20260909.wnI1gF/sqgi": "47ed9fec3299141b8ddaa94f7e6aecf5fdaf9e5c228851e21f271e62329fd9c7",
+      "/tmp/sqgi-table-read-hint-pgo-20260909.SglKJT/sqgi": "ac651a496ef53e4bfaaafeac0a9c22db6777f23a38ddceecc4a95652eef29207",
+      "/usr/bin/node": "2b0f6efd95c31c5538cc0a9042d5d13b7328cffcfdcc409f2e2ef336c4402086"
+    }
+  },
+  "medians": {
+    "transfer_table": {
+      "baseline": 0.358785,
+      "candidate": 0.35907,
+      "node": 0.01798425
+    },
+    "transfer_class": {
+      "baseline": 0.372355,
+      "candidate": 0.37254,
+      "node": 0.01769843
+    },
+    "transfer_mixed": {
+      "baseline": 0.435415,
+      "candidate": 0.4329,
+      "node": 0.02918341
+    },
+    "publish_table": {
+      "baseline": 0.296145,
+      "candidate": 0.29442,
+      "node": 0.01344919
+    },
+    "publish_class": {
+      "baseline": 0.302045,
+      "candidate": 0.30089,
+      "node": 0.013602325
+    },
+    "publish_mixed": {
+      "baseline": 0.340085,
+      "candidate": 0.34073,
+      "node": 0.020922575
+    }
+  },
+  "samples": {
+    "baseline": {
+      "transfer_table": [
+        0.358475,
+        0.358645,
+        0.358785,
+        0.358945,
+        0.358915
+      ],
+      "transfer_class": [
+        0.37236,
+        0.372185,
+        0.372355,
+        0.372305,
+        0.372435
+      ],
+      "transfer_mixed": [
+        0.43445,
+        0.435015,
+        0.435455,
+        0.435415,
+        0.43589
+      ],
+      "publish_table": [
+        0.296145,
+        0.2953,
+        0.296985,
+        0.29627,
+        0.29557
+      ],
+      "publish_class": [
+        0.30126,
+        0.302045,
+        0.30233,
+        0.30244,
+        0.30162
+      ],
+      "publish_mixed": [
+        0.34,
+        0.33945,
+        0.340085,
+        0.34022,
+        0.34041
+      ]
+    },
+    "candidate": {
+      "transfer_table": [
+        0.359285,
+        0.359485,
+        0.35907,
+        0.358755,
+        0.35901
+      ],
+      "transfer_class": [
+        0.37284,
+        0.37256,
+        0.372115,
+        0.37254,
+        0.37222
+      ],
+      "transfer_mixed": [
+        0.4329,
+        0.43184,
+        0.432535,
+        0.43358,
+        0.43312
+      ],
+      "publish_table": [
+        0.294775,
+        0.29441,
+        0.29442,
+        0.294735,
+        0.29424
+      ],
+      "publish_class": [
+        0.30089,
+        0.30089,
+        0.302255,
+        0.30046,
+        0.301265
+      ],
+      "publish_mixed": [
+        0.34073,
+        0.340945,
+        0.340065,
+        0.34137,
+        0.340355
+      ]
+    },
+    "node": {
+      "transfer_table": [
+        0.01781071,
+        0.01798425,
+        0.01830215,
+        0.017879295,
+        0.01803971
+      ],
+      "transfer_class": [
+        0.01769843,
+        0.018194235,
+        0.017591995,
+        0.018144695,
+        0.0176489
+      ],
+      "transfer_mixed": [
+        0.02916442,
+        0.029195055,
+        0.02918341,
+        0.02913825,
+        0.037961985
+      ],
+      "publish_table": [
+        0.013506045,
+        0.01352063,
+        0.01344919,
+        0.01334859,
+        0.013431715
+      ],
+      "publish_class": [
+        0.013562915,
+        0.013739365,
+        0.01383999,
+        0.013602325,
+        0.01350171
+      ],
+      "publish_mixed": [
+        0.020959015,
+        0.02090653,
+        0.020922575,
+        0.02096636,
+        0.02088762
+      ]
+    }
+  },
+  "raw": [
+    {
+      "runtime": "interpreter_reference",
+      "stdout": "BENCH\ttransfer_table\t200000\t0.353440000\t141925\nBENCH\ttransfer_class\t200000\t0.365970000\t141925\nBENCH\ttransfer_mixed\t200000\t0.430250000\t141925\nBENCH\tpublish_table\t200000\t0.290965000\t410680\nBENCH\tpublish_class\t200000\t0.298350000\t410680\nBENCH\tpublish_mixed\t200000\t0.333910000\t410680\n",
+      "stderr": ""
+    },
+    {
+      "round": 1,
+      "runtime": "baseline",
+      "stdout": "BENCH\ttransfer_table\t200000\t0.358475000\t141925\nBENCH\ttransfer_class\t200000\t0.372360000\t141925\nBENCH\ttransfer_mixed\t200000\t0.434450000\t141925\nBENCH\tpublish_table\t200000\t0.296145000\t410680\nBENCH\tpublish_class\t200000\t0.301260000\t410680\nBENCH\tpublish_mixed\t200000\t0.340000000\t410680\n",
+      "stderr": ""
+    },
+    {
+      "round": 1,
+      "runtime": "candidate",
+      "stdout": "BENCH\ttransfer_table\t200000\t0.359285000\t141925\nBENCH\ttransfer_class\t200000\t0.372840000\t141925\nBENCH\ttransfer_mixed\t200000\t0.432900000\t141925\nBENCH\tpublish_table\t200000\t0.294775000\t410680\nBENCH\tpublish_class\t200000\t0.300890000\t410680\nBENCH\tpublish_mixed\t200000\t0.340730000\t410680\n",
+      "stderr": ""
+    },
+    {
+      "round": 1,
+      "runtime": "node",
+      "stdout": "BENCH\ttransfer_table\t200000\t0.017810710\t141925.00000000000\nBENCH\ttransfer_class\t200000\t0.017698430\t141925.00000000000\nBENCH\ttransfer_mixed\t200000\t0.029164420\t141925.00000000000\nBENCH\tpublish_table\t200000\t0.013506045\t410680.00000000000\nBENCH\tpublish_class\t200000\t0.013562915\t410680.00000000000\nBENCH\tpublish_mixed\t200000\t0.020959015\t410680.00000000000\n",
+      "stderr": ""
+    },
+    {
+      "round": 2,
+      "runtime": "candidate",
+      "stdout": "BENCH\ttransfer_table\t200000\t0.359485000\t141925\nBENCH\ttransfer_class\t200000\t0.372560000\t141925\nBENCH\ttransfer_mixed\t200000\t0.431840000\t141925\nBENCH\tpublish_table\t200000\t0.294410000\t410680\nBENCH\tpublish_class\t200000\t0.300890000\t410680\nBENCH\tpublish_mixed\t200000\t0.340945000\t410680\n",
+      "stderr": ""
+    },
+    {
+      "round": 2,
+      "runtime": "node",
+      "stdout": "BENCH\ttransfer_table\t200000\t0.017984250\t141925.00000000000\nBENCH\ttransfer_class\t200000\t0.018194235\t141925.00000000000\nBENCH\ttransfer_mixed\t200000\t0.029195055\t141925.00000000000\nBENCH\tpublish_table\t200000\t0.013520630\t410680.00000000000\nBENCH\tpublish_class\t200000\t0.013739365\t410680.00000000000\nBENCH\tpublish_mixed\t200000\t0.020906530\t410680.00000000000\n",
+      "stderr": ""
+    },
+    {
+      "round": 2,
+      "runtime": "baseline",
+      "stdout": "BENCH\ttransfer_table\t200000\t0.358645000\t141925\nBENCH\ttransfer_class\t200000\t0.372185000\t141925\nBENCH\ttransfer_mixed\t200000\t0.435015000\t141925\nBENCH\tpublish_table\t200000\t0.295300000\t410680\nBENCH\tpublish_class\t200000\t0.302045000\t410680\nBENCH\tpublish_mixed\t200000\t0.339450000\t410680\n",
+      "stderr": ""
+    },
+    {
+      "round": 3,
+      "runtime": "node",
+      "stdout": "BENCH\ttransfer_table\t200000\t0.018302150\t141925.00000000000\nBENCH\ttransfer_class\t200000\t0.017591995\t141925.00000000000\nBENCH\ttransfer_mixed\t200000\t0.029183410\t141925.00000000000\nBENCH\tpublish_table\t200000\t0.013449190\t410680.00000000000\nBENCH\tpublish_class\t200000\t0.013839990\t410680.00000000000\nBENCH\tpublish_mixed\t200000\t0.020922575\t410680.00000000000\n",
+      "stderr": ""
+    },
+    {
+      "round": 3,
+      "runtime": "baseline",
+      "stdout": "BENCH\ttransfer_table\t200000\t0.358785000\t141925\nBENCH\ttransfer_class\t200000\t0.372355000\t141925\nBENCH\ttransfer_mixed\t200000\t0.435455000\t141925\nBENCH\tpublish_table\t200000\t0.296985000\t410680\nBENCH\tpublish_class\t200000\t0.302330000\t410680\nBENCH\tpublish_mixed\t200000\t0.340085000\t410680\n",
+      "stderr": ""
+    },
+    {
+      "round": 3,
+      "runtime": "candidate",
+      "stdout": "BENCH\ttransfer_table\t200000\t0.359070000\t141925\nBENCH\ttransfer_class\t200000\t0.372115000\t141925\nBENCH\ttransfer_mixed\t200000\t0.432535000\t141925\nBENCH\tpublish_table\t200000\t0.294420000\t410680\nBENCH\tpublish_class\t200000\t0.302255000\t410680\nBENCH\tpublish_mixed\t200000\t0.340065000\t410680\n",
+      "stderr": ""
+    },
+    {
+      "round": 4,
+      "runtime": "baseline",
+      "stdout": "BENCH\ttransfer_table\t200000\t0.358945000\t141925\nBENCH\ttransfer_class\t200000\t0.372305000\t141925\nBENCH\ttransfer_mixed\t200000\t0.435415000\t141925\nBENCH\tpublish_table\t200000\t0.296270000\t410680\nBENCH\tpublish_class\t200000\t0.302440000\t410680\nBENCH\tpublish_mixed\t200000\t0.340220000\t410680\n",
+      "stderr": ""
+    },
+    {
+      "round": 4,
+      "runtime": "candidate",
+      "stdout": "BENCH\ttransfer_table\t200000\t0.358755000\t141925\nBENCH\ttransfer_class\t200000\t0.372540000\t141925\nBENCH\ttransfer_mixed\t200000\t0.433580000\t141925\nBENCH\tpublish_table\t200000\t0.294735000\t410680\nBENCH\tpublish_class\t200000\t0.300460000\t410680\nBENCH\tpublish_mixed\t200000\t0.341370000\t410680\n",
+      "stderr": ""
+    },
+    {
+      "round": 4,
+      "runtime": "node",
+      "stdout": "BENCH\ttransfer_table\t200000\t0.017879295\t141925.00000000000\nBENCH\ttransfer_class\t200000\t0.018144695\t141925.00000000000\nBENCH\ttransfer_mixed\t200000\t0.029138250\t141925.00000000000\nBENCH\tpublish_table\t200000\t0.013348590\t410680.00000000000\nBENCH\tpublish_class\t200000\t0.013602325\t410680.00000000000\nBENCH\tpublish_mixed\t200000\t0.020966360\t410680.00000000000\n",
+      "stderr": ""
+    },
+    {
+      "round": 5,
+      "runtime": "candidate",
+      "stdout": "BENCH\ttransfer_table\t200000\t0.359010000\t141925\nBENCH\ttransfer_class\t200000\t0.372220000\t141925\nBENCH\ttransfer_mixed\t200000\t0.433120000\t141925\nBENCH\tpublish_table\t200000\t0.294240000\t410680\nBENCH\tpublish_class\t200000\t0.301265000\t410680\nBENCH\tpublish_mixed\t200000\t0.340355000\t410680\n",
+      "stderr": ""
+    },
+    {
+      "round": 5,
+      "runtime": "node",
+      "stdout": "BENCH\ttransfer_table\t200000\t0.018039710\t141925.00000000000\nBENCH\ttransfer_class\t200000\t0.017648900\t141925.00000000000\nBENCH\ttransfer_mixed\t200000\t0.037961985\t141925.00000000000\nBENCH\tpublish_table\t200000\t0.013431715\t410680.00000000000\nBENCH\tpublish_class\t200000\t0.013501710\t410680.00000000000\nBENCH\tpublish_mixed\t200000\t0.020887620\t410680.00000000000\n",
+      "stderr": ""
+    },
+    {
+      "round": 5,
+      "runtime": "baseline",
+      "stdout": "BENCH\ttransfer_table\t200000\t0.358915000\t141925\nBENCH\ttransfer_class\t200000\t0.372435000\t141925\nBENCH\ttransfer_mixed\t200000\t0.435890000\t141925\nBENCH\tpublish_table\t200000\t0.295570000\t410680\nBENCH\tpublish_class\t200000\t0.301620000\t410680\nBENCH\tpublish_mixed\t200000\t0.340410000\t410680\n",
+      "stderr": ""
+    }
+  ]
+}

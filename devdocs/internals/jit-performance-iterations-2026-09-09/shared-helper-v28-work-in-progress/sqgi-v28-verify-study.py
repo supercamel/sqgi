@@ -1,0 +1,67 @@
+from pathlib import Path
+import json,hashlib,math,statistics
+R=Path('/home/sam/Programming/sqgi');A=R/'devdocs/internals/jit-performance-iterations-2026-09-09';D=A/'shared-helper-v28';S=Path('/tmp/sqgi-shared-helper-study')
+h=lambda p:hashlib.sha256(p.read_bytes()).hexdigest()
+binary=R/'build-jit-audit-20260909/shared-helper-v28/sqgi';sha=h(binary)
+assert sha=='ef6bbeab6b37097be7e2314d6f71067f797ce34bdb40a9c0ddc8454bbd608330'
+for manifest in ['source-manifest.json','unchanged-benchmarks-and-scripts.json']:
+ for p,want in json.loads((D/manifest).read_text()).items():assert h(R/p)==want,p
+for name,count in [('kernels-seed17',15),('applications-seed17',8),('applications-seed83',8),('roots-seed17',4),('members',6),('owners',10),('methods',6),('floats',7)]:
+ d=json.loads((S/'results'/(name+'.json')).read_text());assert d['completed_rounds']==5 and len(d['medians'])==count
+ if 'runtimes' in d['metadata']:
+  assert d['metadata']['runtimes']['sqgi']['sha256']==sha,name
+  assert d['metadata']['runtimes']['sqgi_baseline']['sha256']=='d8f47927295731c40bd5fd5e6a5eefed310b924de205d1fb4d310ca54b82f52e'
+  for path,want in d['metadata']['source_hashes'].items():assert h(R/path)==want,path
+ else:
+  assert sha in d['metadata']['hashes'].values(),name
+ assert d['metadata']['warmups']==5 and d['metadata']['cpu']==4
+ for k,m in d['medians'].items():
+  for runtime,value in m.items():
+   samples=d['samples'][k][runtime];assert len(samples)==5 and all(math.isfinite(x) and x>0 for x in samples)
+   assert statistics.median(samples)==value,(name,k,runtime)
+profiles={}
+for suite in ['kernels','applications','roots','members','owners','methods','floats']:
+ text=(S/'profiles'/(suite+'-flat.log')).read_text();assert '# Total Lost Samples: 0' in text,suite
+ assert (S/'profiles'/(suite+'.data')).stat().st_size>0
+ profiles[suite]={'lost_samples':0,'data_bytes':(S/'profiles'/(suite+'.data')).stat().st_size}
+controls=json.loads((S/'regression-control-summary.json').read_text());assert len(controls)==14
+regressions={k:{field:v for field,v in row.items() if 'regressions_' in field and v} for k,row in controls.items()}
+regressions={k:v for k,v in regressions.items() if v}
+# Preserve every original flag. Only this iteration's fixed, both-seed
+# investigation may resolve its records_4096 findings.
+unresolved=dict(regressions);resolution=None
+if regressions and (S/'records-replication/analysis.json').exists():
+ investigation=S/'records-replication/analysis.json';evidence=json.loads(investigation.read_text())
+ policy=json.loads((S/'records-replication/policy.json').read_text())
+ assert evidence['verified'] and evidence['policy']==policy
+ assert evidence['all_blocks_retained'] and evidence['original_flagged_controls_retained'] and evidence['full56_unchanged']
+ assert policy['blocks']==4 and policy['runs_per_block']==5 and policy['no_optional_stopping']
+ assert policy['seeds_counts']=={'17':200000,'83':400003} and policy['warmups']==[5,4]
+ assert len(evidence['result_hashes'])==16 and len(evidence['original_control_hashes'])==4
+ for name,want in evidence['result_hashes'].items():assert h(S/'records-replication'/name)==want,name
+ for name,want in evidence['original_control_hashes'].items():assert h(S/name)==want,name
+ if evidence['all_eight_cases_material_regression_excluded']:
+  for group,fields in list(unresolved.items()):
+   if group not in ['application-w5','application-seed17-w5']:continue
+   if any(names!=['records_4096'] for names in fields.values()):continue
+   key='17-w5' if group=='application-seed17-w5' else '83-w5'
+   row=evidence['warmups'][key]['records_4096']
+   assert row['new_samples_per_version']==40 and row['new']['paired_rounds']==20 and row['original_plus_new']['paired_rounds']==25
+   assert row['new']['paired_bootstrap_95_interval'][1]<=1.05 and row['original_plus_new']['paired_bootstrap_95_interval'][1]<=1.05
+   del unresolved[group]
+  resolution={'report':'records-replication/analysis.json','sha256':h(investigation),'original_flags_retained':True,'criterion':'Both new-only and original-plus-new paired-bootstrap 95% upper bounds <=1.05 for every application case, seed and warmup under a fixed four-block replication','records_4096':{key:rows['records_4096'] for key,rows in evidence['warmups'].items()}}
+summary=json.loads((S/'results/summary.json').read_text());assert len(summary['rows'])==56
+fullreg=[{'suite':r['suite'],'name':r['name'],'time_over_audit':1/r['speedup']} for r in summary['rows'] if 1/r['speedup']>1.05]
+profit={}
+for suite,count in [('owners',10),('methods',6),('roots',4)]:
+ d=json.loads((S/'results'/('profitability-'+suite+'.json')).read_text());assert d['completed_rounds']==5 and len(d['medians'])==count
+ assert all(len(values)==5 for row in d['samples'].values() for values in row.values())
+ per={k:v['on']/v['off'] for k,v in d['medians'].items()}
+ profit[suite]={'geomean_on_over_off':statistics.geometric_mean(per.values()),'per_case_on_over_off':per}
+exit_code=json.loads((S/'profiles/exit-code-verification.json').read_text());assert len(exit_code)==6 and sum(r['guard_count'] for r in exit_code.values())==137
+code=json.loads((S/'native-code-comparison.json').read_text());assert code['recycle']['after_bytes']==7344 and code['recycle']['before_bytes']==7344
+assert all(v['normalized_equal'] for k,v in code.items() if k!='rotate_buffers')
+assert code['rotate_buffers']['before_bytes']==7884 and code['rotate_buffers']['after_bytes']==7408
+assert code['rotate_buffers']['shared_helper_layout']
+result={'binary_sha256':sha,'full56_speedup_over_audit':summary['speedup'],'runtime_ratios':summary['totals']['sqgi'],'full56_regressions_over_5pct':fullreg,'control_regressions_over_5pct':regressions,'unresolved_control_regressions':unresolved,'control_regression_resolution':resolution,'profitability':profit,'profiles':profiles,'performance_acceptance_checks_pass':not fullreg and not unresolved,'goal_targets_met':all(v['geomean']<=3 and v['p90']<=10 for v in summary['totals']['sqgi'].values()),'first_milestone_met':summary['speedup']>=2 and profit['owners']['geomean_on_over_off']<=1 and profit['methods']['geomean_on_over_off']<=1 and profit['roots']['per_case_on_over_off']['root_integer']<=1}
+(S/'study-verification.json').write_text(json.dumps(result,indent=2)+'\n');print(json.dumps(result,indent=2))

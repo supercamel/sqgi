@@ -1,0 +1,179 @@
+--- a/Squirrel3/squirrel/jit/sqjit_write_log.cpp
++++ b/Squirrel3/squirrel/jit/sqjit_write_log.cpp
+@@ -144,6 +144,19 @@
+     return true;
+ }
+ 
++// SQArray has no release hook or delegate. With no weak observer and no owned
++// children, postponing its destruction exposes no callback or weak death.
++// Bound both scanning and retained backing storage; larger arrays replay.
++static bool sqjit_unobservable_scalar_array(const SQObjectPtr &value)
++{
++    if(sq_type(value) != OT_ARRAY || _array(value)->_weakref) return false;
++    SQArray *array = _array(value);
++    if(array->_values.capacity() > 64) return false;
++    for(SQUnsignedInteger n = 0; n < array->_values.size(); ++n)
++        if(ISREFCOUNTED(sq_type(array->_values[n]))) return false;
++    return true;
++}
++
+ bool SQJitWriteLog::CanRelease(const SQObjectPtr &value)
+ {
+     if(!ISREFCOUNTED(sq_type(value))) return true;
+@@ -151,6 +164,9 @@
+     // These leaf types release no owned graph or callback. If weakly observed,
+     // however, delaying even their destruction can change a subsequent read.
+     if((sq_type(value) == OT_STRING || sq_type(value) == OT_WEAKREF) && !owner->_weakref) return true;
++    // This proof is independent of the physical refcount, so these leaf graphs
++    // need neither a journal-pin census nor a final-release rejection.
++    if(sqjit_unobservable_scalar_array(value)) return true;
+     SQUnsignedInteger pins = 0;
+     for(SQJitWriteLog *log = _context ? _context->active_logs : this; log;
+         log = log->_previous_log) {
+--- a/test/cpp/test_sqjit_write_log.cpp
++++ b/test/cpp/test_sqjit_write_log.cpp
+@@ -48,9 +48,12 @@
+ {
+     SQJitContext &ctx = sqjit_context(v->_sharedstate);
+     SQObjectPtr a(SQTable::Create(v->_sharedstate, 0)), b(SQTable::Create(v->_sharedstate, 0));
+-    // The only program references to each array are these two heap slots.
++    // The only strong program references are these two heap slots. Weak
++    // observers make final destruction observable even for childless arrays.
++    std::vector<SQObjectPtr> observed;
+     for(SQInteger n = 0; n < 73; ++n) {
+         SQObjectPtr value(SQArray::Create(v->_sharedstate, 0));
++        observed.push_back(SQObjectPtr(_array(value)->GetWeakRef(OT_ARRAY)));
+         _table(a)->NewSlot(SQObjectPtr(n), value);
+         _table(b)->NewSlot(SQObjectPtr(n), value);
+     }
+@@ -86,8 +89,10 @@
+     CHECK(ctx.active_logs == NULL, "native journal chain clears after rollback");
+     {
+         SQObjectPtr array(SQArray::Create(v->_sharedstate, 2));
++        SQObjectPtr weak;
+         {
+             SQObjectPtr value(SQArray::Create(v->_sharedstate, 0));
++            weak = _array(value)->GetWeakRef(OT_ARRAY);
+             _array(array)->_values[0] = value; _array(array)->_values[1] = value;
+         }
+         SQJitWriteLog log;
+@@ -125,6 +130,7 @@
+     for(bool heap : {false, true}) for(bool mixed : {false, true}) {
+         SQObjectPtr cleared(SQArray::Create(v->_sharedstate, 0)), keep(cleared);
+         SQObjectPtr remaining(SQArray::Create(v->_sharedstate, 0));
++        SQObjectPtr weak_remaining(_array(remaining)->GetWeakRef(OT_ARRAY));
+         SQObjectPtr interleaved(SQArray::Create(v->_sharedstate, 2));
+         int calls = 0;
+         ReleasePinCheck state = {&ctx, NULL, &cleared, &remaining, &calls, &rc};
+@@ -151,6 +157,44 @@
+             "inline and heap cleanup invoke one callback and unregister the journal");
+         CHECK(_refcounted(cleared)->_uiRef == 2 && _refcounted(remaining)->_uiRef == 1,
+             "cleanup reentry preserves exact remaining program ownership");
++    }
++}
++
++static void scalar_array_release_tests(SQVM *v, int &rc)
++{
++    for(SQInteger size : {0, 1, 4, 64}) {
++        SQObjectPtr value(SQArray::Create(v->_sharedstate, size));
++        for(SQInteger n = 0; n < size; ++n) {
++            switch(n % 4) {
++                case 0: _array(value)->_values[n] = n; break;
++                case 1: _array(value)->_values[n] = (SQFloat)0.5; break;
++                case 2: _array(value)->_values[n] = true; break;
++                default: _array(value)->_values[n].Null(); break;
++            }
++        }
++        SQJitWriteLog log;
++        CHECK(log.CanRelease(value), "unobserved scalar-only arrays have no release effects");
++        CHECK(log.RetainValue(value) && log.CanRelease(value), "scalar leaf proof is independent of journal pins");
++        SQObjectPtr weak(_array(value)->GetWeakRef(OT_ARRAY));
++        CHECK(!log.CanRelease(value), "a new weak observer immediately invalidates the scalar array proof");
++        {
++            SQObjectPtr real_alias(value);
++            CHECK(log.CanRelease(value), "an observed array with a real alias still passes normal owner accounting");
++        }
++        CHECK(!log.CanRelease(value), "removing the real alias restores the observed final-release guard");
++    }
++    {
++        SQObjectPtr value(SQArray::Create(v->_sharedstate, 1));
++        SQJitWriteLog log;
++        CHECK(log.CanRelease(value), "initial scalar contents permit the leaf proof");
++        _array(value)->_values[0] = SQArray::Create(v->_sharedstate, 0);
++        CHECK(!log.CanRelease(value), "a newly inserted child invalidates the proof without cached type assumptions");
++        _array(value)->_values[0] = SQString::Create(v->_sharedstate, _SC("owned-child"));
++        CHECK(!log.CanRelease(value), "reference-valued elements remain conservative even when they are leaves");
++        _array(value)->_values[0] = (SQInteger)7;
++        CHECK(log.CanRelease(value), "current scalar contents can recover eligibility");
++        _array(value)->Reserve(65);
++        CHECK(!log.CanRelease(value), "large reserved backing storage stays outside bounded deferred release");
+     }
+ }
+ 
+@@ -514,6 +558,7 @@
+             "neither stream can evade the joint budget");
+     }
+     SQJitContext &context = sqjit_context(v->_sharedstate);
++    SQObjectPtr observed_owner(_array(values[0])->GetWeakRef(OT_ARRAY));
+     {
+         SQJitWriteLog log(1000, sq_vm_malloc, &context);
+         _array(array)->_values[0] = values[0];
+@@ -540,6 +585,7 @@
+     SQVM *v = sq_open(64);
+     owner_index_tests(v, rc);
+     release_barrier_tests(v, rc);
++    scalar_array_release_tests(v, rc);
+     logical_stack_tests(v, rc, false);
+     logical_stack_tests(v, rc, true);
+     private_publication_tests(v, rc);
+--- a/test/cpp/test_sqjit_member_plan.cpp
++++ b/test/cpp/test_sqjit_member_plan.cpp
+@@ -1118,6 +1118,40 @@
+     }
+ }
+ 
++static void scalar_array_weak_release(SQVM *v, bool enabled)
++{
++    CHECK(run(v, R"SQ(
++        scalar_array_observer <- null;
++        function scalar_array_drop(value) { value=7; return scalar_array_observer; }
++        for(local n=0;n<12;n++)
++            if(scalar_array_drop([n])!=null) throw "scalar array drop warmup";
++    )SQ"), "warm scalar-array replacement before adding a weak observer");
++#if SQJIT_HAS_EXTERNAL_NATIVE
++    if(enabled) CHECK(observe(v, "scalar_array_drop").frame.successes > 0,
++        "scalar-array replacement warms native whole-function execution");
++#endif
++    SQJitContext &ctx = sqjit_context(v->_sharedstate);
++    SQObjectPtr key(SQString::Create(v->_sharedstate, _SC("scalar_array_observer")));
++    for(bool native : {false, true}) {
++        ctx.enabled = enabled && native;
++        SQInteger top = sq_gettop(v);
++        sq_pushobject(v, SQObjectPtr(closure(v, "scalar_array_drop")));
++        sq_pushroottable(v);
++        sq_newarray(v, 1);
++        HSQOBJECT raw;
++        sq_getstackobj(v, -1, &raw);
++        // Keep only a weak reference outside the argument slot: an extra
++        // strong C++ owner would conceal an incorrectly delayed release.
++        SQObjectPtr weak(_array(raw)->GetWeakRef(OT_ARRAY));
++        _table(v->_roottable)->Set(key, weak);
++        bool ok = SQ_SUCCEEDED(sq_call(v, 2, SQTrue, SQTrue));
++        CHECK(ok && sq_gettype(v, -1) == OT_NULL && sq_type(_weakref(weak)->_obj) == OT_NULL,
++            "a weak observer added after warmup sees death before the next root read");
++        sq_settop(v, top);
++    }
++    ctx.enabled = enabled;
++}
++
+ static void borrowed_member_guards(SQVM *v, bool enabled)
+ {
+     CHECK(run(v, R"SQ(
+@@ -1406,6 +1440,7 @@
+         active_vm_root_stores(v, enabled != 0);
+         root_release_order(v, enabled != 0);
+         stack_release_order(v, enabled != 0);
++        scalar_array_weak_release(v, enabled != 0);
+         borrowed_member_guards(v, enabled != 0);
+         reference_assignment_results(v, enabled != 0);
+         reference_loop_results(v, enabled != 0);

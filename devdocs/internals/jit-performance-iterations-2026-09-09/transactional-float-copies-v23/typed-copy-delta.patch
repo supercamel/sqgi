@@ -1,0 +1,184 @@
+--- a/Squirrel3/squirrel/jit/sqjit_backend_aarch64_compile_loop.inc
++++ b/Squirrel3/squirrel/jit/sqjit_backend_aarch64_compile_loop.inc
+@@ -808,13 +808,20 @@
+         return true;
+     };
+ 
++    std::vector<SQInteger> float_copy_offsets;
++    auto emit_float_copy = [&](SQInteger dst, SQInteger src) -> bool {
++        const SQInteger offset=buf.size;
++        if(!sqjit_a64_emit_ldr_x(&buf, 9, 31, sqjit_a64_local_disp(src)) ||
++            !sqjit_a64_emit_str_x(&buf, 9, 31, sqjit_a64_local_disp(dst))) return false;
++        if(scalar_guard_region) float_copy_offsets.push_back(offset);
++        return true;
++    };
+     auto copy_float_slot = [&](SQInteger dst, SQInteger src) -> bool {
+         if(dst == SQ_JIT_A64_NO_RESULT_SLOT) {
+             return true;
+         }
+         if(dst < 0 || dst >= MAX_FUNC_STACKSIZE || !ensure_float_slot(src) ||
+-            !sqjit_a64_emit_ldr_float(&buf, 0, 31, sqjit_a64_local_disp(src)) ||
+-            !sqjit_a64_emit_str_float(&buf, 0, 31, sqjit_a64_local_disp(dst)) ||
++            !emit_float_copy(dst, src) ||
+             !mark_float_slot(dst)) {
+             return false;
+         }
+@@ -3104,10 +3111,7 @@
+                 }
+                 if(kind == SQ_JIT_SLOT_FLOAT) {
+                     if(!ensure_float_slot(src) ||
+-                        !sqjit_a64_emit_ldr_float(&buf, 0, 31,
+-                        sqjit_a64_local_disp(src)) ||
+-                        !sqjit_a64_emit_str_float(&buf, 0, 31,
+-                        sqjit_a64_local_disp(dst)) ||
++                        !emit_float_copy(dst, src) ||
+                         !mark_float_slot(dst)) {
+                         return false;
+                     }
+@@ -5227,7 +5231,8 @@
+         else if(!sqjit_a64_patch_branch(&buf, entry_guard_jump, loop_entry_offset, false, 0)) return false;
+     }
+ 
+-    if(scalar_guard_region) sqjit_a64_forward_local_slots(&buf,MAX_FUNC_STACKSIZE);
++    if(scalar_guard_region) sqjit_a64_forward_local_slots(&buf,MAX_FUNC_STACKSIZE,
++        float_copy_offsets.data(),(SQInteger)float_copy_offsets.size());
+ 
+     if(!code->Install(buf.bytes, buf.size))
+         return attempt.Reject(-1, SQ_JIT_REJECT_RESOURCE, "executable memory installation failed");
+--- a/Squirrel3/squirrel/jit/sqjit_backend_aarch64_emit.cpp
++++ b/Squirrel3/squirrel/jit/sqjit_backend_aarch64_emit.cpp
+@@ -389,12 +389,14 @@
+ // d16-d31 are caller-clobbered; reject input code that uses them. Every branch,
+ // helper call, unknown operation, SP change or possible alias materializes the
+ // private frame first. All branch displacements are rebuilt transactionally.
+-bool sqjit_a64_forward_local_slots(SQJitA64Buffer *buf, SQInteger slots)
++bool sqjit_a64_forward_local_slots(SQJitA64Buffer *buf, SQInteger slots,
++    const SQInteger *float_copies, SQInteger nfloat_copies)
+ {
+     if(!buf || sizeof(SQInteger)!=8 || sizeof(SQFloat)!=8 || slots<=0 ||
+         slots>MAX_FUNC_STACKSIZE || buf->size<=0 || buf->size%4 ||
+         buf->size>(SQInteger)sizeof(buf->bytes)) return false;
+     const SQInteger count=buf->size/4;
++    if(nfloat_copies<0 || nfloat_copies>count/2 || (nfloat_copies && !float_copies)) return false;
+     std::vector<uint32_t> input((size_t)count);
+     memcpy(input.data(),buf->bytes,(size_t)buf->size);
+     std::vector<SQInteger> targets((size_t)count,-1), offsets((size_t)count+1,-1);
+@@ -439,6 +441,20 @@
+         else if((w&0x1e000000u)==0x0e000000u || (w&0x1e000000u)==0x1e000000u) {
+             if(!fp_safe(w)) return false;
+         }
++    }
++    // The emitter retains GP copies on every unoptimized/fallback path. Only
++    // this private transaction uses FP copies to avoid cross-bank transfers.
++    // Refusal at any later step preserves the complete original GP artifact.
++    for(SQInteger n=0;n<nfloat_copies;++n) {
++        const SQInteger offset=float_copies[n];
++        if(offset<0 || offset%4 || offset/4>=count-1) return false;
++        const SQInteger i=offset/4;
++        if(leaders[i+1] || (input[i]&0xffc003ffu)!=0xf94003e9u ||
++            (input[i+1]&0xffc003ffu)!=0xf90003e9u ||
++            SQInteger((input[i]>>10)&4095)>=slots ||
++            SQInteger((input[i+1]>>10)&4095)>=slots) return false;
++        input[i]=(input[i]&~0x0400001fu)|0x04000000u;
++        input[i+1]=(input[i+1]&~0x0400001fu)|0x04000000u;
+     }
+     SQJitA64Buffer output={};
+     struct Entry { SQInteger slot; unsigned age; } cache[16];
+--- a/Squirrel3/squirrel/jit/sqjit_backend_aarch64_emit.h
++++ b/Squirrel3/squirrel/jit/sqjit_backend_aarch64_emit.h
+@@ -88,6 +88,9 @@
+     SQJitA64Reloc *guard_relocs, SQInteger *nguard_relocs);
+ 
+ // Optional transactional private-slot forwarding; false preserves the input.
+-bool sqjit_a64_forward_local_slots(SQJitA64Buffer *buf, SQInteger slots);
++// Recorded float-copy pairs use X9 in the input; their caller guarantees X9/D0
++// are scratch at these sites. Convert them only in a successful transaction.
++bool sqjit_a64_forward_local_slots(SQJitA64Buffer *buf, SQInteger slots,
++    const SQInteger *float_copies = nullptr, SQInteger nfloat_copies = 0);
+ 
+ #endif
+--- a/test/cpp/test_sqjit_aarch64_emit.cpp
++++ b/test/cpp/test_sqjit_aarch64_emit.cpp
+@@ -47,6 +47,31 @@
+     old=bad;
+     CHECK(!sqjit_a64_forward_local_slots(&bad,1) && memcmp(&old,&bad,sizeof(bad))==0,
+         "forwarding buffer exhaustion preserves the complete prior artifact");
++    // Recorded GP copies must survive refusal, including a late output overflow.
++    bad={};sqjit_a64_emit_ldr_x(&bad,9,31,0);sqjit_a64_emit_str_x(&bad,9,31,8);
++    sqjit_a64_emit_u32(&bad,0xd65f03c0u);old=bad;SQInteger copy=0;
++    CHECK(!sqjit_a64_forward_local_slots(&bad,2,&copy,1) && memcmp(&old,&bad,sizeof(bad))==0,
++        "no forwarding benefit leaves recorded GP copies intact");
++    copy=2;
++    CHECK(!sqjit_a64_forward_local_slots(&bad,2,&copy,1) && memcmp(&old,&bad,sizeof(bad))==0,
++        "misaligned typed-copy metadata refuses without changes");
++    copy=4;
++    CHECK(!sqjit_a64_forward_local_slots(&bad,2,&copy,1) && memcmp(&old,&bad,sizeof(bad))==0,
++        "non-copy typed metadata refuses without changes");
++    copy=0;
++    CHECK(!sqjit_a64_forward_local_slots(&bad,1,&copy,1) && memcmp(&old,&bad,sizeof(bad))==0,
++        "typed-copy metadata cannot name slots outside the private region");
++    bad={};sqjit_a64_emit_ldr_x(&bad,9,31,0);sqjit_a64_emit_str_x(&bad,9,31,8);
++    sqjit_a64_emit_ldr_x(&bad,10,31,8);
++    while(bad.size<(SQInteger)sizeof(bad.bytes)) sqjit_a64_emit_u32(&bad,0xd503201fu);
++    old=bad;
++    CHECK(!sqjit_a64_forward_local_slots(&bad,2,&copy,1) && memcmp(&old,&bad,sizeof(bad))==0,
++        "late typed-forwarding overflow restores complete GP artifact");
++    bad={};sqjit_a64_emit_u32(&bad,0x14000002u);
++    sqjit_a64_emit_ldr_x(&bad,9,31,0);sqjit_a64_emit_str_x(&bad,9,31,8);
++    sqjit_a64_emit_ldr_x(&bad,10,31,8);sqjit_a64_emit_u32(&bad,0xd65f03c0u);old=bad;copy=4;
++    CHECK(!sqjit_a64_forward_local_slots(&bad,2,&copy,1) && memcmp(&old,&bad,sizeof(bad))==0,
++        "a branch into the second copy instruction refuses typed conversion");
+     return rc;
+ }
+ 
+@@ -66,9 +91,9 @@
+ static int forwarding_native_tests()
+ {
+     int rc=0;
+-    for(int mode=0;mode<9;++mode) {
++    for(int mode=0;mode<10;++mode) {
+         SQJitA64Buffer original={};sqjit_a64_emit_prologue(&original,256);
+-        SQInteger target=-1;
++        SQInteger target=-1,copy_offset=-1;
+         if(mode==0) {
+             sqjit_a64_emit_ldr_x(&original,9,19,8);
+             sqjit_a64_emit_str_x(&original,9,31,0);
+@@ -127,6 +152,12 @@
+             sqjit_a64_emit_cmp_imm(&original,10,0);sqjit_a64_emit_bcond_placeholder(&original,SQ_JIT_A64_GT,&target);
+             sqjit_a64_patch_branch(&original,target,header,true,SQ_JIT_A64_GT);
+         }
++        else if(mode==9) {
++            sqjit_a64_emit_ldr_x(&original,9,19,8);sqjit_a64_emit_str_x(&original,9,31,0);
++            copy_offset=original.size;
++            sqjit_a64_emit_ldr_x(&original,9,31,0);sqjit_a64_emit_str_x(&original,9,31,8);
++            sqjit_a64_emit_ldr_x(&original,9,31,8);
++        }
+         else {
+             sqjit_a64_emit_mov_imm_x(&original,9,42);sqjit_a64_emit_str_x(&original,9,31,0);
+             sqjit_a64_emit_ldr_x(&original,11,31,0);sqjit_a64_emit_b_placeholder(&original,&target);
+@@ -138,7 +169,7 @@
+         if(mode!=4) sqjit_a64_emit_str_x(&original,9,19,0);
+         sqjit_a64_emit_epilogue(&original,256,1);
+         SQJitA64Buffer forwarded=original;
+-        CHECK(sqjit_a64_forward_local_slots(&forwarded,32),"synthetic native contract actually forwards slots");
++        CHECK(sqjit_a64_forward_local_slots(&forwarded,32,mode==9 ? &copy_offset : nullptr,mode==9 ? 1 : 0),"synthetic native contract actually forwards slots");
+         for(int enabled=0;enabled<2;++enabled) {
+             SQJitA64Buffer &code=enabled ? forwarded : original;
+             void *mapping=mmap(NULL,8192,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS,-1,0);
+@@ -151,7 +182,7 @@
+                 SQUnsignedInteger output[32]={};output[1]=input;forwarding_helper_saw=0;
+                 typedef SQInteger (*Entry)(SQUnsignedInteger *,void *,void *);
+                 CHECK(((Entry)mapping)(output,NULL,NULL)==1,"forwarded native return ABI");
+-                if(mode==0) CHECK(output[0]==input,"mixed integer/float copies preserve zero sign and NaN payload bits");
++                if(mode==0 || mode==9) CHECK(output[0]==input,"mixed integer/float copies preserve zero sign and NaN payload bits");
+                 if(mode==1) CHECK(output[0]==43 && forwarding_helper_saw==42,"helper sees materialized frame and scratch clobbers are invalidated");
+                 if(mode==2) CHECK(output[0]==(input==0 ? 42u : 7u),"conditional target and NZCV survive slot spills");
+                 if(mode==3) CHECK(output[0]==(input&1 ? 42u : 7u),"test-bit target survives slot spills");
+@@ -165,6 +196,7 @@
+         }
+     }
+     printf("[coverage] executed AArch64 local-slot forwarding contracts (bits, calls, branches, eviction, aliases)\n");
++    printf("[coverage] executed AArch64 typed-copy forwarding and fallback contracts\n");
+     return rc;
+ }
+ #endif

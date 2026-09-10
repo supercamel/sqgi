@@ -1,0 +1,420 @@
+--- a/Squirrel3/squirrel/jit/sqjit_backend_aarch64_compile_proto.inc
++++ b/Squirrel3/squirrel/jit/sqjit_backend_aarch64_compile_proto.inc
+@@ -221,8 +221,22 @@
+     };
+ 
+     auto ensure_word_slot = [&](SQInteger slot) -> bool {
+-        return slot >= 0 && slot < MAX_FUNC_STACKSIZE &&
+-            (slots[slot].kind == SQ_JIT_SLOT_BOOL || ensure_int_slot(slot));
++        if(slot < 0 || slot >= MAX_FUNC_STACKSIZE) return false;
++        if(slots[slot].kind == SQ_JIT_SLOT_BOOL) return true;
++        if(slots[slot].kind == SQ_JIT_SLOT_STACK_OBJECT &&
++            slots[slot].stack_object_reg >= 0 &&
++            sq_type(entry_stack[slots[slot].stack_object_reg]) == OT_BOOL) {
++            SQInteger reg = slots[slot].stack_object_reg;
++            if(!sqjit_a64_emit_type_guard(&buf, reg, OT_BOOL,
++                guard_relocs, &nguard_relocs) ||
++                !sqjit_a64_emit_ldr_x(&buf, 9, 19, sqjit_a64_stack_value_disp(reg)) ||
++                !sqjit_a64_emit_str_x(&buf, 9, 31, sqjit_a64_local_disp(slot))) return false;
++            slots[slot].MarkBool();
++            clear_constructed_array_field_slot(slot);
++            clear_prepared_call_slot(slot);
++            return true;
++        }
++        return ensure_int_slot(slot);
+     };
+ 
+     auto ensure_float_slot = [&](SQInteger slot) -> bool {
+@@ -518,10 +532,17 @@
+     auto emit_binary = [&](SQOpcode op, SQInteger dst, SQInteger left, SQInteger right) -> bool {
+         SQInteger guard_patch = 0;
+         if(dst < 0 || dst >= MAX_FUNC_STACKSIZE || !ensure_int_slot(left) || !ensure_int_slot(right) ||
+-            !sqjit_a64_emit_ldr_x(&buf, 9, 31, sqjit_a64_local_disp(left)) ||
+-            !sqjit_a64_emit_ldr_x(&buf, 10, 31, sqjit_a64_local_disp(right))) {
+-            return false;
+-        }
++            !sqjit_a64_emit_ldr_x(&buf, 9, 31, sqjit_a64_local_disp(left))) {
++            return false;
++        }
++        // Preserve hardware division, but omit a guard only when lowering has
++        // proved the divisor nonzero. Never infer this from sampled arguments.
++        const bool divisor_nonzero = slots[right].known_const && slots[right].const_value != 0;
++        if(slots[right].known_const && slots[right].const_value >= 0 &&
++            slots[right].const_value <= 65535) {
++            if(!sqjit_a64_emit_mov_imm_x(&buf, 10, slots[right].const_value)) return false;
++        }
++        else if(!sqjit_a64_emit_ldr_x(&buf, 10, 31, sqjit_a64_local_disp(right))) return false;
+         switch(op) {
+             case _OP_ADD:
+                 if(!sqjit_a64_emit_add_reg(&buf, 9, 9, 10)) {
+@@ -539,19 +560,19 @@
+                 }
+                 break;
+             case _OP_DIV:
+-                if(!sqjit_a64_emit_cmp_imm(&buf, 10, 0) ||
++                if((!divisor_nonzero && (!sqjit_a64_emit_cmp_imm(&buf, 10, 0) ||
+                     !sqjit_a64_emit_bcond_placeholder(&buf, SQ_JIT_A64_EQ, &guard_patch) ||
+                     !sqjit_a64_record_reloc(guard_relocs, &nguard_relocs, SQ_JIT_A64_MAX_GUARD_RELOCS,
+-                        guard_patch, -1, true, SQ_JIT_A64_EQ) ||
++                        guard_patch, -1, true, SQ_JIT_A64_EQ))) ||
+                     !sqjit_a64_emit_sdiv_reg(&buf, 9, 9, 10)) {
+                     return false;
+                 }
+                 break;
+             case _OP_MOD:
+-                if(!sqjit_a64_emit_cmp_imm(&buf, 10, 0) ||
++                if((!divisor_nonzero && (!sqjit_a64_emit_cmp_imm(&buf, 10, 0) ||
+                     !sqjit_a64_emit_bcond_placeholder(&buf, SQ_JIT_A64_EQ, &guard_patch) ||
+                     !sqjit_a64_record_reloc(guard_relocs, &nguard_relocs, SQ_JIT_A64_MAX_GUARD_RELOCS,
+-                        guard_patch, -1, true, SQ_JIT_A64_EQ) ||
++                        guard_patch, -1, true, SQ_JIT_A64_EQ))) ||
+                     !sqjit_a64_emit_sdiv_reg(&buf, 11, 9, 10) ||
+                     !sqjit_a64_emit_msub_reg(&buf, 9, 11, 10, 9)) {
+                     return false;
+@@ -3555,6 +3576,7 @@
+     for(SQInteger n=0; n<proto->_nparameters; ++n) if(entry_parameters.test(n)) {
+         if(sq_type(entry_stack[n]) == OT_INTEGER) { if(!ensure_int_slot(n)) return false; }
+         else if(sq_type(entry_stack[n]) == OT_FLOAT) { if(!ensure_float_slot(n)) return false; }
++        else if(sq_type(entry_stack[n]) == OT_BOOL) { if(!ensure_word_slot(n)) return false; }
+     }
+ 
+     bool previous_effective_return = false;
+@@ -4266,6 +4288,16 @@
+                     return attempt.Reject(ip, SQ_JIT_REJECT_OTHER, "unsupported integer arithmetic operands");
+                 }
+                 break;
++            case _OP_NOT:
++                if(!ensure_word_slot(inst._arg1) ||
++                    !sqjit_a64_emit_ldr_x(&buf, 9, 31, sqjit_a64_local_disp(inst._arg1)) ||
++                    !sqjit_a64_emit_cmp_imm(&buf, 9, 0) ||
++                    !sqjit_a64_emit_cset(&buf, 9, SQ_JIT_A64_EQ) ||
++                    !sqjit_a64_emit_str_x(&buf, 9, 31, sqjit_a64_local_disp(inst._arg0)) ||
++                    !mark_bool_slot(inst._arg0)) {
++                    return attempt.Reject(ip, SQ_JIT_REJECT_OTHER, "unsupported logical NOT operand");
++                }
++                break;
+             case _OP_NEG:
+                 if(slot_observed_is_float(inst._arg1)) {
+                     if(!emit_float_neg(inst._arg0, inst._arg1)) {
+--- a/Squirrel3/squirrel/jit/sqjit_backend_aarch64_compile_loop.inc
++++ b/Squirrel3/squirrel/jit/sqjit_backend_aarch64_compile_loop.inc
+@@ -1080,10 +1080,17 @@
+     auto emit_binary = [&](SQOpcode op, SQInteger dst, SQInteger left, SQInteger right) -> bool {
+         SQInteger guard_patch = 0;
+         if(dst < 0 || dst >= MAX_FUNC_STACKSIZE || !ensure_int_slot(left) || !ensure_int_slot(right) ||
+-            !sqjit_a64_emit_ldr_x(&buf, 9, 31, sqjit_a64_local_disp(left)) ||
+-            !sqjit_a64_emit_ldr_x(&buf, 10, 31, sqjit_a64_local_disp(right))) {
+-            return false;
+-        }
++            !sqjit_a64_emit_ldr_x(&buf, 9, 31, sqjit_a64_local_disp(left))) {
++            return false;
++        }
++        // Preserve hardware division, but omit a guard only when lowering has
++        // proved the divisor nonzero. Never infer this from sampled arguments.
++        const bool divisor_nonzero = slots[right].known_const && slots[right].const_value != 0;
++        if(slots[right].known_const && slots[right].const_value >= 0 &&
++            slots[right].const_value <= 65535) {
++            if(!sqjit_a64_emit_mov_imm_x(&buf, 10, slots[right].const_value)) return false;
++        }
++        else if(!sqjit_a64_emit_ldr_x(&buf, 10, 31, sqjit_a64_local_disp(right))) return false;
+         switch(op) {
+             case _OP_ADD:
+                 if(!sqjit_a64_emit_add_reg(&buf, 9, 9, 10)) {
+@@ -1101,19 +1108,19 @@
+                 }
+                 break;
+             case _OP_DIV:
+-                if(!sqjit_a64_emit_cmp_imm(&buf, 10, 0) ||
++                if((!divisor_nonzero && (!sqjit_a64_emit_cmp_imm(&buf, 10, 0) ||
+                     !sqjit_a64_emit_bcond_placeholder(&buf, SQ_JIT_A64_EQ, &guard_patch) ||
+                     !sqjit_a64_record_reloc(guard_relocs, &nguard_relocs,
+-                        SQ_JIT_A64_MAX_GUARD_RELOCS, guard_patch, -1, true, SQ_JIT_A64_EQ) ||
++                        SQ_JIT_A64_MAX_GUARD_RELOCS, guard_patch, -1, true, SQ_JIT_A64_EQ))) ||
+                     !sqjit_a64_emit_sdiv_reg(&buf, 9, 9, 10)) {
+                     return false;
+                 }
+                 break;
+             case _OP_MOD:
+-                if(!sqjit_a64_emit_cmp_imm(&buf, 10, 0) ||
++                if((!divisor_nonzero && (!sqjit_a64_emit_cmp_imm(&buf, 10, 0) ||
+                     !sqjit_a64_emit_bcond_placeholder(&buf, SQ_JIT_A64_EQ, &guard_patch) ||
+                     !sqjit_a64_record_reloc(guard_relocs, &nguard_relocs,
+-                        SQ_JIT_A64_MAX_GUARD_RELOCS, guard_patch, -1, true, SQ_JIT_A64_EQ) ||
++                        SQ_JIT_A64_MAX_GUARD_RELOCS, guard_patch, -1, true, SQ_JIT_A64_EQ))) ||
+                     !sqjit_a64_emit_sdiv_reg(&buf, 11, 9, 10) ||
+                     !sqjit_a64_emit_msub_reg(&buf, 9, 11, 10, 9)) {
+                     return false;
+--- a/Squirrel3/squirrel/jit/sqjit_write_log.cpp
++++ b/Squirrel3/squirrel/jit/sqjit_write_log.cpp
+@@ -144,6 +144,19 @@
+     return true;
+ }
+ 
++// SQArray has no release hook or delegate. With no weak observer and no owned
++// children, postponing its destruction exposes no callback or weak death.
++// Bound scanning and retained backing storage; larger arrays use owner accounting.
++static bool sqjit_unobservable_scalar_array(const SQObjectPtr &value)
++{
++    if(sq_type(value) != OT_ARRAY || _array(value)->_weakref) return false;
++    SQArray *array = _array(value);
++    if(array->_values.capacity() > 64) return false;
++    for(SQUnsignedInteger n = 0; n < array->_values.size(); ++n)
++        if(ISREFCOUNTED(sq_type(array->_values[n]))) return false;
++    return true;
++}
++
+ bool SQJitWriteLog::CanRelease(const SQObjectPtr &value)
+ {
+     if(!ISREFCOUNTED(sq_type(value))) return true;
+@@ -151,6 +164,9 @@
+     // These leaf types release no owned graph or callback. If weakly observed,
+     // however, delaying even their destruction can change a subsequent read.
+     if((sq_type(value) == OT_STRING || sq_type(value) == OT_WEAKREF) && !owner->_weakref) return true;
++    // This proof is independent of the physical refcount, so these leaf graphs
++    // need neither a journal-pin census nor a final-release rejection.
++    if(sqjit_unobservable_scalar_array(value)) return true;
+     SQUnsignedInteger pins = 0;
+     for(SQJitWriteLog *log = _context ? _context->active_logs : this; log;
+         log = log->_previous_log) {
+--- a/test/cpp/test_sqjit_leaf.cpp
++++ b/test/cpp/test_sqjit_leaf.cpp
+@@ -74,6 +74,18 @@
+             "function early_return(x) { if(x<0) return -x; if(x==17) return x+1; return x-2 }\n"
+             "function call_early_return(x) { return early_return(x) }\n"
+             "function division(x,y) { return x/y }\n"
++            "function literal_division(x) { return x/7 }\n"
++            "function literal_remainder(x) { return x%7 }\n"
++            "function power_division(x) { return x/64 }\n"
++            "function power_remainder(x) { return x%64 }\n"
++            "function negative_division(x) { return x/-7 }\n"
++            "function zero_literal_division(x) { return x/0 }\n"
++            "function joined_divisor(x,flag) { local d=7; if(flag) d=11; return x/d }\n"
++            "function boolean_divisor(x,flag) { local d=7; if(flag) d=11; return x/d }\n"
++            "function boolean_not(x) { return !x }\n"
++            "function integer_not(x) { return !x }\n"
++            "function boolean_loop(flag,n) { local r=0; for(local i=0;i<n;i++) { if(flag) r++; flag=!flag; } return r }\n"
++            "function changing_divisor(x,n) { local d=7,r=0; for(local i=0;i<n;i++) { r+=x/d; d=11; } return r }\n"
+             "function logged_division(a,x,y) { a[0]=a[0]+1; return division(x,y) }\n"
+             "function logged_step(a,x,y) { a[0]=a[0]+1; return step(x,y) }\n"
+             "function prep_mutation(x) { return step((this.step=9),x) }\n"
+@@ -104,6 +116,18 @@
+             " for(local x=-30;x<30;x++) { local expected=x<0 ? -x : (x==17 ? x+1 : x-2);\n"
+             "  if(call_early_return(x)!=expected) throw \"early return branches\"; }\n"
+             " local a=[0]; if(logged_division(a,9,2)!=4 || a[0]!=1) throw \"division value\";\n"
++            " foreach(x in [-9223372036854775807-1,-9223372036854775807,-1000003,-998,-64,-8,-7,-1,0,1,7,8,64,998,1000003,9223372036854775807]) {\n"
++            "  if(literal_division(x)!=division(x,7) || literal_remainder(x)!=x-division(x,7)*7 ||\n"
++            "     negative_division(x)!=division(x,-7) || power_division(x)!=division(x,64) ||\n"
++            "     power_remainder(x)!=x-division(x,64)*64) throw \"signed constant division\";\n"
++            "  if(joined_divisor(x,0)!=division(x,7) || joined_divisor(x,1)!=division(x,11) ||\n"
++            "     changing_divisor(x,9)!=division(x,7)+8*division(x,11)) throw \"divisor changes across control flow\"; }\n"
++            " if(boolean_divisor(1001,false)!=143 || boolean_divisor(1001,true)!=91 ||\n"
++            "    boolean_loop(true,9)!=5 || boolean_loop(false,9)!=4) throw \"Boolean parameter guards and loop-carried values\";\n"
++            " if(boolean_not(false)!=true || boolean_not(true)!=false || typeof boolean_not(false)!=\"bool\") throw \"native NOT result tag\";\n"
++            " if(integer_not(0)!=true || integer_not(-9223372036854775807-1)!=false || typeof integer_not(7)!=\"bool\") throw \"integer NOT values and result tag\";\n"
++            " local zero_caught=false; try { zero_literal_division(7); } catch(e) { zero_caught=true; }\n"
++            " if(!zero_caught) throw \"constant zero divisor lost its error\";\n"
+             " a=[0]; if(logged_step(a,4,2)!=37 || a[0]!=1) throw \"logged call value\";\n"
+             " local expected=0; for(local i=0;i<20;i++) expected+=(i*33+1)%97;\n"
+             " if(call_loop(20)!=expected || volatile_caller(7)!=12) throw \"loop call value\";\n"
+@@ -149,7 +173,22 @@
+                 "native loop contains leaf call");
+         }
+ #endif
++#if SQJIT_HAS_EXTERNAL_NATIVE
++        if(enabled) for(const SQChar *name : {_SC("literal_division"), _SC("literal_remainder"),
++            _SC("power_division"), _SC("power_remainder"), _SC("joined_divisor"),
++            _SC("changing_divisor"), _SC("boolean_divisor"), _SC("boolean_loop"), _SC("boolean_not"),
++            _SC("integer_not"), _SC("negative_division")}) {
++            SQJitObservation o = observe(v, name);
++            if(!o.frame.successes) scprintf(_SC("scalar route %s: frame=%lld direct=%lld loop=%lld compiled=%d backend=%d ip=%lld reason=%s\n"),
++                name, (long long)o.frame.successes, (long long)o.direct.successes, (long long)o.loop.successes,
++                (int)o.compilation.compiled, (int)o.compilation.backend,
++                (long long)o.compilation.ip, o.compilation.reason ? o.compilation.reason : "none");
++            CHECK(o.frame.successes > 0,
++                "arithmetic and Boolean cases execute native whole-function code");
++        }
++#endif
+         CHECK(run(v, _SC(
++            "if(boolean_not(0)!=true || boolean_not(-7)!=false || boolean_not(null)!=true || boolean_not(0.0)!=true || boolean_not(0.5)!=false) throw \"NOT argument type fallback\";\n"
+             "for(local n=0;n<3;n++) { local original=step; local expected=(9*33+2)%97;\n"
+             " if(prep_mutation(2)!=expected || step!=9) throw \"prepared callee survives argument mutation\"; step=original; }\n"
+             "if(call_blend(4.0,0.5)!=6.5 || call_equal(true,true)!=true || call_equal(true,false)!=false) throw \"argument type fallback\";\n"
+--- a/test/cpp/test_sqjit_member_plan.cpp
++++ b/test/cpp/test_sqjit_member_plan.cpp
+@@ -1045,6 +1045,9 @@
+         function stack_release_arithmetic(value, replacement) {
+             value=replacement+7; return vm_hook_value+1;
+         }
++        function stack_release_not(value, replacement) {
++            value=!replacement; return vm_hook_value+1;
++        }
+         function stack_release_branch(value, replacement) {
+             if(replacement>0) value=replacement;
+             else value=7;
+@@ -1055,7 +1058,7 @@
+             if(stack_release_move(i,5)!=1 || stack_release_get(i,{number=5})!=1 ||
+                 stack_release_boxed(i,{payload=[5]})!=1 || stack_release_two(i,i,5)!=1 ||
+                 stack_release_get_float(i,{number=5.5})!=1 || stack_release_get_array(i,[5])!=1 ||
+-                stack_release_literal(i,5)!=1 || stack_release_arithmetic(i,5)!=1 ||
++                stack_release_literal(i,5)!=1 || stack_release_arithmetic(i,5)!=1 || stack_release_not(i,5)!=1 ||
+                 stack_release_branch(i,5)!=1 || stack_release_branch(i,-5)!=1)
+                 throw "stack release ordering warmup";
+         }
+@@ -1064,7 +1067,11 @@
+     SQObjectPtr key(SQString::Create(v->_sharedstate, _SC("vm_hook_value")));
+     for(const char *name : {"stack_release_move", "stack_release_get", "stack_release_boxed", "stack_release_two",
+         "stack_release_literal", "stack_release_arithmetic", "stack_release_branch",
+-        "stack_release_get_float", "stack_release_get_array"}) {
++        "stack_release_get_float", "stack_release_get_array",
++#if SQJIT_HAS_EXTERNAL_NATIVE
++        "stack_release_not",
++#endif
++        }) {
+ #if SQJIT_HAS_X64_NATIVE || SQJIT_HAS_EXTERNAL_NATIVE
+         if(enabled) CHECK(observe(v, name).frame.successes > 0,
+             "stack ordering warmup exercises native whole-function execution");
+@@ -1116,6 +1123,40 @@
+         }
+         ctx.enabled = enabled;
+     }
++}
++
++static void scalar_array_weak_release(SQVM *v, bool enabled)
++{
++    CHECK(run(v, R"SQ(
++        scalar_array_observer <- null;
++        function scalar_array_drop(value) { value=7; return scalar_array_observer; }
++        for(local n=0;n<12;n++)
++            if(scalar_array_drop([n])!=null) throw "scalar array drop warmup";
++    )SQ"), "warm scalar-array replacement before adding a weak observer");
++#if SQJIT_HAS_EXTERNAL_NATIVE
++    if(enabled) CHECK(observe(v, "scalar_array_drop").frame.successes > 0,
++        "scalar-array replacement warms native whole-function execution");
++#endif
++    SQJitContext &ctx = sqjit_context(v->_sharedstate);
++    SQObjectPtr key(SQString::Create(v->_sharedstate, _SC("scalar_array_observer")));
++    for(bool native : {false, true}) {
++        ctx.enabled = enabled && native;
++        SQInteger top = sq_gettop(v);
++        sq_pushobject(v, SQObjectPtr(closure(v, "scalar_array_drop")));
++        sq_pushroottable(v);
++        sq_newarray(v, 1);
++        HSQOBJECT raw;
++        sq_getstackobj(v, -1, &raw);
++        // Keep only a weak reference outside the argument slot: an extra
++        // strong C++ owner would conceal an incorrectly delayed release.
++        SQObjectPtr weak(_array(raw)->GetWeakRef(OT_ARRAY));
++        _table(v->_roottable)->Set(key, weak);
++        bool ok = SQ_SUCCEEDED(sq_call(v, 2, SQTrue, SQTrue));
++        CHECK(ok && sq_gettype(v, -1) == OT_NULL && sq_type(_weakref(weak)->_obj) == OT_NULL,
++            "a weak observer added after warmup sees death before the next root read");
++        sq_settop(v, top);
++    }
++    ctx.enabled = enabled;
+ }
+ 
+ static void borrowed_member_guards(SQVM *v, bool enabled)
+@@ -1406,6 +1447,7 @@
+         active_vm_root_stores(v, enabled != 0);
+         root_release_order(v, enabled != 0);
+         stack_release_order(v, enabled != 0);
++        scalar_array_weak_release(v, enabled != 0);
+         borrowed_member_guards(v, enabled != 0);
+         reference_assignment_results(v, enabled != 0);
+         reference_loop_results(v, enabled != 0);
+--- a/test/cpp/test_sqjit_write_log.cpp
++++ b/test/cpp/test_sqjit_write_log.cpp
+@@ -48,9 +48,12 @@
+ {
+     SQJitContext &ctx = sqjit_context(v->_sharedstate);
+     SQObjectPtr a(SQTable::Create(v->_sharedstate, 0)), b(SQTable::Create(v->_sharedstate, 0));
+-    // The only program references to each array are these two heap slots.
++    // The only strong program references are these two heap slots. Weak
++    // observers make final destruction observable even for childless arrays.
++    std::vector<SQObjectPtr> observed;
+     for(SQInteger n = 0; n < 73; ++n) {
+         SQObjectPtr value(SQArray::Create(v->_sharedstate, 0));
++        observed.push_back(SQObjectPtr(_array(value)->GetWeakRef(OT_ARRAY)));
+         _table(a)->NewSlot(SQObjectPtr(n), value);
+         _table(b)->NewSlot(SQObjectPtr(n), value);
+     }
+@@ -86,8 +89,10 @@
+     CHECK(ctx.active_logs == NULL, "native journal chain clears after rollback");
+     {
+         SQObjectPtr array(SQArray::Create(v->_sharedstate, 2));
++        SQObjectPtr weak;
+         {
+             SQObjectPtr value(SQArray::Create(v->_sharedstate, 0));
++            weak = _array(value)->GetWeakRef(OT_ARRAY);
+             _array(array)->_values[0] = value; _array(array)->_values[1] = value;
+         }
+         SQJitWriteLog log;
+@@ -125,6 +130,7 @@
+     for(bool heap : {false, true}) for(bool mixed : {false, true}) {
+         SQObjectPtr cleared(SQArray::Create(v->_sharedstate, 0)), keep(cleared);
+         SQObjectPtr remaining(SQArray::Create(v->_sharedstate, 0));
++        SQObjectPtr weak_remaining(_array(remaining)->GetWeakRef(OT_ARRAY));
+         SQObjectPtr interleaved(SQArray::Create(v->_sharedstate, 2));
+         int calls = 0;
+         ReleasePinCheck state = {&ctx, NULL, &cleared, &remaining, &calls, &rc};
+@@ -151,6 +157,44 @@
+             "inline and heap cleanup invoke one callback and unregister the journal");
+         CHECK(_refcounted(cleared)->_uiRef == 2 && _refcounted(remaining)->_uiRef == 1,
+             "cleanup reentry preserves exact remaining program ownership");
++    }
++}
++
++static void scalar_array_release_tests(SQVM *v, int &rc)
++{
++    for(SQInteger size : {0, 1, 4, 64}) {
++        SQObjectPtr value(SQArray::Create(v->_sharedstate, size));
++        for(SQInteger n = 0; n < size; ++n) {
++            switch(n % 4) {
++                case 0: _array(value)->_values[n] = n; break;
++                case 1: _array(value)->_values[n] = (SQFloat)0.5; break;
++                case 2: _array(value)->_values[n] = true; break;
++                default: _array(value)->_values[n].Null(); break;
++            }
++        }
++        SQJitWriteLog log;
++        CHECK(log.CanRelease(value), "unobserved scalar-only arrays have no release effects");
++        CHECK(log.RetainValue(value) && log.CanRelease(value), "scalar leaf proof is independent of journal pins");
++        SQObjectPtr weak(_array(value)->GetWeakRef(OT_ARRAY));
++        CHECK(!log.CanRelease(value), "a new weak observer immediately invalidates the scalar array proof");
++        {
++            SQObjectPtr real_alias(value);
++            CHECK(log.CanRelease(value), "an observed array with a real alias still passes normal owner accounting");
++        }
++        CHECK(!log.CanRelease(value), "removing the real alias restores the observed final-release guard");
++    }
++    {
++        SQObjectPtr value(SQArray::Create(v->_sharedstate, 1));
++        SQJitWriteLog log;
++        CHECK(log.CanRelease(value), "initial scalar contents permit the leaf proof");
++        _array(value)->_values[0] = SQArray::Create(v->_sharedstate, 0);
++        CHECK(!log.CanRelease(value), "a newly inserted child invalidates the proof without cached type assumptions");
++        _array(value)->_values[0] = SQString::Create(v->_sharedstate, _SC("owned-child"));
++        CHECK(!log.CanRelease(value), "reference-valued elements remain conservative even when they are leaves");
++        _array(value)->_values[0] = (SQInteger)7;
++        CHECK(log.CanRelease(value), "current scalar contents can recover eligibility");
++        _array(value)->Reserve(65);
++        CHECK(!log.CanRelease(value), "large reserved backing storage stays outside bounded deferred release");
+     }
+ }
+ 
+@@ -514,6 +558,7 @@
+             "neither stream can evade the joint budget");
+     }
+     SQJitContext &context = sqjit_context(v->_sharedstate);
++    SQObjectPtr observed_owner(_array(values[0])->GetWeakRef(OT_ARRAY));
+     {
+         SQJitWriteLog log(1000, sq_vm_malloc, &context);
+         _array(array)->_values[0] = values[0];
+@@ -540,6 +585,7 @@
+     SQVM *v = sq_open(64);
+     owner_index_tests(v, rc);
+     release_barrier_tests(v, rc);
++    scalar_array_release_tests(v, rc);
+     logical_stack_tests(v, rc, false);
+     logical_stack_tests(v, rc, true);
+     private_publication_tests(v, rc);

@@ -1,0 +1,650 @@
+--- a/Squirrel3/squirrel/jit/sqjit_backend_aarch64_precise.inc
++++ b/Squirrel3/squirrel/jit/sqjit_backend_aarch64_precise.inc
+@@ -90,6 +90,54 @@
+     // Numeric inputs select only the VM's floating arithmetic, with no strings,
+     // allocation, metamethods or release callbacks (result is a fresh scalar).
+     return vm->ARITH_OP(op, result, a, b);
++}
++
++extern bool sq_nativeclosure_is_default_len(SQNativeClosure *closure);
++
++static bool sqjit_a64_precise_len_key(SQFunctionProto *proto, SQInteger literal)
++{
++    if(literal<0 || literal>=proto->_nliterals) return false;
++    const SQObjectPtr &key=proto->_literals[literal];
++    return sq_type(key)==OT_STRING && _string(key)->_len==3 &&
++        !memcmp(_stringval(key),_SC("len"),3*sizeof(SQChar));
++}
++
++static bool sqjit_a64_precise_release_pair(SQJitContext *context,
++    const SQObjectPtr &first, const SQObjectPtr &second)
++{
++    const SQUnsignedInteger drops=ISREFCOUNTED(sq_type(first)) &&
++        sq_type(first)==sq_type(second) && _rawval(first)==_rawval(second) ? 2 : 1;
++    return sqjit_a64_precise_can_release(context,first) &&
++        sqjit_a64_precise_can_release(context,second,drops);
++}
++
++// Preserve PREPCALLK's publication order, including its distinct array len path.
++// No lookup below invokes delegation, a metamethod, allocation or a callback.
++static SQInteger sqjit_a64_precise_prepare_len(SQJitContext *context,
++    SQObjectPtr *stack, SQClosure *closure, const SQInstruction &i, SQVM *vm)
++{
++    SQSharedState *ss=closure->_function->_sharedstate;
++    const SQObjectPtr &key=closure->_function->_literals[i._arg1];
++    const SQObjectPtr &receiver=stack[i._arg2];
++    const SQObjectPtr *delegate=NULL;
++    if(sq_type(receiver)==OT_ARRAY) {
++        if(sq_type(key)==OT_STRING && _string(key)==_string(ss->_array_len_key)) {
++            if(!sqjit_a64_precise_release_pair(context,stack[i._arg3],stack[i._arg0])) return 0;
++            stack[i._arg3]=receiver;
++            stack[i._arg0]=ss->_array_len_closure;
++            return 1;
++        }
++        delegate=&ss->_array_default_delegate;
++    }
++    else if(sq_type(receiver)==OT_STRING) delegate=&ss->_string_default_delegate;
++    else return 0;
++    const SQObjectPtr *raw=_table(*delegate)->GetRawSlot(key);
++    const SQObject *source=raw && sq_type(*raw)==OT_WEAKREF ? &_weakref(*raw)->_obj : raw;
++    if(!source || !sqjit_a64_precise_release_pair(context,vm->temp_reg,stack[i._arg3])) return 0;
++    vm->temp_reg=*source;
++    stack[i._arg3]=receiver;
++    _Swap(stack[i._arg0],vm->temp_reg);
++    return 1;
+ }
+ 
+ template<SQOpcode Op, bool ConstantKey = (Op == _OP_GETK)>
+@@ -173,6 +221,30 @@
+         if(result_write) stack[dst] = stack[i._arg3];
+         return 1;
+     }
++    case _OP_EQ: case _OP_NE: {
++        const SQObjectPtr &right=i._arg3 ? closure->_function->_literals[i._arg1] : stack[i._arg1];
++        bool equal=false;
++        if(!vm->IsEqual(stack[i._arg2],right,equal)) return 0;
++        value=Op==_OP_EQ ? equal : !equal;
++        break;
++    }
++    case _OP_PREPCALLK:
++        return sqjit_a64_precise_prepare_len(context,stack,closure,i,vm);
++    case _OP_CALL: {
++        const SQObjectPtr &callee=stack[i._arg1], &receiver=stack[i._arg2];
++        if(i._arg3!=1 || sq_type(callee)!=OT_NATIVECLOSURE ||
++            !sq_nativeclosure_is_default_len(_nativeclosure(callee))) return 0;
++        // This is the VM's existing default-length shortcut: no native frame,
++        // argument clearing, environment replacement or user callback occurs.
++        switch(sq_type(receiver)) {
++        case OT_ARRAY: value=_array(receiver)->Size(); break;
++        case OT_TABLE: value=_table(receiver)->CountUsed(); break;
++        case OT_STRING: value=_string(receiver)->_len; break;
++        default: return 0;
++        }
++        if(dst==SQ_JIT_A64_NO_RESULT_SLOT) return 1;
++        break;
++    }
+     case _OP_ADD: case _OP_SUB: case _OP_MUL: case _OP_DIV: case _OP_MOD: {
+         unsigned op = Op == _OP_ADD ? '+' : Op == _OP_SUB ? '-' :
+             Op == _OP_MUL ? '*' : Op == _OP_DIV ? '/' : '%';
+@@ -240,6 +312,10 @@
+     case _OP_GET: return constant_key ? sqjit_a64_precise_step<_OP_GET,true> : sqjit_a64_precise_step<_OP_GET>;
+     case _OP_GETK: return sqjit_a64_precise_step<_OP_GETK>;
+     case _OP_SET: return constant_key ? sqjit_a64_precise_step<_OP_SET,true> : sqjit_a64_precise_step<_OP_SET>;
++    case _OP_EQ: return sqjit_a64_precise_step<_OP_EQ>;
++    case _OP_NE: return sqjit_a64_precise_step<_OP_NE>;
++    case _OP_PREPCALLK: return sqjit_a64_precise_step<_OP_PREPCALLK>;
++    case _OP_CALL: return sqjit_a64_precise_step<_OP_CALL>;
+     case _OP_ADD: return sqjit_a64_precise_step<_OP_ADD>;
+     case _OP_SUB: return sqjit_a64_precise_step<_OP_SUB>;
+     case _OP_MUL: return sqjit_a64_precise_step<_OP_MUL>;
+@@ -692,8 +768,10 @@
+     return -1;
+ }
+ 
+-static bool sqjit_a64_compile_precise(SQFunctionProto *proto, SQObjectPtr *entry_stack, SQJitNative *native)
+-{
++static bool sqjit_a64_compile_precise(SQFunctionProto *proto, SQObjectPtr *entry_stack, SQJitNative *native,
++    bool allow_intrinsics = false, bool *resource_failure = NULL)
++{
++    if(resource_failure) *resource_failure=false;
+     if(!proto || !entry_stack || !native || proto->_varparams || proto->_ndefaultparams ||
+         proto->_bgenerator || proto->_nparameters < 1 || proto->_nparameters > proto->_stacksize || proto->_stacksize <= 0 ||
+         proto->_stacksize > MAX_FUNC_STACKSIZE || proto->_ninstructions <= 0 ||
+@@ -701,7 +779,7 @@
+     if(proto->_instructions[proto->_ninstructions-1].op != _OP_RETURN) return false;
+     SQBytecodeAnalysis analysis;
+     if(!analysis.Build(proto->_instructions, proto->_ninstructions, proto->_stacksize)) return false;
+-    bool has_store = false;
++    bool has_store = false, has_intrinsics = false;
+     for(SQInteger ip=0; ip<proto->_ninstructions; ++ip) {
+         const SQInstruction &i = proto->_instructions[ip];
+         switch(i.op) {
+@@ -710,6 +788,23 @@
+         case _OP_GET: case _OP_GETK: case _OP_ADD: case _OP_SUB: case _OP_MUL:
+         case _OP_DIV: case _OP_MOD: case _OP_NEG: case _OP_NOT: case _OP_INCL: case _OP_PINCL:
+         case _OP_JZ: case _OP_JMP: case _OP_RETURN: break;
++        case _OP_EQ: case _OP_NE:
++            if(!allow_intrinsics || (i._arg3 && (i._arg1<0 || i._arg1>=proto->_nliterals))) return false;
++            has_intrinsics=true;break;
++        case _OP_PREPCALLK:
++            if(!allow_intrinsics || !sqjit_a64_precise_len_key(proto,i._arg1) ||
++                i._arg3>=proto->_stacksize) return false;
++            has_intrinsics=true;break;
++        case _OP_CALL: {
++            if(!allow_intrinsics || i._arg3!=1) return false;
++            SQInteger prep=ip-1;
++            while(prep>=0 && proto->_instructions[prep].op==_OP_LINE) --prep;
++            if(prep<0) return false;
++            const SQInstruction &previous=proto->_instructions[prep];
++            if(previous.op!=_OP_PREPCALLK || previous._arg0!=i._arg1 ||
++                previous._arg3!=i._arg2 || !sqjit_a64_precise_len_key(proto,previous._arg1)) return false;
++            has_intrinsics=true;break;
++        }
+         case _OP_SET: has_store = true; break;
+         case _OP_CMP: case _OP_JCMP:
+             if(i._arg3 != CMP_G && i._arg3 != CMP_GE && i._arg3 != CMP_L &&
+@@ -724,7 +819,7 @@
+     }
+     // This experiment addresses effectful functions. Pure scalar functions
+     // continue using the existing private-register compiler.
+-    if(!has_store) return false;
++    if(!has_store || (allow_intrinsics && !has_intrinsics)) return false;
+     // Share caches by operand locations. Mutable identities remain guarded;
+     // complete write facts below can prove canonical parameters invariant.
+     // Bound frame storage; extra sites simply keep the uncached helper path.
+@@ -903,7 +998,10 @@
+             memcpy(buf.bytes+offset,&branch,sizeof(branch));
+         }
+     }
+-    if(!native->_code.Install(buf.bytes, buf.size)) return false;
++    if(!native->_code.Install(buf.bytes, buf.size)) {
++        if(resource_failure) *resource_failure=true;
++        return false;
++    }
+     native->_requires_vm_frame = true;
+     native->_stack_live_slots = proto->_stacksize;
+     native->_stack_storage_slots = proto->_stacksize;
+--- a/Squirrel3/squirrel/jit/sqjit_backend_aarch64_compile_proto.inc
++++ b/Squirrel3/squirrel/jit/sqjit_backend_aarch64_compile_proto.inc
+@@ -112,7 +112,9 @@
+         if(proto->_instructions[ip].op == _OP_SET ||
+             (canonical_slots && (sqjit_a64_has_single_stack_write(proto->_instructions[ip]) ||
+             proto->_instructions[ip].op == _OP_DLOAD || proto->_instructions[ip].op == _OP_DMOVE ||
+-            proto->_instructions[ip].op == _OP_LOADNULLS))) {
++            proto->_instructions[ip].op == _OP_LOADNULLS ||
++            proto->_instructions[ip].op == _OP_PREPCALL ||
++            proto->_instructions[ip].op == _OP_PREPCALLK))) {
+             uses_write_log = true;
+             break;
+         }
+@@ -3577,6 +3579,42 @@
+             slots[dst].SetStackObjectReg(dst);
+         }
+         return true;
++    };
++
++    auto publish_prepared_receiver = [&](const SQInstruction &inst, SQInteger ip) -> bool {
++        if(!canonical_slots || inst._arg3 >= MAX_FUNC_STACKSIZE) return true;
++        const SQInteger receiver=inst._arg3, callee=inst._arg0;
++        // Lowered numeric built-ins do not consume their receiver. Elide its
++        // owning copy only when the CALL is in this straight-line region and
++        // the receiver is otherwise dead. Runtime ownership is still checked:
++        // an old owning destination must never silently survive the PREPCALL.
++        bool ignored=prepared_math_intrinsic[callee]!=SQ_NATIVE_MATH_NONE ||
++            prepared_number_conversion[callee]!=SQ_JIT_A64_NUMBER_CONVERSION_NONE;
++        bool dead=false;
++        if(ignored) for(SQInteger n=ip+1;n<proto->_ninstructions;++n) {
++            const SQInstruction &next=proto->_instructions[n];
++            if(branch_target[n]) break;
++            if(next.op==_OP_CALL || next.op==_OP_TAILCALL) {
++                dead=next._arg1==callee && next._arg2==receiver &&
++                    n+1<proto->_ninstructions && !analysis.live_in[n+1].test(receiver);
++                break;
++            }
++            if(analysis.facts[n].reads.test(receiver) || analysis.facts[n].writes.test(receiver) ||
++                analysis.facts[n].writes.test(callee)) break;
++            switch(next.op) {
++            case _OP_LINE: case _OP_LOAD: case _OP_LOADINT: case _OP_LOADFLOAT:
++            case _OP_LOADBOOL: case _OP_DLOAD: case _OP_MOVE: case _OP_DMOVE: break;
++            default: ignored=false; break;
++            }
++            if(!ignored) break;
++        }
++        if(dead) {
++            return sqjit_a64_emit_ldr_w(&buf,9,19,sqjit_a64_stack_type_disp(receiver)) &&
++                sqjit_a64_emit_mov_imm_x(&buf,10,SQOBJECT_REF_COUNTED) &&
++                sqjit_a64_emit_and_reg(&buf,9,9,10) && sqjit_a64_emit_cmp_imm(&buf,9,0) &&
++                emit_guard_fail_branch(SQ_JIT_A64_NE);
++        }
++        return finish_stack_write(receiver,false,false);
+     };
+ 
+     if(!sqjit_a64_emit_capture_stack_inputs(&buf, saved_inputs, write_log_slot,
+@@ -3916,6 +3954,11 @@
+                     return attempt.Reject(ip, SQ_JIT_REJECT_CALL, "unsupported PREPCALL key");
+                 }
+ 
++                // The prepared receiver is an owning VM assignment. A private
++                // alias alone can defer its old owner's callback until after
++                // later reads (including a GET that releases the VM temporary).
++                // Publish through the journal so unsafe drops roll back before
++                // interpreter replay, and true surviving owners stay native.
+                 SQInteger receiver_slot = inst._arg2;
+                 if(inst._arg3 >= 0 && inst._arg3 < MAX_FUNC_STACKSIZE) {
+                     if(inst._arg3 == inst._arg0 ||
+@@ -4002,6 +4045,7 @@
+                         }
+                     }
+                 }
++                if(!publish_prepared_receiver(inst,ip)) return false;
+                 break;
+             }
+             case _OP_PREPCALLK: {
+@@ -4012,6 +4056,11 @@
+                     return attempt.Reject(ip, SQ_JIT_REJECT_CALL, "unsupported PREPCALLK");
+                 }
+ 
++                // The prepared receiver is an owning VM assignment. A private
++                // alias alone can defer its old owner's callback until after
++                // later reads (including a GET that releases the VM temporary).
++                // Publish through the journal so unsafe drops roll back before
++                // interpreter replay, and true surviving owners stay native.
+                 SQInteger receiver_slot = inst._arg2;
+                 if(inst._arg3 >= 0 && inst._arg3 < MAX_FUNC_STACKSIZE) {
+                     if(inst._arg3 == inst._arg0 ||
+@@ -4121,6 +4170,7 @@
+                         }
+                     }
+                 }
++                if(!publish_prepared_receiver(inst,ip)) return false;
+                 break;
+             }
+             case _OP_CALL:
+@@ -4676,10 +4726,36 @@
+     SQClosure *closure, SQJitNative *native, bool allow_side_exits)
+ {
+     SQJitCompileAttempt attempt(proto, SQ_JIT_BACKEND_AARCH64);
++    bool precise_resource_failure=false;
+     if(allow_side_exits && proto && native && !native->_scalarized && sqjit_context(proto->_sharedstate).precise_exits &&
+-        sqjit_a64_compile_precise(proto, entry_stack, native))
++        sqjit_a64_compile_precise(proto, entry_stack, native, false, &precise_resource_failure))
+         return SQJitCompileResult::Success(SQ_JIT_BACKEND_AARCH64);
+-    return attempt.Finish(sqjit_a64_compile_integer_proto(proto, entry_stack, closure, native, attempt));
++    if(precise_resource_failure)
++        return {false,true,SQ_JIT_BACKEND_AARCH64,SQ_JIT_REJECT_RESOURCE,-1,
++            "precise executable memory installation failed"};
++    if(sqjit_a64_compile_integer_proto(proto, entry_stack, closure, native, attempt))
++        return attempt.Finish(true);
++    const SQJitCompileResult previous=attempt.Finish(false);
++    // Preserve every successful existing compiler route. The expanded precise
++    // tier is only a fallback for rejected effectful shapes, never a retry after
++    // executable-memory failure or a replacement for lowered virtual slots.
++    if(allow_side_exits && proto && native && !native->_scalarized &&
++        !native->_code.Entry() && previous.category!=SQ_JIT_REJECT_RESOURCE &&
++        sqjit_context(proto->_sharedstate).precise_exits) {
++        try {
++            if(sqjit_a64_compile_precise(proto,entry_stack,native,true,&precise_resource_failure))
++                return SQJitCompileResult::Success(SQ_JIT_BACKEND_AARCH64);
++            if(precise_resource_failure)
++                return {false,true,SQ_JIT_BACKEND_AARCH64,SQ_JIT_REJECT_RESOURCE,-1,
++                    "expanded precise executable memory installation failed"};
++        }
++        catch(const std::bad_alloc &) {
++            native->_code.Reset();
++            return {false,true,SQ_JIT_BACKEND_AARCH64,SQ_JIT_REJECT_RESOURCE,-1,
++                "expanded precise compilation allocation failed"};
++        }
++    }
++    return previous;
+ }
+ 
+ static bool sqjit_a64_cmp_false_cond(CmpOP op, unsigned *cond)
+--- a/test/cpp/test_sqjit_side_exit.cpp
++++ b/test/cpp/test_sqjit_side_exit.cpp
+@@ -1496,11 +1496,344 @@
+     return failures;
+ }
+ 
++static int precise_len_override_calls=0;
++static SQInteger precise_len_override(HSQUIRRELVM v)
++{
++    ++precise_len_override_calls;
++    sq_pushinteger(v,99);
++    return 1;
++}
++
++static int generated_length_intrinsics()
++{
++    int failures=0;
++#if SQJIT_HAS_EXTERNAL_NATIVE
++    ++native_test_groups;
++    SQVM *v=sq_open(64);
++    SQJitContext &ctx=sqjit_context(v->_sharedstate);
++    ctx.enabled=ctx.precise_exits=true;ctx.threshold=1;
++    ctx.trace=ctx.trace_stats=false;sqjit_observe_enable(v);
++    {
++    CHECK(run(v,_SC(
++        "function length_cycle(r,n) { local sum=0; for(local j=0;j<n;j++) { r.label=j%3==0 ? \"longer\" : \"q\"; r.count=r.count+1; sum+=r.label.len(); } return sum+r.count; }\n"
++        "function length_equal(r,a,b) { r.count=r.count+1; return r.label.len()+(a==b ? 100 : 0)+(a!=b ? 1000 : 0); }\n"
++        "function length_release(value,r) { r.count=r.count+1; value=r.label.len(); return value+r.seen; }\n"
++        "function length_prepare_legacy(value,r,s,counter) { counter=counter+1; r.count=counter; return s.len()+r.seen; }\n"
++        "function length_prepare_register(value,r,s,counter) { counter=counter+1; r.count=counter; local method=\"len\"; return s[method]()+r.seen; }\n"
++        "function length_prepare(value,r,s,counter) { counter=counter+1; r.count=counter; local result=s.len()+r.seen; local text=\"q\"; return result+text.len()-1; }\n"
++        "length_record <- {count=0,label=\"q\",seen=0};\n"
++        "if(length_cycle(length_record,11)!=42 || length_record.count!=11) throw \"length cycle\";\n"
++        "length_record.label=\"q\"; if(length_equal(length_record,1,1.0)!=101) throw \"length equality\";\n")),"define and warm effectful equality/default-length functions");
++    SQObjectPtr record=named(v,_SC("length_record"));
++    auto field=[&](const SQChar *key)->SQObjectPtr & {
++        return *_table(record)->GetRawSlot(SQObjectPtr(SQString::Create(v->_sharedstate,key)));
++    };
++    for(const SQChar *name : {_SC("length_cycle"),_SC("length_equal")}) {
++        SQFunctionProto *p=_closure(named(v,name))->_function;SQJitObservation o={};
++        CHECK(p->_jit && p->_jit->_entry && p->_jit->_entry->_requires_vm_frame &&
++            sqjit_observe_proto(p,o) && o.frame.successes>0 && o.frame.side_exits==0,
++            "expanded precise tier actually runs effectful equality/default-length code");
++    }
++    SQObjectPtr equal=named(v,_SC("length_equal"));
++    SQFloat nan=std::numeric_limits<SQFloat>::quiet_NaN();
++    struct Pair { SQObjectPtr a,b; } pairs[]={
++        {SQObjectPtr(SQFloat(0.0)),SQObjectPtr(SQFloat(-0.0))},
++        {SQObjectPtr(nan),SQObjectPtr(nan)},
++        {SQObjectPtr(SQInteger(1)),SQObjectPtr(SQFloat(1.0))},
++        {SQObjectPtr(SQInteger(1)),SQObjectPtr(SQFloat(1.5))},
++        {SQObjectPtr(SQString::Create(v->_sharedstate,_SC("same"))),SQObjectPtr(SQString::Create(v->_sharedstate,_SC("same")))},
++        {SQObjectPtr(SQString::Create(v->_sharedstate,_SC("left"))),SQObjectPtr(SQString::Create(v->_sharedstate,_SC("right")))}
++    };
++    for(const Pair &pair:pairs) {
++        bool expected=false;CHECK(v->IsEqual(pair.a,pair.b,expected),"reference VM equality");
++        SQInteger top=sq_gettop(v),result=-1,count=_integer(field(_SC("count")));
++        SQJitObservation before={},after={};SQFunctionProto *p=_closure(equal)->_function;sqjit_observe_proto(p,before);
++        sq_pushobject(v,equal);sq_pushroottable(v);sq_pushobject(v,record);sq_pushobject(v,pair.a);sq_pushobject(v,pair.b);
++        CHECK(SQ_SUCCEEDED(sq_call(v,4,SQTrue,SQFalse)) && SQ_SUCCEEDED(sq_getinteger(v,-1,&result)) &&
++            result==(expected ? 101 : 1001) && _integer(field(_SC("count")))==count+1,
++            "native EQ/NE preserve NaN, signed zero, numeric and string semantics");
++        sq_settop(v,top);CHECK(sqjit_observe_proto(p,after) && after.frame.successes==before.frame.successes+1,
++            "equality samples complete through actual native code");
++    }
++    SQObjectPtr cycle=named(v,_SC("length_cycle"));SQFunctionProto *cp=_closure(cycle)->_function;
++    SQObjectPtr key=SQString::Create(v->_sharedstate,_SC("len"));
++    SQObjectPtr original_method=*_table(v->_sharedstate->_string_default_delegate)->GetRawSlot(key);
++    sq_newclosure(v,precise_len_override,0);SQObjectPtr replacement=v->GetUp(-1);sq_pop(v,1);
++    _table(v->_sharedstate->_string_default_delegate)->Set(key,replacement);
++    field(_SC("count"))=SQInteger(0);precise_len_override_calls=0;
++    SQJitObservation before={},after={};sqjit_observe_proto(cp,before);
++    CHECK(run(v,_SC("if(length_cycle(length_record,1)!=100 || length_record.count!=1) throw \"length override\";")),
++        "delegate replacement executes only the remaining CALL and continuation");
++    CHECK(precise_len_override_calls==1 && sqjit_observe_proto(cp,after) &&
++        after.frame.side_exits==before.frame.side_exits+1,
++        "changed native callee takes an exact exit without replaying the store prefix");
++    _table(v->_sharedstate->_string_default_delegate)->Set(key,original_method);
++
++    // Force a legal CALL-result/parameter alias so the exact result publication
++    // is covered independently of the frontend's preferred temporary register.
++    SQObjectPtr fn=named(v,_SC("length_release"));SQFunctionProto *p=_closure(fn)->_function;
++    bool fused=false;
++    for(SQInteger ip=0;ip+1<p->_ninstructions;++ip) {
++        SQInstruction &i=p->_instructions[ip],&next=p->_instructions[ip+1];
++        if(i.op==_OP_CALL && i._arg0==1) fused=true;
++        if(i.op==_OP_CALL && next.op==_OP_MOVE && next._arg0==1 && next._arg1==i._arg0) {
++            i._arg0=1;next.op=_OP_LINE;fused=true;
++        }
++    }
++    CHECK(fused && run(v,_SC("length_record.label=\"q\"; length_record.count=0; length_record.seen=0; if(length_release(0,length_record)!=1) throw \"release warmup\";")),
++        "warm direct canonical CALL-result publication");
++    CHECK(p->_jit && p->_jit->_entry && p->_jit->_entry->_requires_vm_frame,
++        "CALL-result witness uses expanded precise code");
++    for(int mode=0;mode<4;++mode) {
++        field(_SC("count"))=SQInteger(0);field(_SC("seen"))=SQInteger(0);v->temp_reg.Null();
++        SQJitObservation before={},after={};sqjit_observe_proto(p,before);
++        int releases=0;SQInteger top=sq_gettop(v),result=-1;SQObjectPtr survivor,weak;
++        sq_pushobject(v,fn);sq_pushroottable(v);
++        ReleaseWitness *w=(ReleaseWitness *)sq_newuserdata(v,sizeof(ReleaseWitness));
++        w->record=&record;w->count=&releases;sq_setreleasehook(v,-1,release_witness);
++        SQRefCounted *raw=_refcounted(v->GetUp(-1));weak=raw->GetWeakRef(OT_USERDATA);
++        if(mode==1 || mode==2) survivor=v->GetUp(-1);
++#ifndef NO_GARBAGE_COLLECTOR
++        if(mode==2) raw->_uiRef|=MARK_FLAG;
++#endif
++        {
++            SQJitWriteLog parent(1000,sq_vm_malloc,mode==3 ? &ctx : NULL);
++            SQJitWriteLog ancestor(1000,sq_vm_malloc,mode==3 ? &ctx : NULL);
++            if(mode==3) CHECK(parent.RetainValue(v->GetUp(-1)) && ancestor.RetainValue(v->GetUp(-1)),
++                "two ancestor pins cannot fake a surviving CALL-result owner");
++            sq_pushobject(v,record);
++            CHECK(SQ_SUCCEEDED(sq_call(v,3,SQTrue,SQFalse)) && SQ_SUCCEEDED(sq_getinteger(v,-1,&result)) &&
++                result==(mode==0 ? 2 : 1) && releases==(mode==0 ? 1 : 0),
++                "CALL result and callback-visible continuation preserve interpreter ordering");
++            sq_settop(v,top);CHECK(sqjit_observe_proto(p,after),"observe CALL-result native route");
++            if(mode==0 || mode==3) CHECK(after.frame.side_exits==before.frame.side_exits+1,
++                "final and ancestor-sensitive CALL results take one exact exit");
++            else CHECK(after.frame.successes==before.frame.successes+1 && after.frame.side_exits==before.frame.side_exits,
++                "a real surviving owner permits native CALL-result publication");
++#ifndef NO_GARBAGE_COLLECTOR
++            if(mode==2) {
++                CHECK((raw->_uiRef&MARK_FLAG) && (raw->_uiRef&~(SQUnsignedInteger)MARK_FLAG)==1,
++                    "CALL-result publication preserves the mark and one real owner");
++                raw->_uiRef&=~(SQUnsignedInteger)MARK_FLAG;
++            }
++#endif
++        }
++        survivor.Null();CHECK(releases==1 && sq_type(_weakref(weak)->_obj)==OT_NULL && !ctx.active_logs,
++            "CALL-result ownership has no leak and exact weak death");
++        CHECK(_integer(field(_SC("count")))==1,"CALL-result exit does not replay the committed prefix");
++    }
++    // Both private PREPCALL forms and the expanded precise compiler must
++    // publish the receiver to its actual VM slot. The precise fixture adds a
++    // known string length after the observed expression to require that tier.
++    // A legal prepared-receiver/parameter alias makes both old owners visible.
++    // The scalar counter before SET also detects accidental entry replay without
++    // touching the incoming VM temporary before PREPCALLK.
++    SQObjectPtr prepared; SQFunctionProto *pp=NULL;
++    SQObjectPtr receivers[]={SQObjectPtr(SQString::Create(v->_sharedstate,_SC("q"))),
++        SQObjectPtr(SQArray::Create(v->_sharedstate,3))};
++    auto warm_prepared=[&](const SQObjectPtr &receiver)->bool {
++        SQInteger top=sq_gettop(v),result=-1;v->temp_reg.Null();field(_SC("seen"))=SQInteger(0);
++        sq_pushobject(v,prepared);sq_pushroottable(v);sq_pushinteger(v,0);
++        sq_pushobject(v,record);sq_pushobject(v,receiver);sq_pushinteger(v,0);
++        bool ok=SQ_SUCCEEDED(sq_call(v,5,SQTrue,SQFalse)) && SQ_SUCCEEDED(sq_getinteger(v,-1,&result)) &&
++            result==(sq_type(receiver)==OT_STRING ? 1 : 3) && _integer(field(_SC("count")))==1;
++        sq_settop(v,top);return ok;
++    };
++    for(const SQChar *name : {_SC("length_prepare_legacy"),_SC("length_prepare_register"),_SC("length_prepare")}) {
++    const bool legacy=scstrcmp(name,_SC("length_prepare"))!=0;
++    ctx.precise_exits=!legacy;
++    prepared=named(v,name);
++    pp=_closure(prepared)->_function;bool receiver_alias=false;
++    for(SQInteger ip=0;ip+1<pp->_ninstructions;++ip) {
++        SQInstruction &i=pp->_instructions[ip],&next=pp->_instructions[ip+1];
++        if((i.op==_OP_PREPCALLK || i.op==_OP_PREPCALL) && next.op==_OP_CALL && next._arg1==i._arg0 &&
++            next._arg2==i._arg3 && next._arg3==1) {
++            i._arg3=1;next._arg2=1;receiver_alias=true;break;
++        }
++    }
++    const bool prepared_warm=warm_prepared(receivers[legacy ? 1 : 0]);
++    CHECK(receiver_alias && prepared_warm && pp->_jit && pp->_jit->_entry &&
++        pp->_jit->_entry->_requires_vm_frame==!legacy,"prepare receiver alias uses its intended native compiler");
++    for(const SQObjectPtr &receiver:receivers) for(int mode=0;mode<5;++mode) {
++        ctx.enabled=true;CHECK(warm_prepared(receiver),"reset prepared-length native route");
++        SQInteger reference_result=-1,reference_seen=-1;int reference_releases=-1;
++        for(int jit=0;jit<2;++jit) {
++            ctx.enabled=jit!=0;v->temp_reg.Null();
++            field(_SC("count"))=SQInteger(0);field(_SC("seen"))=SQInteger(0);
++            SQJitObservation before={},after={};sqjit_observe_proto(pp,before);
++            int releases=0;SQInteger top=sq_gettop(v),result=-1;SQObjectPtr survivor,weak;
++            sq_pushobject(v,prepared);sq_pushroottable(v);
++            ReleaseWitness *w=(ReleaseWitness *)sq_newuserdata(v,sizeof(ReleaseWitness));
++            w->record=&record;w->count=&releases;sq_setreleasehook(v,-1,release_witness);
++            SQRefCounted *raw=_refcounted(v->GetUp(-1));weak=raw->GetWeakRef(OT_USERDATA);
++            if(mode!=4) v->temp_reg=v->GetUp(-1);
++            if(mode==1 || mode==2) survivor=v->GetUp(-1);
++#ifndef NO_GARBAGE_COLLECTOR
++            if(mode==2) raw->_uiRef|=MARK_FLAG;
++#endif
++            {
++                SQJitWriteLog parent(1000,sq_vm_malloc,mode==3 ? &ctx : NULL);
++                SQJitWriteLog ancestor(1000,sq_vm_malloc,mode==3 ? &ctx : NULL);
++                if(mode==3) CHECK(parent.RetainValue(v->GetUp(-1)) && ancestor.RetainValue(v->GetUp(-1)),
++                    "ancestor pins do not justify combined prepared-receiver/temp drops");
++                sq_pushobject(v,record);sq_pushobject(v,receiver);sq_pushinteger(v,0);
++                CHECK(SQ_SUCCEEDED(sq_call(v,5,SQTrue,SQFalse)) && SQ_SUCCEEDED(sq_getinteger(v,-1,&result)),
++                    "prepared-length alias call returns normally");
++                sq_settop(v,top);
++                if(!jit) { reference_result=result;reference_seen=_integer(field(_SC("seen")));reference_releases=releases; }
++                else {
++                    if(result!=reference_result || _integer(field(_SC("seen")))!=reference_seen || releases!=reference_releases)
++                        fprintf(stderr,"PREP_MISMATCH receiver=%u mode=%d value=%lld/%lld seen=%lld/%lld releases=%d/%d precise=%d\n",
++                            (unsigned)sq_type(receiver),mode,(long long)result,(long long)reference_result,
++                            (long long)_integer(field(_SC("seen"))),(long long)reference_seen,releases,reference_releases,
++                            pp->_jit && pp->_jit->_entry ? pp->_jit->_entry->_requires_vm_frame : -1);
++                    CHECK(result==reference_result && _integer(field(_SC("seen")))==reference_seen &&
++                        releases==reference_releases,"string/array preparation matches interpreter callback and temporary ordering");
++                }
++                CHECK(_integer(field(_SC("count")))==1,"prepared-length exit preserves exactly one counter increment");
++                CHECK(sqjit_observe_proto(pp,after),"observe prepared-length native path");
++                if(jit && !legacy && (mode==0 || mode>=3)) CHECK(after.frame.side_exits==before.frame.side_exits+1,
++                    "observable final/ancestor-sensitive prepared drops take exactly one exit");
++                if(jit && (!legacy || sq_type(receiver)==OT_ARRAY) && (mode==1 || mode==2)) CHECK(after.frame.successes==before.frame.successes+1 &&
++                    after.frame.side_exits==before.frame.side_exits,"a real survivor permits the complete prepared-length native path");
++                if(jit && legacy && (sq_type(receiver)==OT_STRING || mode==0 || mode>=3))
++                    CHECK(after.frame.guard_failures==before.frame.guard_failures+1,
++                        "private receiver publication rejects observable drops with complete rollback");
++#ifndef NO_GARBAGE_COLLECTOR
++                if(mode==2) {
++                    CHECK((raw->_uiRef&MARK_FLAG) && (raw->_uiRef&~(SQUnsignedInteger)MARK_FLAG)==1,
++                        "combined prepared drops preserve mark and exact surviving ownership");
++                    raw->_uiRef&=~(SQUnsignedInteger)MARK_FLAG;
++                }
++#endif
++            }
++            survivor.Null();CHECK(releases==1 && sq_type(_weakref(weak)->_obj)==OT_NULL && !ctx.active_logs,
++                "prepared aliases release once, preserve weak death and leave no ancestor state");
++        }
++    }
++    }
++    ctx.precise_exits=true;
++    ctx.enabled=true;CHECK(warm_prepared(receivers[0]),"restore normal prepared-length entry");
++    sqjit_observe_proto(pp,before);
++    CHECK(run(v,_SC("length_record.count=0; local caught=false; try { length_prepare(0,length_record,17,0); } catch(e) { caught=true; } if(!caught || length_record.count!=1) throw \"length receiver error\";")),
++        "wrong receiver resumes original lookup error after one committed prefix");
++    CHECK(sqjit_observe_proto(pp,after) && after.frame.side_exits==before.frame.side_exits+1,
++        "wrong prepared receiver takes a real native continuation");
++    CHECK(warm_prepared(receivers[0]),"reset before callee replacement");
++    _table(v->_sharedstate->_string_default_delegate)->Set(key,SQObjectPtr(SQInteger(7)));
++    sqjit_observe_proto(pp,before);
++    CHECK(run(v,_SC("length_record.count=0; local caught=false; try { length_prepare(0,length_record,\"q\",0); } catch(e) { caught=true; } if(!caught || length_record.count!=1) throw \"length callee error\";")),
++        "non-callable replacement preserves the interpreter CALL error and prefix");
++    CHECK(sqjit_observe_proto(pp,after) && after.frame.side_exits==before.frame.side_exits+1,
++        "wrong length callee exits before executing CALL effects");
++    _table(v->_sharedstate->_string_default_delegate)->Set(key,original_method);
++
++    // String lookup dereferences weak values; array's cached len key follows
++    // the VM's distinct shared-state shortcut even if its delegate slot changes.
++    CHECK(warm_prepared(receivers[0]),"reset before weak method lookup");
++    SQObjectPtr weak_method=_nativeclosure(original_method)->GetWeakRef(OT_NATIVECLOSURE);
++    _table(v->_sharedstate->_string_default_delegate)->Set(key,weak_method);
++    sqjit_observe_proto(pp,before);CHECK(warm_prepared(receivers[0]),"live weak length method is dereferenced");
++    CHECK(sqjit_observe_proto(pp,after) && after.frame.successes==before.frame.successes+1,
++        "live weak default method remains on the native route");
++    _table(v->_sharedstate->_string_default_delegate)->Set(key,original_method);
++    SQObjectPtr dead_method;
++    {
++        sq_newclosure(v,precise_len_override,0);SQObjectPtr doomed=v->GetUp(-1);sq_pop(v,1);
++        dead_method=_nativeclosure(doomed)->GetWeakRef(OT_NATIVECLOSURE);
++    }
++    CHECK(sq_type(_weakref(dead_method)->_obj)==OT_NULL,"dead method fixture has no strong owner");
++    _table(v->_sharedstate->_string_default_delegate)->Set(key,dead_method);sqjit_observe_proto(pp,before);
++    CHECK(run(v,_SC("length_record.count=0; local caught=false; try { length_prepare(0,length_record,\"q\",0); } catch(e) { caught=true; } if(!caught || length_record.count!=1) throw \"dead length callee\";")),
++        "dead weak method preserves null-call error and one prefix");
++    CHECK(sqjit_observe_proto(pp,after) && after.frame.side_exits==before.frame.side_exits+1,
++        "dead weak method takes an exact native continuation");
++    _table(v->_sharedstate->_string_default_delegate)->Set(key,original_method);
++    SQObjectPtr array_method=*_table(v->_sharedstate->_array_default_delegate)->GetRawSlot(key);
++    _table(v->_sharedstate->_array_default_delegate)->Set(key,SQObjectPtr(SQInteger(7)));
++    sqjit_observe_proto(pp,before);CHECK(warm_prepared(receivers[1]),"array cached length follows the VM's shared closure");
++    CHECK(sqjit_observe_proto(pp,after) && after.frame.successes==before.frame.successes+1,
++        "array-special method publication completes natively");
++    _table(v->_sharedstate->_array_default_delegate)->Set(key,array_method);
++
++    CHECK(run(v,_SC(
++        "function length_discard(r,s) { r.count=r.count+1; s.len(); return r.count; }\n"
++        "function length_literal(r,x) { r.count=r.count+1; return r.label.len()+(x==\"q\" ? 100 : 0); }\n"
++        "length_record.count=0; if(length_discard(length_record,\"q\")!=1 || length_discard(length_record,[1,2,3])!=2) throw \"discarded length\";\n")),"discarded CALL results preserve both default-length receiver paths");
++    SQObjectPtr literal_fn=named(v,_SC("length_literal"));SQFunctionProto *lp=_closure(literal_fn)->_function;
++    SQInteger literal=-1;for(SQInteger n=0;n<lp->_nliterals;++n)
++        if(sq_type(lp->_literals[n])==OT_STRING && !scstrcmp(_stringval(lp->_literals[n]),_SC("q"))) literal=n;
++    bool literal_eq=false;
++    for(SQInteger ip=0;ip<lp->_ninstructions;++ip) if(lp->_instructions[ip].op==_OP_EQ && literal>=0) {
++        lp->_instructions[ip]._arg1=literal;lp->_instructions[ip]._arg3=1;literal_eq=true;
++    }
++    CHECK(literal_eq && run(v,_SC("length_record.label=\"q\"; if(length_literal(length_record,\"q\")!=101 || length_literal(length_record,\"other\")!=1 || length_literal(length_record,1)!=1) throw \"literal equality\";")),
++        "COND_LITERAL equality honors constant operands and mixed types");
++    for(const SQChar *name : {_SC("length_discard"),_SC("length_literal")}) {
++        SQFunctionProto *p=_closure(named(v,name))->_function;SQJitObservation o={};
++        CHECK(p->_jit && p->_jit->_entry && p->_jit->_entry->_requires_vm_frame &&
++            sqjit_observe_proto(p,o) && o.frame.successes>=2 && o.frame.side_exits==0,
++            "discarded calls and literal equality execute actual precise native code");
++    }
++    CHECK(run(v,_SC("function ignored_receiver(r,s,counter) { counter=counter+1; r.count=counter; local result=s.tofloat(); return result; } length_record.count=0; if(ignored_receiver(length_record,3,0)!=3.0) throw \"ignored receiver warmup\";")),
++        "warm a lowered numeric built-in with an otherwise dead receiver");
++    SQObjectPtr ignored=named(v,_SC("ignored_receiver"));SQFunctionProto *ignored_proto=_closure(ignored)->_function;
++    SQInteger receiver_slot=-1;
++    for(SQInteger ip=0;ip<ignored_proto->_ninstructions;++ip)
++        if(ignored_proto->_instructions[ip].op==_OP_PREPCALLK) receiver_slot=ignored_proto->_instructions[ip]._arg3;
++    bool ignored_native=receiver_slot>=4 && ignored_proto->_jit && ignored_proto->_jit->_entry &&
++        !ignored_proto->_jit->_entry->_requires_vm_frame && ignored_proto->_jit->_entry->_code.Entry();
++    CHECK(ignored_native,"ignored receiver witness executes private whole-function code");
++    if(ignored_native) for(int mode=0;mode<5;++mode) {
++        v->temp_reg.Null();field(_SC("count"))=SQInteger(0);field(_SC("seen"))=SQInteger(0);
++        std::vector<SQObjectPtr> frame((size_t)ignored_proto->_stacksize);
++        frame[0]=v->_roottable;frame[1]=record;frame[2]=SQInteger(3);frame[3]=SQInteger(0);frame[receiver_slot]=SQInteger(99);
++        int releases=0;SQObjectPtr owner,weak;SQRefCounted *raw=NULL;
++        if(mode) {
++            ReleaseWitness *w=(ReleaseWitness *)sq_newuserdata(v,sizeof(ReleaseWitness));
++            w->record=&record;w->count=&releases;sq_setreleasehook(v,-1,release_witness);
++            frame[receiver_slot]=v->GetUp(-1);sq_pop(v,1);raw=_refcounted(frame[receiver_slot]);
++            weak=raw->GetWeakRef(OT_USERDATA);
++            if(mode==2 || mode==4) owner=frame[receiver_slot];
++#ifndef NO_GARBAGE_COLLECTOR
++            if(mode==4) raw->_uiRef|=MARK_FLAG;
++#endif
++        }
++        {
++            SQJitWriteLog parent(1000,sq_vm_malloc,mode==3 ? &ctx : NULL);
++            SQJitWriteLog ancestor(1000,sq_vm_malloc,mode==3 ? &ctx : NULL);
++            if(mode==3) CHECK(parent.RetainValue(frame[receiver_slot]) && ancestor.RetainValue(frame[receiver_slot]),
++                "ignored receiver guard cannot mistake two journal pins for program ownership");
++            SQObjectPtr result;SQInteger status;
++            { SQJitExecutionScope scope(ctx,v);
++              status=((SQJitNativeObjectFn)ignored_proto->_jit->_entry->_code.Entry())(frame.data(),&result,_closure(ignored)); }
++            if(!mode) CHECK(status==SQ_JIT_NATIVE_RETURNED && sq_type(result)==OT_FLOAT && _float(result)==3.0 &&
++                _integer(field(_SC("count")))==1,"non-owning ignored receiver keeps the lowered built-in native");
++            else CHECK(status==SQ_JIT_NATIVE_GUARD_FAILED && releases==0 &&
++                _integer(field(_SC("count")))==0 && sq_type(frame[receiver_slot])==OT_USERDATA &&
++                sq_type(_weakref(weak)->_obj)==OT_USERDATA,
++                "owning ignored receiver rejects with exact prefix rollback and no deferred callback");
++#ifndef NO_GARBAGE_COLLECTOR
++            if(mode==4) { CHECK(raw->_uiRef&MARK_FLAG,"ignored receiver guard preserves the mark");raw->_uiRef&=~(SQUnsignedInteger)MARK_FLAG; }
++#endif
++            frame[receiver_slot].Null();owner.Null();
++        }
++        if(mode) CHECK(releases==1 && sq_type(_weakref(weak)->_obj)==OT_NULL && !ctx.active_logs,
++            "ignored receiver cleanup releases exactly once and restores ancestor state");
++    }
++    v->temp_reg.Null();
++    }
++    sq_close(v);
++    printf("[coverage] executed AArch64 precise length and equality contracts\n");
++#endif
++    return failures;
++}
++
+ int main()
+ {
+-    int failures = generated_exits() + generated_exit_sites() + generated_store_release() + generated_integer_comparisons() + generated_cache_proofs() + generated_caches() + generated_scalars() + generated_cached_release() + generated_reference_reads() + generated_copy_release();
++    int failures = generated_length_intrinsics() + generated_exits() + generated_exit_sites() + generated_store_release() + generated_integer_comparisons() + generated_cache_proofs() + generated_caches() + generated_scalars() + generated_cached_release() + generated_reference_reads() + generated_copy_release();
+ #if defined(__aarch64__) && defined(__linux__)
+-    CHECK(native_test_groups==10,"all ten AArch64 generated-code test groups actually execute");
++    CHECK(native_test_groups==11,"all eleven AArch64 generated-code test groups actually execute");
+     fprintf(stdout,"[coverage] executed %d AArch64 generated-code groups\n",native_test_groups);
+ #endif
+     SQVM *v = sq_open(64);

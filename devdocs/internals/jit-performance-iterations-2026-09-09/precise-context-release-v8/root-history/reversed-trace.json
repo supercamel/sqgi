@@ -1,0 +1,39 @@
+{
+  "command": [
+    "taskset",
+    "-c",
+    "4",
+    "/home/sam/Programming/sqgi/build-jit-audit-20260909/precise-context-release-v8/sqgi",
+    "/tmp/sqgi-precise-context-release-study/root-history/reversed-cases.nut",
+    "--iterations=200000",
+    "--warmups=1"
+  ],
+  "stdout": "BENCH\troot_integer_result\t200000\t0.064760000\t795177\nBENCH\troot_reference\t200000\t0.088075000\t799457\nBENCH\troot_integer\t200000\t0.063255000\t595177\nBENCH\treceiver_integer\t200000\t0.483025000\t595177\n[sqjit:stats] proto enters=21 hot=9 compile=9 success=1 fail=8\n[sqjit:stats] proto exec attempts=21 success=1 guard_fail=0\n[sqjit:stats] proto side_exits=0\n[sqjit:stats] direct calls attempts=599999 success=599999 miss=0 guard_fail=0\n[sqjit:stats] loops try=600028 find_fail=6 compile=5 success=3 fail=2 exec=217 exec_success=9 guard_fail=208\n[sqjit:stats] rejects=10 unique_reasons=6\n[sqjit:stats] backoff proto=0 proto_skips=0 loop=26 loop_skips=599795\n[sqjit:stats] reject category count=1 category=loop\n[sqjit:stats] reject category count=1 category=array-append\n[sqjit:stats] reject category count=3 category=member\n[sqjit:stats] reject category count=3 category=call\n[sqjit:stats] reject category count=2 category=other\n[sqjit:stats] reject reason count=2 reason=unsupported function shape or instruction limit\n[sqjit:stats] reject reason count=3 reason=unsupported PREPCALLK member\n[sqjit:stats] reject reason count=1 reason=unsupported loop branch shape\n[sqjit:stats] reject reason count=1 reason=unsupported loop array append PREPCALLK\n[sqjit:stats] reject reason count=1 reason=deferred CALL direct closure\n[sqjit:stats] reject reason count=2 reason=unsupported CALL direct closure\n[sqjit:stats] loop_guard rank=1 proto=(nil) name=counter_work source=/tmp/sqgi-precise-context-release-study/root-history/reversed-cases.nut line=26 ip=13 guard_fail=208 exec=211 exec_ok=3 compile=1 compile_ok=1 backoffs=26 skips=599795\n[sqjit:stats] reject_site rank=1 proto=(nil) name=main source=<sqgi async bootstrap> line=-1 ip=-1 count=1 reason=unsupported function shape or instruction limit\n[sqjit:stats] reject_site rank=2 proto=(nil) name=main source=/tmp/sqgi-precise-context-release-study/root-history/reversed-cases.nut line=-1 ip=-1 count=1 reason=unsupported function shape or instruction limit\n[sqjit:stats] reject_site rank=3 proto=(nil) name=transformed_work source=/tmp/sqgi-precise-context-release-study/root-history/reversed-cases.nut line=39 ip=8 count=1 reason=unsupported PREPCALLK member\n[sqjit:stats] reject_site rank=4 proto=(nil) name=main source=/tmp/sqgi-precise-context-release-study/root-history/reversed-cases.nut line=51 ip=121 count=1 reason=unsupported loop branch shape\n[sqjit:stats] reject_site rank=5 proto=(nil) name=reference_work source=/tmp/sqgi-precise-context-release-study/root-history/reversed-cases.nut line=33 ip=22 count=1 reason=unsupported PREPCALLK member\n[sqjit:stats] reject_site rank=6 proto=(nil) name=reference_work source=/tmp/sqgi-precise-context-release-study/root-history/reversed-cases.nut line=32 ip=10 count=1 reason=unsupported loop array append PREPCALLK\n[sqjit:stats] reject_site rank=7 proto=(nil) name=<anonymous> source=/tmp/sqgi-precise-context-release-study/root-history/reversed-cases.nut line=44 ip=3 count=1 reason=deferred CALL direct closure\n[sqjit:stats] reject_site rank=8 proto=(nil) name=counter_work source=/tmp/sqgi-precise-context-release-study/root-history/reversed-cases.nut line=26 ip=14 count=1 reason=unsupported PREPCALLK member\n[sqjit:stats] reject_site rank=9 proto=(nil) name=<anonymous> source=/tmp/sqgi-precise-context-release-study/root-history/reversed-cases.nut line=44 ip=3 count=1 reason=unsupported CALL direct closure\n[sqjit:stats] reject_site rank=10 proto=(nil) name=<anonymous> source=/tmp/sqgi-precise-context-release-study/root-history/reversed-cases.nut line=43 ip=3 count=1 reason=unsupported CALL direct closure\n",
+  "stderr": "",
+  "host_start": {
+    "utc": "2026-09-09T13:47:31.679873+00:00",
+    "load_average": [
+      1.6298828125,
+      1.7978515625,
+      1.796875
+    ],
+    "cpu_frequency": {
+      "scaling_governor": "ondemand",
+      "scaling_cur_freq": "2304000",
+      "cpuinfo_max_freq": "2304000"
+    }
+  },
+  "host_end": {
+    "utc": "2026-09-09T13:47:32.130089+00:00",
+    "load_average": [
+      1.73974609375,
+      1.81787109375,
+      1.8037109375
+    ],
+    "cpu_frequency": {
+      "scaling_governor": "ondemand",
+      "scaling_cur_freq": "2304000",
+      "cpuinfo_max_freq": "2304000"
+    }
+  }
+}

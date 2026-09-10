@@ -41,6 +41,10 @@ static inline bool sqjit_a64_type_is_object_ptr(SQObjectType type);
 struct SQJitA64SlotState : SQJitSlotState {
     SQArray *array_ptr_observed;
     bool array_ptr_fresh;
+    // Construction-derived preference, never a proof about the live array.
+    // Aliases/calls/control flow can invalidate it: every selected load must
+    // retain its bounds and element-tag guards, with ordinary replay on miss.
+    SQUnsignedInteger array_element_types;
     SQInteger object_ptr_observed;
     SQObjectType object_ptr_observed_type;
     bool object_ptr_fresh_table;
@@ -58,6 +62,7 @@ struct SQJitA64SlotState : SQJitSlotState {
         if(kind != SQ_JIT_SLOT_ARRAY_PTR) {
             assert(array_ptr_observed == NULL);
             assert(!array_ptr_fresh);
+            assert(array_element_types == 0);
         }
         if(kind != SQ_JIT_SLOT_OBJECT_PTR) {
             assert(object_ptr_observed == 0);
@@ -78,6 +83,7 @@ struct SQJitA64SlotState : SQJitSlotState {
         stack_object_reg = -1;
         array_ptr_observed = NULL;
         array_ptr_fresh = false;
+        array_element_types = 0;
         object_ptr_observed = 0;
         object_ptr_observed_type = OT_NULL;
         object_ptr_fresh_table = false;
@@ -152,7 +158,24 @@ struct SQJitA64SlotState : SQJitSlotState {
     void CopyArrayPtrFrom(const SQJitA64SlotState &src)
     {
         assert(src.kind == SQ_JIT_SLOT_ARRAY_PTR);
+        SQUnsignedInteger element_types = src.array_element_types;
         MarkArrayPtr(src.array_ptr_observed, src.array_ptr_fresh);
+        array_element_types = element_types;
+    }
+
+    void NoteArrayElement(SQObjectType type)
+    {
+        assert(kind == SQ_JIT_SLOT_ARRAY_PTR);
+        // OT_NULL also represents an unknown appended value. Either prevents
+        // an unsupported or mixed construction from acquiring a scalar hint.
+        array_element_types |= _RAW_TYPE(type);
+    }
+
+    SQObjectType ArrayElementHint() const
+    {
+        if(array_element_types == _RT_INTEGER) return OT_INTEGER;
+        if(array_element_types == _RT_FLOAT) return OT_FLOAT;
+        return OT_NULL;
     }
 
     void CopyObjectPtrFrom(const SQJitA64SlotState &src)

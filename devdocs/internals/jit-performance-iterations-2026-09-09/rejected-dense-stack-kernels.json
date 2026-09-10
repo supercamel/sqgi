@@ -1,0 +1,634 @@
+{
+  "binaries": {
+    "baseline": "/home/sam/Programming/sqgi/build-jit-audit-20260909/baseline/sqgi",
+    "candidate": "/tmp/sqgi-dense-stack-20260909/sqgi"
+  },
+  "suite": "kernels",
+  "runs": 5,
+  "iterations": 160000,
+  "warmups": 5,
+  "threshold": 1,
+  "cpu": 4,
+  "seed": 17,
+  "jit": 1,
+  "binary_sha256": {
+    "baseline": "d8f47927295731c40bd5fd5e6a5eefed310b924de205d1fb4d310ca54b82f52e",
+    "candidate": "e823d931498b7ca280142a829bc985f9d5ff181b96465d6bf6e3a06ea970d930"
+  },
+  "script_sha256": "19c14472a018b74ef41e7feefa121c36ea85ebff75324b0dee6b855dc5b217e6",
+  "comparisons": {
+    "direct_call": {
+      "baseline_us": 0.034722,
+      "candidate_us": 0.034889,
+      "speedup": 0.9952133910401559
+    },
+    "branch_call": {
+      "baseline_us": 0.032432,
+      "candidate_us": 0.032194,
+      "speedup": 1.0073926818661862
+    },
+    "float_call": {
+      "baseline_us": 0.021206,
+      "candidate_us": 0.020996,
+      "speedup": 1.0100019051247855
+    },
+    "numeric_loop": {
+      "baseline_us": 0.023158,
+      "candidate_us": 0.023167,
+      "speedup": 0.9996115163810593
+    },
+    "vector": {
+      "baseline_us": 0.387019,
+      "candidate_us": 0.380469,
+      "speedup": 1.0172155944373917
+    },
+    "dynamic_member": {
+      "baseline_us": 1.538031,
+      "candidate_us": 1.514906,
+      "speedup": 1.0152649735363117
+    },
+    "dynamic_key_get_set": {
+      "baseline_us": 0.185769,
+      "candidate_us": 0.185656,
+      "speedup": 1.000608652561727
+    },
+    "object_member_write_fallback": {
+      "baseline_us": 0.477369,
+      "candidate_us": 0.47615,
+      "speedup": 1.0025601176099967
+    },
+    "array_append": {
+      "baseline_us": 0.116288,
+      "candidate_us": 0.114594,
+      "speedup": 1.014782623872105
+    },
+    "array_write": {
+      "baseline_us": 0.037262,
+      "candidate_us": 0.037275,
+      "speedup": 0.9996512407780014
+    },
+    "array_read": {
+      "baseline_us": 0.007517,
+      "candidate_us": 0.007546,
+      "speedup": 0.9961569043201697
+    },
+    "array_float": {
+      "baseline_us": 0.007202,
+      "candidate_us": 0.007196,
+      "speedup": 1.000833796553641
+    },
+    "math_intrinsic": {
+      "baseline_us": 0.207719,
+      "candidate_us": 0.210731,
+      "speedup": 0.9857068964699071
+    },
+    "math_variable": {
+      "baseline_us": 0.222275,
+      "candidate_us": 0.223938,
+      "speedup": 0.9925738374014236
+    },
+    "matrix": {
+      "baseline_us": 0.318769,
+      "candidate_us": 0.317994,
+      "speedup": 1.002437152902256
+    }
+  },
+  "samples": {
+    "baseline": {
+      "direct_call": [
+        0.034722,
+        0.034593,
+        0.034755,
+        0.034703,
+        0.034824
+      ],
+      "branch_call": [
+        0.03332,
+        0.032201,
+        0.032432,
+        0.032596,
+        0.03225
+      ],
+      "float_call": [
+        0.021206,
+        0.021168,
+        0.021105,
+        0.021515,
+        0.021332
+      ],
+      "numeric_loop": [
+        0.023131,
+        0.023158,
+        0.023188,
+        0.02322,
+        0.023156
+      ],
+      "vector": [
+        0.386763,
+        0.389906,
+        0.386738,
+        0.387019,
+        0.388831
+      ],
+      "dynamic_member": [
+        1.533656,
+        1.538031,
+        1.5451,
+        1.545281,
+        1.534544
+      ],
+      "dynamic_key_get_set": [
+        0.185069,
+        0.185956,
+        0.185769,
+        0.185906,
+        0.185731
+      ],
+      "object_member_write_fallback": [
+        0.477369,
+        0.477394,
+        0.476356,
+        0.4779,
+        0.47685
+      ],
+      "array_append": [
+        0.114969,
+        0.1109,
+        0.116763,
+        0.116544,
+        0.116288
+      ],
+      "array_write": [
+        0.037319,
+        0.037262,
+        0.037219,
+        0.037075,
+        0.037975
+      ],
+      "array_read": [
+        0.007528,
+        0.007503,
+        0.007642,
+        0.007517,
+        0.007499
+      ],
+      "array_float": [
+        0.007196,
+        0.007203,
+        0.007221,
+        0.007181,
+        0.007202
+      ],
+      "math_intrinsic": [
+        0.204069,
+        0.208494,
+        0.209663,
+        0.207719,
+        0.205619
+      ],
+      "math_variable": [
+        0.222763,
+        0.223844,
+        0.222275,
+        0.22195,
+        0.2218
+      ],
+      "matrix": [
+        0.318431,
+        0.320412,
+        0.318769,
+        0.31775,
+        0.321194
+      ]
+    },
+    "candidate": {
+      "direct_call": [
+        0.03492,
+        0.034916,
+        0.034889,
+        0.034827,
+        0.034847
+      ],
+      "branch_call": [
+        0.032356,
+        0.032164,
+        0.032194,
+        0.03256,
+        0.032132
+      ],
+      "float_call": [
+        0.020962,
+        0.020908,
+        0.02131,
+        0.020996,
+        0.021379
+      ],
+      "numeric_loop": [
+        0.023163,
+        0.023119,
+        0.023178,
+        0.023167,
+        0.023179
+      ],
+      "vector": [
+        0.381613,
+        0.382981,
+        0.376519,
+        0.375806,
+        0.380469
+      ],
+      "dynamic_member": [
+        1.511425,
+        1.518125,
+        1.514906,
+        1.523675,
+        1.514056
+      ],
+      "dynamic_key_get_set": [
+        0.185906,
+        0.185819,
+        0.185656,
+        0.185619,
+        0.185094
+      ],
+      "object_member_write_fallback": [
+        0.47615,
+        0.476781,
+        0.475906,
+        0.475794,
+        0.476619
+      ],
+      "array_append": [
+        0.114587,
+        0.114556,
+        0.1152,
+        0.115619,
+        0.114594
+      ],
+      "array_write": [
+        0.037019,
+        0.040225,
+        0.037275,
+        0.037237,
+        0.037869
+      ],
+      "array_read": [
+        0.007664,
+        0.00753,
+        0.007542,
+        0.007546,
+        0.007635
+      ],
+      "array_float": [
+        0.007275,
+        0.007196,
+        0.007162,
+        0.007179,
+        0.007238
+      ],
+      "math_intrinsic": [
+        0.208269,
+        0.210944,
+        0.208294,
+        0.210731,
+        0.212762
+      ],
+      "math_variable": [
+        0.221394,
+        0.224544,
+        0.222675,
+        0.223938,
+        0.225469
+      ],
+      "matrix": [
+        0.319163,
+        0.317994,
+        0.31495,
+        0.316256,
+        0.31935
+      ]
+    }
+  },
+  "raw": [
+    {
+      "run": 1,
+      "runtime": "baseline",
+      "stdout": "BENCH\tdirect_call\t3200000\t0.034722\t563347\nBENCH\tbranch_call\t3200000\t0.033320\t599062\nBENCH\tfloat_call\t3200000\t0.021206\t8.2204724409448815\nBENCH\tnumeric_loop\t3200000\t0.023131\t612398470\nBENCH\tvector\t160000\t0.386763\t0.12553851953971693\nBENCH\tdynamic_member\t160000\t1.533656\t7261462\nBENCH\tdynamic_key_get_set\t160000\t0.185069\t6566091\nBENCH\tobject_member_write_fallback\t160000\t0.477369\t595919\nBENCH\tarray_append\t160000\t0.114969\t3048687\nBENCH\tarray_write\t160000\t0.037319\t831988\nBENCH\tarray_read\t3200000\t0.007528\t8000000\nBENCH\tarray_float\t3200000\t0.007196\t6400000\nBENCH\tmath_intrinsic\t160000\t0.204069\t2418270.8295144332\nBENCH\tmath_variable\t160000\t0.222763\t313782.39947747899\nBENCH\tmatrix\t160000\t0.318431\t-0.024510798820940455\n",
+      "stderr": "",
+      "host_start": {
+        "utc": "2026-09-09T10:22:31.468716+00:00",
+        "load_average": [
+          2.76708984375,
+          2.76953125,
+          3.0283203125
+        ],
+        "cpu_frequency": {
+          "scaling_governor": "ondemand",
+          "scaling_cur_freq": "2304000",
+          "cpuinfo_max_freq": "2304000"
+        }
+      },
+      "host_end": {
+        "utc": "2026-09-09T10:22:37.265080+00:00",
+        "load_average": [
+          2.70556640625,
+          2.75634765625,
+          3.0224609375
+        ],
+        "cpu_frequency": {
+          "scaling_governor": "ondemand",
+          "scaling_cur_freq": "2304000",
+          "cpuinfo_max_freq": "2304000"
+        }
+      }
+    },
+    {
+      "run": 1,
+      "runtime": "candidate",
+      "stdout": "BENCH\tdirect_call\t3200000\t0.034920\t563347\nBENCH\tbranch_call\t3200000\t0.032356\t599062\nBENCH\tfloat_call\t3200000\t0.020962\t8.2204724409448815\nBENCH\tnumeric_loop\t3200000\t0.023163\t612398470\nBENCH\tvector\t160000\t0.381613\t0.12553851953971693\nBENCH\tdynamic_member\t160000\t1.511425\t7261462\nBENCH\tdynamic_key_get_set\t160000\t0.185906\t6566091\nBENCH\tobject_member_write_fallback\t160000\t0.476150\t595919\nBENCH\tarray_append\t160000\t0.114587\t3048687\nBENCH\tarray_write\t160000\t0.037019\t831988\nBENCH\tarray_read\t3200000\t0.007664\t8000000\nBENCH\tarray_float\t3200000\t0.007275\t6400000\nBENCH\tmath_intrinsic\t160000\t0.208269\t2418270.8295144332\nBENCH\tmath_variable\t160000\t0.221394\t313782.39947747899\nBENCH\tmatrix\t160000\t0.319163\t-0.024510798820940455\n",
+      "stderr": "",
+      "host_start": {
+        "utc": "2026-09-09T10:22:37.265767+00:00",
+        "load_average": [
+          2.70556640625,
+          2.75634765625,
+          3.0224609375
+        ],
+        "cpu_frequency": {
+          "scaling_governor": "ondemand",
+          "scaling_cur_freq": "2304000",
+          "cpuinfo_max_freq": "2304000"
+        }
+      },
+      "host_end": {
+        "utc": "2026-09-09T10:22:43.025649+00:00",
+        "load_average": [
+          2.56884765625,
+          2.72705078125,
+          3.01123046875
+        ],
+        "cpu_frequency": {
+          "scaling_governor": "ondemand",
+          "scaling_cur_freq": "2304000",
+          "cpuinfo_max_freq": "2304000"
+        }
+      }
+    },
+    {
+      "run": 2,
+      "runtime": "candidate",
+      "stdout": "BENCH\tdirect_call\t3200000\t0.034916\t563347\nBENCH\tbranch_call\t3200000\t0.032164\t599062\nBENCH\tfloat_call\t3200000\t0.020908\t8.2204724409448815\nBENCH\tnumeric_loop\t3200000\t0.023119\t612398470\nBENCH\tvector\t160000\t0.382981\t0.12553851953971693\nBENCH\tdynamic_member\t160000\t1.518125\t7261462\nBENCH\tdynamic_key_get_set\t160000\t0.185819\t6566091\nBENCH\tobject_member_write_fallback\t160000\t0.476781\t595919\nBENCH\tarray_append\t160000\t0.114556\t3048687\nBENCH\tarray_write\t160000\t0.040225\t831988\nBENCH\tarray_read\t3200000\t0.007530\t8000000\nBENCH\tarray_float\t3200000\t0.007196\t6400000\nBENCH\tmath_intrinsic\t160000\t0.210944\t2418270.8295144332\nBENCH\tmath_variable\t160000\t0.224544\t313782.39947747899\nBENCH\tmatrix\t160000\t0.317994\t-0.024510798820940455\n",
+      "stderr": "",
+      "host_start": {
+        "utc": "2026-09-09T10:22:43.026461+00:00",
+        "load_average": [
+          2.56884765625,
+          2.72705078125,
+          3.01123046875
+        ],
+        "cpu_frequency": {
+          "scaling_governor": "ondemand",
+          "scaling_cur_freq": "2304000",
+          "cpuinfo_max_freq": "2304000"
+        }
+      },
+      "host_end": {
+        "utc": "2026-09-09T10:22:48.802078+00:00",
+        "load_average": [
+          2.6416015625,
+          2.736328125,
+          3.0107421875
+        ],
+        "cpu_frequency": {
+          "scaling_governor": "ondemand",
+          "scaling_cur_freq": "2304000",
+          "cpuinfo_max_freq": "2304000"
+        }
+      }
+    },
+    {
+      "run": 2,
+      "runtime": "baseline",
+      "stdout": "BENCH\tdirect_call\t3200000\t0.034593\t563347\nBENCH\tbranch_call\t3200000\t0.032201\t599062\nBENCH\tfloat_call\t3200000\t0.021168\t8.2204724409448815\nBENCH\tnumeric_loop\t3200000\t0.023158\t612398470\nBENCH\tvector\t160000\t0.389906\t0.12553851953971693\nBENCH\tdynamic_member\t160000\t1.538031\t7261462\nBENCH\tdynamic_key_get_set\t160000\t0.185956\t6566091\nBENCH\tobject_member_write_fallback\t160000\t0.477394\t595919\nBENCH\tarray_append\t160000\t0.110900\t3048687\nBENCH\tarray_write\t160000\t0.037262\t831988\nBENCH\tarray_read\t3200000\t0.007503\t8000000\nBENCH\tarray_float\t3200000\t0.007203\t6400000\nBENCH\tmath_intrinsic\t160000\t0.208494\t2418270.8295144332\nBENCH\tmath_variable\t160000\t0.223844\t313782.39947747899\nBENCH\tmatrix\t160000\t0.320412\t-0.024510798820940455\n",
+      "stderr": "",
+      "host_start": {
+        "utc": "2026-09-09T10:22:48.803628+00:00",
+        "load_average": [
+          2.6416015625,
+          2.736328125,
+          3.0107421875
+        ],
+        "cpu_frequency": {
+          "scaling_governor": "ondemand",
+          "scaling_cur_freq": "2304000",
+          "cpuinfo_max_freq": "2304000"
+        }
+      },
+      "host_end": {
+        "utc": "2026-09-09T10:22:54.599104+00:00",
+        "load_average": [
+          2.75048828125,
+          2.75732421875,
+          3.01611328125
+        ],
+        "cpu_frequency": {
+          "scaling_governor": "ondemand",
+          "scaling_cur_freq": "2304000",
+          "cpuinfo_max_freq": "2304000"
+        }
+      }
+    },
+    {
+      "run": 3,
+      "runtime": "baseline",
+      "stdout": "BENCH\tdirect_call\t3200000\t0.034755\t563347\nBENCH\tbranch_call\t3200000\t0.032432\t599062\nBENCH\tfloat_call\t3200000\t0.021105\t8.2204724409448815\nBENCH\tnumeric_loop\t3200000\t0.023188\t612398470\nBENCH\tvector\t160000\t0.386738\t0.12553851953971693\nBENCH\tdynamic_member\t160000\t1.545100\t7261462\nBENCH\tdynamic_key_get_set\t160000\t0.185769\t6566091\nBENCH\tobject_member_write_fallback\t160000\t0.476356\t595919\nBENCH\tarray_append\t160000\t0.116763\t3048687\nBENCH\tarray_write\t160000\t0.037219\t831988\nBENCH\tarray_read\t3200000\t0.007642\t8000000\nBENCH\tarray_float\t3200000\t0.007221\t6400000\nBENCH\tmath_intrinsic\t160000\t0.209663\t2418270.8295144332\nBENCH\tmath_variable\t160000\t0.222275\t313782.39947747899\nBENCH\tmatrix\t160000\t0.318769\t-0.024510798820940455\n",
+      "stderr": "",
+      "host_start": {
+        "utc": "2026-09-09T10:22:54.600012+00:00",
+        "load_average": [
+          2.75048828125,
+          2.75732421875,
+          3.01611328125
+        ],
+        "cpu_frequency": {
+          "scaling_governor": "ondemand",
+          "scaling_cur_freq": "2304000",
+          "cpuinfo_max_freq": "2304000"
+        }
+      },
+      "host_end": {
+        "utc": "2026-09-09T10:23:00.395013+00:00",
+        "load_average": [
+          2.7705078125,
+          2.76171875,
+          3.015625
+        ],
+        "cpu_frequency": {
+          "scaling_governor": "ondemand",
+          "scaling_cur_freq": "2304000",
+          "cpuinfo_max_freq": "2304000"
+        }
+      }
+    },
+    {
+      "run": 3,
+      "runtime": "candidate",
+      "stdout": "BENCH\tdirect_call\t3200000\t0.034889\t563347\nBENCH\tbranch_call\t3200000\t0.032194\t599062\nBENCH\tfloat_call\t3200000\t0.021310\t8.2204724409448815\nBENCH\tnumeric_loop\t3200000\t0.023178\t612398470\nBENCH\tvector\t160000\t0.376519\t0.12553851953971693\nBENCH\tdynamic_member\t160000\t1.514906\t7261462\nBENCH\tdynamic_key_get_set\t160000\t0.185656\t6566091\nBENCH\tobject_member_write_fallback\t160000\t0.475906\t595919\nBENCH\tarray_append\t160000\t0.115200\t3048687\nBENCH\tarray_write\t160000\t0.037275\t831988\nBENCH\tarray_read\t3200000\t0.007542\t8000000\nBENCH\tarray_float\t3200000\t0.007162\t6400000\nBENCH\tmath_intrinsic\t160000\t0.208294\t2418270.8295144332\nBENCH\tmath_variable\t160000\t0.222675\t313782.39947747899\nBENCH\tmatrix\t160000\t0.314950\t-0.024510798820940455\n",
+      "stderr": "",
+      "host_start": {
+        "utc": "2026-09-09T10:23:00.395681+00:00",
+        "load_average": [
+          2.7705078125,
+          2.76171875,
+          3.015625
+        ],
+        "cpu_frequency": {
+          "scaling_governor": "ondemand",
+          "scaling_cur_freq": "2304000",
+          "cpuinfo_max_freq": "2304000"
+        }
+      },
+      "host_end": {
+        "utc": "2026-09-09T10:23:06.147221+00:00",
+        "load_average": [
+          2.70849609375,
+          2.7490234375,
+          3.009765625
+        ],
+        "cpu_frequency": {
+          "scaling_governor": "ondemand",
+          "scaling_cur_freq": "2304000",
+          "cpuinfo_max_freq": "2304000"
+        }
+      }
+    },
+    {
+      "run": 4,
+      "runtime": "candidate",
+      "stdout": "BENCH\tdirect_call\t3200000\t0.034827\t563347\nBENCH\tbranch_call\t3200000\t0.032560\t599062\nBENCH\tfloat_call\t3200000\t0.020996\t8.2204724409448815\nBENCH\tnumeric_loop\t3200000\t0.023167\t612398470\nBENCH\tvector\t160000\t0.375806\t0.12553851953971693\nBENCH\tdynamic_member\t160000\t1.523675\t7261462\nBENCH\tdynamic_key_get_set\t160000\t0.185619\t6566091\nBENCH\tobject_member_write_fallback\t160000\t0.475794\t595919\nBENCH\tarray_append\t160000\t0.115619\t3048687\nBENCH\tarray_write\t160000\t0.037237\t831988\nBENCH\tarray_read\t3200000\t0.007546\t8000000\nBENCH\tarray_float\t3200000\t0.007179\t6400000\nBENCH\tmath_intrinsic\t160000\t0.210731\t2418270.8295144332\nBENCH\tmath_variable\t160000\t0.223938\t313782.39947747899\nBENCH\tmatrix\t160000\t0.316256\t-0.024510798820940455\n",
+      "stderr": "",
+      "host_start": {
+        "utc": "2026-09-09T10:23:06.147934+00:00",
+        "load_average": [
+          2.70849609375,
+          2.7490234375,
+          3.009765625
+        ],
+        "cpu_frequency": {
+          "scaling_governor": "ondemand",
+          "scaling_cur_freq": "2304000",
+          "cpuinfo_max_freq": "2304000"
+        }
+      },
+      "host_end": {
+        "utc": "2026-09-09T10:23:11.915139+00:00",
+        "load_average": [
+          2.73193359375,
+          2.75341796875,
+          3.00927734375
+        ],
+        "cpu_frequency": {
+          "scaling_governor": "ondemand",
+          "scaling_cur_freq": "2304000",
+          "cpuinfo_max_freq": "2304000"
+        }
+      }
+    },
+    {
+      "run": 4,
+      "runtime": "baseline",
+      "stdout": "BENCH\tdirect_call\t3200000\t0.034703\t563347\nBENCH\tbranch_call\t3200000\t0.032596\t599062\nBENCH\tfloat_call\t3200000\t0.021515\t8.2204724409448815\nBENCH\tnumeric_loop\t3200000\t0.023220\t612398470\nBENCH\tvector\t160000\t0.387019\t0.12553851953971693\nBENCH\tdynamic_member\t160000\t1.545281\t7261462\nBENCH\tdynamic_key_get_set\t160000\t0.185906\t6566091\nBENCH\tobject_member_write_fallback\t160000\t0.477900\t595919\nBENCH\tarray_append\t160000\t0.116544\t3048687\nBENCH\tarray_write\t160000\t0.037075\t831988\nBENCH\tarray_read\t3200000\t0.007517\t8000000\nBENCH\tarray_float\t3200000\t0.007181\t6400000\nBENCH\tmath_intrinsic\t160000\t0.207719\t2418270.8295144332\nBENCH\tmath_variable\t160000\t0.221950\t313782.39947747899\nBENCH\tmatrix\t160000\t0.317750\t-0.024510798820940455\n",
+      "stderr": "",
+      "host_start": {
+        "utc": "2026-09-09T10:23:11.916323+00:00",
+        "load_average": [
+          2.73193359375,
+          2.75341796875,
+          3.00927734375
+        ],
+        "cpu_frequency": {
+          "scaling_governor": "ondemand",
+          "scaling_cur_freq": "2304000",
+          "cpuinfo_max_freq": "2304000"
+        }
+      },
+      "host_end": {
+        "utc": "2026-09-09T10:23:17.725128+00:00",
+        "load_average": [
+          2.75341796875,
+          2.7578125,
+          3.0087890625
+        ],
+        "cpu_frequency": {
+          "scaling_governor": "ondemand",
+          "scaling_cur_freq": "2304000",
+          "cpuinfo_max_freq": "2304000"
+        }
+      }
+    },
+    {
+      "run": 5,
+      "runtime": "baseline",
+      "stdout": "BENCH\tdirect_call\t3200000\t0.034824\t563347\nBENCH\tbranch_call\t3200000\t0.032250\t599062\nBENCH\tfloat_call\t3200000\t0.021332\t8.2204724409448815\nBENCH\tnumeric_loop\t3200000\t0.023156\t612398470\nBENCH\tvector\t160000\t0.388831\t0.12553851953971693\nBENCH\tdynamic_member\t160000\t1.534544\t7261462\nBENCH\tdynamic_key_get_set\t160000\t0.185731\t6566091\nBENCH\tobject_member_write_fallback\t160000\t0.476850\t595919\nBENCH\tarray_append\t160000\t0.116288\t3048687\nBENCH\tarray_write\t160000\t0.037975\t831988\nBENCH\tarray_read\t3200000\t0.007499\t8000000\nBENCH\tarray_float\t3200000\t0.007202\t6400000\nBENCH\tmath_intrinsic\t160000\t0.205619\t2418270.8295144332\nBENCH\tmath_variable\t160000\t0.221800\t313782.39947747899\nBENCH\tmatrix\t160000\t0.321194\t-0.024510798820940455\n",
+      "stderr": "",
+      "host_start": {
+        "utc": "2026-09-09T10:23:17.725896+00:00",
+        "load_average": [
+          2.75341796875,
+          2.7578125,
+          3.0087890625
+        ],
+        "cpu_frequency": {
+          "scaling_governor": "ondemand",
+          "scaling_cur_freq": "2304000",
+          "cpuinfo_max_freq": "2304000"
+        }
+      },
+      "host_end": {
+        "utc": "2026-09-09T10:23:23.519319+00:00",
+        "load_average": [
+          2.69287109375,
+          2.7451171875,
+          3.0029296875
+        ],
+        "cpu_frequency": {
+          "scaling_governor": "ondemand",
+          "scaling_cur_freq": "2304000",
+          "cpuinfo_max_freq": "2304000"
+        }
+      }
+    },
+    {
+      "run": 5,
+      "runtime": "candidate",
+      "stdout": "BENCH\tdirect_call\t3200000\t0.034847\t563347\nBENCH\tbranch_call\t3200000\t0.032132\t599062\nBENCH\tfloat_call\t3200000\t0.021379\t8.2204724409448815\nBENCH\tnumeric_loop\t3200000\t0.023179\t612398470\nBENCH\tvector\t160000\t0.380469\t0.12553851953971693\nBENCH\tdynamic_member\t160000\t1.514056\t7261462\nBENCH\tdynamic_key_get_set\t160000\t0.185094\t6566091\nBENCH\tobject_member_write_fallback\t160000\t0.476619\t595919\nBENCH\tarray_append\t160000\t0.114594\t3048687\nBENCH\tarray_write\t160000\t0.037869\t831988\nBENCH\tarray_read\t3200000\t0.007635\t8000000\nBENCH\tarray_float\t3200000\t0.007238\t6400000\nBENCH\tmath_intrinsic\t160000\t0.212762\t2418270.8295144332\nBENCH\tmath_variable\t160000\t0.225469\t313782.39947747899\nBENCH\tmatrix\t160000\t0.319350\t-0.024510798820940455\n",
+      "stderr": "",
+      "host_start": {
+        "utc": "2026-09-09T10:23:23.520781+00:00",
+        "load_average": [
+          2.69287109375,
+          2.7451171875,
+          3.0029296875
+        ],
+        "cpu_frequency": {
+          "scaling_governor": "ondemand",
+          "scaling_cur_freq": "2304000",
+          "cpuinfo_max_freq": "2304000"
+        }
+      },
+      "host_end": {
+        "utc": "2026-09-09T10:23:29.294820+00:00",
+        "load_average": [
+          2.5859375,
+          2.72021484375,
+          2.99169921875
+        ],
+        "cpu_frequency": {
+          "scaling_governor": "ondemand",
+          "scaling_cur_freq": "2304000",
+          "cpuinfo_max_freq": "2304000"
+        }
+      }
+    }
+  ]
+}

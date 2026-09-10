@@ -1,0 +1,647 @@
+--- a/Squirrel3/squirrel/jit/sqjit_backend_aarch64_compile_loop.inc
++++ b/Squirrel3/squirrel/jit/sqjit_backend_aarch64_compile_loop.inc
+@@ -1299,12 +1299,31 @@
+         return false;
+     };
+ 
++    // A removed closure can be reallocated at the same address. Retain its
++    // weak identity, not the closure: death permanently clears this witness.
++    // Temporary owners cover failed compilation; the installed code takes its
++    // own weak references only after executable installation succeeds.
++    std::vector<SQObjectPtr> closure_witnesses;
++    auto emit_closure_lifetime_guard = [&](SQRefCounted *expected,SQObjectType type) -> bool {
++        if(!expected) return false;
++        SQWeakRef *weak=expected->GetWeakRef(type);
++        if(!weak) return false;
++        closure_witnesses.push_back(SQObjectPtr(weak));
++        const SQInteger tag=(SQInteger)(size_t)&(((SQWeakRef *)0)->_obj._type);
++        return sqjit_a64_emit_mov_imm_x(&buf,9,(SQInteger)(intptr_t)weak) &&
++            sqjit_a64_emit_ldr_w(&buf,9,9,tag) &&
++            sqjit_a64_emit_mov_imm_w(&buf,10,(uint32_t)type) &&
++            sqjit_a64_emit_cmp_reg(&buf,9,10) &&
++            emit_guard_fail_branch(SQ_JIT_A64_NE);
++    };
++
+     auto emit_closure_slot_guard = [&](SQInteger closure_slot, SQClosure *expected) -> bool {
+         if(closure_slot < 0 || closure_slot >= MAX_FUNC_STACKSIZE ||
+             slots[closure_slot].kind != SQ_JIT_SLOT_STACK_OBJECT ||
+             slots[closure_slot].stack_object_reg < 0 || !expected) {
+             return false;
+         }
++        if(!emit_closure_lifetime_guard(expected,OT_CLOSURE)) return false;
+         return sqjit_a64_emit_mov_reg(&buf, 0, 19) &&
+             sqjit_a64_emit_mov_imm_x(&buf, 1, slots[closure_slot].stack_object_reg) &&
+             sqjit_a64_emit_mov_imm_x(&buf, 2, (SQInteger)(intptr_t)expected) &&
+@@ -1322,6 +1341,7 @@
+             slots[base_slot].kind != SQ_JIT_SLOT_OBJECT_PTR) || !expected) {
+             return false;
+         }
++        if(!emit_closure_lifetime_guard(expected,OT_CLOSURE)) return false;
+         if(slots[base_slot].kind == SQ_JIT_SLOT_OBJECT_PTR) {
+             return slots[base_slot].object_ptr_observed_type != OT_NULL &&
+                 sqjit_a64_emit_ldr_x(&buf, 0, 31, sqjit_a64_local_disp(base_slot)) &&
+@@ -1395,6 +1415,7 @@
+             slots[base_slot].kind != SQ_JIT_SLOT_OBJECT_PTR) || !expected) {
+             return false;
+         }
++        if(!emit_closure_lifetime_guard(expected,OT_NATIVECLOSURE)) return false;
+         if(slots[base_slot].kind == SQ_JIT_SLOT_OBJECT_PTR) {
+             return slots[base_slot].object_ptr_observed_type != OT_NULL &&
+                 sqjit_a64_emit_ldr_x(&buf, 0, 31, sqjit_a64_local_disp(base_slot)) &&
+@@ -5022,6 +5043,7 @@
+     if(!code->Install(buf.bytes, buf.size))
+         return attempt.Reject(-1, SQ_JIT_REJECT_RESOURCE, "executable memory installation failed");
+     if(root_object) code->RetainWeakReference(closure->_root);
++    for(const SQObjectPtr &witness : closure_witnesses) code->RetainWeakReference(_weakref(witness));
+     return true;
+ }
+ 
+--- a/Squirrel3/squirrel/jit/sqjit_backend_aarch64_compile_proto.inc
++++ b/Squirrel3/squirrel/jit/sqjit_backend_aarch64_compile_proto.inc
+@@ -2057,6 +2057,24 @@
+             observed, observed_array, observed_object_ptr);
+     };
+ 
++    // A removed closure can be reallocated at the same address. Retain its
++    // weak identity, not the closure: death permanently clears this witness.
++    // Temporary owners cover failed compilation; the installed code takes its
++    // own weak references only after executable installation succeeds.
++    std::vector<SQObjectPtr> closure_witnesses;
++    auto emit_closure_lifetime_guard = [&](SQRefCounted *expected,SQObjectType type) -> bool {
++        if(!expected) return false;
++        SQWeakRef *weak=expected->GetWeakRef(type);
++        if(!weak) return false;
++        closure_witnesses.push_back(SQObjectPtr(weak));
++        const SQInteger tag=(SQInteger)(size_t)&(((SQWeakRef *)0)->_obj._type);
++        return sqjit_a64_emit_mov_imm_x(&buf,9,(SQInteger)(intptr_t)weak) &&
++            sqjit_a64_emit_ldr_w(&buf,9,9,tag) &&
++            sqjit_a64_emit_mov_imm_w(&buf,10,(uint32_t)type) &&
++            sqjit_a64_emit_cmp_reg(&buf,9,10) &&
++            emit_guard_fail_branch(SQ_JIT_A64_NE);
++    };
++
+     auto emit_member_closure_guard = [&](SQInteger base_slot,
+         SQInteger literal_index, SQClosure *expected) -> bool {
+         if(base_slot < 0 || base_slot >= MAX_FUNC_STACKSIZE ||
+@@ -2066,6 +2084,7 @@
+             !expected) {
+             return false;
+         }
++        if(!emit_closure_lifetime_guard(expected,OT_CLOSURE)) return false;
+         if(slots[base_slot].kind == SQ_JIT_SLOT_OBJECT_PTR) {
+             return slots[base_slot].object_ptr_observed_type != OT_NULL &&
+                 sqjit_a64_emit_ldr_x(&buf, 0, 31,
+@@ -2481,6 +2500,7 @@
+             callee_native->_native_kind == SQ_JIT_NATIVE_SETTER) {
+             return false;
+         }
++        if(!emit_closure_lifetime_guard(callee,OT_CLOSURE)) return false;
+         for(SQInteger n = 0; n < nargs; n++) {
+             SQInteger slot = arg_base + n;
+             if(!emit_materialize_call_slot_to_stack(slot)) {
+@@ -2974,6 +2994,7 @@
+             !expected) {
+             return false;
+         }
++        if(!emit_closure_lifetime_guard(expected,OT_NATIVECLOSURE)) return false;
+         if(slots[base_slot].kind == SQ_JIT_SLOT_OBJECT_PTR) {
+             return slots[base_slot].object_ptr_observed_type != OT_NULL &&
+                 sqjit_a64_emit_ldr_x(&buf, 0, 31,
+@@ -4630,6 +4651,7 @@
+     native->_stack_live_slots = stack_live_slots;
+     native->_stack_storage_slots = proto->_stacksize;
+     if(root_object) native->_code.RetainWeakReference(closure->_root);
++    for(const SQObjectPtr &witness : closure_witnesses) (&native->_code)->RetainWeakReference(_weakref(witness));
+     if(return_shape_seen && !return_shape_conflict && return_shape_class) {
+         native->_return_shape = SQ_JIT_NATIVE_RETURN_ARRAY_FIELD_INSTANCE;
+         native->_return_shape_class = return_shape_class;
+--- a/Squirrel3/squirrel/jit/sqjit_backend_aarch64_precise.inc
++++ b/Squirrel3/squirrel/jit/sqjit_backend_aarch64_precise.inc
+@@ -404,7 +404,7 @@
+ }
+ 
+ // Source tag/bits arrive in w13/x12. The destination base must survive the
+-// guard and pin/drop sequence (x11 or x19); every failure precedes all effects.
++// guard and pin/drop sequence (x11, x19 or x22); every failure precedes all effects.
+ // Reload the old count after acquiring the source to preserve self-aliases.
+ static bool sqjit_a64_precise_assign(SQJitA64Buffer *buf, bool dynamic,
+     bool source_reference, unsigned destination, SQInteger type_disp,
+@@ -510,12 +510,45 @@
+     return true;
+ }
+ 
++// JCMP also writes the canonical VM temporary. Guard both integer operands
++// before the release proof; sensitive old temporaries still use the helper.
++// x0 survives precise_assign and supplies its existing false/true branch ABI.
++static bool sqjit_a64_precise_compare(SQJitA64Buffer *buf,
++    const SQInstruction &i, SQInteger &done)
++{
++    unsigned cond;
++    switch(i._arg3) {
++    case CMP_G: cond=SQ_JIT_A64_GT; break;
++    case CMP_GE: cond=SQ_JIT_A64_GE; break;
++    case CMP_L: cond=SQ_JIT_A64_LT; break;
++    case CMP_LE: cond=SQ_JIT_A64_LE; break;
++    default: return false;
++    }
++    SQJitA64Reloc guards[2];SQInteger nguards=0;
++    const SQInteger temp=(SQInteger)(size_t)&(((SQVM *)0)->temp_reg);
++    if(!sqjit_a64_emit_type_guard(buf,i._arg2,OT_INTEGER,guards,&nguards) ||
++        !sqjit_a64_emit_type_guard(buf,i._arg0,OT_INTEGER,guards,&nguards) ||
++        !sqjit_a64_emit_ldr_x(buf,9,19,sqjit_a64_stack_value_disp(i._arg2)) ||
++        !sqjit_a64_emit_ldr_x(buf,10,19,sqjit_a64_stack_value_disp(i._arg0)) ||
++        !sqjit_a64_emit_cmp_reg(buf,9,10) || !sqjit_a64_emit_cset(buf,12,cond) ||
++        !sqjit_a64_emit_mov_imm_w(buf,13,(uint32_t)OT_BOOL) ||
++        !sqjit_a64_emit_add_imm(buf,0,12,1) ||
++        !sqjit_a64_precise_assign(buf,false,false,22,
++            temp+(SQInteger)offsetof(SQObject,_type),
++            temp+(SQInteger)offsetof(SQObject,_unVal),done)) return false;
++    for(SQInteger n=0;n<nguards;++n)
++        if(!sqjit_a64_patch_branch(buf,guards[n].patch_offset,buf->size,true,guards[n].cond)) return false;
++    return true;
++}
++
+ // Fast scalar writes never release an owner and never call a helper. Every
+ // slow branch precedes the first VM write, so it can retry the same bytecode.
+ static bool sqjit_a64_precise_fast(SQJitA64Buffer *buf, SQFunctionProto *proto,
+-    const SQInstruction &i, bool extended, bool constant_key, SQInteger cache_offset, unsigned cache_proof, bool owning_reads, bool owning_copies, bool owning_stores, SQInteger &done)
++    const SQInstruction &i, bool extended, bool constant_key, SQInteger cache_offset, unsigned cache_proof, bool owning_reads, bool owning_copies, bool owning_stores, bool comparisons, SQInteger &done)
+ {
+     done = -1;
++    if(comparisons && i.op == _OP_JCMP)
++        return sqjit_a64_precise_compare(buf,i,done);
+     if(extended && (i.op == _OP_GET || i.op == _OP_GETK))
+         return sqjit_a64_precise_get(buf,proto,i,constant_key,cache_offset,cache_proof,owning_reads,done);
+     if(owning_stores && i.op == _OP_SET)
+@@ -748,7 +781,8 @@
+     // use, and the loaded value may change. Nothing persists across activation.
+     bool exhausted = false;
+     auto emit = [&](unsigned tier) -> bool {
+-    const bool extended = tier != 0;
++    const bool compact = tier == 7;
++    const bool extended = !compact && tier != 0;
+     SQJitA64Buffer buf; buf.size = 0;
+     bool emitted = false;
+     struct Budget {
+@@ -773,6 +807,7 @@
+     SQInteger offsets[SQ_JIT_A64_IP_TABLE_SIZE];
+     SQJitA64Reloc branches[SQ_JIT_A64_MAX_RELOCS], guards[SQ_JIT_A64_MAX_GUARD_RELOCS];
+     SQInteger nbranches = 0, nguards = 0;
++    SQInteger compact_calls[SQ_JIT_A64_MAX_INSTRUCTIONS], ncompact_calls=0;
+     for(SQInteger ip=0; ip<proto->_ninstructions; ++ip) {
+         offsets[ip] = buf.size;
+         const SQInstruction &i = proto->_instructions[ip];
+@@ -787,10 +822,10 @@
+         SQInteger fast_done = -1;
+         const SQInteger cache_offset = cache_at[ip] < 0 ? -1 :
+             cache_storage + cache_at[ip] * sizeof(SQJitA64PreciseMemberCache);
+-        if(!sqjit_a64_precise_fast(&buf,proto,i,extended,constant_key[ip],
++        if(!compact && !sqjit_a64_precise_fast(&buf,proto,i,extended,constant_key[ip],
+             tier >= 2 && cache_may_hit[ip] ? cache_offset : -1,
+             cache_at[ip] >= 0 ? cache_proof[cache_at[ip]] : 0,
+-            tier >= 3,tier >= 4,tier >= 5,fast_done)) return false;
++            tier >= 3,tier >= 4,tier >= 5,tier >= 6,fast_done)) return false;
+         SQJitA64PreciseStep step = sqjit_a64_precise_step_for(i.op,constant_key[ip]);
+         if(!step) return false;
+         if(cache_at[ip] >= 0) {
+@@ -798,7 +833,15 @@
+                 cache_storage + cache_at[ip] * sizeof(SQJitA64PreciseMemberCache))) return false;
+         }
+         else if(!sqjit_a64_emit_mov_imm_x(&buf,6,0)) return false;
+-        if(!sqjit_a64_emit_ldr_x(&buf, 0, 31, sqjit_a64_local_disp(context_slot)) ||
++        if(compact) {
++            // A compact cold tier retains native control flow and checked
++            // opcode helpers while sharing their unchanged argument setup.
++            if(!sqjit_a64_emit_mov_imm_x(&buf,3,ip) ||
++                !sqjit_a64_emit_mov_imm_x(&buf,16,(SQInteger)(intptr_t)step)) return false;
++            compact_calls[ncompact_calls++]=buf.size;
++            if(!sqjit_a64_emit_u32(&buf,0x94000000u)) return false; // BL trampoline
++        }
++        else if(!sqjit_a64_emit_ldr_x(&buf, 0, 31, sqjit_a64_local_disp(context_slot)) ||
+             !sqjit_a64_emit_mov_reg(&buf, 1, 19) || !sqjit_a64_emit_mov_reg(&buf, 2, 21) ||
+             !sqjit_a64_emit_mov_imm_x(&buf, 3, ip) || !sqjit_a64_emit_mov_reg(&buf, 4, 20) ||
+             !sqjit_a64_emit_mov_reg(&buf, 5, 22) ||
+@@ -842,6 +885,24 @@
+             !sqjit_a64_patch_branch(&buf, b.patch_offset, offsets[b.target_ip], b.conditional, b.cond)) return false;
+     }
+     emitted = true;
++    if(compact) {
++        const SQInteger trampoline=buf.size;
++        // Preserve the local BL return address across the C++ opcode helper.
++        // Its temporary 16-byte frame leaves every canonical/cache address
++        // unchanged. x0 carries the helper status back to the original guard.
++        if(!sqjit_a64_emit_u32(&buf,0xA9BF7BFDu) ||
++            !sqjit_a64_emit_u32(&buf,0x910003FDu) ||
++            !sqjit_a64_emit_ldr_x(&buf,0,31,16+sqjit_a64_local_disp(context_slot)) ||
++            !sqjit_a64_emit_mov_reg(&buf,1,19) || !sqjit_a64_emit_mov_reg(&buf,2,21) ||
++            !sqjit_a64_emit_mov_reg(&buf,4,20) || !sqjit_a64_emit_mov_reg(&buf,5,22) ||
++            !sqjit_a64_emit_blr_x16(&buf) || !sqjit_a64_emit_u32(&buf,0xA8C17BFDu) ||
++            !sqjit_a64_emit_u32(&buf,0xD65F03C0u)) return false;
++        for(SQInteger n=0;n<ncompact_calls;++n) {
++            const SQInteger offset=compact_calls[n];
++            const uint32_t branch=0x94000000u | ((uint32_t)((trampoline-offset)/4)&0x03ffffffu);
++            memcpy(buf.bytes+offset,&branch,sizeof(branch));
++        }
++    }
+     if(!native->_code.Install(buf.bytes, buf.size)) return false;
+     native->_requires_vm_frame = true;
+     native->_stack_live_slots = proto->_stacksize;
+@@ -851,6 +912,8 @@
+     // Optional code growth must not lose existing large-function coverage.
+     // Only a full emission buffer triggers retry; unsupported shapes and
+     // allocation/install failures do not receive a second compile attempt.
++    if(emit(6)) return true;
++    if(!exhausted) return false;
+     if(emit(5)) return true;
+     if(!exhausted) return false;
+     if(emit(4)) return true;
+@@ -860,5 +923,7 @@
+     if(emit(2)) return true;
+     if(!exhausted) return false;
+     if(emit(1)) return true;
+-    return exhausted && emit(0);
+-}
++    if(!exhausted) return false;
++    if(emit(0)) return true;
++    return exhausted && emit(7);
++}
+--- a/test/cpp/test_sqjit_contracts.cpp
++++ b/test/cpp/test_sqjit_contracts.cpp
+@@ -11,7 +11,7 @@
+ #include "jit/sqjit_diagnostics.h"
+ #include "jit/sqjit_observe.h"
+ #include "jit/sqjit_platform.h"
+-#if defined(SQJIT_CPU_AARCH64)
++#if SQJIT_HAS_EXTERNAL_NATIVE
+ #include "jit/sqjit_backend_aarch64_emit.h"
+ #endif
+ #include <stdio.h>
+@@ -55,10 +55,12 @@
+     return p;
+ }
+ 
++static bool loop_variant_tests_ran = false;
++
+ static SQInteger stub() { return 42; }
+ static void debug_hook(HSQUIRRELVM, SQInteger, const SQChar *, SQInteger, const SQChar *) {}
+ 
+-#if defined(SQJIT_CPU_AARCH64)
++#if SQJIT_HAS_EXTERNAL_NATIVE
+ static SQVM *nested_loop_vm = NULL;
+ static bool nested_loop_active = false, nested_loop_ok = false;
+ // An injected mapped entry isolates executable-lifetime/reentry behavior. The
+@@ -123,7 +125,8 @@
+ 
+ static void loop_variant_tests(int &rc)
+ {
+-#if defined(SQJIT_CPU_AARCH64)
++#if SQJIT_HAS_EXTERNAL_NATIVE
++    loop_variant_tests_ran = true;
+     nested_loop_mapping_test(rc);
+     for(bool reversed : {false,true}) {
+         SQVM *v = sq_open(64);
+@@ -202,7 +205,7 @@
+         copies.clear();klass.Null();old.Null();replacement.Null();weak.Null();key.Null();
+         SQInteger attempts=after.loop_compile_attempts;
+         CHECK(call_variant(2,1), "third receiver falls back with its distinct method result");
+-        CHECK(run(v,_SC("VariantLocal.update=function(x) { value=x; return x+1; };")), "replace a warmed receiver method");
++        CHECK(run(v,_SC("VariantLocal.update<-function(x) { value=x; return x+1; };")), "replace a warmed receiver method");
+         CHECK(call_variant(0,1), "method replacement cannot run the stale inlined method");
+         CHECK(sqjit_observe_proto(p,after) && after.loop_compile_attempts==attempts &&
+             jit->_loop_code.Entry()==primary && jit->_loop_alternate_code.Entry()==alternate,
+@@ -218,6 +221,10 @@
+ {
+     int rc = 0;
+     loop_variant_tests(rc);
++#if defined(__aarch64__) && defined(__linux__)
++    CHECK(loop_variant_tests_ran,"AArch64 loop adaptation and lifetime contracts actually execute");
++    fprintf(stdout,"[coverage] executed AArch64 loop adaptation and lifetime contracts\n");
++#endif
+     SQVM *v = sq_open(64);
+     SQVM *other = sq_open(64);
+     CHECK(v && other, "two live VMs open");
+--- a/test/cpp/test_sqjit_side_exit.cpp
++++ b/test/cpp/test_sqjit_side_exit.cpp
+@@ -22,6 +22,8 @@
+ 
+ #define CHECK(c, text) do { if(!(c)) { fprintf(stderr, "FAIL: %s\n", text); ++failures; } } while(0)
+ 
++static int native_test_groups = 0;
++
+ static bool run(SQVM *v, const SQChar *source)
+ {
+     SQInteger top = sq_gettop(v);
+@@ -122,7 +124,8 @@
+ static int generated_scalars()
+ {
+     int failures = 0;
+-#if defined(SQJIT_CPU_AARCH64)
++#if SQJIT_HAS_EXTERNAL_NATIVE
++    ++native_test_groups;
+     SQVM *v = sq_open(64);
+     SQJitContext &ctx = sqjit_context(v->_sharedstate);
+     ctx.enabled = ctx.precise_exits = true; ctx.threshold = 1;
+@@ -185,6 +188,8 @@
+     for(const SQChar *name : {_SC("scalar_add"),_SC("scalar_sub"),_SC("scalar_mul"),_SC("scalar_div")}) {
+         SQObjectPtr fn = named(v,name), expected, actual;
+         SQFunctionProto *proto = _closure(fn)->_function;
++        // The VM return path reuses temp_reg. Its boolean is observed at the
++        // RETURN helper entry by the native debugger probe, before that reuse.
+         for(const auto &pair : pairs) {
+             ctx.enabled = false; bool reference = invoke(fn,pair.first,pair.second,expected);
+             ctx.enabled = true; SQJitObservation before = {}, after = {};
+@@ -354,6 +359,7 @@
+ {
+     int failures = 0;
+ #if SQJIT_HAS_EXTERNAL_NATIVE
++    ++native_test_groups;
+     SQVM *v = sq_open(64);
+     SQJitContext &ctx = sqjit_context(v->_sharedstate);
+     ctx.enabled = ctx.precise_exits = true; ctx.threshold = 1;
+@@ -553,7 +559,8 @@
+ static int generated_exit_sites()
+ {
+     int failures = 0;
+-#if defined(SQJIT_CPU_AARCH64)
++#if SQJIT_HAS_EXTERNAL_NATIVE
++    ++native_test_groups;
+     SQVM *v = sq_open(64);
+     SQJitContext &ctx = sqjit_context(v->_sharedstate);
+     ctx.enabled = ctx.precise_exits = true; ctx.threshold = 1;
+@@ -605,7 +612,8 @@
+ static int generated_store_release()
+ {
+     int failures=0;
+-#if defined(SQJIT_CPU_AARCH64)
++#if SQJIT_HAS_EXTERNAL_NATIVE
++    ++native_test_groups;
+     SQVM *v=sq_open(64);SQJitContext &ctx=sqjit_context(v->_sharedstate);
+     ctx.enabled=ctx.precise_exits=true;ctx.threshold=1;sqjit_observe_enable(v);
+     {
+@@ -767,10 +775,173 @@
+     return failures;
+ }
+ 
++// These fixtures intentionally construct a valid DLOAD. The frontend emits
++// separate LOADs for parameter assignments, so do not depend on peephole fusion.
++static bool fixture_double_load(SQFunctionProto *p,SQInteger first,SQInteger second)
++{
++    for(SQInteger ip=0;ip+1<p->_ninstructions;++ip) {
++        SQInstruction &a=p->_instructions[ip],&b=p->_instructions[ip+1];
++        if(a.op==_OP_LOAD && a._arg0==first && b.op==_OP_LOAD && b._arg0==second) {
++            a.op=_OP_DLOAD;a._arg2=b._arg0;a._arg3=(unsigned char)b._arg1;
++            b.op=_OP_LINE;return true;
++        }
++    }
++    return false;
++}
++
++static int generated_integer_comparisons()
++{
++    int failures=0;
++#if SQJIT_HAS_EXTERNAL_NATIVE
++    ++native_test_groups;
++    SQVM *v=sq_open(64);SQJitContext &ctx=sqjit_context(v->_sharedstate);
++    ctx.enabled=ctx.precise_exits=true;ctx.threshold=1;
++    ctx.trace=ctx.trace_stats=false;sqjit_observe_enable(v);
++    {
++    CHECK(run(v,_SC(
++        "function compare_g(value,r,items,a,b) { r.count=r.count+1; value=items[0]; if(a>b) return 11; return 22; }\n"
++        "function compare_ge(value,r,items,a,b) { r.count=r.count+1; value=items[0]; if(a>=b) return 11; return 22; }\n"
++        "function compare_l(value,r,items,a,b) { r.count=r.count+1; value=items[0]; if(a<b) return 11; return 22; }\n"
++        "function compare_le(value,r,items,a,b) { r.count=r.count+1; value=items[0]; if(a<=b) return 11; return 22; }\n"
++        "compare_record <- {count=0,seen=0};\n")),"define signed comparison and temporary lifetime witnesses");
++    SQObjectPtr record=named(v,_SC("compare_record")),items=SQArray::Create(v->_sharedstate,1);
++    _array(items)->_values[0]=SQInteger(0);
++    auto field=[&](const SQChar *name)->SQObjectPtr & {
++        return *_table(record)->GetRawSlot(SQObjectPtr(SQString::Create(v->_sharedstate,name)));
++    };
++    const SQInteger lo=std::numeric_limits<SQInteger>::min(),hi=std::numeric_limits<SQInteger>::max();
++    const SQInteger pairs[][2]={{lo,hi},{hi,lo},{lo,lo},{hi,hi},{-1,0},{0,-1},{0,0},{1,0},{0,1}};
++    const SQChar *names[]={_SC("compare_g"),_SC("compare_ge"),_SC("compare_l"),_SC("compare_le")};
++    for(int relation=0;relation<4;++relation) {
++        SQObjectPtr fn=named(v,names[relation]);SQFunctionProto *p=_closure(fn)->_function;
++        bool fused=false;SQInteger comparison_ip=-1;unsigned cond=0;
++        for(SQInteger ip=0;ip<p->_ninstructions;++ip) {
++            SQInstruction &i=p->_instructions[ip];
++            if(i.op==_OP_GET && i._arg1==3 && i._arg0==1) fused=true;
++            if(i.op==_OP_GET && i._arg1==3 && ip+1<p->_ninstructions) {
++                SQInstruction &next=p->_instructions[ip+1];
++                if(next.op==_OP_MOVE && next._arg0==1 && next._arg1==i._arg0) {
++                    i._arg0=1;next.op=_OP_LINE;fused=true;
++                }
++            }
++            if(i.op==_OP_JCMP) {
++                comparison_ip=ip;
++                switch(i._arg3) { case CMP_G:cond=12;break;case CMP_GE:cond=10;break;
++                    case CMP_L:cond=11;break;case CMP_LE:cond=13;break; }
++            }
++        }
++        CHECK(fused && comparison_ip>=0,"comparison witness transfers its owning parameter into the VM temporary");
++        auto prepare=[&]() {
++            v->temp_reg.Null();field(_SC("count"))=SQInteger(0);field(_SC("seen"))=SQInteger(0);
++            sq_pushobject(v,fn);sq_pushroottable(v);
++        };
++        auto finish=[&](const SQObjectPtr &a,const SQObjectPtr &b,SQObjectPtr &out)->bool {
++            sq_pushobject(v,record);sq_pushobject(v,items);sq_pushobject(v,a);sq_pushobject(v,b);
++            bool ok=SQ_SUCCEEDED(sq_call(v,6,SQTrue,SQFalse));
++            out=ok ? v->GetUp(-1) : v->_lasterror;
++            CHECK(_integer(field(_SC("count")))==1,"comparison preserves its committed prefix exactly once");
++            return ok;
++        };
++        auto truth=[&](SQInteger a,SQInteger b)->bool {
++            return relation==0 ? a>b : relation==1 ? a>=b : relation==2 ? a<b : a<=b;
++        };
++        // The VM return path reuses temp_reg. Its boolean is observed at the
++        // RETURN helper entry by the native debugger probe, before that reuse.
++        for(const auto &pair : pairs) {
++            SQInteger top=sq_gettop(v);prepare();sq_pushinteger(v,0);SQObjectPtr out;
++            CHECK(finish(SQObjectPtr(pair[0]),SQObjectPtr(pair[1]),out) && sq_type(out)==OT_INTEGER &&
++                _integer(out)==(truth(pair[0],pair[1]) ? 11 : 22),"native signed comparison handles equality and integer extrema");
++            sq_settop(v,top);
++        }
++        CHECK(p->_jit && p->_jit->_entry && p->_jit->_entry->_requires_vm_frame &&
++            native_word(p,0x9A9F07E0u | ((cond^1u)<<12) | 12u),
++            "comparison contains native signed CSET, not only a helper call");
++        for(int mode : {0,1,2,3,4,5}) for(SQInteger a : {SQInteger(-1),SQInteger(1)}) {
++            SQInteger top=sq_gettop(v);prepare();int releases=0;
++            SQObjectPtr survivor,weak,referent,out;SQRefCounted *raw=NULL;
++            if(mode<4) {
++                ReleaseWitness *w=(ReleaseWitness *)sq_newuserdata(v,sizeof(ReleaseWitness));
++                w->record=&record;w->count=&releases;sq_setreleasehook(v,-1,release_witness);
++                raw=_refcounted(v->GetUp(-1));weak=raw->GetWeakRef(OT_USERDATA);
++                if(mode==1 || mode==2) survivor=v->GetUp(-1);
++#ifndef NO_GARBAGE_COLLECTOR
++                if(mode==2) raw->_uiRef |= MARK_FLAG;
++#endif
++            } else {
++                referent=SQArray::Create(v->_sharedstate,0);
++                weak=_refcounted(referent)->GetWeakRef(OT_ARRAY);
++                if(mode==5) referent.Null();
++                sq_pushobject(v,weak);raw=_refcounted(weak);
++            }
++            SQJitObservation before={},after={};sqjit_observe_proto(p,before);
++            {
++                SQJitWriteLog parent(1000,sq_vm_malloc,mode==3 ? &ctx : NULL);
++                SQJitWriteLog ancestor(1000,sq_vm_malloc,mode==3 ? &ctx : NULL);
++                if(mode==3) CHECK(parent.RetainValue(v->GetUp(-1)) && ancestor.RetainValue(v->GetUp(-1)),
++                    "comparison release accounts for both ancestor journals");
++                CHECK(finish(SQObjectPtr(a),SQObjectPtr(SQInteger(0)),out) && sq_type(out)==OT_INTEGER &&
++                    _integer(out)==(truth(a,0) ? 11 : 22),"comparison retains exact branch result across temporary owners");
++                sq_settop(v,top);CHECK(sqjit_observe_proto(p,after),"observe comparison lifetime native route");
++                CHECK(after.frame.guard_failures==before.frame.guard_failures,
++                    "comparison lifetime cases enter the canonical frame");
++                if(mode==0 || mode==3) CHECK(after.frame.side_exits==before.frame.side_exits+1,
++                    "final or journal-sensitive comparison temporary exits once");
++                else CHECK(after.frame.successes==before.frame.successes+1 && after.frame.side_exits==before.frame.side_exits,
++                    "nonfinal strong and weak temporaries complete native comparison");
++                CHECK(releases==(mode==0 ? 1 : 0) && _integer(field(_SC("seen")))==(mode==0 ? 1 : 0),
++                    "comparison releases a final temporary before returning and preserves other owners");
++                if(mode==1 || mode==2 || mode>=4) {
++                    SQUnsignedInteger count=raw->_uiRef;
++#ifndef NO_GARBAGE_COLLECTOR
++                    if(mode==2) { CHECK(count & MARK_FLAG,"comparison preserves the temporary GC mark");raw->_uiRef &= ~(SQUnsignedInteger)MARK_FLAG; }
++                    count &= ~(SQUnsignedInteger)MARK_FLAG;
++#endif
++                    CHECK(count==1,"comparison drops exactly its single temporary reference");
++                }
++                if(mode>=4) CHECK(sq_type(_weakref(weak)->_obj)==(mode==4 ? OT_ARRAY : OT_NULL) &&
++                    (mode==5 || _refcounted(referent)->_uiRef==1),"comparison never pins or dereferences a weak temporary's referent");
++            }
++            survivor.Null();
++            if(mode<4) CHECK(releases==1 && sq_type(_weakref(weak)->_obj)==OT_NULL,
++                "comparison temporary dies once after its final program or journal owner");
++            CHECK(!ctx.active_logs,"comparison restores its ancestor journal chain");
++        }
++        // Mixed numeric operands keep the helper. Nonnumeric operands side-exit
++        // to the interpreter; compare its actual result/error without assuming
++        // that every cross-type relation is forbidden by the language.
++        for(int kind : {0,1,2,3}) {
++            SQObjectPtr a=kind==0 ? SQObjectPtr(SQFloat(-0.5)) : kind==1 ? SQObjectPtr(SQFloat(std::numeric_limits<SQFloat>::quiet_NaN())) :
++                kind==2 ? SQObjectPtr(true) : SQObjectPtr(SQString::Create(v->_sharedstate,_SC("text")));
++            SQObjectPtr expected,actual;bool expected_ok=false,actual_ok=false;
++            for(bool native : {false,true}) {
++                ctx.enabled=native;SQInteger top=sq_gettop(v);prepare();sq_pushinteger(v,0);
++                SQJitObservation before={},after={};sqjit_observe_proto(p,before);
++                bool ok=finish(a,SQObjectPtr(SQInteger(0)),native ? actual : expected);
++                if(native) {
++                    actual_ok=ok;sqjit_observe_proto(p,after);
++                    CHECK(after.frame.guard_failures==before.frame.guard_failures &&
++                        after.frame.side_exits==before.frame.side_exits+(kind>=2 ? 1 : 0),
++                        "mixed numerics use the helper; nonnumeric comparisons preserve a precise exit");
++                } else expected_ok=ok;
++                sq_settop(v,top);
++            }
++            CHECK(expected_ok==actual_ok && sq_type(expected)==sq_type(actual) &&
++                (expected_ok ? _rawval(expected)==_rawval(actual) : scstrcmp(_stringval(expected),_stringval(actual))==0),
++                "comparison fallback matches interpreter result or error");
++        }
++    }
++    v->temp_reg.Null();
++    }
++    sq_close(v);
++#endif
++    return failures;
++}
++
+ static int generated_cache_proofs()
+ {
+     int failures=0;
+-#if defined(SQJIT_CPU_AARCH64)
++#if SQJIT_HAS_EXTERNAL_NATIVE
++    ++native_test_groups;
+     SQVM *v=sq_open(64);SQJitContext &ctx=sqjit_context(v->_sharedstate);
+     ctx.enabled=ctx.precise_exits=true;ctx.threshold=1;sqjit_observe_enable(v);
+     {
+@@ -820,6 +991,7 @@
+     CHECK(run(v,_SC("function proof_double(r,scratch,o,key) { r.count=r.count+1; o[key]=3;"
+         " scratch=\"proof-unused\"; o=\"proof-replacement\"; o[key]=5; return o[key]; }")),"define multi-output receiver write");
+     SQObjectPtr fn=named(v,_SC("proof_double")),b=named(v,_SC("proof_b"));SQFunctionProto *p=_closure(fn)->_function;
++    CHECK(fixture_double_load(p,2,3),"construct the receiver-replacing DLOAD before compilation");
+     bool dload=false;
+     for(SQInteger ip=0;ip<p->_ninstructions;++ip) {
+         const SQInstruction &i=p->_instructions[ip];
+@@ -840,7 +1012,8 @@
+ static int generated_copy_release()
+ {
+     int failures=0;
+-#if defined(SQJIT_CPU_AARCH64)
++#if SQJIT_HAS_EXTERNAL_NATIVE
++    ++native_test_groups;
+     SQVM *v=sq_open(64);SQJitContext &ctx=sqjit_context(v->_sharedstate);
+     ctx.enabled=ctx.precise_exits=true;ctx.threshold=1;
+     ctx.trace=ctx.trace_stats=false;sqjit_observe_enable(v);
+@@ -859,7 +1032,8 @@
+     int kind=0;
+     for(const SQChar *name : {_SC("copy_move"),_SC("copy_literal"),_SC("copy_integer"),_SC("copy_float"),_SC("copy_bool")}) {
+         SQObjectPtr fn=named(v,name);SQFunctionProto *p=_closure(fn)->_function;
+-        const SQOpcode opcode[]={_OP_MOVE,_OP_LOAD,_OP_LOADINT,_OP_LOADFLOAT,_OP_LOADBOOL};
++        const SQOpcode opcode[]={_OP_MOVE,_OP_LOAD,_OP_LOADINT,
++            sizeof(SQFloat)==sizeof(SQInt32) ? _OP_LOADFLOAT : _OP_LOAD,_OP_LOADBOOL};
+         bool direct=false;SQInteger literal=-1;
+         for(SQInteger ip=0;ip<p->_ninstructions;++ip) {
+             SQInstruction &i=p->_instructions[ip];if(i.op!=opcode[kind]) continue;
+@@ -978,7 +1152,8 @@
+ static int generated_reference_reads()
+ {
+     int failures=0;
+-#if defined(SQJIT_CPU_AARCH64)
++#if SQJIT_HAS_EXTERNAL_NATIVE
++    ++native_test_groups;
+     SQVM *v=sq_open(64);SQJitContext &ctx=sqjit_context(v->_sharedstate);
+     ctx.enabled=ctx.precise_exits=true;ctx.threshold=1;
+     ctx.trace=ctx.trace_stats=false;sqjit_observe_enable(v);
+@@ -1088,7 +1263,8 @@
+ static int generated_cached_release()
+ {
+     int failures = 0;
+-#if defined(SQJIT_CPU_AARCH64)
++#if SQJIT_HAS_EXTERNAL_NATIVE
++    ++native_test_groups;
+     SQVM *v=sq_open(64);
+     SQJitContext &ctx=sqjit_context(v->_sharedstate);
+     ctx.enabled=ctx.precise_exits=true;ctx.threshold=1;
+@@ -1168,7 +1344,11 @@
+         "local r={count=0,payload=5},a=[7];\n"
+         "if(cached_kind(r,a)!=a) throw \"cached reference reload\"; r.payload=5;\n"
+         "if(cached_kind(r,a.weakref())!=a) throw \"cached weak reload\"; r.payload=5;\n"
+-        "local dead=[11].weakref(); if(cached_kind(r,dead)!=null) throw \"cached dead weak reload\"; r.payload=5;\n"
++        // Clear the caller's sole temporary owner before calling cached_kind.
++        // Otherwise its first GET must correctly side-exit to release that owner.
++        "local dead=[11].weakref(); local cleared=r.count;"
++        " if(dead.ref()!=null) throw \"dead weak fixture\";"
++        " if(cached_kind(r,dead)!=null) throw \"cached dead weak reload\"; r.payload=5;\n"
+         "if(typeof cached_kind(r,false)!=\"bool\") throw \"cached scalar tag reload\";\n"
+         "if(r.count!=4) throw \"cached type-change prefixes\";\n")),"cache hits reload current scalar/reference/weak slot contents after stores");
+     SQObjectPtr kind=named(v,_SC("cached_kind"));SQJitObservation route={};
+@@ -1185,7 +1365,8 @@
+ static int generated_caches()
+ {
+     int failures = 0;
+-#if defined(SQJIT_CPU_AARCH64)
++#if SQJIT_HAS_EXTERNAL_NATIVE
++    ++native_test_groups;
+     SQVM *v = sq_open(64);
+     SQJitContext &ctx = sqjit_context(v->_sharedstate);
+     ctx.enabled = ctx.precise_exits = true; ctx.threshold = 1;
+@@ -1256,6 +1437,7 @@
+     if(sq_type(c) == OT_CLOSURE) {
+         SQFunctionProto *p = _closure(c)->_function;
+         CHECK(!p->_jit || !p->_jit->_entry, "construct the DLOAD fixture before native compilation");
++        CHECK(fixture_double_load(p,1,2),"construct the repeated-destination DLOAD before compilation");
+         for(SQInteger ip=0;ip<p->_ninstructions;++ip) {
+             SQInstruction &i = p->_instructions[ip];
+             if(i.op == _OP_DLOAD) {
+@@ -1316,7 +1498,11 @@
+ 
+ int main()
+ {
+-    int failures = generated_exits() + generated_exit_sites() + generated_store_release() + generated_cache_proofs() + generated_caches() + generated_scalars() + generated_cached_release() + generated_reference_reads() + generated_copy_release();
++    int failures = generated_exits() + generated_exit_sites() + generated_store_release() + generated_integer_comparisons() + generated_cache_proofs() + generated_caches() + generated_scalars() + generated_cached_release() + generated_reference_reads() + generated_copy_release();
++#if defined(__aarch64__) && defined(__linux__)
++    CHECK(native_test_groups==10,"all ten AArch64 generated-code test groups actually execute");
++    fprintf(stdout,"[coverage] executed %d AArch64 generated-code groups\n",native_test_groups);
++#endif
+     SQVM *v = sq_open(64);
+     SQJitContext &ctx = sqjit_context(v->_sharedstate);
+     ctx.enabled = true; ctx.threshold = 1000000;

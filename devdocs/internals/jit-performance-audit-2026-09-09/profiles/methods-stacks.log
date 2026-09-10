@@ -1,0 +1,383 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 4K of event 'cycles:u'
+# Event count (approx.): 20418469745
+#
+# Children      Self  Command  Shared Object            Symbol                                                                                                                                                         
+# ........  ........  .......  .......................  ...............................................................................................................................................................
+#
+    35.04%     2.77%  sqgi     sqgi                     [.] sqjit_a64_helper_publish_stack_write
+            |          
+             --32.28%--sqjit_a64_helper_publish_stack_write
+                       |          
+                        --31.37%--SQJitWriteLog::PublishStackWrite
+                                  |          
+                                  |--10.00%--SQJitWriteLog::RetainValue
+                                  |          |          
+                                  |          |--5.58%--SQJitWriteLog::FindValue<false> (inlined)
+                                  |          |          
+                                  |           --2.55%--SQJitWriteLog::AppendValue
+                                  |          
+                                  |--7.05%--SQJitWriteLog::CanRelease
+                                  |          |          
+                                  |           --2.90%--SQJitWriteLog::CountPins
+                                  |          
+                                   --6.99%--SQJitWriteLog::RecordStackSlot
+                                             |          
+                                              --4.24%--SQJitWriteLog::FindValue<true> (inlined)
+
+    31.37%     7.33%  sqgi     sqgi                     [.] SQJitWriteLog::PublishStackWrite
+            |          
+             --24.04%--SQJitWriteLog::PublishStackWrite
+                       |          
+                       |--10.00%--SQJitWriteLog::RetainValue
+                       |          |          
+                       |          |--5.58%--SQJitWriteLog::FindValue<false> (inlined)
+                       |          |          
+                       |           --2.55%--SQJitWriteLog::AppendValue
+                       |          
+                       |--7.05%--SQJitWriteLog::CanRelease
+                       |          |          
+                       |           --2.90%--SQJitWriteLog::CountPins
+                       |          
+                        --6.99%--SQJitWriteLog::RecordStackSlot
+                                  |          
+                                   --4.24%--SQJitWriteLog::FindValue<true> (inlined)
+
+    27.88%     0.00%  sqgi     sqgi                     [.] _start
+            |
+            ---_start
+               __libc_start_main_impl (inlined)
+               __libc_start_call_main
+               main
+               |          
+                --27.87%--sq_call
+                          SQVM::Execute
+                          |          
+                          |--2.53%--sqjit_try_execute_closure
+                          |          
+                          |--2.42%--sqjit_try_execute_current
+                          |          
+                           --2.15%--SQObjectPtr::operator= (inlined)
+
+    27.88%     0.00%  sqgi     libc.so.6                [.] __libc_start_main_impl (inlined)
+            |
+            ---__libc_start_main_impl (inlined)
+               __libc_start_call_main
+               main
+               |          
+                --27.87%--sq_call
+                          SQVM::Execute
+                          |          
+                          |--2.53%--sqjit_try_execute_closure
+                          |          
+                          |--2.42%--sqjit_try_execute_current
+                          |          
+                           --2.15%--SQObjectPtr::operator= (inlined)
+
+    27.88%     0.00%  sqgi     libc.so.6                [.] __libc_start_call_main
+            |
+            ---__libc_start_call_main
+               main
+               |          
+                --27.87%--sq_call
+                          SQVM::Execute
+                          |          
+                          |--2.53%--sqjit_try_execute_closure
+                          |          
+                          |--2.42%--sqjit_try_execute_current
+                          |          
+                           --2.15%--SQObjectPtr::operator= (inlined)
+
+    27.88%     0.00%  sqgi     sqgi                     [.] main
+            |
+            ---main
+               |          
+                --27.87%--sq_call
+                          SQVM::Execute
+                          |          
+                          |--2.53%--sqjit_try_execute_closure
+                          |          
+                          |--2.42%--sqjit_try_execute_current
+                          |          
+                           --2.15%--SQObjectPtr::operator= (inlined)
+
+    27.87%    18.58%  sqgi     sqgi                     [.] SQVM::Execute
+            |          
+            |--18.58%--_start
+            |          __libc_start_main_impl (inlined)
+            |          __libc_start_call_main
+            |          main
+            |          sq_call
+            |          SQVM::Execute
+            |          |          
+            |           --2.15%--SQObjectPtr::operator= (inlined)
+            |          
+             --9.29%--SQVM::Execute
+                       |          
+                       |--2.53%--sqjit_try_execute_closure
+                       |          
+                        --2.42%--sqjit_try_execute_current
+
+    27.87%     0.00%  sqgi     sqgi                     [.] sq_call
+            |
+            ---sq_call
+               SQVM::Execute
+               |          
+               |--2.53%--sqjit_try_execute_closure
+               |          
+               |--2.42%--sqjit_try_execute_current
+               |          
+                --2.15%--SQObjectPtr::operator= (inlined)
+
+    14.01%     6.13%  sqgi     sqgi                     [.] sqjit_a64_helper_member_set_reference_logged
+            |          
+             --7.88%--sqjit_a64_helper_member_set_reference_logged
+                       |          
+                        --7.70%--sqjit_a64_helper_member_set_reference_logged
+                                  SQJitWriteLog::RecordMember
+                                  |          
+                                   --3.20%--SQJitWriteLog::CanRelease
+
+    11.02%     6.99%  sqgi     sqgi                     [.] SQJitWriteLog::CanRelease
+            |          
+             --4.04%--SQJitWriteLog::CanRelease
+                       SQJitWriteLog::CountPins
+
+    10.00%     7.45%  sqgi     sqgi                     [.] SQJitWriteLog::RetainValue
+            |          
+             --2.55%--SQJitWriteLog::RetainValue
+                       SQJitWriteLog::AppendValue
+
+     8.76%     2.59%  sqgi     sqgi                     [.] SQJitWriteLog::RecordMember
+            |          
+             --6.17%--SQJitWriteLog::RecordMember
+                       |          
+                        --3.37%--SQJitWriteLog::CanRelease
+
+     8.44%     0.09%  sqgi     sqgi                     [.] sqjit_write_log_release
+            |          
+             --8.35%--sqjit_write_log_release
+                       SQJitWriteLog::~SQJitWriteLog
+                       |          
+                        --2.04%--SQJitWriteLog::ReleaseEntry
+
+     8.35%     5.36%  sqgi     sqgi                     [.] SQJitWriteLog::~SQJitWriteLog
+            |          
+            |--2.99%--SQJitWriteLog::~SQJitWriteLog
+            |          |          
+            |           --2.04%--SQJitWriteLog::ReleaseEntry
+            |          
+            |--2.70%--0xffff8be374e3
+            |          0xffff8be374e3
+            |          sqjit_write_log_release
+            |          SQJitWriteLog::~SQJitWriteLog
+            |          
+             --2.66%--0xffff8be387b3
+                       0xffff8be387b3
+                       sqjit_write_log_release
+                       SQJitWriteLog::~SQJitWriteLog
+
+     8.32%     6.41%  sqgi     sqgi                     [.] SQJitWriteLog::RecordStackSlot
+     5.58%     0.00%  sqgi     sqgi                     [.] SQJitWriteLog::FindValue<false> (inlined)
+            |
+            ---SQJitWriteLog::FindValue<false> (inlined)
+
+     4.73%     0.00%  sqgi     sqgi                     [.] SQJitWriteLog::FindValue<true> (inlined)
+            |
+            ---SQJitWriteLog::FindValue<true> (inlined)
+
+     4.47%     4.05%  sqgi     sqgi                     [.] SQJitWriteLog::AppendValue
+     4.46%     0.00%  sqgi     [JIT] tid 441792         [.] 0x0000ffff8be374e3
+            |
+            ---0xffff8be374e3
+               |          
+                --4.41%--0xffff8be374e3
+                          |          
+                           --4.39%--sqjit_write_log_release
+                                     |          
+                                      --4.37%--SQJitWriteLog::~SQJitWriteLog
+
+     4.26%     0.00%  sqgi     [JIT] tid 441792         [.] 0x0000ffff8be386b3
+            |
+            ---0xffff8be386b3
+               |          
+                --3.84%--0xffff8be386b3
+                          sqjit_a64_helper_publish_stack_write
+                          |          
+                           --3.65%--SQJitWriteLog::PublishStackWrite
+
+     4.23%     0.00%  sqgi     [JIT] tid 441792         [.] 0x0000ffff8be38773
+            |
+            ---0xffff8be38773
+               |          
+                --4.14%--0xffff8be38773
+                          sqjit_a64_helper_publish_stack_write
+                          |          
+                           --3.85%--SQJitWriteLog::PublishStackWrite
+
+     4.07%     0.00%  sqgi     [JIT] tid 441792         [.] 0x0000ffff8be387b3
+            |
+            ---0xffff8be387b3
+               |          
+                --4.04%--0xffff8be387b3
+                          sqjit_write_log_release
+                          |          
+                           --3.98%--SQJitWriteLog::~SQJitWriteLog
+
+     4.04%     0.00%  sqgi     [JIT] tid 441792         [.] 0x0000ffff8be374a3
+            |
+            ---0xffff8be374a3
+               |          
+                --4.02%--0xffff8be374a3
+                          sqjit_a64_helper_publish_stack_write
+                          |          
+                           --3.69%--SQJitWriteLog::PublishStackWrite
+
+     4.04%     4.04%  sqgi     sqgi                     [.] SQJitWriteLog::CountPins
+     3.38%     0.00%  sqgi     [JIT] tid 441792         [.] 0x0000ffff8be3831f
+            |
+            ---0xffff8be3831f
+               |          
+                --3.33%--0xffff8be3831f
+                          sqjit_a64_helper_member_set_reference_logged
+                          |          
+                           --2.08%--sqjit_a64_helper_member_set_reference_logged
+                                     SQJitWriteLog::RecordMember
+
+     3.25%     0.00%  sqgi     [JIT] tid 441792         [.] 0x0000ffff8be3850f
+            |
+            ---0xffff8be3850f
+               |          
+                --2.81%--0xffff8be3850f
+                          sqjit_a64_helper_publish_stack_write
+                          |          
+                           --2.64%--SQJitWriteLog::PublishStackWrite
+
+     3.16%     0.00%  sqgi     [JIT] tid 441792         [.] 0x0000ffff8be383a7
+            |
+            ---0xffff8be383a7
+               |          
+                --3.14%--0xffff8be383a7
+                          sqjit_a64_helper_member_set_reference_logged
+
+     3.16%     0.00%  sqgi     [JIT] tid 441792         [.] 0x0000ffff8be37397
+            |
+            ---0xffff8be37397
+               |          
+                --2.87%--0xffff8be37397
+                          sqjit_a64_helper_publish_stack_write
+                          |          
+                           --2.66%--SQJitWriteLog::PublishStackWrite
+
+     3.07%     0.00%  sqgi     sqgi                     [.] sqjit_a64_member_store_slot (inlined)
+            |
+            ---sqjit_a64_member_store_slot (inlined)
+               |          
+                --2.81%--sqjit_a64_member_store_slot (inlined)
+                          |          
+                           --2.48%--sqjit_a64_resolve_store_slot (inlined)
+                                     |          
+                                      --2.26%--sq_member_raw_slot (inlined)
+
+     2.92%     1.91%  sqgi     sqgi                     [.] sqjit_a64_helper_table_get_array_ptr
+     2.77%     0.00%  sqgi     [JIT] tid 441792         [.] 0x0000ffff8be372d7
+            |
+            ---0xffff8be372d7
+               |          
+                --2.28%--0xffff8be372d7
+                          sqjit_a64_helper_publish_stack_write
+                          |          
+                           --2.13%--SQJitWriteLog::PublishStackWrite
+
+     2.70%     0.00%  sqgi     [JIT] tid 441792         [.] 0x0000ffff8be370d7
+            |
+            ---0xffff8be370d7
+               |          
+                --2.68%--0xffff8be370d7
+                          sqjit_a64_helper_member_set_reference_logged
+
+     2.67%     0.00%  sqgi     sqgi                     [.] SQObjectPtr::operator= (inlined)
+            |
+            ---SQObjectPtr::operator= (inlined)
+
+     2.66%     0.00%  sqgi     [JIT] tid 441792         [.] 0x0000ffff8be3842b
+            |
+            ---0xffff8be3842b
+               |          
+                --2.37%--0xffff8be3842b
+                          sqjit_a64_helper_member_set_reference_logged
+
+     2.63%     0.00%  sqgi     [JIT] tid 441792         [.] 0x0000ffff8be385cf
+            |
+            ---0xffff8be385cf
+               |          
+                --2.32%--0xffff8be385cf
+                          sqjit_a64_helper_publish_stack_write
+                          |          
+                           --2.08%--SQJitWriteLog::PublishStackWrite
+
+     2.59%     0.00%  sqgi     [JIT] tid 441792         [.] 0x0000ffff8be3715b
+            |
+            ---0xffff8be3715b
+               |          
+                --2.48%--0xffff8be3715b
+                          sqjit_a64_helper_member_set_reference_logged
+
+     2.57%     1.58%  sqgi     sqgi                     [.] sqjit_try_execute_closure
+     2.48%     0.00%  sqgi     sqgi                     [.] sqjit_a64_resolve_store_slot (inlined)
+            |
+            ---sqjit_a64_resolve_store_slot (inlined)
+               |          
+                --2.26%--sq_member_raw_slot (inlined)
+
+     2.46%     0.00%  sqgi     sqgi                     [.] sqjit_a64_get_member_value (inlined)
+            |
+            ---sqjit_a64_get_member_value (inlined)
+               |          
+                --2.33%--SQInstance::Get (inlined)
+
+     2.46%     1.01%  sqgi     sqgi                     [.] sqjit_try_execute_current
+     2.33%     0.00%  sqgi     sqgi                     [.] SQInstance::Get (inlined)
+            |
+            ---SQInstance::Get (inlined)
+
+     2.32%     0.16%  sqgi     sqgi                     [.] sqjit_a64_helper_begin_stack_write
+            |          
+             --2.17%--sqjit_a64_helper_begin_stack_write
+
+     2.26%     0.00%  sqgi     sqgi                     [.] sq_member_raw_slot (inlined)
+            |
+            ---sq_member_raw_slot (inlined)
+
+     2.21%     0.00%  sqgi     [JIT] tid 441792         [.] 0x0000ffff8be382db
+            |
+            ---0xffff8be382db
+               |          
+                --2.17%--0xffff8be382db
+                          sqjit_a64_helper_publish_stack_write
+
+     2.15%     0.00%  sqgi     [JIT] tid 441792         [.] 0x0000ffff8be371f3
+            |
+            ---0xffff8be371f3
+
+     2.15%     0.00%  sqgi     [JIT] tid 441792         [.] 0x0000ffff8be3711b
+            |
+            ---0xffff8be3711b
+               |          
+                --2.08%--0xffff8be3711b
+                          sqjit_a64_helper_publish_stack_write
+
+     2.11%     0.00%  sqgi     sqgi                     [.] SQTable::GetRawSlot (inlined)
+            |
+            ---SQTable::GetRawSlot (inlined)
+
+     2.04%     2.04%  sqgi     sqgi                     [.] SQJitWriteLog::ReleaseEntry
+
+
+#
+# (Cannot load tips.txt file, please install perf!)
+#

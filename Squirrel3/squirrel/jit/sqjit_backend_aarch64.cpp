@@ -2,6 +2,9 @@
 #include "sqjit_backend_aarch64_private.h"
 #include "sqjit_code.h"
 #include "sqjit_typeflow.h"
+#include "sqjit_member_plan.h"
+#include "sqmemberslot.h"
+#include "sqjit_context.h"
 
 #if defined(__aarch64__) && defined(__linux__)
 
@@ -205,6 +208,57 @@ static const char *sqjit_a64_unsupported_loop_opcode_reason(unsigned char op)
 // calls remain local while the backend is still being pruned.
 #include "sqjit_backend_aarch64_helpers.inc"
 
+// Keep the journal object in the native invocation, like the x64 backend.
+// Entries and indexes still grow through the checked heap-allocation path.
+static bool sqjit_a64_emit_init_write_log(SQJitA64Buffer *buf,
+    SQInteger log_slot, SQInteger storage_slot, SQJitContext *context)
+{
+    static_assert(alignof(SQJitWriteLog) <= sizeof(SQInteger), "native frame alignment");
+    return sqjit_a64_emit_add_imm(buf, 0, 31, sqjit_a64_local_disp(log_slot)) &&
+        sqjit_a64_emit_add_imm(buf, 1, 31, sqjit_a64_local_disp(storage_slot)) &&
+        sqjit_a64_emit_mov_imm_x(buf, 2, (SQInteger)(intptr_t)context) &&
+        sqjit_a64_emit_mov_imm_x(buf, 16, (SQInteger)(intptr_t)sqjit_write_log_init_frame) &&
+        sqjit_a64_emit_blr_x16(buf);
+}
+
+static SQSlotSet sqjit_a64_overwritten_inputs(SQFunctionProto *proto,
+    const SQBytecodeAnalysis &analysis, SQInteger first, SQInteger last)
+{
+    SQSlotSet written;
+    bool may_write_stack = false;
+    for(SQInteger ip = first; ip <= last; ++ip) {
+        written |= analysis.facts[ip].writes;
+        switch(proto->_instructions[ip].op) {
+        case _OP_GET: case _OP_GETK: case _OP_CALL: case _OP_TAILCALL:
+        case _OP_NEWOBJ: case _OP_LOADNULLS:
+            may_write_stack = true; break;
+        default: break;
+        }
+    }
+    // Scalar locals live in the native frame, but generic object getters and
+    // call materialization can publish to the VM stack before later guards.
+    // Preserve only overwritten entry inputs, not every temporary or slot.
+    return may_write_stack ? written & analysis.live_in[first] : SQSlotSet();
+}
+
+static bool sqjit_a64_emit_capture_stack_inputs(SQJitA64Buffer *buf,
+    const SQSlotSet &inputs, SQInteger log_slot, SQJitA64Reloc *guards,
+    SQInteger *nguards)
+{
+    for(SQInteger reg = 0; reg < MAX_FUNC_STACKSIZE; ++reg) if(inputs.test(reg)) {
+        SQInteger patch = 0;
+        if(!sqjit_a64_emit_add_imm(buf, 0, 31, sqjit_a64_local_disp(log_slot)) ||
+            !sqjit_a64_emit_mov_reg(buf, 1, 19) ||
+            !sqjit_a64_emit_mov_imm_x(buf, 2, reg) ||
+            !sqjit_a64_emit_mov_imm_x(buf, 16, (SQInteger)(intptr_t)sqjit_a64_helper_capture_stack_input) ||
+            !sqjit_a64_emit_blr_x16(buf) || !sqjit_a64_emit_cmp_imm(buf, 0, 0) ||
+            !sqjit_a64_emit_bcond_placeholder(buf, SQ_JIT_A64_EQ, &patch) ||
+            !sqjit_a64_record_reloc(guards, nguards, SQ_JIT_A64_MAX_GUARD_RELOCS,
+                patch, -1, true, SQ_JIT_A64_EQ)) return false;
+    }
+    return true;
+}
+
 static bool sqjit_a64_emit_store_out_scalar(SQJitA64Buffer *buf, SQObjectType type, SQInteger slot,
     SQJitSlotKind kind)
 {
@@ -250,6 +304,154 @@ static bool sqjit_a64_emit_store_stack_scalar(SQJitA64Buffer *buf, SQInteger sta
         sqjit_a64_emit_str_x(buf, 10, 19, sqjit_a64_stack_value_disp(stack_slot));
 }
 
+// Emit a receiver-independent slot hint for a constant-key typed read. Every
+// miss enters the caller's ordinary lookup helper, not the region's rollback
+// exit. The observed receiver supplies only an index; generated code retains
+// no receiver/node pointer and rechecks the current table on every access.
+// Reference results have the same borrowed lifetime as the existing getter
+// helpers: the heap slot owns them, and logged writes retain displaced owners.
+// Weak references must miss, so normal lookup still dereferences them.
+static bool sqjit_a64_emit_table_read_hint(SQJitA64Buffer *buf,
+    const SQJitA64SlotState *slots, const SQObjectPtr *entry_stack,
+    SQInteger dst, SQInteger base, const SQObjectPtr *key,
+    SQObjectType value_type, SQInteger *done_patch)
+{
+    *done_patch = -1;
+    if(value_type != OT_INTEGER && value_type != OT_FLOAT &&
+        value_type != OT_ARRAY && !sqjit_a64_type_is_object_ptr(value_type)) return true;
+    const SQJitA64SlotState &state = slots[base];
+    SQTable *table = NULL;
+    if(state.kind == SQ_JIT_SLOT_OBJECT_PTR) {
+        if(state.object_ptr_observed_type == OT_TABLE)
+            table = (SQTable *)(intptr_t)state.object_ptr_observed;
+    }
+    else if(state.kind == SQ_JIT_SLOT_STACK_OBJECT) {
+        if(state.stack_object_observed_type == OT_TABLE)
+            table = (SQTable *)(intptr_t)state.stack_object_observed_ptr;
+        else if(state.stack_object_observed_type == OT_NULL && entry_stack &&
+            sqjit_a64_slot_index_valid(state.stack_object_reg) &&
+            sq_type(entry_stack[state.stack_object_reg]) == OT_TABLE)
+            table = _table(entry_stack[state.stack_object_reg]);
+    }
+    SQInteger index = -1;
+    SQObjectPtr ignored;
+    if(!table || !table->GetCacheSlot(*key, index, ignored)) return true;
+
+    SQInteger misses[5];
+    unsigned conditions[5];
+    unsigned count = 0;
+    auto miss = [&](unsigned cond) -> bool {
+        conditions[count] = cond;
+        return sqjit_a64_emit_bcond_placeholder(buf, cond, &misses[count++]);
+    };
+    if(state.kind == SQ_JIT_SLOT_STACK_OBJECT) {
+        if(!sqjit_a64_emit_ldr_w(buf, 9, 19,
+                sqjit_a64_stack_type_disp(state.stack_object_reg)) ||
+            !sqjit_a64_emit_mov_imm_w(buf, 10, OT_TABLE) ||
+            !sqjit_a64_emit_cmp_reg(buf, 9, 10) || !miss(SQ_JIT_A64_NE) ||
+            !sqjit_a64_emit_ldr_x(buf, 11, 19,
+                sqjit_a64_stack_value_disp(state.stack_object_reg))) return false;
+    }
+    else if(!sqjit_a64_emit_ldr_x(buf, 11, 31, sqjit_a64_local_disp(base))) {
+        return false;
+    }
+    if(!sqjit_a64_emit_ldr_x(buf, 9, 11, SQTable::RawNodeCountOffset()) ||
+        !sqjit_a64_emit_mov_imm_x(buf, 10, index) ||
+        !sqjit_a64_emit_cmp_reg(buf, 10, 9) || !miss(SQ_JIT_A64_GE) ||
+        !sqjit_a64_emit_ldr_x(buf, 11, 11, SQTable::RawNodesOffset()) ||
+        !sqjit_a64_emit_mov_imm_x(buf, 10, index * SQTable::RawNodeSize()) ||
+        !sqjit_a64_emit_add_reg(buf, 11, 11, 10) ||
+        !sqjit_a64_emit_ldr_w(buf, 9, 11,
+            SQTable::RawNodeKeyOffset() + offsetof(SQObject, _type)) ||
+        !sqjit_a64_emit_mov_imm_w(buf, 10, (uint32_t)sq_type(*key)) ||
+        !sqjit_a64_emit_cmp_reg(buf, 9, 10) || !miss(SQ_JIT_A64_NE) ||
+        !sqjit_a64_emit_ldr_x(buf, 9, 11,
+            SQTable::RawNodeKeyOffset() + offsetof(SQObject, _unVal)) ||
+        !sqjit_a64_emit_mov_imm_x(buf, 10, (SQInteger)_rawval(*key)) ||
+        !sqjit_a64_emit_cmp_reg(buf, 9, 10) || !miss(SQ_JIT_A64_NE) ||
+        !sqjit_a64_emit_ldr_w(buf, 9, 11,
+            SQTable::RawNodeValueOffset() + offsetof(SQObject, _type)) ||
+        !sqjit_a64_emit_mov_imm_w(buf, 10, (uint32_t)value_type) ||
+        !sqjit_a64_emit_cmp_reg(buf, 9, 10) || !miss(SQ_JIT_A64_NE)) return false;
+    SQInteger value_offset = SQTable::RawNodeValueOffset() + offsetof(SQObject, _unVal);
+    if(value_type == OT_FLOAT) {
+        if(!sqjit_a64_emit_ldr_float(buf, 0, 11, value_offset) ||
+            !sqjit_a64_emit_str_float(buf, 0, 31, sqjit_a64_local_disp(dst))) return false;
+    }
+    else if(!sqjit_a64_emit_ldr_x(buf, 9, 11, value_offset) ||
+        !sqjit_a64_emit_str_x(buf, 9, 31, sqjit_a64_local_disp(dst))) return false;
+    if(!sqjit_a64_emit_b_placeholder(buf, done_patch)) return false;
+    for(unsigned n = 0; n < count; ++n)
+        if(!sqjit_a64_patch_branch(buf, misses[n], buf->size, true, conditions[n])) return false;
+    return true;
+}
+
+static bool sqjit_a64_emit_reference_operand(SQJitA64Buffer *buf,
+    const SQJitA64SlotState *slots, SQInteger slot, unsigned bits, unsigned type)
+{
+    if(!sqjit_a64_slot_index_valid(slot)) return false;
+    const SQJitA64SlotState &state = slots[slot];
+    if(state.kind == SQ_JIT_SLOT_STACK_OBJECT) {
+        return sqjit_a64_slot_index_valid(state.stack_object_reg) &&
+            sqjit_a64_emit_add_imm(buf, bits, 19,
+                state.stack_object_reg * (SQInteger)sizeof(SQObjectPtr)) &&
+            sqjit_a64_emit_mov_imm_x(buf, type, 0);
+    }
+    SQObjectType observed = state.kind == SQ_JIT_SLOT_ARRAY_PTR ? OT_ARRAY :
+        state.kind == SQ_JIT_SLOT_OBJECT_PTR ? state.object_ptr_observed_type : OT_NULL;
+    return observed != OT_NULL &&
+        sqjit_a64_emit_ldr_x(buf, bits, 31, sqjit_a64_local_disp(slot)) &&
+        sqjit_a64_emit_mov_imm_x(buf, type, (SQInteger)observed);
+}
+
+static bool sqjit_a64_emit_reference_member_store(SQJitA64Buffer *buf,
+    const SQJitA64SlotState *slots, SQInteger log_slot, SQInteger base,
+    const SQObjectPtr *key, SQInteger value, SQJitContext *store_context,
+    bool capture_result)
+{
+    if(!key || !sqjit_a64_slot_index_valid(base) ||
+        (slots[base].kind != SQ_JIT_SLOT_STACK_OBJECT &&
+        slots[base].kind != SQ_JIT_SLOT_OBJECT_PTR)) return false;
+    return sqjit_a64_emit_add_imm(buf, 0, 31, sqjit_a64_local_disp(log_slot)) &&
+        sqjit_a64_emit_reference_operand(buf, slots, base, 1, 2) &&
+        sqjit_a64_emit_mov_imm_x(buf, 3, (SQInteger)(intptr_t)key) &&
+        sqjit_a64_emit_reference_operand(buf, slots, value, 4, 5) &&
+        sqjit_a64_emit_mov_imm_x(buf, 6, (SQInteger)(intptr_t)store_context) &&
+        sqjit_a64_emit_mov_imm_x(buf, 7, capture_result ? 1 : 0) &&
+        sqjit_a64_emit_mov_imm_x(buf, 16,
+            (SQInteger)(intptr_t)sqjit_a64_helper_member_set_reference_logged) &&
+        sqjit_a64_emit_blr_x16(buf);
+}
+
+static bool sqjit_a64_has_single_stack_write(const SQInstruction &inst)
+{
+    if(inst._arg0 == SQ_JIT_A64_NO_RESULT_SLOT) return false;
+    switch(inst.op) {
+    case _OP_LOAD: case _OP_LOADINT: case _OP_LOADFLOAT: case _OP_LOADBOOL:
+    case _OP_MOVE: case _OP_GET: case _OP_GETK: case _OP_GETOUTER:
+    case _OP_ADD: case _OP_SUB: case _OP_MUL: case _OP_DIV: case _OP_MOD:
+    case _OP_BITW: case _OP_NEG: case _OP_BWNOT: case _OP_NOT:
+    case _OP_EQ: case _OP_NE: case _OP_CMP: case _OP_SET:
+        return true;
+    default: return false;
+    }
+}
+
+static bool sqjit_a64_writes_private_result(const SQInstruction &inst)
+{
+    // These lowerings compute into native registers without publishing to the
+    // VM stack or calling user code. Their old destination can be staged after
+    // computation, and scalar results only need to release an owning slot.
+    switch(inst.op) {
+    case _OP_LOAD: case _OP_LOADINT: case _OP_LOADFLOAT: case _OP_LOADBOOL:
+    case _OP_MOVE: case _OP_ADD: case _OP_SUB: case _OP_MUL: case _OP_DIV:
+    case _OP_MOD: case _OP_NEG: case _OP_NOT: case _OP_EQ: case _OP_NE: case _OP_CMP:
+        return true;
+    default: return false;
+    }
+}
+
+#include "sqjit_backend_aarch64_precise.inc"
 #include "sqjit_backend_aarch64_compile_proto.inc"
 
 #include "sqjit_backend_aarch64_compile_loop.inc"

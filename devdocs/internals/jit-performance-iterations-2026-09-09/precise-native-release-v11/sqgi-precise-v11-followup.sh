@@ -1,0 +1,25 @@
+#!/bin/bash
+set -euo pipefail
+cd /home/sam/Programming/sqgi
+while kill -0 537254 2>/dev/null; do sleep 3; done
+python3 - <<'PY'
+from pathlib import Path
+import json
+r=Path('/tmp/sqgi-precise-native-release-study/results')
+for name in ['kernels-seed17','applications-seed17','applications-seed83','roots-seed17','members','owners','methods','floats']:
+ d=json.loads((r/(name+'.json')).read_text());assert 'medians' in d,name
+PY
+export SQGI_JIT_PRECISE_EXITS=1
+artifact=devdocs/internals/jit-performance-iterations-2026-09-09
+study=/tmp/sqgi-precise-native-release-study
+candidate=build-jit-audit-20260909/precise-native-release-v11/sqgi
+python3 "$artifact/summarize_study.py" "$study" > /tmp/sqgi-precise-v11-study-summary.log
+for suite in owners methods members; do
+ echo "START warmups4 $suite"
+ python3 tools/run_member_benchmarks.py --suite "$suite" --sqgi v9=build-jit-audit-20260909/precise-loop-variants-v9/sqgi --sqgi "v11=$candidate" --runs 5 --warmups 4 --iterations 200000 --cpu 4 --output "$study/$suite-v9-v11-w4.json" > "$study/$suite-v9-v11-w4.log" 2>&1
+ echo "DONE warmups4 $suite"
+done
+for mode in profitability profiles; do
+ python3 "$artifact/run_scalar_array_study.py" "$mode" --baseline build-jit-audit-20260909/baseline/sqgi --candidate "$candidate" --output "$study"
+done
+gdb -q -batch -x "$study/profiles/dump.gdb" "$candidate" > "$study/profiles/dump.log" 2>&1

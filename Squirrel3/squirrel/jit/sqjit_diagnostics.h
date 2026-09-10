@@ -26,6 +26,7 @@ struct SQJitDiagStats {
     SQInteger proto_exec_attempts;
     SQInteger proto_exec_successes;
     SQInteger proto_exec_guard_failures;
+    SQInteger proto_exec_side_exits;
     SQInteger direct_call_attempts;
     SQInteger direct_call_successes;
     SQInteger direct_call_misses;
@@ -61,6 +62,7 @@ struct SQJitDiagProtoStats {
     SQInteger exec_attempts;
     SQInteger exec_successes;
     SQInteger exec_guard_failures;
+    SQInteger exec_side_exits;
     SQInteger direct_attempts;
     SQInteger direct_successes;
     SQInteger direct_misses;

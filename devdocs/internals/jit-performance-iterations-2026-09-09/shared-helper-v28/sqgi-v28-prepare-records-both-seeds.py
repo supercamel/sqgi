@@ -1,0 +1,30 @@
+from pathlib import Path
+import json,shutil,ast
+R=Path('/home/sam/Programming/sqgi');S=Path('/tmp/sqgi-shared-helper-study')
+def convert(s):
+ return s.replace('v27','v28').replace('V27','V28').replace('v26','v27').replace('V26','V27').replace('cold-literal-lookup-v28','shared-helper-v28').replace('owning-postincrement-v27','cold-literal-lookup-v27').replace('/tmp/sqgi-cold-literal-lookup-study',str(S))
+s=convert(Path('/tmp/sqgi-v27-records-replication.py').read_text())
+s=s.replace("'seed':83,'iterations':n,'cpu':4,'unchanged", "'seeds_counts':{'17':200000,'83':400003},'cpu':4,'unchanged")
+s=s.replace('separately by warmup.', 'separately by seed/count and warmup.')
+s=s.replace(' for w in ([5,4] if block%2==0 else [4,5]):', ' for seed,n,w in [(seed,n,w) for seed,n in ([(83,400003),(17,200000)] if block%2==0 else [(17,200000),(83,400003)]) for w in ([5,4] if block%2==0 else [4,5])]:')
+s=s.replace("f'block{block+1}-w{w}.json'", "f'block{block+1}-seed{seed}-w{w}.json'")
+s=s.replace("'--seed=83'", "f'--seed={seed}'").replace("'seed':83,'iterations':n", "'seed':seed,'iterations':n")
+s=s.replace("print(block+1,w,rnd+1", "print(block+1,seed,w,rnd+1").replace("print('RECORDS_MEDIANS',block+1,w,", "print('RECORDS_MEDIANS',block+1,seed,w,")
+Path('/tmp/sqgi-v28-records-replication.py').write_text(s)
+s=convert(Path('/tmp/sqgi-v27-analyze-records-replication.py').read_text())
+s=s.replace("policy['warmups']==[5,4]", "policy['warmups']==[5,4] and policy['seeds_counts']=={'17':200000,'83':400003}")
+s=s.replace('for w in [5,4]:','for seed,n,w in [(seed,n,w) for seed,n in [(17,200000),(83,400003)] for w in [5,4]]:')
+s=s.replace("f'block{block}-w{w}.json'", "f'block{block}-seed{seed}-w{w}.json'")
+s=s.replace("m['seed']==83 and m['iterations']==400003", "m['seed']==seed and m['iterations']==n")
+s=s.replace(" original=json.loads((S/f'application-control-w{w}.json').read_text());rows={}"," original_path=S/f'application{\"-seed17\" if seed==17 else \"\"}-control-w{w}.json'\n original=json.loads(original_path.read_text());rows={}")
+s=s.replace('27000+w+ix*17','29000+seed*100+w+ix*17').replace('28000+w+ix*17','39000+seed*100+w+ix*17')
+s=s.replace('out[str(w)]=rows',"out[f'{seed}-w{w}']=rows")
+s=s.replace("'verified':True}","'verified':True,'original_control_hashes':{p.name:h(p) for p in [S/f'application{suffix}-control-w{w}.json' for suffix in ['', '-seed17'] for w in [5,4]]}}")
+Path('/tmp/sqgi-v28-analyze-records-replication.py').write_text(s)
+for name in ['records-replication.py','analyze-records-replication.py']:ast.parse(Path('/tmp/sqgi-v28-'+name).read_text())
+v=json.loads((S/'study-verification.json').read_text());assert not v['performance_acceptance_checks_pass']
+assert set(v['control_regressions_over_5pct'])=={'application-w5','application-seed17-w5'}
+assert all(names==['records_4096'] for fields in v['control_regressions_over_5pct'].values() for names in fields.values())
+assert not (S/'study-verification-initial-controls.json').exists();shutil.copy2(S/'study-verification.json',S/'study-verification-initial-controls.json')
+shutil.copy2('/tmp/sqgi-v28-verify-study.py','/tmp/sqgi-v28-verify-study-initial-controls.py')
+print('Fixed four-block replication prepared for BOTH seeds and BOTH warmups; initial failures preserved')

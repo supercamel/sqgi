@@ -1,0 +1,306 @@
+--- a/test/cpp/test_sqjit_side_exit.cpp
++++ b/test/cpp/test_sqjit_side_exit.cpp
+@@ -262,6 +262,37 @@
+             after.frame.side_exits == before.frame.side_exits+1,
+             "combined SET exits before either drop and preserves the committed prefix exactly once");
+     }
++    CHECK(run(v,_SC("witness_record.count=0; witness_record.seen=0;")), "reset ancestor-pin SET witness");
++    sqjit_observe_proto(combined_proto,before);
++    releases = 0;
++    sq_pushobject(v,combined_closure); sq_pushroottable(v);
++    witness = (ReleaseWitness *)sq_newuserdata(v,sizeof(ReleaseWitness));
++    witness->record = &record; witness->count = &releases;
++    sq_setreleasehook(v,-1,set_result_release);
++    _table(record)->Set(SQObjectPtr(SQString::Create(v->_sharedstate,_SC("current"))),v->GetUp(-1));
++    {
++        SQJitWriteLog parent(1000,sq_vm_malloc,&ctx);
++        CHECK(parent.RetainValue(v->GetUp(-1)), "parent pins the generated SET owner");
++        {
++            SQObjectPtr saved = v->GetUp(-1);
++            SQJitWriteLog ancestor(1000,sq_vm_malloc,&ctx);
++            CHECK(ancestor.RecordStackSlot(&saved), "another ancestor snapshots the same owner");
++            saved.Null();
++            sq_pushobject(v,record); sq_pushinteger(v,5);
++            CHECK(SQ_SUCCEEDED(sq_call(v,4,SQTrue,SQFalse)) && SQ_SUCCEEDED(sq_getinteger(v,-1,&result)) &&
++                result == 0 && releases == 0 && ctx.active_logs == &ancestor,
++                "precise return preserves both ancestors and their deferred release");
++            sq_settop(v,top);
++            _table(record)->Get(SQObjectPtr(SQString::Create(v->_sharedstate,_SC("count"))),count);
++            CHECK(_integer(count) == 1 && sqjit_observe_proto(combined_proto,after) &&
++                after.frame.side_exits == before.frame.side_exits+1,
++                "two journal pins cannot conceal a combined final drop in generated code");
++        }
++        CHECK(releases == 0 && ctx.active_logs == &parent,
++            "releasing one ancestor leaves the outer journal's pin intact");
++    }
++    CHECK(releases == 1 && !ctx.active_logs,
++        "final ancestor release sees the completed store exactly once");
+     combined_closure.Null();
+     closure.Null(); temp_closure.Null(); double_closure.Null(); record.Null(); count.Null();
+     sq_close(v);
+--- a/test/cpp/test_sqjit_write_log.cpp
++++ b/test/cpp/test_sqjit_write_log.cpp
+@@ -579,12 +579,62 @@
+     for(const auto &value : values) CHECK(_refcounted(value)->_uiRef == 1, "mixed pin-index cleanup balances references");
+ }
+ 
++static void contextual_release_tests(SQVM *v, int &rc)
++{
++    SQJitContext &ctx = sqjit_context(v->_sharedstate);
++    CHECK(!ctx.active_logs, "contextual predicate starts without a journal");
++    SQObjectPtr value(SQTable::Create(v->_sharedstate,0));
++    CHECK(!SQJitWriteLog::CanReleaseInContext(ctx,value), "context rejects the last graph owner");
++#ifndef NO_GARBAGE_COLLECTOR
++    _refcounted(value)->_uiRef |= MARK_FLAG;
++    CHECK(!SQJitWriteLog::CanReleaseInContext(ctx,value), "GC mark bit is not a surviving owner");
++    _refcounted(value)->_uiRef &= ~MARK_FLAG;
++#endif
++    SQObjectPtr alias = value;
++    CHECK(SQJitWriteLog::CanReleaseInContext(ctx,value) &&
++        !SQJitWriteLog::CanReleaseInContext(ctx,value,2), "no-journal proof honors combined drops");
++    {
++        SQJitWriteLog parent(1000,sq_vm_malloc,&ctx);
++        CHECK(parent.RetainValue(value), "prepare contextual ancestor pin");
++        {
++            SQJitWriteLog inner(1000,sq_vm_malloc,&ctx);
++            CHECK(inner.BeginStackWrite(&alias), "prepare an ancestor's pending write pin");
++            CHECK(SQJitWriteLog::CanReleaseInContext(ctx,value) &&
++                !SQJitWriteLog::CanReleaseInContext(ctx,value,2), "context excludes retained and pending pins");
++            alias.Null();
++            CHECK(!SQJitWriteLog::CanReleaseInContext(ctx,value), "context counts pending pins after the real alias dies");
++        }
++        CHECK(!SQJitWriteLog::CanReleaseInContext(ctx,value), "context follows the restored ancestor chain");
++    }
++    SQObjectPtr leaf(SQArray::Create(v->_sharedstate,2));
++    CHECK(SQJitWriteLog::CanReleaseInContext(ctx,leaf), "context retains the unobserved scalar-array proof");
++    SQObjectPtr weak(_array(leaf)->GetWeakRef(OT_ARRAY));
++    CHECK(!SQJitWriteLog::CanReleaseInContext(ctx,leaf), "context observes weak death for a final leaf drop");
++    SQObjectPtr real_alias = leaf;
++    CHECK(SQJitWriteLog::CanReleaseInContext(ctx,leaf), "real alias authorizes a weakly observed non-final drop");
++    {
++        allocations_left = 100;
++        SQJitWriteLog parent(1000,failing_allocate,&ctx);
++        SQObjectPtr target(SQTable::Create(v->_sharedstate,0));
++        for(SQInteger n=0;n<9;++n) {
++            _table(target)->NewSlot(SQObjectPtr(n),SQObjectPtr(n));
++            CHECK(parent.RecordMember(target,SQObjectPtr(n),*_table(target)->GetRawSlot(SQObjectPtr(n))),
++                "populate contextual pin-index allocation witness");
++        }
++        allocations_left = 1;
++        CHECK(!SQJitWriteLog::CanReleaseInContext(ctx,leaf),
++            "context preserves ancestor pin-index allocation failure even with a real alias");
++    }
++    CHECK(!ctx.active_logs, "contextual checks never register an empty child");
++}
++
+ int main()
+ {
+     int rc = 0;
+     SQVM *v = sq_open(64);
+     owner_index_tests(v, rc);
+     release_barrier_tests(v, rc);
++    contextual_release_tests(v, rc);
+     scalar_array_release_tests(v, rc);
+     logical_stack_tests(v, rc, false);
+     logical_stack_tests(v, rc, true);
+--- a/Squirrel3/squirrel/jit/sqjit_write_log.h
++++ b/Squirrel3/squirrel/jit/sqjit_write_log.h
+@@ -36,6 +36,10 @@
+     // drops includes other aliases discarded by the same atomic instruction.
+     // False means replay in the VM before observable destruction/weak death.
+     bool CanRelease(const SQObjectPtr &value, SQUnsignedInteger drops = 1);
++    // A canonical-slot activation has no journal of its own. Count any enclosing
++    // journals without registering an empty child. Call before adding local pins.
++    static bool CanReleaseInContext(SQJitContext &context, const SQObjectPtr &value,
++        SQUnsignedInteger drops = 1);
+     void Rollback();
+     SQUnsignedInteger Size() const { return _size + _value_size; }
+ 
+--- a/Squirrel3/squirrel/jit/sqjit_backend_aarch64_precise.inc
++++ b/Squirrel3/squirrel/jit/sqjit_backend_aarch64_precise.inc
+@@ -55,10 +55,10 @@
+ // Scalar values have no owner to release. Keep this check at the call site:
+ // the general journal predicate remains authoritative for every reference,
+ // including aliases, ancestor pins, weak observers and combined drops.
+-static inline bool sqjit_a64_precise_can_release(SQJitWriteLog *log,
++static inline bool sqjit_a64_precise_can_release(SQJitContext *context,
+     const SQObjectPtr &value, SQUnsignedInteger drops = 1)
+ {
+-    return !ISREFCOUNTED(sq_type(value)) || log->CanRelease(value, drops);
++    return !ISREFCOUNTED(sq_type(value)) || SQJitWriteLog::CanReleaseInContext(*context, value, drops);
+ }
+ 
+ static bool sqjit_a64_precise_arith(SQVM *vm, unsigned op, const SQObjectPtr &a,
+@@ -88,7 +88,7 @@
+ }
+ 
+ template<SQOpcode Op, bool ConstantKey = (Op == _OP_GETK)>
+-static SQInteger sqjit_a64_precise_step(SQJitWriteLog *log, SQObjectPtr *stack,
++static SQInteger sqjit_a64_precise_step(SQJitContext *context, SQObjectPtr *stack,
+     SQClosure *closure, SQInteger ip, SQObjectPtr *out, SQVM *vm, SQJitA64PreciseMemberCache *cache)
+ {
+     const SQInstruction &i = closure->_function->_instructions[ip];
+@@ -107,7 +107,7 @@
+         value = closure->_function->_literals[i._arg1]; break;
+     case _OP_MOVE:
+         // Check before making a helper-local pin: such pins are not real owners.
+-        if(!sqjit_a64_precise_can_release(log, stack[dst])) return 0;
++        if(!sqjit_a64_precise_can_release(context, stack[dst])) return 0;
+         stack[dst] = stack[i._arg1]; return 1;
+     case _OP_LOADNULLS:
+         // Multiple drops can remove aliases of one another. Initially keep all
+@@ -120,7 +120,7 @@
+         SQUnsignedInteger drops = dst != i._arg2 && ISREFCOUNTED(sq_type(stack[dst])) &&
+             sq_type(stack[dst]) == sq_type(stack[i._arg2]) &&
+             _rawval(stack[dst]) == _rawval(stack[i._arg2]) ? 2 : 1;
+-        if(!sqjit_a64_precise_can_release(log, stack[dst]) || !sqjit_a64_precise_can_release(log, stack[i._arg2], drops)) return 0;
++        if(!sqjit_a64_precise_can_release(context, stack[dst]) || !sqjit_a64_precise_can_release(context, stack[i._arg2], drops)) return 0;
+         stack[dst] = closure->_function->_literals[i._arg1];
+         stack[i._arg2] = closure->_function->_literals[i._arg3]; return 1;
+     }
+@@ -133,7 +133,7 @@
+         // Table/array/field reads dereference weak values; class methods do not.
+         const SQObject *source = raw ? (sq_type(*raw) == OT_WEAKREF ? &_weakref(*raw)->_obj : raw) :
+             sqjit_a64_borrow_member_value_with_root(stack, Op == _OP_GET ? i._arg1 : i._arg2, &key, root);
+-        if(!source || !sqjit_a64_precise_can_release(log, vm->temp_reg)) return 0;
++        if(!source || !sqjit_a64_precise_can_release(context, vm->temp_reg)) return 0;
+         // Read before the temporary drop, including raw weakref dereference.
+         // No checked release below can run a callback or destroy an observed
+         // graph. Destination/base/key aliases therefore remain valid here.
+@@ -154,7 +154,7 @@
+                 sq_type(_instance(receiver)->_class->_metamethods[MT_SET]) == OT_NULL;
+             if(plain) target = _table(vm->_roottable)->GetRawSlot(stack[i._arg2]);
+         }
+-        if(!target || !sqjit_a64_precise_can_release(log, *target)) return 0;
++        if(!target || !sqjit_a64_precise_can_release(context, *target)) return 0;
+         const bool result_write = dst != SQ_JIT_A64_NO_RESULT_SLOT && dst != i._arg3;
+         if(result_write) {
+             // The first write may discard another alias of the result's old
+@@ -162,7 +162,7 @@
+             SQUnsignedInteger drops = ISREFCOUNTED(sq_type(*target)) &&
+                 sq_type(*target) == sq_type(stack[dst]) &&
+                 _rawval(*target) == _rawval(stack[dst]) ? 2 : 1;
+-            if(!sqjit_a64_precise_can_release(log, stack[dst], drops)) return 0;
++            if(!sqjit_a64_precise_can_release(context, stack[dst], drops)) return 0;
+         }
+         *target = stack[i._arg3];
+         if(result_write) stack[dst] = stack[i._arg3];
+@@ -184,7 +184,7 @@
+     case _OP_PINCL: {
+         SQObjectPtr increment((SQInteger)(signed char)i._arg3);
+         if(!sqjit_a64_precise_arith(vm, '+', stack[i._arg1], increment, value) ||
+-            !sqjit_a64_precise_can_release(log, stack[dst])) return 0;
++            !sqjit_a64_precise_can_release(context, stack[dst])) return 0;
+         stack[dst] = stack[i._arg1];
+         stack[i._arg1] = value;
+         return 1;
+@@ -201,7 +201,7 @@
+         if(!sq_isnumeric(left) || !sq_isnumeric(right)) return 0;
+         if(!vm->CMP_OP((CmpOP)i._arg3, left, right, value)) return 0;
+         if(Op != _OP_JCMP) break;
+-        if(!sqjit_a64_precise_can_release(log, vm->temp_reg)) return 0;
++        if(!sqjit_a64_precise_can_release(context, vm->temp_reg)) return 0;
+         vm->temp_reg = value;
+         return vm->IsFalse(value) ? 1 : 2;
+     }
+@@ -212,12 +212,12 @@
+         return 1;
+     default: return 0;
+     }
+-    if(!sqjit_a64_precise_can_release(log, stack[dst])) return 0;
++    if(!sqjit_a64_precise_can_release(context, stack[dst])) return 0;
+     stack[dst] = value;
+     return 1;
+ }
+ 
+-typedef SQInteger (*SQJitA64PreciseStep)(SQJitWriteLog *, SQObjectPtr *,
++typedef SQInteger (*SQJitA64PreciseStep)(SQJitContext *, SQObjectPtr *,
+     SQClosure *, SQInteger, SQObjectPtr *, SQVM *, SQJitA64PreciseMemberCache *);
+ 
+ // Select once during compilation. Each helper has a constant opcode, allowing
+@@ -417,12 +417,13 @@
+         cache_at[ip] = n;
+     }
+     SQJitA64Buffer buf; buf.size = 0;
+-    const SQInteger log_slot = 0, log_storage = 1;
+-    const SQInteger cache_storage = (sizeof(SQJitWriteLog) + sizeof(SQInteger) + 15) & ~SQInteger(15);
++    const SQInteger context_slot = 0;
++    const SQInteger cache_storage = 16;
+     SQInteger frame_size = (cache_storage + cache_count * sizeof(SQJitA64PreciseMemberCache) + 15) & ~SQInteger(15);
+     static_assert(alignof(SQJitA64PreciseMemberCache) <= 16, "native cache alignment");
+     if(frame_size > 4095 || !sqjit_a64_emit_prologue(&buf, frame_size) ||
+-        !sqjit_a64_emit_init_write_log(&buf, log_slot, log_storage, &sqjit_context(proto->_sharedstate))) return false;
++        !sqjit_a64_emit_mov_imm_x(&buf,9,(SQInteger)(intptr_t)&sqjit_context(proto->_sharedstate)) ||
++        !sqjit_a64_emit_str_x(&buf,9,31,sqjit_a64_local_disp(context_slot))) return false;
+     if(cache_count && (!sqjit_a64_emit_add_imm(&buf,0,31,cache_storage) ||
+         !sqjit_a64_emit_mov_imm_x(&buf,1,cache_count) ||
+         !sqjit_a64_emit_mov_imm_x(&buf,16,(SQInteger)(intptr_t)sqjit_a64_precise_init_caches) ||
+@@ -434,11 +435,6 @@
+     SQInteger offsets[SQ_JIT_A64_IP_TABLE_SIZE];
+     SQJitA64Reloc branches[SQ_JIT_A64_MAX_RELOCS], guards[SQ_JIT_A64_MAX_GUARD_RELOCS];
+     SQInteger nbranches = 0, nguards = 0;
+-    auto release = [&]() {
+-        return sqjit_a64_emit_add_imm(&buf, 0, 31, sqjit_a64_local_disp(log_slot)) &&
+-            sqjit_a64_emit_mov_imm_x(&buf, 16, (SQInteger)(intptr_t)sqjit_a64_helper_write_log_commit) &&
+-            sqjit_a64_emit_blr_x16(&buf);
+-    };
+     for(SQInteger ip=0; ip<proto->_ninstructions; ++ip) {
+         offsets[ip] = buf.size;
+         const SQInstruction &i = proto->_instructions[ip];
+@@ -459,14 +455,14 @@
+                 cache_storage + cache_at[ip] * sizeof(SQJitA64PreciseMemberCache))) return false;
+         }
+         else if(!sqjit_a64_emit_mov_imm_x(&buf,6,0)) return false;
+-        if(!sqjit_a64_emit_ldr_x(&buf, 0, 31, sqjit_a64_local_disp(log_slot)) ||
++        if(!sqjit_a64_emit_ldr_x(&buf, 0, 31, sqjit_a64_local_disp(context_slot)) ||
+             !sqjit_a64_emit_mov_reg(&buf, 1, 19) || !sqjit_a64_emit_mov_reg(&buf, 2, 21) ||
+             !sqjit_a64_emit_mov_imm_x(&buf, 3, ip) || !sqjit_a64_emit_mov_reg(&buf, 4, 20) ||
+             !sqjit_a64_emit_mov_reg(&buf, 5, 22) ||
+             !sqjit_a64_emit_mov_imm_x(&buf, 16, (SQInteger)(intptr_t)step) ||
+             !sqjit_a64_emit_blr_x16(&buf)) return false;
+         if(i.op == _OP_RETURN) {
+-            if(!release() || !sqjit_a64_emit_epilogue(&buf, frame_size, SQ_JIT_NATIVE_RETURNED)) return false;
++            if(!sqjit_a64_emit_epilogue(&buf, frame_size, SQ_JIT_NATIVE_RETURNED)) return false;
+             continue;
+         }
+         if(!sqjit_a64_emit_cmp_imm(&buf, 0, 0) ||
+@@ -483,7 +479,7 @@
+     }
+     for(SQInteger n=0; n<nguards; ++n) {
+         const SQJitA64Reloc &g = guards[n];
+-        if(!sqjit_a64_patch_branch(&buf, g.patch_offset, buf.size, true, g.cond) || !release() ||
++        if(!sqjit_a64_patch_branch(&buf, g.patch_offset, buf.size, true, g.cond) ||
+             !sqjit_a64_emit_mov_imm_w(&buf, 9, (uint32_t)OT_INTEGER) ||
+             !sqjit_a64_emit_str_w(&buf, 9, 20, (SQInteger)offsetof(SQObject, _type)) ||
+             !sqjit_a64_emit_mov_imm_x(&buf, 9, g.target_ip) ||
+--- a/Squirrel3/squirrel/jit/sqjit_write_log.cpp
++++ b/Squirrel3/squirrel/jit/sqjit_write_log.cpp
+@@ -179,6 +179,28 @@
+     if(references > pins && references - pins > drops) return true;
+     if(_context && _context->trace) scprintf(_SC("[sqjit] release guard: tag=%u refs=%llu journal_pins=%llu\n"),
+         (unsigned)sq_type(value), (unsigned long long)references, (unsigned long long)pins);
++    return false;
++}
++
++bool SQJitWriteLog::CanReleaseInContext(SQJitContext &context,
++    const SQObjectPtr &value, SQUnsignedInteger drops)
++{
++    // An ancestor may retain heap, stack or pending-value pins. Keep its exact
++    // census, allocation-failure and observable-final-drop behavior.
++    if(context.active_logs) return context.active_logs->CanRelease(value, drops);
++    if(!ISREFCOUNTED(sq_type(value))) return true;
++    SQRefCounted *owner = _refcounted(value);
++    SQUnsignedInteger references = owner->_uiRef;
++#ifndef NO_GARBAGE_COLLECTOR
++    references &= ~MARK_FLAG;
++#endif
++    // No journal or helper-local pin exists here. A surviving program owner
++    // makes the drop non-final without inspecting the container's children.
++    if(references > drops) return true;
++    if((sq_type(value) == OT_STRING || sq_type(value) == OT_WEAKREF) && !owner->_weakref) return true;
++    if(sqjit_unobservable_scalar_array(value)) return true;
++    if(context.trace) scprintf(_SC("[sqjit] release guard: tag=%u refs=%llu journal_pins=0\n"),
++        (unsigned)sq_type(value), (unsigned long long)references);
+     return false;
+ }
+ 

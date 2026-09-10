@@ -367,6 +367,16 @@ bool SQJitX64Memory::MemberSetLiteral(SQInteger dst, SQInteger base, SQInteger l
     auto byte = [&](unsigned char b) { return sqjit_native_emit_u8(&_buf, b); };
     auto disp = [&](SQInteger d) { return sqjit_native_emit_i32(&_buf, d); };
     auto local = [&](size_t offset) { return cell - (SQInteger)(offset / sizeof(SQInteger)); };
+    if(owner) {
+        // A cached undo owner proves physical liveness, not another program
+        // owner. Reference writes still need the shared release-effect check.
+        if(!sqjit_native_emit_lea_rdi_mem(&_buf, log) || !sqjit_native_emit_lea_rsi_mem(&_buf, cell) ||
+            !sqjit_native_emit_mov_rdx_mem(&_buf, value) ||
+            !sqjit_native_emit_mov_rcx_imm64(&_buf, type) ||
+            !sqjit_native_emit_mov_rax_ptr(&_buf, (const void *)sqjit_member_cell_store) ||
+            !HelperResult(0xff)) return false;
+        return dst == 0xff || CopyObject(dst, value);
+    }
     std::vector<SQInteger> slow;
     auto miss = [&](SQJitNativeJcc condition) {
         SQInteger patch;
@@ -378,34 +388,14 @@ bool SQJitX64Memory::MemberSetLiteral(SQInteger dst, SQInteger base, SQInteger l
     if(!sqjit_native_emit_mov_rdx_mem(&_buf, cell) ||
         !byte(0x81) || !byte(0xba) || !disp(offsetof(SQObject, _type)) || !disp(type) ||
         !miss(SQ_JIT_JCC_NE)) return false;
-    if(owner) {
-        if(!byte(0x81) || !byte(0xbd) ||
-            !sqjit_native_emit_rbp_disp32(&_buf, local(offsetof(SQJitMemberCell, retained_type))) ||
-            !disp(type) || !miss(SQ_JIT_JCC_NE) ||
-            !byte(0x48) || !byte(0x8b) || !byte(0x8a) || !disp(offsetof(SQObject, _unVal))) return false;
-        SQInteger hit;
-        // cmp rcx,[retained[0]]; je hit; cmp rcx,[retained[1]]; jne slow
-        if(!byte(0x48) || !byte(0x3b) || !byte(0x8d) ||
-            !sqjit_native_emit_rbp_disp32(&_buf, local(offsetof(SQJitMemberCell, retained))) ||
-            !sqjit_native_emit_jcc_placeholder(&_buf, SQ_JIT_JCC_E, &hit) ||
-            !byte(0x48) || !byte(0x3b) || !byte(0x8d) ||
-            !sqjit_native_emit_rbp_disp32(&_buf, local(offsetof(SQJitMemberCell, retained) + sizeof(void *))) ||
-            !miss(SQ_JIT_JCC_NE) || !sqjit_native_patch_i32(&_buf, hit, _buf.size - hit - 4)) return false;
-    }
-    else if(!byte(0x83) || !byte(0xbd) ||
+    if(!byte(0x83) || !byte(0xbd) ||
         !sqjit_native_emit_rbp_disp32(&_buf, local(offsetof(SQJitMemberCell, logged))) ||
         !byte(0x00) || !miss(SQ_JIT_JCC_E)) return false;
     // Floating payloads live in the flushed frame, even when this bytecode
     // register has an integer pin from another use.
     if(!(type == OT_FLOAT ? sqjit_native_emit_mov_rax_local_mem(&_buf, value) :
         sqjit_native_emit_mov_rax_mem(&_buf, value))) return false;
-    if(owner && (!byte(0x48) || !byte(0x83) || !byte(0x80) ||
-        !disp(offsetof(SQRefCounted, _uiRef)) || !byte(0x01))) return false;
     if(!byte(0x48) || !byte(0x89) || !byte(0x82) || !disp(offsetof(SQObject, _unVal))) return false;
-    // A cached displaced owner has a strong undo-log reference. Decrementing
-    // the heap reference cannot destroy it or execute a release hook here.
-    if(owner && (!byte(0x48) || !byte(0x83) || !byte(0xa9) ||
-        !disp(offsetof(SQRefCounted, _uiRef)) || !byte(0x01))) return false;
     SQInteger done;
     if(!sqjit_native_emit_jmp_placeholder(&_buf, &done)) return false;
     for(SQInteger patch : slow)
@@ -417,7 +407,6 @@ bool SQJitX64Memory::MemberSetLiteral(SQInteger dst, SQInteger base, SQInteger l
         !sqjit_native_emit_mov_rax_ptr(&_buf, (const void *)sqjit_member_cell_store) || !HelperResult(0xff) ||
         !sqjit_native_patch_i32(&_buf, done, _buf.size - done - 4)) return false;
     if(dst == 0xff) return true;
-    if(owner) return CopyObject(dst, value);
     if(type == OT_FLOAT) {
         if(!sqjit_native_emit_mov_xmm0_local_float(&_buf, value) ||
             !sqjit_native_emit_mov_local_float_xmm0(&_buf, dst)) return false;

@@ -1,0 +1,395 @@
+--- a/Squirrel3/squirrel/jit/sqjit_backend_aarch64_compile_loop.inc
++++ b/Squirrel3/squirrel/jit/sqjit_backend_aarch64_compile_loop.inc
+@@ -813,8 +813,8 @@
+             return true;
+         }
+         if(dst < 0 || dst >= MAX_FUNC_STACKSIZE || !ensure_float_slot(src) ||
+-            !sqjit_a64_emit_ldr_x(&buf, 9, 31, sqjit_a64_local_disp(src)) ||
+-            !sqjit_a64_emit_str_x(&buf, 9, 31, sqjit_a64_local_disp(dst)) ||
++            !sqjit_a64_emit_ldr_float(&buf, 0, 31, sqjit_a64_local_disp(src)) ||
++            !sqjit_a64_emit_str_float(&buf, 0, 31, sqjit_a64_local_disp(dst)) ||
+             !mark_float_slot(dst)) {
+             return false;
+         }
+@@ -3104,9 +3104,9 @@
+                 }
+                 if(kind == SQ_JIT_SLOT_FLOAT) {
+                     if(!ensure_float_slot(src) ||
+-                        !sqjit_a64_emit_ldr_x(&buf, 9, 31,
++                        !sqjit_a64_emit_ldr_float(&buf, 0, 31,
+                         sqjit_a64_local_disp(src)) ||
+-                        !sqjit_a64_emit_str_x(&buf, 9, 31,
++                        !sqjit_a64_emit_str_float(&buf, 0, 31,
+                         sqjit_a64_local_disp(dst)) ||
+                         !mark_float_slot(dst)) {
+                         return false;
+@@ -5227,6 +5227,8 @@
+         else if(!sqjit_a64_patch_branch(&buf, entry_guard_jump, loop_entry_offset, false, 0)) return false;
+     }
+ 
++    if(scalar_guard_region) sqjit_a64_forward_local_slots(&buf,MAX_FUNC_STACKSIZE);
++
+     if(!code->Install(buf.bytes, buf.size))
+         return attempt.Reject(-1, SQ_JIT_REJECT_RESOURCE, "executable memory installation failed");
+     if(root_object) code->RetainWeakReference(closure->_root);
+--- a/Squirrel3/squirrel/jit/sqjit_backend_aarch64_emit.cpp
++++ b/Squirrel3/squirrel/jit/sqjit_backend_aarch64_emit.cpp
+@@ -3,6 +3,8 @@
+ #include "sqjit_backend_aarch64_emit.h"
+ #include <stddef.h>
+ #include <string.h>
++#include <vector>
++#include <algorithm>
+ 
+ 
+ static bool sqjit_a64_is_i12(SQInteger value)
+@@ -382,3 +384,161 @@
+         sqjit_a64_record_reloc(guard_relocs, nguard_relocs, MAX_FUNC_STACKSIZE + 512,
+             patch_offset, -1, true, SQ_JIT_A64_NE);
+ }
++
++// Forward private 64-bit slot traffic inside straight-line regions. Scratch
++// d16-d31 are caller-clobbered; reject input code that uses them. Every branch,
++// helper call, unknown operation, SP change or possible alias materializes the
++// private frame first. All branch displacements are rebuilt transactionally.
++bool sqjit_a64_forward_local_slots(SQJitA64Buffer *buf, SQInteger slots)
++{
++    if(!buf || sizeof(SQInteger)!=8 || sizeof(SQFloat)!=8 || slots<=0 ||
++        slots>MAX_FUNC_STACKSIZE || buf->size<=0 || buf->size%4 ||
++        buf->size>(SQInteger)sizeof(buf->bytes)) return false;
++    const SQInteger count=buf->size/4;
++    std::vector<uint32_t> input((size_t)count);
++    memcpy(input.data(),buf->bytes,(size_t)buf->size);
++    std::vector<SQInteger> targets((size_t)count,-1), offsets((size_t)count+1,-1);
++    std::vector<unsigned char> leaders((size_t)count+1,0);
++    leaders[0]=leaders[count]=1;
++    auto branch_bits=[](uint32_t w)->unsigned {
++        if((w&0x7c000000u)==0x14000000u) return 26;
++        if((w&0xff000010u)==0x54000000u || (w&0x7e000000u)==0x34000000u) return 19;
++        if((w&0x7e000000u)==0x36000000u) return 14;
++        return 0;
++    };
++    auto fp_safe=[](uint32_t w)->bool {
++        const unsigned rd=w&31, rn=(w>>5)&31, rm=(w>>16)&31;
++        // Generated double arithmetic, negate, comparison and int conversion.
++        const uint32_t binary=w&0xffe0fc00u;
++        if(binary==0x1e602800u || binary==0x1e603800u ||
++            binary==0x1e600800u || binary==0x1e601800u)
++            return rd<8 && rn<8 && rm<8;
++        if((w&0xfffffc00u)==0x1e614000u) return rd<8 && rn<8;
++        if((w&0xffe0fc1fu)==0x1e602000u) return rn<8 && rm<8;
++        if((w&0xfffffc00u)==0x9e620000u) return rd<8;
++        return false;
++    };
++    for(SQInteger i=0;i<count;++i) {
++        const uint32_t w=input[i];const unsigned bits=branch_bits(w);
++        if(bits) {
++            const unsigned shift=bits==26 ? 0 : 5;
++            SQInteger displacement=(w>>shift)&((1u<<bits)-1);
++            if(displacement&(SQInteger(1)<<(bits-1))) displacement-=SQInteger(1)<<bits;
++            SQInteger target=i+displacement;
++            if(target<0 || target>count) return false;
++            targets[i]=target;leaders[target]=1;leaders[i+1]=1;
++        }
++        // No unhandled PC-relative literal/address relocations.
++        if((w&0x1f000000u)==0x10000000u || (w&0x3b000000u)==0x18000000u) return false;
++        const bool memory=(w&0x0a000000u)==0x08000000u;
++        if(memory && (w&0x04000000u)) {
++            // Only scalar double loads/stores to the emitter's d0-d7 are known.
++            if(((w&0xffc00000u)!=0xfd000000u && (w&0xffc00000u)!=0xfd400000u) || (w&31)>=8)
++                return false;
++        }
++        else if((w&0x1e000000u)==0x0e000000u || (w&0x1e000000u)==0x1e000000u) {
++            if(!fp_safe(w)) return false;
++        }
++    }
++    SQJitA64Buffer output={};
++    struct Entry { SQInteger slot; unsigned age; } cache[16];
++    for(unsigned r=0;r<16;++r) { cache[r].slot=-1;cache[r].age=0; }
++    unsigned age=0, forwarded=0;
++    auto spill=[&](unsigned r)->bool {
++        if(cache[r].slot<0) return true;
++        // STR D keeps integer, pointer and floating payload bits unchanged.
++        return sqjit_a64_emit_u32(&output,0xfd0003e0u |
++            ((uint32_t)cache[r].slot<<10) | (16+r));
++    };
++    auto flush=[&]()->bool {
++        for(unsigned r=0;r<16;++r) { if(!spill(r)) return false;cache[r].slot=-1; }
++        return true;
++    };
++    auto pure=[&](uint32_t w)->bool {
++        if(fp_safe(w)) return true;
++        if((w&0x1f800000u)==0x12800000u) return true; // MOVZ/MOVN/MOVK
++        if((w&0x1f000000u)==0x11000000u) // add/sub immediate; SP changes are barriers
++            return (w&31)!=31 || (w&0x20000000u);
++        if((w&0x1f200000u)==0x0b000000u || (w&0x1f000000u)==0x0a000000u) return true;
++        if((w&0xffe0fc00u)==0x9ac00c00u || (w&0xff000000u)==0x9b000000u) return true;
++        return false;
++    };
++    // Cache only stores that feed a later access in this region. An
++    // overwritten, unread store is dead; a final write can stay in memory
++    // without paying for a scratch move followed by a spill at the boundary.
++    std::vector<unsigned char> next_access((size_t)count,0), next((size_t)slots,0);
++    for(SQInteger i=count;i-- > 0;) {
++        if(leaders[i+1]) std::fill(next.begin(),next.end(),0);
++        const uint32_t w=input[i],op=w&0xffc00000u;
++        const bool load=op==0xf9400000u || op==0xfd400000u;
++        const bool store=op==0xf9000000u || op==0xfd000000u;
++        const SQInteger slot=(w>>10)&4095;
++        if((load || store) && ((w>>5)&31)==31 && slot<slots &&
++            ((op==0xfd400000u || op==0xfd000000u) || (w&31)!=31)) {
++            next_access[i]=next[slot];next[slot]=load ? 1 : 2;
++        }
++        else if(!pure(w)) std::fill(next.begin(),next.end(),0);
++    }
++    for(SQInteger i=0;i<count;++i) {
++        if(leaders[i] && !flush()) return false;
++        offsets[i]=output.size;
++        const uint32_t w=input[i], op=w&0xffc00000u;
++        const bool load=op==0xf9400000u || op==0xfd400000u;
++        const bool store=op==0xf9000000u || op==0xfd000000u;
++        const bool floating=op==0xfd400000u || op==0xfd000000u;
++        const SQInteger slot=(w>>10)&4095;
++        const unsigned rt=w&31;
++        if((load || store) && ((w>>5)&31)==31 && slot<slots && (floating || rt!=31)) {
++            int selected=-1;
++            for(unsigned r=0;r<16;++r) if(cache[r].slot==slot) selected=(int)r;
++            if(store) {
++                if(next_access[i]!=1) {
++                    if(selected>=0) cache[selected].slot=-1;
++                    if(next_access[i]==2) { ++forwarded;continue; }
++                    if(!sqjit_a64_emit_u32(&output,w)) return false;
++                    continue;
++                }
++                if(selected<0) {
++                    for(unsigned r=0;r<16;++r) if(cache[r].slot<0) {selected=(int)r;break;}
++                    if(selected<0) {
++                        selected=0;
++                        for(unsigned r=1;r<16;++r) if(cache[r].age<cache[selected].age) selected=(int)r;
++                        if(!spill((unsigned)selected)) return false;
++                    }
++                }
++                else ++forwarded;
++                cache[selected].slot=slot;cache[selected].age=++age;
++                // FMOV Dcache,Dsrc or FMOV Dcache,Xsrc; both preserve all bits.
++                if(!sqjit_a64_emit_u32(&output,(floating ? 0x1e604000u : 0x9e670000u) |
++                    (rt<<5) | (16+(unsigned)selected))) return false;
++                continue;
++            }
++            if(selected>=0) {
++                ++forwarded;cache[selected].age=++age;
++                if(!sqjit_a64_emit_u32(&output,(floating ? 0x1e604000u : 0x9e660000u) |
++                    ((16+(unsigned)selected)<<5) | rt)) return false;
++                continue;
++            }
++            if(!sqjit_a64_emit_u32(&output,w)) return false;
++            continue;
++        }
++        // Memory outside the exact private slot, calls and unknown operations
++        // can observe aliases or clobber scratch state. Flush before them.
++        if(!pure(w) && !flush()) return false;
++        // A relocated branch must name its instruction, after preceding spills.
++        if(targets[i]>=0) offsets[i]=output.size;
++        if(!sqjit_a64_emit_u32(&output,w)) return false;
++    }
++    if(!flush() || !forwarded) return false;
++    offsets[count]=output.size;
++    for(SQInteger i=0;i<count;++i) if(targets[i]>=0) {
++        const unsigned bits=branch_bits(input[i]), shift=bits==26 ? 0 : 5;
++        const SQInteger displacement=(offsets[targets[i]]-offsets[i])/4;
++        if(displacement<-(SQInteger(1)<<(bits-1)) || displacement>=(SQInteger(1)<<(bits-1))) return false;
++        const uint32_t mask=((1u<<bits)-1)<<shift;
++        const uint32_t word=(input[i]&~mask) | (((uint32_t)displacement<<shift)&mask);
++        memcpy(output.bytes+offsets[i],&word,4);
++    }
++    *buf=output;
++    return true;
++}
+--- a/Squirrel3/squirrel/jit/sqjit_backend_aarch64_emit.h
++++ b/Squirrel3/squirrel/jit/sqjit_backend_aarch64_emit.h
+@@ -87,4 +87,7 @@
+ bool sqjit_a64_emit_type_guard(SQJitA64Buffer *buf, SQInteger stack_slot, SQObjectType type,
+     SQJitA64Reloc *guard_relocs, SQInteger *nguard_relocs);
+ 
++// Optional transactional private-slot forwarding; false preserves the input.
++bool sqjit_a64_forward_local_slots(SQJitA64Buffer *buf, SQInteger slots);
++
+ #endif
+--- a/test/cpp/test_sqjit_aarch64_emit.cpp
++++ b/test/cpp/test_sqjit_aarch64_emit.cpp
+@@ -7,6 +7,10 @@
+ #include <stdio.h>
+ #include <string.h>
+ #include <limits>
++#include <initializer_list>
++#if defined(__aarch64__) && defined(__linux__)
++#include <sys/mman.h>
++#endif
+ 
+ #define CHECK(cond, msg) \
+     do { if (!(cond)) { fprintf(stderr, "FAIL: %s\n", msg); rc = 1; } } while (0)
+@@ -17,6 +21,153 @@
+     memcpy(&value, &buf.bytes[index * 4], sizeof(value));
+     return value;
+ }
++
++static int forwarding_encoding_tests()
++{
++    int rc=0;SQJitA64Buffer buf={};
++    sqjit_a64_emit_mov_imm_x(&buf,9,42);
++    sqjit_a64_emit_str_x(&buf,9,31,0);
++    sqjit_a64_emit_ldr_x(&buf,10,31,0);
++    sqjit_a64_emit_u32(&buf,0xd65f03c0u);
++    CHECK(sqjit_a64_forward_local_slots(&buf,1),"private store/load is forwarded");
++    CHECK(word_at(buf,1)==0x9e670130u && word_at(buf,2)==0x9e66020au,
++        "integer payload forwarding uses bit-preserving FP moves");
++    CHECK(word_at(buf,3)==0xfd0003f0u && word_at(buf,4)==0xd65f03c0u,
++        "dirty private slot materializes before return");
++    SQJitA64Buffer bad={};sqjit_a64_emit_u32(&bad,0x14000010u);
++    SQJitA64Buffer old=bad;
++    CHECK(!sqjit_a64_forward_local_slots(&bad,1) && memcmp(&old,&bad,sizeof(bad))==0,
++        "out-of-range branch refuses transaction without changing bytes");
++    bad={};sqjit_a64_emit_u32(&bad,0x1e702800u);old=bad; // fadd d0,d0,d16
++    CHECK(!sqjit_a64_forward_local_slots(&bad,1) && memcmp(&old,&bad,sizeof(bad))==0,
++        "input scratch-FP use refuses forwarding");
++    bad={};sqjit_a64_emit_mov_imm_x(&bad,9,42);sqjit_a64_emit_str_x(&bad,9,31,0);
++    sqjit_a64_emit_ldr_x(&bad,10,31,0);
++    while(bad.size<(SQInteger)sizeof(bad.bytes)) sqjit_a64_emit_u32(&bad,0xd503201fu);
++    old=bad;
++    CHECK(!sqjit_a64_forward_local_slots(&bad,1) && memcmp(&old,&bad,sizeof(bad))==0,
++        "forwarding buffer exhaustion preserves the complete prior artifact");
++    return rc;
++}
++
++#if defined(__aarch64__) && defined(__linux__)
++static SQUnsignedInteger forwarding_helper_saw=0;
++static void forwarding_clobber(SQUnsignedInteger *slots)
++{
++    forwarding_helper_saw=slots[0];++slots[0];
++    asm volatile(
++        "movi v16.16b,#90\n\tmovi v17.16b,#90\n\tmovi v18.16b,#90\n\tmovi v19.16b,#90\n\t"
++        "movi v20.16b,#90\n\tmovi v21.16b,#90\n\tmovi v22.16b,#90\n\tmovi v23.16b,#90\n\t"
++        "movi v24.16b,#90\n\tmovi v25.16b,#90\n\tmovi v26.16b,#90\n\tmovi v27.16b,#90\n\t"
++        "movi v28.16b,#90\n\tmovi v29.16b,#90\n\tmovi v30.16b,#90\n\tmovi v31.16b,#90"
++        ::: "v16","v17","v18","v19","v20","v21","v22","v23",
++            "v24","v25","v26","v27","v28","v29","v30","v31","memory");
++}
++static int forwarding_native_tests()
++{
++    int rc=0;
++    for(int mode=0;mode<9;++mode) {
++        SQJitA64Buffer original={};sqjit_a64_emit_prologue(&original,256);
++        SQInteger target=-1;
++        if(mode==0) {
++            sqjit_a64_emit_ldr_x(&original,9,19,8);
++            sqjit_a64_emit_str_x(&original,9,31,0);
++            sqjit_a64_emit_ldr_float(&original,0,31,0);
++            sqjit_a64_emit_str_float(&original,0,31,8);
++            sqjit_a64_emit_ldr_x(&original,9,31,8);
++        }
++        else if(mode==1) {
++            sqjit_a64_emit_mov_imm_x(&original,9,41);sqjit_a64_emit_str_x(&original,9,31,0);
++            sqjit_a64_emit_ldr_x(&original,9,31,0);sqjit_a64_emit_add_imm(&original,9,9,1);
++            sqjit_a64_emit_str_x(&original,9,31,0);
++            sqjit_a64_emit_add_imm(&original,0,31,0);
++            sqjit_a64_emit_mov_imm_x(&original,16,(SQInteger)(intptr_t)forwarding_clobber);
++            sqjit_a64_emit_blr_x16(&original);sqjit_a64_emit_ldr_x(&original,9,31,0);
++        }
++        else if(mode==2 || mode==3) {
++            sqjit_a64_emit_ldr_x(&original,10,19,8);
++            sqjit_a64_emit_mov_imm_x(&original,9,42);sqjit_a64_emit_str_x(&original,9,31,0);
++            sqjit_a64_emit_ldr_x(&original,11,31,0);
++            sqjit_a64_emit_cmp_imm(&original,10,0);
++            if(mode==2) sqjit_a64_emit_bcond_placeholder(&original,SQ_JIT_A64_EQ,&target);
++            else sqjit_a64_emit_test_branch(&original,10,0,true,&target);
++            sqjit_a64_emit_mov_imm_x(&original,9,7);sqjit_a64_emit_str_x(&original,9,31,0);
++            if(mode==2) sqjit_a64_patch_branch(&original,target,original.size,true,SQ_JIT_A64_EQ);
++            else sqjit_a64_patch_test_branch(&original,target,original.size);
++            sqjit_a64_emit_ldr_x(&original,9,31,0);
++        }
++        else if(mode==4) {
++            for(int n=0;n<20;++n) {
++                sqjit_a64_emit_mov_imm_x(&original,9,100+n);sqjit_a64_emit_str_x(&original,9,31,n*8);
++                sqjit_a64_emit_ldr_x(&original,10,31,n*8);
++            }
++            for(int n=0;n<20;++n) {
++                sqjit_a64_emit_ldr_x(&original,9,31,n*8);sqjit_a64_emit_str_x(&original,9,19,n*8);
++            }
++        }
++        else if(mode==5 || mode==6) {
++            sqjit_a64_emit_mov_imm_x(&original,9,-1);sqjit_a64_emit_str_x(&original,9,31,0);
++            sqjit_a64_emit_ldr_x(&original,11,31,0);
++            sqjit_a64_emit_mov_imm_x(&original,9,77);
++            if(mode==5) {
++                sqjit_a64_emit_add_imm(&original,0,31,0);
++                sqjit_a64_emit_str_x(&original,9,0,0);
++            }
++            else sqjit_a64_emit_str_w(&original,9,31,0);
++            sqjit_a64_emit_ldr_x(&original,9,31,0);
++        }
++        else if(mode==7) {
++            sqjit_a64_emit_ldr_x(&original,10,19,8);
++            sqjit_a64_emit_mov_imm_x(&original,9,3);sqjit_a64_emit_and_reg(&original,10,10,9);
++            sqjit_a64_emit_str_x(&original,9,31,8);sqjit_a64_emit_ldr_x(&original,11,31,8);
++            sqjit_a64_emit_mov_imm_x(&original,9,0);sqjit_a64_emit_str_x(&original,9,31,0);
++            SQInteger header=original.size;
++            sqjit_a64_emit_ldr_x(&original,9,31,0);sqjit_a64_emit_add_imm(&original,9,9,1);
++            sqjit_a64_emit_str_x(&original,9,31,0);sqjit_a64_emit_sub_imm(&original,10,10,1);
++            sqjit_a64_emit_cmp_imm(&original,10,0);sqjit_a64_emit_bcond_placeholder(&original,SQ_JIT_A64_GT,&target);
++            sqjit_a64_patch_branch(&original,target,header,true,SQ_JIT_A64_GT);
++        }
++        else {
++            sqjit_a64_emit_mov_imm_x(&original,9,42);sqjit_a64_emit_str_x(&original,9,31,0);
++            sqjit_a64_emit_ldr_x(&original,11,31,0);sqjit_a64_emit_b_placeholder(&original,&target);
++            sqjit_a64_emit_mov_imm_x(&original,9,99);sqjit_a64_emit_str_x(&original,9,31,0);
++            sqjit_a64_emit_ldr_x(&original,11,31,0);
++            sqjit_a64_patch_branch(&original,target,original.size,false,0);
++            sqjit_a64_emit_ldr_x(&original,9,31,0);
++        }
++        if(mode!=4) sqjit_a64_emit_str_x(&original,9,19,0);
++        sqjit_a64_emit_epilogue(&original,256,1);
++        SQJitA64Buffer forwarded=original;
++        CHECK(sqjit_a64_forward_local_slots(&forwarded,32),"synthetic native contract actually forwards slots");
++        for(int enabled=0;enabled<2;++enabled) {
++            SQJitA64Buffer &code=enabled ? forwarded : original;
++            void *mapping=mmap(NULL,8192,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS,-1,0);
++            CHECK(mapping!=MAP_FAILED,"map native forwarding contract");if(mapping==MAP_FAILED) continue;
++            memcpy(mapping,code.bytes,(size_t)code.size);
++            __builtin___clear_cache((char *)mapping,(char *)mapping+code.size);
++            bool executable=mprotect(mapping,8192,PROT_READ|PROT_EXEC)==0;
++            CHECK(executable,"make native forwarding contract executable");
++            if(executable) for(SQUnsignedInteger input : {SQUnsignedInteger(0),SQUnsignedInteger(1),SQUnsignedInteger(0x8000000000000000ULL),SQUnsignedInteger(0x7ff8000000001234ULL),SQUnsignedInteger(0x7ff0000000000001ULL),SQUnsignedInteger(0xffffffffffffffffULL)}) {
++                SQUnsignedInteger output[32]={};output[1]=input;forwarding_helper_saw=0;
++                typedef SQInteger (*Entry)(SQUnsignedInteger *,void *,void *);
++                CHECK(((Entry)mapping)(output,NULL,NULL)==1,"forwarded native return ABI");
++                if(mode==0) CHECK(output[0]==input,"mixed integer/float copies preserve zero sign and NaN payload bits");
++                if(mode==1) CHECK(output[0]==43 && forwarding_helper_saw==42,"helper sees materialized frame and scratch clobbers are invalidated");
++                if(mode==2) CHECK(output[0]==(input==0 ? 42u : 7u),"conditional target and NZCV survive slot spills");
++                if(mode==3) CHECK(output[0]==(input&1 ? 42u : 7u),"test-bit target survives slot spills");
++                if(mode==5) CHECK(output[0]==77,"derived private-frame alias invalidates forwarded values");
++                if(mode==6) CHECK(output[0]==SQUnsignedInteger(0xffffffff0000004dULL),"partial-width alias materializes and invalidates a complete slot");
++                if(mode==7) CHECK(output[0]==((input&3) ? (input&3) : 1),"relocated backedge preserves repeated slot updates");
++                if(mode==8) CHECK(output[0]==42,"forward branch skips unreachable block spills at a join");
++                if(mode==4) for(int n=0;n<20;++n) CHECK(output[n]==SQUnsignedInteger(100+n),"cache eviction and alias barriers preserve every slot");
++            }
++            munmap(mapping,8192);
++        }
++    }
++    printf("[coverage] executed AArch64 local-slot forwarding contracts (bits, calls, branches, eviction, aliases)\n");
++    return rc;
++}
++#endif
+ 
+ int main(void)
+ {
+@@ -198,6 +349,10 @@
+     CHECK(sqjit_a64_local_disp(3) == 3 * (SQInteger)sizeof(SQInteger),
+         "local displacement");
+ 
++    rc |= forwarding_encoding_tests();
++#if defined(__aarch64__) && defined(__linux__)
++    rc |= forwarding_native_tests();
++#endif
+     if (rc == 0) printf("[OK] test_sqjit_aarch64_emit\n");
+     return rc;
+ }

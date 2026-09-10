@@ -8,6 +8,7 @@
 */
 
 #include "sqstring.h"
+#include <stddef.h>
 
 
 #define hashptr(p)  ((SQHash)(((SQInteger)p) >> 3))
@@ -43,6 +44,18 @@ private:
     SQTable(SQSharedState *ss, SQInteger nInitialSize);
     void _ClearNodes();
 public:
+    // Internal native-code layout, rebuilt with the runtime. A cached index is
+    // only a hint: bounds, key identity and value type must be checked before
+    // loading from the current receiver. Never keep a node across callbacks.
+    static SQInteger RawNodesOffset() {
+        return (SQInteger)(size_t)&(((SQTable *)0)->_nodes);
+    }
+    static SQInteger RawNodeCountOffset() {
+        return (SQInteger)(size_t)&(((SQTable *)0)->_numofnodes);
+    }
+    static SQInteger RawNodeSize() { return sizeof(_HashNode); }
+    static SQInteger RawNodeKeyOffset() { return offsetof(_HashNode, key); }
+    static SQInteger RawNodeValueOffset() { return offsetof(_HashNode, val); }
     static SQTable* Create(SQSharedState *ss,SQInteger nInitialSize)
     {
         SQTable *newtable = (SQTable*)SQ_MALLOC(sizeof(SQTable));
