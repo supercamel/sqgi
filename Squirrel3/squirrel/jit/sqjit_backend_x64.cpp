@@ -155,6 +155,33 @@ static void assign_scalar_registers(SQFunctionProto *proto, SQObjectPtr *entry,
     }
 }
 
+// Native scalar/borrowed locals do not publish VM stack assignments. Guard
+// every potentially displaced entry owner before executing any native effect.
+// Testing only its warmup type, or counting aliases independently, is unsound.
+static bool emit_shadow_write_guards(SQFunctionProto *proto,
+    const SQBytecodeAnalysis &analysis, SQInteger first, SQInteger last,
+    SQInteger stack_slots, SQJitNativeCodeBuffer &buf,
+    const std::function<bool()> &guard_fail)
+{
+    SQSlotSet written;
+    bool getter = false;
+    for(SQInteger ip = first; ip <= last; ++ip) {
+        written |= analysis.facts[ip].writes;
+        const SQOpcode op = (SQOpcode)proto->_instructions[ip].op;
+        getter |= op == _OP_GET || op == _OP_GETK;
+    }
+    for(SQInteger slot = -1; slot < stack_slots; ++slot) {
+        if(slot < 0 ? !getter : !written.test(slot)) continue;
+        if(!sqjit_native_emit_mov_rdi_r13(&buf) ||
+            !sqjit_native_emit_mov_rsi_i64(&buf, slot) ||
+            !sqjit_native_emit_mov_rdx_i64(&buf, (SQInteger)(intptr_t)&sqjit_context(proto->_sharedstate)) ||
+            !sqjit_native_emit_mov_rax_ptr(&buf, (const void *)sqjit_helper_shadow_write_safe) ||
+            !sqjit_native_emit_call_rax(&buf) ||
+            !sqjit_native_emit_cmp_rax_i32(&buf, SQ_JIT_NATIVE_RETURNED) || !guard_fail()) return false;
+    }
+    return true;
+}
+
 static bool compile_proto(SQFunctionProto *proto, SQObjectPtr *entry_stack,
     SQClosure *closure, SQJitNative *native, SQJitCompileAttempt &attempt)
 {
@@ -256,6 +283,9 @@ static bool compile_proto(SQFunctionProto *proto, SQObjectPtr *entry_stack,
             sqjit_native_record_reloc(guard_fail_relocs, &nguard_fail_relocs,
                 MAX_FUNC_STACKSIZE + 512, patch_offset, -1);
     };
+
+    if(!emit_shadow_write_guards(proto, analysis, 0, proto->_ninstructions - 1,
+        proto->_nparameters, buf, emit_guard_fail_jump)) return false;
 
     auto emit_write_log_release = [&](bool rollback) -> bool {
         if(!uses_write_log) {
@@ -777,6 +807,14 @@ static bool compile_proto(SQFunctionProto *proto, SQObjectPtr *entry_stack,
     for(SQInteger n=0; n<proto->_nparameters; ++n) if(entry_parameters.test(n)) {
         if(sq_type(entry_stack[n]) == OT_INTEGER) { if(!ensure_int_slot(n)) return false; }
         else if(sq_type(entry_stack[n]) == OT_FLOAT) { if(!ensure_float_slot(n)) return false; }
+        else if(sq_type(entry_stack[n]) == OT_BOOL) {
+            // A loop-carried Boolean must be loaded before the backedge just
+            // like integers/floats. Loading it inside an inlined leaf call
+            // resets it to the original VM argument on every iteration.
+            if(!sqjit_native_emit_cmp_stack_type_i32(&buf, n, OT_BOOL) ||
+                !emit_guard_fail_jump() || !sqjit_native_emit_mov_rax_stack_value(&buf, n) ||
+                !sqjit_native_emit_mov_mem_rax(&buf, n) || !mark_bool_slot(n)) return false;
+        }
     }
 
     SQJitX64FloatLoops float_loops(proto, analysis, 0, proto->_ninstructions - 1, buf.cache_floats);
@@ -1567,6 +1605,9 @@ static bool compile_loop(SQFunctionProto *proto, SQObjectPtr *entry_stack,
             sqjit_native_record_reloc(guard_fail_relocs, &nguard_fail_relocs,
                 MAX_FUNC_STACKSIZE + 512, patch_offset, -1);
     };
+
+    if(!emit_shadow_write_guards(proto, analysis, start_ip, end_ip,
+        proto->_stacksize, buf, emit_guard_fail_jump)) return false;
 
     auto emit_write_log_release = [&](bool rollback) -> bool {
         if(!uses_write_log) {

@@ -17,6 +17,17 @@
 #include "sqjit_platform.h"
 #include "sqjit_backend_x64_helpers.h"
 #include "sqjit_write_log.h"
+#include "sqjit_context.h"
+
+SQInteger sqjit_helper_shadow_write_safe(SQObjectPtr *stack, SQInteger slot, SQJitContext *context)
+{
+    const SQObjectPtr *value = slot >= 0 ? &stack[slot] :
+        context && context->active_vm ? &context->active_vm->temp_reg : NULL;
+    if(!value || SQJitWriteLog::CanDeferRelease(*value)) return SQ_JIT_NATIVE_RETURNED;
+    if(context && context->trace) scprintf(_SC("[sqjit] shadow write guard: slot=%lld type=%u\n"),
+        (long long)slot, (unsigned)sq_type(*value));
+    return SQ_JIT_NATIVE_GUARD_FAILED;
+}
 
 bool sqjit_member_raw(const SQObjectPtr &owner, const SQObjectPtr &key, SQObjectPtr &out)
 {

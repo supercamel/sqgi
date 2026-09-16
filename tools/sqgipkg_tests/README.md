@@ -51,5 +51,7 @@ used its GTK fallback renderer because `gtk4paintablesink` was unavailable.
 The demo runs exposed and fixed executable-only recipe validation, unnecessary
 runtime test-target builds, and a MinGW `_inline` macro collision in the JIT
 write log. The write-log unit test passed. The broader JIT member-plan test
-failed identically in an unchanged HEAD checkout; that pre-existing failure
-remains outside the packaging migration.
+failed identically in an unchanged HEAD checkout. A subsequent runtime fix
+addresses its release-order correctness failures using conservative native
+entry guards; native-coverage limitations remain. See the
+[JIT investigation and validation](../../docs/jit-member-plan-investigation-2026-09-15.md).

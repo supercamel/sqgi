@@ -157,6 +157,14 @@ static bool sqjit_unobservable_scalar_array(const SQObjectPtr &value)
     return true;
 }
 
+bool SQJitWriteLog::CanDeferRelease(const SQObjectPtr &value)
+{
+    if(!ISREFCOUNTED(sq_type(value))) return true;
+    if((sq_type(value) == OT_STRING || sq_type(value) == OT_WEAKREF) &&
+        !_refcounted(value)->_weakref) return true;
+    return sqjit_unobservable_scalar_array(value);
+}
+
 bool SQJitWriteLog::CanRelease(const SQObjectPtr &value, SQUnsignedInteger drops)
 {
     if(!ISREFCOUNTED(sq_type(value))) return true;

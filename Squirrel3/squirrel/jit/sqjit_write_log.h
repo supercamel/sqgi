@@ -36,6 +36,10 @@ public:
     // drops includes other aliases discarded by the same atomic instruction.
     // False means replay in the VM before observable destruction/weak death.
     bool CanRelease(const SQObjectPtr &value, SQUnsignedInteger drops = 1);
+    // Shadow-stack backends leave physical owners alive until native exit.
+    // Refcounts cannot prove safety across later alias/heap writes; only
+    // values with unobservable destruction may be deferred this way.
+    static bool CanDeferRelease(const SQObjectPtr &value);
     // A canonical-slot activation has no journal of its own. Count any enclosing
     // journals without registering an empty child. Call before adding local pins.
     static bool CanReleaseInContext(SQJitContext &context, const SQObjectPtr &value,

@@ -5,6 +5,8 @@
 #include "sqjit_backend.h"
 SQInteger sqjit_helper_table_get_integer(SQObjectPtr *stack, SQInteger table_reg, const SQObjectPtr *key, SQInteger *out);
 SQInteger sqjit_helper_table_get_float(SQObjectPtr *stack, SQInteger table_reg, const SQObjectPtr *key, SQFloat *out);
+struct SQJitContext;
+SQInteger sqjit_helper_shadow_write_safe(SQObjectPtr *stack, SQInteger slot, SQJitContext *context);
 bool sqjit_member_raw(const SQObjectPtr &owner, const SQObjectPtr &key, SQObjectPtr &out);
 SQInteger sqjit_helper_member_get_array(SQObjectPtr *stack, SQInteger base, const SQObjectPtr *key, SQInteger *out);
 SQInteger sqjit_helper_member_get_string(SQObjectPtr *stack, SQInteger base, const SQObjectPtr *key, SQInteger *out);

@@ -801,6 +801,10 @@ if(SQ_ENABLE_JIT)
     set_tests_properties(sqgi_test_cpp_sqjit_write_log PROPERTIES LABELS "jit")
     add_sqgi_c_test(sqgi_test_cpp_sqjit_member_plan test/cpp/test_sqjit_member_plan.cpp)
     set_tests_properties(sqgi_test_cpp_sqjit_member_plan PROPERTIES LABELS "jit")
+    add_test(NAME sqgi_test_cpp_sqjit_release_order
+        COMMAND sqgi_test_cpp_sqjit_member_plan --release-order-only)
+    set_tests_properties(sqgi_test_cpp_sqjit_release_order PROPERTIES
+        ENVIRONMENT "${SQGI_TEST_ENV}" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}" LABELS "jit")
     add_sqgi_c_test(sqgi_test_cpp_sqjit_float_cache test/cpp/test_sqjit_float_cache.cpp)
     set_tests_properties(sqgi_test_cpp_sqjit_float_cache PROPERTIES LABELS "jit;math")
     add_sqgi_c_test(sqgi_test_cpp_sqjit_intrinsics test/cpp/test_sqjit_intrinsics.cpp)

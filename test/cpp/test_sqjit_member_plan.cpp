@@ -1082,6 +1082,12 @@ static void stack_release_order(SQVM *v, bool enabled)
         function stack_release_not(value, replacement) {
             value=!replacement; return vm_hook_value+1;
         }
+        function stack_release_loop(value, replacement) {
+            local tag=typeof replacement; // Keep frame execution interpreted.
+            local observed=0;
+            for(local i=0;i<20;i++) { value=replacement; observed=vm_hook_value; }
+            return observed+1;
+        }
         function stack_release_branch(value, replacement) {
             if(replacement>0) value=replacement;
             else value=7;
@@ -1093,7 +1099,8 @@ static void stack_release_order(SQVM *v, bool enabled)
                 stack_release_boxed(i,{payload=[5]})!=1 || stack_release_two(i,i,5)!=1 ||
                 stack_release_get_float(i,{number=5.5})!=1 || stack_release_get_array(i,[5])!=1 ||
                 stack_release_literal(i,5)!=1 || stack_release_arithmetic(i,5)!=1 || stack_release_not(i,5)!=1 ||
-                stack_release_branch(i,5)!=1 || stack_release_branch(i,-5)!=1)
+                stack_release_branch(i,5)!=1 || stack_release_branch(i,-5)!=1 ||
+                stack_release_loop(i,5)!=1)
                 throw "stack release ordering warmup";
         }
     )SQ"), "warm native stack overwrite paths");
@@ -1101,14 +1108,15 @@ static void stack_release_order(SQVM *v, bool enabled)
     SQObjectPtr key(SQString::Create(v->_sharedstate, _SC("vm_hook_value")));
     for(const char *name : {"stack_release_move", "stack_release_get", "stack_release_boxed", "stack_release_two",
         "stack_release_literal", "stack_release_arithmetic", "stack_release_branch",
-        "stack_release_get_float", "stack_release_get_array",
+        "stack_release_get_float", "stack_release_get_array", "stack_release_loop",
 #if SQJIT_HAS_EXTERNAL_NATIVE
         "stack_release_not",
 #endif
         }) {
 #if SQJIT_HAS_X64_NATIVE || SQJIT_HAS_EXTERNAL_NATIVE
-        if(enabled) CHECK(observe(v, name).frame.successes > 0,
-            "stack ordering warmup exercises native whole-function execution");
+        if(enabled) CHECK(!strcmp(name, "stack_release_loop") ? observe(v, name).loop.successes > 0 :
+            observe(v, name).frame.successes > 0,
+            "stack ordering warmup exercises native frame or loop execution");
 #endif
         for(int shape : {0,1,2}) for(int native : {0,1}) {
             ctx.enabled = enabled && native;
@@ -1189,6 +1197,56 @@ static void scalar_array_weak_release(SQVM *v, bool enabled)
         CHECK(ok && sq_gettype(v, -1) == OT_NULL && sq_type(_weakref(weak)->_obj) == OT_NULL,
             "a weak observer added after warmup sees death before the next root read");
         sq_settop(v, top);
+    }
+    ctx.enabled = enabled;
+}
+
+static void temporary_release_order(SQVM *v, bool enabled)
+{
+    // Direct native calls do not go through Execute(ET_CALL), which normally
+    // replaces temp_reg with the callee. Guard an observable temporary before
+    // native reads; falling back through ET_CALL must release it first.
+    v->temp_reg.Null();
+    CHECK(run(v, R"SQ(
+        function temporary_release_read() {
+            local before=vm_hook_value; return before*1000+vm_hook_value+1;
+        }
+        vm_hook_value=0;
+        for(local i=0;i<12;i++) if(temporary_release_read()!=1) throw "temporary warmup";
+    )SQ"), "warm native root reads with an unobservable VM temporary");
+#if SQJIT_HAS_X64_NATIVE || SQJIT_HAS_EXTERNAL_NATIVE
+    if(enabled) CHECK(observe(v, "temporary_release_read").frame.successes > 0,
+        "temporary release warmup executes natively");
+#endif
+    SQJitContext &ctx = sqjit_context(v->_sharedstate);
+    SQObjectPtr key(SQString::Create(v->_sharedstate, _SC("vm_hook_value")));
+    for(bool native : {false, true}) {
+        ctx.enabled = enabled && native;
+        _table(v->_roottable)->Set(key, SQObjectPtr((SQInteger)0));
+        int calls = 0;
+        SQInteger top = sq_gettop(v);
+        sq_pushobject(v, SQObjectPtr(closure(v, "temporary_release_read")));
+        sq_pushroottable(v);
+        RootHookOrder *hook = (RootHookOrder *)sq_newuserdata(v, sizeof(RootHookOrder));
+        *hook = {v, &calls};
+        sq_setreleasehook(v, -1, root_hook_order);
+        v->temp_reg = v->GetUp(-1);
+        sq_pop(v, 1);
+#if SQJIT_HAS_X64_NATIVE
+        SQObjectPtr arguments[1] = {v->_roottable}, out;
+        CHECK(!sqjit_try_execute_closure(v, closure(v, "temporary_release_read"), arguments, 1, out) && calls == 0,
+            "observable temporary rejects direct native entry before effects");
+#endif
+        SQInteger actual = -1;
+        bool ok = SQ_SUCCEEDED(sq_call(v, 1, SQTrue, SQTrue)) &&
+            SQ_SUCCEEDED(sq_getinteger(v, -1, &actual));
+        v->temp_reg.Null();
+        sq_settop(v, top);
+        if(!ok || actual != 99100 || calls != 1)
+            printf("temporary ordering: enabled=%d native=%d result=%lld releases=%d\n",
+                enabled, native, (long long)actual, calls);
+        CHECK(ok && actual == 99100 && calls == 1,
+            "interpreter fallback releases the previous temporary before root reads");
     }
     ctx.enabled = enabled;
 }
@@ -1466,8 +1524,23 @@ static void native_call_frame_cleanup()
     }
 }
 
-int main()
+int main(int argc, char **argv)
 {
+    const bool release_only = argc == 2 && !strcmp(argv[1], "--release-order-only");
+    if(argc > 1 && !release_only) return 2;
+    if(release_only) {
+        for(bool enabled : {false, true}) {
+            SQVM *v = sq_open(1024);
+            SQJitContext &ctx = sqjit_context(v->_sharedstate);
+            ctx.enabled = enabled; ctx.threshold = 1; sqjit_observe_enable(v);
+            root_release_order(v, enabled);
+            stack_release_order(v, enabled);
+            scalar_array_weak_release(v, enabled);
+            temporary_release_order(v, enabled);
+            sq_close(v);
+        }
+        return failures ? 1 : 0;
+    }
     native_call_stack_bounds();
     native_call_frame_cleanup();
     std::vector<SQFloat> reference;
@@ -1485,6 +1558,7 @@ int main()
         root_release_order(v, enabled != 0);
         stack_release_order(v, enabled != 0);
         scalar_array_weak_release(v, enabled != 0);
+        temporary_release_order(v, enabled != 0);
         borrowed_member_guards(v, enabled != 0);
         reference_assignment_results(v, enabled != 0);
         reference_loop_results(v, enabled != 0);
@@ -1587,7 +1661,8 @@ int main()
         if(enabled) {
             CHECK(observe(v, "cycle").loop.successes > 0 && observe(v, "cycle").loop.guard_failures > 0, "member ownership stress executes native stores and guard rollback");
             CHECK(observe(v, "type_alias").loop.successes > 0 && observe(v, "type_alias").loop.guard_failures > 0, "aliased type change takes native guard");
-            CHECK(observe(v, "scalar").frame.successes > 0, "numeric member loops execute whole-function entry");
+            CHECK(observe(v, "scalar").frame.successes > 0 || observe(v, "scalar").direct.successes > 0,
+                "numeric member loops execute whole-function entry through a frame or direct call");
             CHECK(observe(v, "exchange").frame.successes > 0 && observe(v, "exchange").direct.successes > 0 &&
                 observe(v, "exchange").direct.guard_failures > 0, "mutating leaf uses native entry and late rollback");
             CHECK(observe(v, "assign_refs").frame.successes > 0, "array/string parameters execute natively");
