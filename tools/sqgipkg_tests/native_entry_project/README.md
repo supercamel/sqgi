@@ -8,8 +8,8 @@ executable directly:
 ```json
 "entry": {
   "type": "native",
-  "linux": "native/build/sq-native-entry",
-  "windows": "native/build-windows-x86_64/sq-native-entry.exe"
+  "linux": ".sqgipkg/build/linux-x86_64/entry/sq-native-entry",
+  "windows": ".sqgipkg/build/windows-x86_64/entry/sq-native-entry.exe"
 }
 ```
 
@@ -48,3 +48,8 @@ The Linux manifest also has x86_64 and aarch64 arch entries. On a cross-arch
 host, `sqgipkg` builds the native executable in an arch-specific Meson build
 directory and can run the AppDir smoke test through QEMU user-mode when
 `qemu-user-binfmt` is installed.
+
+The version 2 `native` Meson recipe replaces the per-platform shell commands.
+Only the executable entry paths vary by architecture. This demo does not build
+or bundle SQGI, because the packaged entry is a standalone C executable.
+Windows commands run from PowerShell/CMD; no MSYS2 shell is needed.

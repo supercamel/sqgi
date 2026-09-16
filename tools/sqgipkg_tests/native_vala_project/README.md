@@ -34,22 +34,21 @@ sqgipkg --target all --smoke-test ""
 
 - `dist-linux-x86_64/NativeVala.AppImage`
 - `dist-linux-aarch64/NativeVala.AppImage`
-- `dist-windows-x86_64/NativeVala-Setup.exe` when `makensis` is available
+- `dist-windows-x86_64/NativeVala-Setup.exe` (requires NSIS)
 
-The manifest enables `linux.deb.download`, so Linux targets use private Debian
-sysroots in the per-user `~/.cache/sqgipkg/linux-sysroots/` cache instead of
-relying on GLib/GIO development packages installed into the host OS. Cross
-AppImage paths still need the matching cross compiler, such as
-`x86_64-linux-gnu-gcc`/`g++` on arm64 hosts or `aarch64-linux-gnu-gcc`/`g++` on
-x86_64 hosts. The Debian backend downloads Ubuntu package indexes for each
-target Debian architecture it resolves, for example `amd64` and `arm64`.
 
-For Linux cross entries, `sqgipkg` generates the CMake toolchain and Meson cross
-file under the target output directory and exports
-`SQGI_LINUX_CMAKE_TOOLCHAIN` and `SQGI_LINUX_MESON_CROSS_FILE` to the build
-commands. This keeps the Linux and Windows cross-build shapes the same: the
-manifest names the target architecture and consumes sqgipkg-provided cross-file
-paths.
+The version 2 manifest builds SQGI from this checkout with `runtime.source`,
+and declares Linux architectures and the Ubuntu 24.04 dependency baseline once.
+Native recipes use generated cross files automatically. Build products live in
+`.sqgipkg/build/<platform>/<name>`; library and typelib outputs are discovered.
+For release projects, replace the local `HEAD` runtime recipe with a pinned
+SQGI revision. For a fast host-only test using installed development libraries,
+add `--no-linux-deb-download`.
+
+Use `sqgipkg check` to validate and `sqgipkg explain` to inspect the resolved
+recipes. Windows builds run from PowerShell/CMD without an MSYS2 shell; these
+examples explicitly retain the MinGW64 package ABI. `win-nsis` requires NSIS.
+Use `--target win-dir` to produce a directory without an installer compiler.
 
 When working from an uninstalled checkout, run from the repository root:
 
@@ -68,23 +67,8 @@ build/sqgi tools/sqgipkg \
   --target win-nsis
 ```
 
-On non-Windows hosts, `sqgipkg` prepares the MSYS2 sysroot and generated
-CMake/Meson cross files automatically. The generated paths are exported to the
-native build as `SQGI_WIN_CMAKE_TOOLCHAIN` and `SQGI_MESON_CROSS_FILE`.
-
-Build the same target from an MSYS2 MinGW shell:
-
-```sh
-sqgipkg --target win-nsis
-```
-
-The manifest keeps native build outputs explicit, because `sqgipkg` needs to
-know which Vala-built `.so`/`.dll` and `.typelib` files to stage. The generic
-SQGI runtime MSYS2 packages are inferred automatically for Windows targets.
-When `makensis` is available, `win-nsis` writes
-`dist-windows-x86_64/NativeVala-Setup.exe`; otherwise it leaves
-`dist-windows-x86_64/NativeVala.nsi` beside the staged Windows directory.
-For `--target all`, the Windows outputs are written under `dist-windows-x86_64/`.
+Meson generates both the Vala GIR and the typelib, including cross builds.
+No manifest shell hook or explicit library output list is required.
 
 Most SQGI async code should use plain `await`. That works for SQGI tasks, GIO
 async APIs, and Vala async methods that expose callback/user-data finish pairs:

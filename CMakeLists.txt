@@ -412,11 +412,19 @@ target_compile_definitions(sqgi-bin PRIVATE
     SQGI_VERSION="${PROJECT_VERSION}"
 )
 
+if(WIN32)
+    add_executable(sqgipkg-bin src/sqgipkg_main.c)
+    set_target_properties(sqgipkg-bin PROPERTIES OUTPUT_NAME sqgipkg)
+    target_link_libraries(sqgipkg-bin PRIVATE ${SQGI_DEPS})
+    file(RELATIVE_PATH SQGI_TOOL_SHARE_RELATIVE "${CMAKE_INSTALL_FULL_BINDIR}" "${CMAKE_INSTALL_FULL_DATADIR}/sqgi")
+    target_compile_definitions(sqgipkg-bin PRIVATE SQGI_TOOL_SHARE_RELATIVE="${SQGI_TOOL_SHARE_RELATIVE}")
+else()
 configure_file(
     tools/sqgipkg.sh.in
     ${CMAKE_CURRENT_BINARY_DIR}/sqgipkg
     @ONLY
 )
+endif()
 
 # ── Optional sanitizers ──────────────────────────────────────────────────────
 # (Now declared above so flags reach all targets — kept here as a no-op
@@ -598,6 +606,12 @@ set_tests_properties(sqgi_test_shebang PROPERTIES
     ENVIRONMENT "${SQGI_TEST_ENV}"
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
 )
+
+find_package(Python3 COMPONENTS Interpreter QUIET)
+if(Python3_Interpreter_FOUND)
+    add_test(NAME sqgi_test_sqgipkg_ergonomics
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/sqgipkg_tests/test_ergonomics.py $<TARGET_FILE:sqgi-bin>)
+endif()
 
 add_test(
     NAME sqgi_test_sqgipkg
@@ -855,9 +869,13 @@ install(TARGETS sqgicheck-bin
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
 
+if(WIN32)
+    install(TARGETS sqgipkg-bin RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+else()
 install(PROGRAMS ${CMAKE_CURRENT_BINARY_DIR}/sqgipkg
     DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
+endif()
 
 install(PROGRAMS tools/sqgipkg
     DESTINATION ${CMAKE_INSTALL_DATADIR}/sqgi
@@ -867,6 +885,8 @@ install(PROGRAMS tools/sqgipkg
 install(DIRECTORY tools/sqgipkg_lib
     DESTINATION ${CMAKE_INSTALL_DATADIR}/sqgi
 )
+
+install(FILES tools/sqgipkg.schema.json DESTINATION ${CMAKE_INSTALL_DATADIR}/sqgi)
 
 install(DIRECTORY tools/sqgipkg_templates
     DESTINATION ${CMAKE_INSTALL_DATADIR}/sqgi

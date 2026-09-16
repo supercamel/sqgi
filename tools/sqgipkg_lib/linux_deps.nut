@@ -43,6 +43,8 @@ class SqgiPkgLinuxDeps extends Base.SqgiPkgStaging {
     }
 
     function linux_has_cross_build_work(opts) {
+        if (opts.runtime_recipe) return true
+        foreach (project in opts.native_projects) if (this.table_get(project, "build_system", "") != "") return true
         local config = this.linux_current_config(opts)
         if (opts.linux.build.len() > 0) return true
         if (config != null && this.table_get(config, "build", []).len() > 0) return true
@@ -687,7 +689,7 @@ class SqgiPkgLinuxDeps extends Base.SqgiPkgStaging {
         local targets = []
         local components = ["main", "restricted", "universe", "multiverse"]
 
-        if (distro == "ubuntu") {
+        if (distro == "ubuntu" || this.table_get(opts.linux.deb, "suite", "") != "") {
             local archive_base = (arch == "amd64" || arch == "i386")
                 ? "http://archive.ubuntu.com/ubuntu"
                 : "http://ports.ubuntu.com/ubuntu-ports"
@@ -1135,6 +1137,7 @@ class SqgiPkgLinuxDeps extends Base.SqgiPkgStaging {
 
     function linux_sysroot_cache_key(opts) {
         local distro = this.linux_os_release_value("ID")
+        if (this.table_get(opts.linux.deb, "suite", "") != "") distro = "ubuntu"
         if (distro == "") distro = "apt"
 
         local release = this.table_get(opts.linux.deb, "suite", "")
@@ -1211,6 +1214,11 @@ class SqgiPkgLinuxDeps extends Base.SqgiPkgStaging {
     }
 
     function linux_deb_archive_metadata(opts, package_name) {
+        if (this.locked_inputs != null) {
+            local key = "deb:" + package_name
+            if (!(key in this.locked_inputs)) this.fail("Linux package absent from lock: " + package_name)
+            return this.locked_inputs[key].metadata
+        }
         local output = this.linux_deb_package_show(opts, package_name)
         if (output == null) return null
         return this.linux_deb_archive_metadata_from_output(package_name, output)
@@ -1305,6 +1313,8 @@ class SqgiPkgLinuxDeps extends Base.SqgiPkgStaging {
             archive = this.linux_find_cached_deb(cache_dir, package_name, arch, archive)
         if (!this.path_exists(archive))
             this.fail("downloaded Linux package archive was not found: " + archive)
+        if (this.active_inputs != null)
+            this.record_input("deb:" + package_name, { metadata = metadata, sha256 = this.file_sha256(archive) })
         return archive
     }
 
@@ -1670,6 +1680,16 @@ class SqgiPkgLinuxDeps extends Base.SqgiPkgStaging {
     }
 
     function resolve_linux_deb_packages(opts, packages) {
+        if (this.locked_inputs != null) {
+            foreach (package_name in packages) {
+                local key = "deb:" + this.linux_arch_package(package_name, this.linux_current_deb_arch(opts))
+                if (!(key in this.locked_inputs)) this.fail("Linux package absent from lock: " + package_name)
+            }
+            local ordered = []
+            foreach (key, value in this.locked_inputs) if (this.starts_with(key, "deb:")) ordered.push(key.slice(4))
+            ordered.sort()
+            return ordered
+        }
         local resolved = {}
         local visiting = {}
         local ordered = []
@@ -1694,7 +1714,11 @@ class SqgiPkgLinuxDeps extends Base.SqgiPkgStaging {
     }
 
     function ensure_linux_deb_sysroot_packages(opts) {
-        if (!opts.linux.deb.download) return
+        if (!opts.linux.deb.download) {
+            if ((opts.locked || opts.write_lock) && opts.linux.deb.packages.len() > 0)
+                this.fail("package locking requires private Linux package downloads")
+            return
+        }
         local seeds = this.linux_deb_sysroot_seed_packages(opts)
         if (seeds.len() == 0) return
 
@@ -1710,8 +1734,11 @@ class SqgiPkgLinuxDeps extends Base.SqgiPkgStaging {
             ": " + ordered.len() + " package(s)")
 
         foreach (package_name in ordered) {
-            if (!this.linux_deb_sysroot_package_installed(opts, package_name))
+            // Frozen builds re-extract the verified archive into their private
+            // sysroot instead of trusting a previously modified extraction.
+            if (opts.locked || !this.linux_deb_sysroot_package_installed(opts, package_name))
                 this.extract_linux_deb_to_sysroot(opts, package_name)
+            if (opts.write_lock) this.linux_download_deb(opts, package_name)
         }
 
         this.ensure_linux_sysroot_compat_links(opts)

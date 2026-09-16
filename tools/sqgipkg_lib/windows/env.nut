@@ -26,7 +26,7 @@ class SqgiPkgWindowsEnv extends Base.SqgiPkgAppImage {
 
     function optional_command_output(command) {
         local tmp = GLib.build_filenamev([GLib.get_tmp_dir(), "sqgipkg-output-" + GLib.get_monotonic_time()])
-        local status = system(command + " > " + this.shell_quote(tmp) + " 2>/dev/null")
+        local status = this.run_shell_status(command + " > " + this.shell_quote(tmp) + " 2>/dev/null")
         local lines = (status == 0 && this.path_exists(tmp)) ? this.split_lines(this.read_file(tmp)) : []
         if (this.path_exists(tmp)) remove(tmp)
         return lines
@@ -349,9 +349,28 @@ class SqgiPkgWindowsEnv extends Base.SqgiPkgAppImage {
         return value == null || value == ""
     }
 
+    function prepare_windows_native_environment(opts) {
+        local prefix = this.windows_sysroot_prefix_dir(opts)
+        local bin = GLib.build_filenamev([prefix, "bin"])
+        local current = GLib.getenv("PATH")
+        GLib.setenv("PATH", bin + ";" + (current == null ? "" : current), true)
+        GLib.setenv("CMAKE_PREFIX_PATH", prefix, true)
+        GLib.setenv("PKG_CONFIG_PATH", "", true)
+        GLib.setenv("PKG_CONFIG_SYSROOT_DIR", "", true)
+        GLib.setenv("PKG_CONFIG_LIBDIR", GLib.build_filenamev([prefix, "lib", "pkgconfig"]) + ";" +
+            GLib.build_filenamev([prefix, "share", "pkgconfig"]), true)
+        GLib.setenv("GI_TYPELIB_PATH", GLib.build_filenamev([prefix, "lib", "girepository-1.0"]), true)
+        GLib.setenv("SQGI_WINDOWS_BUILD_DIR", this.abs_path(this.windows_build_dir(opts)), true)
+        GLib.setenv("SQGI_WINDOWS_PREFIX", prefix, true)
+        GLib.setenv("SQGI_WINDOWS_PREFIX_DIR", prefix, true)
+        GLib.setenv("SQGI_WINDOWS_SYSROOT", this.windows_sysroot_root(opts), true)
+        GLib.setenv("SQGI_WINDOWS_GUI", this.windows_gui_cmake_value(opts), true)
+        if (opts.sqgi_source.dir != "") GLib.setenv("SQGI_SOURCE_DIR", opts.sqgi_source.dir, true)
+    }
+
     function prepare_windows_cross_environment(opts) {
         if (!this.starts_with(opts.target, "win-")) return
-        if (this.is_windows_shell()) return
+        if (this.host_windows()) { this.prepare_windows_native_environment(opts); return }
 
         local sysroot = this.windows_sysroot_root(opts)
         local prefix_dir = this.windows_sysroot_prefix_dir(opts)
@@ -418,7 +437,7 @@ class SqgiPkgWindowsEnv extends Base.SqgiPkgAppImage {
     function require_windows_cross_tools(opts) {
         if (this.is_windows_shell()) return
 
-        local needs_tools = opts.windows.build.len() > 0 ||
+        local needs_tools = opts.runtime_recipe || opts.windows.build.len() > 0 ||
             opts.windows.native_dependencies.len() > 0 ||
             opts.windows.native_projects.len() > 0
         if (!needs_tools) return
@@ -447,7 +466,7 @@ class SqgiPkgWindowsEnv extends Base.SqgiPkgAppImage {
 
     function command_list_contains(commands, needle) {
         foreach (command in commands) {
-            if (command.find(needle) != null) return true
+            if (sqgi.json.stringify(command).find(needle) != null) return true
         }
         return false
     }
@@ -505,7 +524,8 @@ class SqgiPkgWindowsEnv extends Base.SqgiPkgAppImage {
     }
 
     function run_windows_shell_in_dir(opts, command, dir, description) {
-        this.run_shell_in_dir(this.windows_env_prefix(opts, command.find("SQGI_SOURCE_DIR") != null) + command, dir, description)
+        if (typeof(command) == "table") this.run_build_hook(command, dir, description, this.recipe_environment(opts))
+        else this.run_shell_in_dir(this.windows_env_prefix(opts, command.find("SQGI_SOURCE_DIR") != null) + command, dir, description)
     }
 
     function run_windows_build(opts) {
@@ -546,23 +566,9 @@ class SqgiPkgWindowsEnv extends Base.SqgiPkgAppImage {
         }
 
         this.mkdir_p(GLib.build_filenamev([windir, "bin"]))
-        this.run_shell(
-            "cp " + this.shell_quote(sqgi_exe) + " " + this.shell_quote(GLib.build_filenamev([windir, "bin", "sqgi.exe"])),
-            "copying Windows sqgi.exe"
-        )
-
-        if (copy_build_dlls) {
-            local dlls = this.list_command_output(
-                "find " + this.shell_quote(build_dir) + " -maxdepth 3 -type f -name '*.dll' | sort",
-                "listing Windows SQGI DLLs"
-            )
-            foreach (dll in dlls) {
-                this.run_shell(
-                    "cp " + this.shell_quote(dll) + " " + this.shell_quote(GLib.build_filenamev([windir, "bin"])) + "/",
-                    "copying Windows SQGI DLL"
-                )
-            }
-        }
+        this.copy_path(sqgi_exe, GLib.build_filenamev([windir, "bin", "sqgi.exe"]))
+        if (copy_build_dlls) foreach (dll in this.find_files(build_dir, "*.dll", 3))
+            this.copy_path(dll, GLib.build_filenamev([windir, "bin", this.basename(dll)]))
     }
 
     function copy_linux_native_entry(opts, appdir) {

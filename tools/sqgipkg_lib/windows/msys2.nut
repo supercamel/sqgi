@@ -1,6 +1,7 @@
 local GLib = import("GLib")
 local Gio = import("Gio")
 local Base = import("env.nut")
+local PE = import("pe.nut")
 
 class SqgiPkgWindowsMsys2 extends Base.SqgiPkgWindowsEnv {
     function default_msys2_package_cache_dir() {
@@ -44,7 +45,7 @@ class SqgiPkgWindowsMsys2 extends Base.SqgiPkgWindowsEnv {
         local tmp = dest + ".download"
         if (this.path_exists(tmp)) remove(tmp)
         this.info("downloading " + url)
-        this.run_shell(this.downloader_command(url, tmp), description)
+        this.download_to(url, tmp, description)
         rename(tmp, dest)
     }
 
@@ -89,15 +90,12 @@ class SqgiPkgWindowsMsys2 extends Base.SqgiPkgWindowsEnv {
 
         this.download_file(repo_url + "/" + repo_name + ".db", db_archive,
             "downloading MSYS2 repo database", opts.windows.refresh_packages)
-        this.run_shell("rm -rf " + this.shell_quote(db_extract), "clearing MSYS2 repo database cache")
+        this.remove_tree(db_extract)
         this.mkdir_p(db_extract)
-        this.run_shell("tar -xf " + this.shell_quote(db_archive) + " -C " + this.shell_quote(db_extract),
+        this.run_process(["tar", "-xf", db_archive, "-C", db_extract],
             "extracting MSYS2 repo database")
 
-        local desc_paths = this.list_command_output(
-            "find " + this.shell_quote(db_extract) + " -type f -name desc | sort",
-            "listing MSYS2 repo packages"
-        )
+        local desc_paths = this.find_files(db_extract, "desc")
 
         local index = {}
         foreach (desc_path in desc_paths) {
@@ -108,6 +106,7 @@ class SqgiPkgWindowsMsys2 extends Base.SqgiPkgWindowsEnv {
             index[name] <- {
                 name = name,
                 filename = filename,
+                sha256 = this.first_desc_value(desc, "SHA256SUM"),
                 depends = this.table_get(desc, "DEPENDS", [])
             }
         }
@@ -119,7 +118,8 @@ class SqgiPkgWindowsMsys2 extends Base.SqgiPkgWindowsEnv {
         if (this.table_get(resolved, package_name, false)) return
         if (this.table_get(visiting, package_name, false)) return
 
-        local entry = this.msys2_local_package_entry(opts, package_name)
+        local entry = this.locked_inputs == null ? this.msys2_local_package_entry(opts, package_name) :
+            this.table_get(index, package_name)
         if (entry == null && index != null)
             entry = this.table_get(index, package_name)
         if (entry == null) {
@@ -144,10 +144,7 @@ class SqgiPkgWindowsMsys2 extends Base.SqgiPkgWindowsEnv {
         local db = GLib.build_filenamev([root, "var", "lib", "pacman", "local"])
         if (!this.path_exists(db)) return []
 
-        local candidates = this.list_command_output(
-            "find " + this.shell_quote(db) + " -maxdepth 1 -type d -name " + this.shell_quote(package_name + "-*") + " | sort",
-            "checking MSYS2 package metadata"
-        )
+        local candidates = this.find_files(db, package_name + "-*", 1, true)
         local matches = []
         foreach (candidate in candidates) {
             if (this.msys2_metadata_name(candidate) == package_name)
@@ -245,15 +242,22 @@ class SqgiPkgWindowsMsys2 extends Base.SqgiPkgWindowsEnv {
         this.write_file(GLib.build_filenamev([local_dir, "files"]), files)
     }
 
+    function record_msys2_archive(opts, repo_url, entry) {
+        if (entry.filename == null) this.fail("package metadata has no archive filename: " + entry.name + "; use a downloaded private sysroot")
+        local archive = GLib.build_filenamev([this.msys2_package_cache(opts), this.msys2_repo_name(repo_url), "packages", entry.filename])
+        this.download_file(repo_url + "/" + entry.filename, archive, "downloading MSYS2 package", opts.windows.refresh_packages)
+        local digest = this.file_sha256(archive)
+        local expected = this.table_get(entry, "sha256", null)
+        if (expected != null && expected != digest) this.fail("MSYS2 archive checksum mismatch: " + entry.name)
+        this.record_input("msys2:" + entry.name, { metadata = entry, sha256 = digest })
+        return archive
+    }
+
     function extract_msys2_package(opts, repo_url, entry) {
-        local repo_name = this.msys2_repo_name(repo_url)
-        local cache_dir = GLib.build_filenamev([this.msys2_package_cache(opts), repo_name, "packages"])
-        local archive = GLib.build_filenamev([cache_dir, entry.filename])
-        this.download_file(repo_url + "/" + entry.filename, archive,
-            "downloading MSYS2 package", opts.windows.refresh_packages)
+        local archive = this.record_msys2_archive(opts, repo_url, entry)
 
         local file_list = []
-        foreach (line in this.list_command_output("tar -tf " + this.shell_quote(archive), "listing MSYS2 package archive")) {
+        foreach (line in this.split_lines(this.process_output(["tar", "-tf", archive], true))) {
             local path = this.normalize_package_entry(line)
             if (path.len() == 0) continue
             if (this.starts_with(path, ".")) continue
@@ -261,7 +265,7 @@ class SqgiPkgWindowsMsys2 extends Base.SqgiPkgWindowsEnv {
         }
 
         this.mkdir_p(opts.windows.msys2_root)
-        this.run_shell("tar -xf " + this.shell_quote(archive) + " -C " + this.shell_quote(opts.windows.msys2_root),
+        this.run_process(["tar", "-xf", archive, "-C", opts.windows.msys2_root],
             "extracting MSYS2 package")
         this.write_msys2_local_metadata(opts, entry, file_list)
         this.info("installed MSYS2 package into sysroot: " + entry.name)
@@ -274,8 +278,14 @@ class SqgiPkgWindowsMsys2 extends Base.SqgiPkgWindowsEnv {
         if (opts.windows.msys2_root == "")
             opts.windows.msys2_root = GLib.build_filenamev([opts.output_dir, "_msys2-" + opts.windows.msys2_prefix])
 
-        local resolved_result = this.msys2_resolve_package_list(opts, packages, null)
-        if (opts.windows.download_packages && this.msys2_needs_repo_resolution(opts, packages, resolved_result)) {
+        local locked_index = null
+        if (this.locked_inputs != null) {
+            locked_index = {}
+            foreach (key, value in this.locked_inputs) if (this.starts_with(key, "msys2:")) locked_index[key.slice(6)] <- value.metadata
+            foreach (package in packages) if (!(package in locked_index)) this.fail("MSYS2 package absent from lock: " + package)
+        }
+        local resolved_result = this.msys2_resolve_package_list(opts, packages, locked_index)
+        if (this.locked_inputs == null && opts.windows.download_packages && this.msys2_needs_repo_resolution(opts, packages, resolved_result)) {
             local index = this.load_msys2_repo_index(opts)
             resolved_result = this.msys2_resolve_package_list(opts, packages, index)
         }
@@ -287,12 +297,16 @@ class SqgiPkgWindowsMsys2 extends Base.SqgiPkgWindowsEnv {
             }
         }
 
-        if (!opts.windows.download_packages) return
+        if (!opts.windows.download_packages) {
+            if (opts.locked || opts.write_lock) this.fail("package locking requires downloaded private MSYS2 packages")
+            return
+        }
 
         local repo_url = this.msys2_repo_url(opts)
         foreach (entry in resolved_result.ordered) {
-            if (!this.msys2_installed(opts, entry.name))
+            if (opts.locked || !this.msys2_installed(opts, entry.name))
                 this.extract_msys2_package(opts, repo_url, entry)
+            else if (opts.write_lock) this.record_msys2_archive(opts, repo_url, entry)
         }
     }
 
@@ -440,7 +454,7 @@ class SqgiPkgWindowsMsys2 extends Base.SqgiPkgWindowsEnv {
         local src = GLib.build_filenamev([opts.windows.msys2_root, opts.windows.msys2_prefix, rel])
         if (!this.path_exists(src)) return
 
-        if (this.run_shell_status("[ -d " + this.shell_quote(src) + " ]") == 0) {
+        if (this.is_directory(src)) {
             this.copy_runtime_bucket(opts, src, windir, rel, "MSYS2 runtime support", "manual_files")
         } else {
             this.copy_into_appdir(src, windir, rel, "MSYS2 runtime support")
@@ -542,19 +556,11 @@ class SqgiPkgWindowsMsys2 extends Base.SqgiPkgWindowsEnv {
     }
 
     function windows_find_sysroot_dll(opts, dll_name) {
-        local prefix_dir = this.windows_sysroot_prefix_dir(opts)
-        foreach (candidate in this.windows_sysroot_dll_name_candidates(dll_name)) {
-            local direct = GLib.build_filenamev([prefix_dir, "bin", candidate])
-            if (this.path_exists(direct)) return direct
-
-            // Case-insensitive fallback for filesystems/packages with odd casing.
-            local hits = this.optional_command_output(
-                "find " + this.shell_quote(GLib.build_filenamev([prefix_dir, "bin"])) +
-                " -maxdepth 1 -type f -iname " + this.shell_quote(candidate) + " | sort"
-            )
-            if (hits.len() > 0) return hits[0]
-        }
-
+        local bin = GLib.build_filenamev([this.windows_sysroot_prefix_dir(opts), "bin"])
+        local candidates = this.windows_sysroot_dll_name_candidates(dll_name)
+        foreach (file in this.find_files(bin, "*", 1))
+            foreach (candidate in candidates)
+                if (this.basename(file).tolower() == candidate.tolower()) return file
         return null
     }
 
@@ -577,42 +583,13 @@ class SqgiPkgWindowsMsys2 extends Base.SqgiPkgWindowsEnv {
     }
 
     function windows_imported_dlls(path) {
-        local tool = this.windows_objdump_tool()
-        local dlls = []
-        foreach (line in this.optional_command_output(
-                this.shell_quote(tool) + " -p " + this.shell_quote(path) +
-                " | sed -n 's/^[[:space:]]*DLL Name: //p'")) {
-            local name = line
-            while (name.len() > 0 && name.slice(0, 1) == " ") name = name.slice(1)
-            while (name.len() > 0 && (name.slice(name.len() - 1) == " " || name.slice(name.len() - 1) == "\r"))
-                name = name.slice(0, name.len() - 1)
-            if (name.len() > 0 && !this.array_contains(dlls, name))
-                dlls.push(name)
-        }
-        return dlls
+        local result = PE.inspect(this.read_file(path))
+        return result == null ? [] : result.dlls
     }
 
     function windows_pe_arch(path) {
-        local tool = this.windows_objdump_tool()
-        local output = this.run_shell_output(this.shell_quote(tool) + " -f " + this.shell_quote(path))
-        if (output == null) return null
-
-        foreach (line in this.split_lines(output)) {
-            if (line.find("pei-x86-64") != null ||
-                    line.find("pe-x86-64") != null ||
-                    line.find("i386:x86-64") != null)
-                return "x86_64"
-            if (line.find("pei-i386") != null ||
-                    line.find("pe-i386") != null ||
-                    line.find("i386") != null)
-                return "i386"
-            if (line.find("pei-aarch64") != null ||
-                    line.find("pe-aarch64") != null ||
-                    line.find("AArch64") != null)
-                return "aarch64"
-        }
-
-        return null
+        local result = PE.inspect(this.read_file(path))
+        return result == null ? null : result.arch
     }
 
     function require_windows_pe_arch(path, expected_arch, label) {
@@ -632,10 +609,12 @@ class SqgiPkgWindowsMsys2 extends Base.SqgiPkgWindowsEnv {
     }
 
     function windows_collect_binary_files(windir) {
-        return this.optional_command_output(
-            "find " + this.shell_quote(windir) +
-            " -type f \\( -iname '*.exe' -o -iname '*.dll' \\) | sort"
-        )
+        local out = []
+        foreach (path in this.find_files(windir)) {
+            local lower = path.tolower()
+            if (this.ends_with(lower, ".exe") || this.ends_with(lower, ".dll")) out.push(path)
+        }
+        return out
     }
 
     function copy_windows_dependency_dll(opts, windir, dll_name) {

@@ -1,49 +1,36 @@
 {
+  "schema_version": 2,
   "name": "GtkGstOverlay",
+  "runtime": {
+    "sqgi": "HEAD",
+    "source": "../../.."
+  },
+  "platforms": {
+    "linux": {
+      "architectures": [
+        "x86_64",
+        "aarch64"
+      ],
+      "baseline": "ubuntu-24.04"
+    },
+    "windows": {
+      "architectures": [
+        "x86_64"
+      ],
+      "format": "installer"
+    }
+  },
+  "features": [
+    "gtk4",
+    "gstreamer"
+  ],
   "linux": {
-    "arches": [
-      {
-        "arch": "x86_64",
-        "build_dir": "build-linux-x86_64",
-        "deb": {
-          "download": true,
-          "packages": [
-            "libgtk-4-1",
-            "libgstreamer1.0-0",
-            "gstreamer1.0-plugins-base"
-          ]
-        },
-        "build": [
-          "cmake -E rm -rf \"$SQGI_LINUX_BUILD_DIR\"",
-          "cmake -S \"$SQGI_SOURCE_DIR\" -B \"$SQGI_LINUX_BUILD_DIR\" -G Ninja ${SQGI_LINUX_CMAKE_TOOLCHAIN:+-DCMAKE_TOOLCHAIN_FILE=\"$SQGI_LINUX_CMAKE_TOOLCHAIN\"} -DCMAKE_BUILD_TYPE=Release",
-          "cmake --build \"$SQGI_LINUX_BUILD_DIR\""
-        ]
-      },
-      {
-        "arch": "aarch64",
-        "build_dir": "build-linux-aarch64",
-        "deb": {
-          "download": true,
-          "packages": [
-            "libgtk-4-1",
-            "libgstreamer1.0-0",
-            "gstreamer1.0-plugins-base"
-          ]
-        },
-        "build": [
-          "cmake -E rm -rf \"$SQGI_LINUX_BUILD_DIR\"",
-          "cmake -S \"$SQGI_SOURCE_DIR\" -B \"$SQGI_LINUX_BUILD_DIR\" -G Ninja ${SQGI_LINUX_CMAKE_TOOLCHAIN:+-DCMAKE_TOOLCHAIN_FILE=\"$SQGI_LINUX_CMAKE_TOOLCHAIN\"} -DCMAKE_BUILD_TYPE=Release",
-          "cmake --build \"$SQGI_LINUX_BUILD_DIR\""
-        ]
-      }
+    "packages": [
+      "gstreamer1.0-plugins-base",
+      "gstreamer1.0-plugins-good"
     ]
   },
   "windows": {
-    "build": [
-      "cmake -E rm -rf \"$SQGI_WINDOWS_BUILD_DIR\"",
-      "cmake -S \"$SQGI_SOURCE_DIR\" -B \"$SQGI_WINDOWS_BUILD_DIR\" -G Ninja -DCMAKE_TOOLCHAIN_FILE=\"$SQGI_WIN_CMAKE_TOOLCHAIN\" -DCMAKE_BUILD_TYPE=Release",
-      "cmake --build \"$SQGI_WINDOWS_BUILD_DIR\""
-    ],
-    "build_dir": "build-windows-x86_64"
+    "msys2_prefix": "mingw64"
   }
 }

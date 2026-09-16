@@ -1,68 +1,48 @@
 {
+  "schema_version": 2,
   "name": "NativeEntryProject",
+  "platforms": {
+    "linux": {
+      "baseline": "ubuntu-24.04"
+    },
+    "windows": {
+      "architectures": [
+        "x86_64"
+      ],
+      "format": "installer"
+    }
+  },
   "entry": {
     "type": "native",
-    "linux": "native/build/sq-native-entry",
-    "windows": "native/build-windows-x86_64/sq-native-entry.exe"
+    "linux": ".sqgipkg/build/linux-x86_64/entry/sq-native-entry",
+    "windows": ".sqgipkg/build/windows-x86_64/entry/sq-native-entry.exe"
   },
   "script_dirs": [
     "scripts"
   ],
-  "native_projects": [
+  "native": [
     {
-      "dir": "native",
-      "build": [
-        "./build.sh"
-      ]
+      "name": "entry",
+      "dir": "native"
     }
   ],
   "linux": {
-    "deb": {
-      "download": true,
-      "packages": [
-        "libc6",
-        "libc6-dev"
-      ]
-    },
+    "packages": [
+      "libc6",
+      "libc6-dev"
+    ],
     "arches": [
       {
         "arch": "x86_64",
-        "entry_linux": "native/build-linux-x86_64/sq-native-entry",
-        "inherit_native_projects": false,
-        "native_projects": [
-          {
-            "dir": "native",
-            "build": [
-              "BUILD_DIR=build-linux-x86_64 MESON_CROSS_FILE=\"$SQGI_LINUX_MESON_CROSS_FILE\" ./build.sh"
-            ]
-          }
-        ]
+        "entry_linux": ".sqgipkg/build/linux-x86_64/entry/sq-native-entry"
       },
       {
         "arch": "aarch64",
-        "entry_linux": "native/build-linux-aarch64/sq-native-entry",
-        "inherit_native_projects": false,
-        "native_projects": [
-          {
-            "dir": "native",
-            "build": [
-              "BUILD_DIR=build-linux-aarch64 MESON_CROSS_FILE=\"$SQGI_LINUX_MESON_CROSS_FILE\" ./build.sh"
-            ]
-          }
-        ]
+        "entry_linux": ".sqgipkg/build/linux-aarch64/entry/sq-native-entry"
       }
     ]
   },
   "windows": {
-    "msys2_prefix": "mingw64",
-    "build": [],
-    "native_projects": [
-      {
-        "dir": "native",
-        "build": [
-          "BUILD_DIR=build-windows-x86_64 MESON_CROSS_FILE=\"$SQGI_MESON_CROSS_FILE\" ./build.sh"
-        ]
-      }
-    ]
+    "msys2_prefix": "mingw64"
   }
 }

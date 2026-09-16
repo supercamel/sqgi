@@ -24,4 +24,12 @@ if host_machine.system() != 'windows'
     dependencies: [glib_dep, gobject_dep],
     install: false,
   )
+else
+  custom_target(
+    'SqHello typelib',
+    input: 'SqHello-1.0.windows.gir',
+    output: 'SqHello-1.0.typelib',
+    command: [find_program('g-ir-compiler'), '@INPUT@', '--output', '@OUTPUT@'],
+    build_by_default: true,
+  )
 endif

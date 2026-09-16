@@ -12,7 +12,16 @@ SQGIPKG="${ROOT_DIR}/tools/sqgipkg"
 BUILD_DIR="$(cd "$(dirname "${SQGI_BIN}")" && pwd)"
 WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/sqgipkg-tests.XXXXXX")"
 
-trap 'rm -rf "${WORK_DIR}"' EXIT
+cleanup() {
+  local status=$?
+  if [[ "${SQGIPKG_KEEP_TEST_WORK:-0}" == 1 ]]; then
+    echo "Test work directory: ${WORK_DIR}"
+  else
+    rm -rf "${WORK_DIR}"
+  fi
+  exit "$status"
+}
+trap cleanup EXIT
 
 export LD_LIBRARY_PATH="${BUILD_DIR}${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
 
@@ -207,7 +216,7 @@ pass "platform helper sqgipkg tests"
 export SQGI_SOURCE_DIR="${ROOT_DIR}"
 
 HELP_OUT="${WORK_DIR}/help.out"
-run_sqgipkg --help >"${HELP_OUT}"
+run_sqgipkg --help-all >"${HELP_OUT}"
 assert_contains "${HELP_OUT}" "Usage:"
 assert_contains "${HELP_OUT}" "sqgipkg [OPTION?]"
 assert_contains "${HELP_OUT}" "Help Options:"
@@ -248,7 +257,7 @@ mkdir -p "${INIT_DIR}"
 (cd "${INIT_DIR}" && run_sqgipkg --init gtk4 >"${WORK_DIR}/init.out")
 assert_file "${INIT_DIR}/sqgipkg.json"
 assert_contains "${INIT_DIR}/sqgipkg.json" "\"script_dirs\""
-assert_contains "${INIT_DIR}/sqgipkg.json" "\"gdk_backend\""
+assert_contains "${INIT_DIR}/sqgipkg.json" "\"features\""
 assert_contains "${WORK_DIR}/init.out" "wrote sqgipkg.json"
 pass "manifest init template"
 
@@ -256,21 +265,21 @@ NATIVE_INIT_DIR="${WORK_DIR}/init-native"
 mkdir -p "${NATIVE_INIT_DIR}"
 (cd "${NATIVE_INIT_DIR}" && run_sqgipkg --init native-gobject >"${WORK_DIR}/init-native.out")
 assert_file "${NATIVE_INIT_DIR}/sqgipkg.json"
-assert_contains "${NATIVE_INIT_DIR}/sqgipkg.json" "\"native_projects\""
-assert_contains "${NATIVE_INIT_DIR}/sqgipkg.json" "\"libraries\""
-assert_contains "${NATIVE_INIT_DIR}/sqgipkg.json" "\"typelibs\""
+assert_contains "${NATIVE_INIT_DIR}/sqgipkg.json" "\"native\""
+assert_contains "${NATIVE_INIT_DIR}/sqgipkg.json" "\"build_system\""
+assert_contains "${NATIVE_INIT_DIR}/sqgipkg.json" "\"meson\""
 pass "native manifest init template"
 
 if run_sqgipkg "${MAIN_SCRIPT}" --name Squrl --target appdir >"${WORK_DIR}/appdir.out" 2>&1; then
   fail "appdir placeholder unexpectedly succeeded"
 fi
-assert_contains "${WORK_DIR}/appdir.out" "--target appdir is reserved but not implemented yet"
+assert_contains "${WORK_DIR}/appdir.out" "unknown or unavailable target: appdir"
 pass "appdir placeholder"
 
 if run_sqgipkg "${MAIN_SCRIPT}" --name Squrl --target tarball >"${WORK_DIR}/tarball.out" 2>&1; then
   fail "tarball placeholder unexpectedly succeeded"
 fi
-assert_contains "${WORK_DIR}/tarball.out" "--target tarball is reserved but not implemented yet"
+assert_contains "${WORK_DIR}/tarball.out" "unknown or unavailable target: tarball"
 pass "tarball placeholder"
 
 OUT_DIR="${WORK_DIR}/out"
@@ -770,6 +779,7 @@ if command -v meson >/dev/null 2>&1 &&
   NATIVE_ENTRY_PROJECT_OUT="${WORK_DIR}/native-entry-project"
   run_sqgipkg \
     --manifest "${ROOT_DIR}/tools/sqgipkg_tests/native_entry_project/sqgipkg.json" \
+    --no-linux-deb-download \
     --output "${NATIVE_ENTRY_PROJECT_OUT}" \
     --appimagetool "${APPIMAGETOOL}" \
     --keep-appdir \
@@ -1044,7 +1054,7 @@ run_sqgipkg \
   --manifest "${WIN_PROJECT}/sqgipkg.json" \
   --target win-nsis \
   --output "${WIN_NSIS_OUT}" \
-  --nsis definitely-not-makensis \
+  --nsis definitely-not-makensis --nsis-script-only \
   >"${WORK_DIR}/win-nsis-package.out"
 assert_file "${WIN_NSIS_OUT}/WinSqurl.nsi"
 assert_contains "${WIN_NSIS_OUT}/WinSqurl.nsi" "!include MUI2.nsh"
@@ -1057,7 +1067,7 @@ assert_contains "${WIN_NSIS_OUT}/WinSqurl.nsi" "CreateShortcut"
 assert_contains "${WIN_NSIS_OUT}/WinSqurl.nsi" "WinSqurl.exe"
 assert_not_contains "${WIN_NSIS_OUT}/WinSqurl.nsi" "WinSqurl.vbs"
 assert_not_contains "${WIN_NSIS_OUT}/WinSqurl.nsi" "\$SMSTARTUP"
-assert_contains "${WORK_DIR}/win-nsis-package.out" "makensis not found"
+assert_contains "${WORK_DIR}/win-nsis-package.out" "wrote NSIS script:"
 pass "Windows NSIS script generation"
 
 WIN_ALL_OUT="${WORK_DIR}/win-all"
@@ -1066,7 +1076,7 @@ run_sqgipkg \
   --target all \
   --output "${WIN_ALL_OUT}" \
   --appimagetool "${APPIMAGETOOL}" \
-  --nsis definitely-not-makensis \
+  --nsis definitely-not-makensis --nsis-script-only \
   >"${WORK_DIR}/win-all-package.out"
 assert_file "${WIN_ALL_OUT}-linux-${HOST_APPIMAGE_ARCH}/WinSqurl.AppImage"
 assert_file "${WIN_ALL_OUT}-windows-x86_64/WinSqurl/WinSqurl.bat"
@@ -1207,6 +1217,7 @@ if command -v meson >/dev/null 2>&1 &&
   NATIVE_OUT="${WORK_DIR}/native-gi"
   run_sqgipkg \
     --manifest "${ROOT_DIR}/tools/sqgipkg_tests/native_gi_project/sqgipkg.json" \
+    --no-linux-deb-download \
     --output "${NATIVE_OUT}" \
     --appimagetool "${APPIMAGETOOL}" \
     --keep-appdir \
@@ -1234,6 +1245,7 @@ if command -v meson >/dev/null 2>&1 &&
   NATIVE_VALA_OUT="${WORK_DIR}/native-vala"
   run_sqgipkg \
     --manifest "${ROOT_DIR}/tools/sqgipkg_tests/native_vala_project/sqgipkg.json" \
+    --no-linux-deb-download \
     --output "${NATIVE_VALA_OUT}" \
     --appimagetool "${APPIMAGETOOL}" \
     --no-linux-deb-download \
@@ -1263,6 +1275,7 @@ if command -v cargo >/dev/null 2>&1 &&
   NATIVE_RUST_OUT="${WORK_DIR}/native-rust"
   run_sqgipkg \
     --manifest "${ROOT_DIR}/tools/sqgipkg_tests/native_rust_project/sqgipkg.json" \
+    --no-linux-deb-download \
     --output "${NATIVE_RUST_OUT}" \
     --appimagetool "${APPIMAGETOOL}" \
     --no-linux-deb-download \
@@ -1307,6 +1320,7 @@ pass "manifest AppImage for demo/gtk4/image_viewer.nut"
 GTK_THEMES_OUT="${WORK_DIR}/gtk-themes"
 run_sqgipkg \
   --manifest "${ROOT_DIR}/tools/sqgipkg_tests/gtk_themes/sqgipkg.json" \
+  --no-linux-deb-download \
   --output "${GTK_THEMES_OUT}" \
   --appimagetool "${APPIMAGETOOL}" \
   --keep-appdir \
@@ -1325,5 +1339,21 @@ if grep -Fq "Theme parser error" "${WORK_DIR}/gtk-themes-run.out"; then
   fail "gtk_themes emitted GTK theme parser errors"
 fi
 pass "gtk_themes AppImage uses bundled theme and closes cleanly"
+
+# Exercise the shared v2 runtime recipe and dynamically loaded media plugins.
+GTK_GST_OUT="${WORK_DIR}/gtk-gst-overlay"
+run_sqgipkg \
+  --manifest "${ROOT_DIR}/tools/sqgipkg_tests/gtk_gst_overlay_project/sqgipkg.json" \
+  --no-linux-deb-download \
+  --output "${GTK_GST_OUT}" \
+  --appimagetool "${APPIMAGETOOL}" \
+  --keep-appdir \
+  --smoke-test "--analyse --timeout=2" \
+  >"${WORK_DIR}/gtk-gst-overlay-package.out"
+assert_file "${GTK_GST_OUT}/GtkGstOverlay.AppImage"
+assert_file "${GTK_GST_OUT}/GtkGstOverlay.AppDir/usr/share/sqgi/app/ball_state.cnut"
+assert_contains "${WORK_DIR}/gtk-gst-overlay-package.out" "Application exited with status 0"
+assert_contains "${WORK_DIR}/gtk-gst-overlay-package.out" "smoke test passed"
+pass "v2 GTK/GStreamer overlay AppImage"
 
 echo "sqgipkg tests passed"

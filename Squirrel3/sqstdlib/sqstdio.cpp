@@ -4,12 +4,25 @@
 #include <squirrel.h>
 #include <sqstdio.h>
 #include "sqstdstream.h"
+#if defined(_WIN32) && !defined(SQUNICODE)
+#include <windows.h>
+#include <vector>
+#endif
 
 #define SQSTD_FILE_TYPE_TAG ((SQUnsignedInteger)(SQSTD_STREAM_TYPE_TAG | 0x00000001))
 //basic API
 SQFILE sqstd_fopen(const SQChar *filename ,const SQChar *mode)
 {
-#ifndef SQUNICODE
+#if defined(_WIN32) && !defined(SQUNICODE)
+    // SQGI passes UTF-8 paths. The narrow CRT fopen uses the active code page.
+    int path_len = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, filename, -1, NULL, 0);
+    int mode_len = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, mode, -1, NULL, 0);
+    if (!path_len || !mode_len) return NULL;
+    std::vector<wchar_t> wide_path(path_len), wide_mode(mode_len);
+    MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, filename, -1, wide_path.data(), path_len);
+    MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, mode, -1, wide_mode.data(), mode_len);
+    return (SQFILE)_wfopen(wide_path.data(), wide_mode.data());
+#elif !defined(SQUNICODE)
     return (SQFILE)fopen(filename,mode);
 #else
     return (SQFILE)_wfopen(filename,mode);

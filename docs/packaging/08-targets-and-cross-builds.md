@@ -261,8 +261,8 @@ entry, and refreshes the Windows font list.
 }
 ```
 
-When `makensis` is not available, `sqgipkg` still writes the `.nsi` script beside
-the staged Windows directory.
+`win-nsis` requires `makensis` and fails before staging if it is unavailable.
+Use `--nsis-script-only` to explicitly generate the `.nsi` script without compiling an installer.
 
 `win-nsis` uses NSIS Modern UI 2 by default. `header_image` sets the wizard
 header bitmap and `welcome_image` sets the welcome/finish bitmap.

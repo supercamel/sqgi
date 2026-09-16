@@ -1,3 +1,6 @@
+For the task-oriented CLI, version 2 manifests and native Windows execution, see
+[the simple manifest guide](../docs/packaging/10-simple-manifests.md).
+
 # sqgipkg
 
 `sqgipkg` packages SQGI/Squirrel applications for distribution.
@@ -1921,8 +1924,8 @@ or:
 --nsis /path/to/makensis
 ```
 
-If `makensis` is not found, `sqgipkg` still writes the `.nsi` file and tells you
-how to build it later.
+If `makensis` is not found, installer generation fails before staging. Use
+`--nsis-script-only` to explicitly write the `.nsi` file without compiling an installer.
 
 ### `windows.nsis_options`
 

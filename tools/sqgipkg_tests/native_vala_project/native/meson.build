@@ -5,7 +5,7 @@ gobject_dep = dependency('gobject-2.0')
 gio_dep = dependency('gio-2.0')
 vala_shared_library = host_machine.system() == 'windows' ? 'libsqvala-1.0.dll' : 'libsqvala-1.0.so'
 
-shared_library(
+sqvala_lib = shared_library(
   'sqvala-1.0',
   'sq-vala.vala',
   dependencies: [glib_dep, gobject_dep, gio_dep],
@@ -14,4 +14,14 @@ shared_library(
   vala_header: 'sq-vala.h',
   vala_vapi: 'sq-vala-1.0.vapi',
   install: false,
+)
+
+# Vala generates GIR without executing the target library, so this also works
+# for cross builds and from a native Windows terminal.
+custom_target(
+  'SqVala typelib',
+  depends: sqvala_lib,
+  output: 'SqVala-1.0.typelib',
+  command: [find_program('g-ir-compiler'), meson.current_build_dir() / 'SqVala-1.0.gir', '--output', '@OUTPUT@'],
+  build_by_default: true,
 )

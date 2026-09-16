@@ -7,6 +7,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <glib/gstdio.h>
 
 /* ── import() native function ────────────────────────────────────────────── */
 
@@ -24,7 +25,7 @@
  */
 static int sqgi_path_is_absolute(const char *path)
 {
-    return path && path[0] == '/';
+    return path && g_path_is_absolute(path);
 }
 
 typedef struct SqgiImportFrame {
@@ -37,7 +38,7 @@ static SqgiImportFrame *sqgi_import_frames = NULL;
 
 static int sqgi_file_exists(const char *path)
 {
-    FILE *f = fopen(path, "rb");
+    FILE *f = g_fopen(path, "rb");
     if (!f) return 0;
     fclose(f);
     return 1;
@@ -89,6 +90,11 @@ static char *sqgi_dirname_dup(const char *path)
     if (!path || path[0] == '\0') return sqgi_strdup(".");
 
     const char *slash = strrchr(path, '/');
+#ifdef G_OS_WIN32
+    const char *backslash = strrchr(path, '\\');
+    if (backslash && (!slash || backslash > slash)) slash = backslash;
+    if (slash == path + 2 && path[1] == ':') return sqgi_strndup(path, 3);
+#endif
     if (!slash) return sqgi_strdup(".");
     if (slash == path) return sqgi_strndup(path, 1);
     return sqgi_strndup(path, (size_t)(slash - path));

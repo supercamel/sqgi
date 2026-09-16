@@ -52,7 +52,7 @@ class SqgiPkgWindowsNsis extends Base.SqgiPkgWindowsStaging {
         local icon_abs = this.abs_path(opts.windows.nsis_icon)
         if (!this.path_exists(icon_abs)) this.fail("NSIS icon not found: " + opts.windows.nsis_icon)
         local dest = GLib.build_filenamev([windir, "app.ico"])
-        this.run_shell("cp " + this.shell_quote(icon_abs) + " " + this.shell_quote(dest), "copying NSIS icon")
+        this.copy_path(icon_abs, dest)
         return icon_abs
     }
 

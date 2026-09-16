@@ -1,0 +1,61 @@
+{
+  "schema_version": 2,
+  "name": "RFDTool",
+  "app_id": "com.github.supercamel.rfdtool",
+  "icon": "images/com.github.supercamel.rfdtool.png",
+  "desktop_categories": [
+    "Utility",
+    "GTK"
+  ],
+  "script": "main.nut",
+  "runtime": {
+    "sqgi": "3a561e5bc4429283c39380898133f747cc26206f"
+  },
+  "features": [
+    "gtk4"
+  ],
+  "native": [
+    {
+      "name": "gserial",
+      "repo": "https://github.com/supercamel/gserial.git",
+      "branch": "master",
+      "gi": {
+        "strategy": "host",
+        "namespace": "GSerial",
+        "version": "1.0",
+        "library": "gserial-1.0"
+      }
+    }
+  ],
+  "platforms": {
+    "linux": {
+      "architectures": [
+        "x86_64",
+        "aarch64"
+      ],
+      "baseline": "ubuntu-22.04"
+    },
+    "windows": {
+      "architectures": [
+        "x86_64"
+      ],
+      "format": "installer"
+    }
+  },
+  "linux": {
+    "packages": [
+      "libglib2.0-0",
+      "libgirepository-1.0-1",
+      "libharfbuzz-gobject0"
+    ]
+  },
+  "windows": {
+    "files": [
+      "images/com.github.supercamel.rfdtool.png=share/icons/hicolor/256x256/apps/com.github.supercamel.rfdtool.png"
+    ],
+    "nsis_options": {
+      "icon": "images/rfdtool.ico"
+    },
+    "msys2_prefix": "mingw64"
+  }
+}

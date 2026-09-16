@@ -4,7 +4,7 @@ local Base = import("msys2.nut")
 
 class SqgiPkgWindowsStaging extends Base.SqgiPkgWindowsMsys2 {
     function run_optional_tool(command, description) {
-        local status = system(command)
+        local status = typeof(command) == "array" ? this.process(command).status : this.run_shell_status(command)
         if (status != 0) this.info(description + " skipped or failed")
     }
 
@@ -125,7 +125,7 @@ class SqgiPkgWindowsStaging extends Base.SqgiPkgWindowsMsys2 {
 
         if (has_schema_xml && this.executable_available("glib-compile-schemas")) {
             this.run_optional_tool(
-                "glib-compile-schemas " + this.shell_quote(schema_dir),
+                ["glib-compile-schemas", schema_dir],
                 "Windows GSettings schema compilation"
             )
         } else if (has_schema_xml) {
@@ -153,10 +153,7 @@ class SqgiPkgWindowsStaging extends Base.SqgiPkgWindowsMsys2 {
 
     function windows_gdk_pixbuf_loader_names(loader_dir) {
         local out = []
-        foreach (path in this.optional_command_output(
-            "find " + this.shell_quote(loader_dir) + " -maxdepth 1 -type f -name '*.dll' | sort"
-        ))
-            out.push(this.basename(path))
+        foreach (path in this.find_files(loader_dir, "*.dll", 1)) out.push(this.basename(path))
         return out
     }
 
@@ -500,7 +497,7 @@ class SqgiPkgWindowsStaging extends Base.SqgiPkgWindowsMsys2 {
     }
 
     function write_windows_exe_launcher(opts, windir, package_name) {
-        local compiler = "x86_64-w64-mingw32-gcc"
+        local compiler = this.host_windows() ? "gcc" : "x86_64-w64-mingw32-gcc"
         if (!this.executable_available(compiler)) {
             this.report_warn(opts, "mingw C compiler not found (" + compiler +
                 "); GUI shortcut will fall back to the .bat launcher")
@@ -513,9 +510,7 @@ class SqgiPkgWindowsStaging extends Base.SqgiPkgWindowsMsys2 {
             "sqgipkg-launcher-" + GLib.get_monotonic_time() + ".c"])
 
         this.write_file(src, this.windows_exe_launcher_source(bat_name))
-        local status = this.run_shell_status(
-            this.shell_quote(compiler) + " -O2 -s -mwindows -o " +
-            this.shell_quote(out) + " " + this.shell_quote(src))
+        local status = this.process([compiler, "-O2", "-s", "-mwindows", "-o", out, src]).status
         remove(src)
 
         if (status != 0 || !this.path_exists(out)) {
@@ -569,6 +564,7 @@ class SqgiPkgWindowsStaging extends Base.SqgiPkgWindowsMsys2 {
     }
 
     function materialize_windows_symlinks(windir) {
+        if (this.host_windows()) return
         local links = this.optional_command_output(
             "find " + this.shell_quote(windir) + " -type l | sort"
         )
@@ -590,6 +586,7 @@ class SqgiPkgWindowsStaging extends Base.SqgiPkgWindowsMsys2 {
     }
 
     function stage_windows_dir(opts) {
+        this.begin_inputs(opts)
         local package_name = this.package_basename(opts.name)
         local windir = GLib.build_filenamev([opts.output_dir, package_name])
 
@@ -599,7 +596,8 @@ class SqgiPkgWindowsStaging extends Base.SqgiPkgWindowsMsys2 {
         this.prepare_windows_cross_environment(opts)
         this.build_windows_native_dependencies(opts)
         this.run_windows_build(opts)
-        this.run_shell("rm -rf " + this.shell_quote(windir), "removing existing Windows dist directory")
+        this.build_runtime_recipe(opts)
+        this.remove_tree(windir)
         this.mkdir_p(GLib.build_filenamev([windir, "share", "sqgi", "app"]))
 
         if (opts.entry_type == "sqgi")

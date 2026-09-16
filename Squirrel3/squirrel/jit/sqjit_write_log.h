@@ -60,8 +60,8 @@ private:
         SQUnsignedInteger heap_boundary;
     };
     enum { INLINE_SIZE = 8 };
-    alignas(Entry) unsigned char _inline[INLINE_SIZE * sizeof(Entry)];
-    Entry *InlineEntries() { return reinterpret_cast<Entry *>(_inline); }
+    alignas(Entry) unsigned char _inline_entries[INLINE_SIZE * sizeof(Entry)];
+    Entry *InlineEntries() { return reinterpret_cast<Entry *>(_inline_entries); }
     Entry *_entries;
     alignas(ValueEntry) unsigned char _value_inline[INLINE_SIZE * sizeof(ValueEntry)];
     ValueEntry *InlineValues() { return reinterpret_cast<ValueEntry *>(_value_inline); }

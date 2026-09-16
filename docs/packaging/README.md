@@ -7,6 +7,8 @@ data, themes, AppImages, Windows staging, and multi-architecture builds.
 Use these pages when you want a guided path. Use `tools/README.md` in the source
 tree when you need the complete field reference.
 
+For the shortest configuration path, start with [simple manifests and native Windows packaging](10-simple-manifests.md).
+
 ## Tutorial Path
 
 1. [Package one script](01-package-one-script.md)

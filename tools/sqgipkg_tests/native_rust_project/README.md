@@ -12,3 +12,13 @@ patterns.
 The Rust GI module is Linux-only for this fixture. Windows packaging still builds
 the SQGI runtime so `--target all` can complete, but `main.nut` uses
 `import("system")` and skips the Rust GI import on non-Linux hosts.
+
+The version 2 manifest builds SQGI from this checkout (`runtime.source`). The
+Rust/GI build retains its explicit Linux `build.sh` hook and output paths: a
+Cargo recipe is not currently part of sqgipkg. Run from the repository root:
+
+```sh
+build/sqgi tools/sqgipkg build \
+  --manifest tools/sqgipkg_tests/native_rust_project/sqgipkg.json \
+  --no-linux-deb-download --smoke-test ""
+```

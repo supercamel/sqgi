@@ -18,7 +18,7 @@ class SqgiPkg extends Base.SqgiPkgBuild {
         this.app.add_main_option("manifest", 'm', 0, GLib.OptionArg.string,
             "Distribution manifest JSON file", "FILE")
         this.app.add_main_option("target", 't', 0, GLib.OptionArg.string,
-            "Package target: appimage, linux-sysroot, win-dir, win-nsis, win-sysroot, all, appdir, tarball", "TARGET")
+            "Package target: appimage, linux-sysroot, win-dir, win-nsis, win-sysroot, all", "TARGET")
         this.app.add_main_option("build-dir", 0, 0, GLib.OptionArg.string,
             "SQGI build directory", "DIR")
         this.app.add_main_option("output", 'o', 0, GLib.OptionArg.string,
@@ -196,6 +196,15 @@ class SqgiPkg extends Base.SqgiPkgBuild {
         this.app.add_main_option("nsis-autostart", 0, 0, GLib.OptionArg.none,
             "Create a current-user Startup shortcut in the NSIS installer", null)
 
+        this.app.add_main_option("locked", 0, 0, GLib.OptionArg.none,
+            "Require the recorded source and package inputs", null)
+        this.app.add_main_option("write-lock", 0, 0, GLib.OptionArg.none,
+            "Record resolved source and package inputs after a successful build", null)
+        this.app.add_main_option("nsis-script-only", 0, 0, GLib.OptionArg.none,
+            "Generate an NSIS script without compiling an installer", null)
+        this.app.add_main_option("explain", 0, 0, GLib.OptionArg.none,
+            "Print the resolved configuration without building or fetching", null)
+
         this.app.connect("command-line", function(command_line) {
             try {
                 local opts = this.parse_args(this.raw_args, command_line.get_options_dict())
@@ -205,9 +214,14 @@ class SqgiPkg extends Base.SqgiPkgBuild {
                     return 0
                 }
 
+                if (this.option_present(command_line.get_options_dict(), "explain")) {
+                    this.explain(opts)
+                    return 0
+                }
+
                 if (opts.doctor) {
                     this.validate_doctor_options(opts)
-                    return this.doctor(opts)
+                    return this.check_selected(opts)
                 }
 
                 this.validate_options(opts)

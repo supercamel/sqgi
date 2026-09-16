@@ -1,8 +1,8 @@
 local GLib = import("GLib")
 local Gio = import("Gio")
-local Base = import("scripts.nut")
+local Base = import("recipes.nut")
 
-class SqgiPkgStaging extends Base.SqgiPkgScripts {
+class SqgiPkgStaging extends Base.SqgiPkgRecipes {
     function cnut_dest_for_script_dest(dest_rel) {
         return this.ends_with(dest_rel, ".nut")
             ? this.replace_suffix(dest_rel, ".nut", ".cnut")
@@ -22,10 +22,7 @@ class SqgiPkgStaging extends Base.SqgiPkgScripts {
         local target_rel = this.basename(cnut_dest_rel)
         if (this.starts_with(opts.target, "win-")) {
             local cnut_abs = GLib.build_filenamev([appdir, cnut_dest_rel])
-            this.run_shell(
-                "cp " + this.shell_quote(cnut_abs) + " " + this.shell_quote(link_abs),
-                "copying script bytecode compatibility path"
-            )
+            this.copy_path(cnut_abs, link_abs)
             this.report_inc(opts, "script_links")
             return
         }
@@ -120,21 +117,9 @@ class SqgiPkgStaging extends Base.SqgiPkgScripts {
     }
 
     function list_nut_files(dir) {
-        local dir_abs = this.abs_path(dir)
-        if (this.ends_with(dir_abs, "/."))
-            dir_abs = dir_abs.slice(0, dir_abs.len() - 2)
-        if (!this.path_exists(dir_abs)) this.fail("script directory not found: " + dir)
-
-        local tmp = GLib.build_filenamev([GLib.get_tmp_dir(), "sqgipkg-scripts-" + GLib.get_monotonic_time()])
-        this.run_shell(
-            "find " + this.shell_quote(dir_abs) +
-            " \\( -name .git -o -name build -o -name dist -o -name AppDir -o -name '*.AppDir' \\) -type d -prune" +
-            " -o -type f -name '*.nut' -print | sort > " + this.shell_quote(tmp),
-            "listing script directory"
-        )
-        local files = this.split_lines(this.read_file(tmp))
-        remove(tmp)
-        return files
+        local path = this.abs_path(dir)
+        if (!this.path_exists(path)) this.fail("script directory not found: " + dir)
+        return this.find_files(path, "*.nut", -1, false, true)
     }
 
     function add_script_dir(opts, appdir, dir, main_script_abs, staged) {
@@ -167,23 +152,11 @@ class SqgiPkgStaging extends Base.SqgiPkgScripts {
     }
 
     function list_file_rule_sources(rule) {
-        local root = rule.from
-        if (!this.path_exists(root)) {
+        if (!this.path_exists(rule.from)) {
             if (rule.optional) return []
-            this.fail(rule.label + " rule source not found: " + root)
+            this.fail(rule.label + " rule source not found: " + rule.from)
         }
-
-        if (this.run_shell_status("[ -d " + this.shell_quote(root) + " ]") != 0)
-            return [root]
-
-        local tmp = GLib.build_filenamev([GLib.get_tmp_dir(), "sqgipkg-file-rule-" + GLib.get_monotonic_time()])
-        this.run_shell(
-            "find " + this.shell_quote(root) + " -type f -print | sort > " + this.shell_quote(tmp),
-            "listing " + rule.label + " rule"
-        )
-        local files = this.split_lines(this.read_file(tmp))
-        remove(tmp)
-        return files
+        return this.is_directory(rule.from) ? this.find_files(rule.from) : [rule.from]
     }
 
     function glob_segment_match(pattern, text) {
@@ -383,22 +356,12 @@ class SqgiPkgStaging extends Base.SqgiPkgScripts {
     }
 
     function copy_runtime_bucket(opts, path, appdir, dest_dir_rel, description, report_key) {
-        local src_abs = this.abs_path(path)
-        if (!this.path_exists(src_abs)) this.fail(description + " not found: " + path)
-
-        local dest_abs = GLib.build_filenamev([appdir, this.relative_dest(dest_dir_rel)])
-        this.mkdir_p(dest_abs)
-        if (this.run_shell_status("[ -d " + this.shell_quote(src_abs) + " ]") == 0) {
-            this.run_shell(
-                "cp -a " + this.shell_quote(src_abs) + "/. " + this.shell_quote(dest_abs) + "/",
-                "copying " + description + " directory"
-            )
-        } else {
-            this.run_shell(
-                "cp -a " + this.shell_quote(src_abs) + " " + this.shell_quote(dest_abs) + "/",
-                "copying " + description
-            )
-        }
+        local src = this.abs_path(path)
+        if (!this.path_exists(src)) this.fail(description + " not found: " + path)
+        local dest = GLib.build_filenamev([appdir, this.relative_dest(dest_dir_rel)])
+        this.mkdir_p(dest)
+        if (this.host_windows()) this.copy_path(src, this.is_directory(src) ? dest : GLib.build_filenamev([dest, this.basename(src)]))
+        else this.run_process(["cp", "-a", this.is_directory(src) ? src + "/." : src, dest + "/"], description)
         this.report_inc(opts, report_key)
     }
 
@@ -497,18 +460,21 @@ class SqgiPkgStaging extends Base.SqgiPkgScripts {
             local dir = project.dir
             if (!this.path_exists(dir)) this.fail("native project directory not found: " + dir)
 
+            this.run_native_recipe(opts, project)
             local needs_source = this.command_list_contains(project.build, "SQGI_SOURCE_DIR") ||
                 this.command_list_contains(project.install, "SQGI_SOURCE_DIR")
             local env = this.starts_with(opts.target, "win-") ? "" :
                 this.linux_build_env_prefix(opts, needs_source)
             foreach (command in project.build) {
                 this.info("native build: " + command)
-                this.run_shell_in_dir(env + command, dir, "native build")
+                if (typeof(command) == "table") this.run_build_hook(command, dir, "native build", this.recipe_environment(opts))
+                else this.run_shell_in_dir(env + command, dir, "native build")
             }
 
             foreach (command in project.install) {
                 this.info("native install: " + command)
-                this.run_shell_in_dir(env + command, dir, "native install")
+                if (typeof(command) == "table") this.run_build_hook(command, dir, "native install", this.recipe_environment(opts))
+                else this.run_shell_in_dir(env + command, dir, "native install")
             }
 
             this.report_inc(opts, "native_projects")
@@ -526,6 +492,7 @@ class SqgiPkgStaging extends Base.SqgiPkgScripts {
     }
 
     function ensure_git_native_project(project, label) {
+        this.pin_source(project)
         if (project.repo == null || project.repo == "") return
         if (!this.executable_available("git")) this.fail(label + " requires git in PATH")
 
@@ -536,23 +503,24 @@ class SqgiPkgStaging extends Base.SqgiPkgScripts {
         if (!this.path_exists(dir)) {
             branch = this.resolve_git_branch(project, label, null, true)
             this.mkdir_p(this.dirname(dir))
-            local clone_cmd = "git clone "
-            if (project.shallow) clone_cmd += "--depth 1 "
+            local clone_cmd = ["git", "clone"]
+            if (project.shallow) { clone_cmd.push("--depth"); clone_cmd.push("1") }
             if (branch != null && branch != "")
-                clone_cmd += "--branch " + this.shell_quote(branch) + " "
-            clone_cmd += this.shell_quote(project.repo) + " " + this.shell_quote(dir)
+                { clone_cmd.push("--branch"); clone_cmd.push(branch) }
+            clone_cmd.push(project.repo)
+            clone_cmd.push(dir)
             this.info(label + " clone_cmd: " + project.repo)
-            this.run_shell(clone_cmd, label + " clone")
+            this.run_process(clone_cmd, label + " clone")
         } else if (!this.path_exists(git_dir)) {
             this.fail(label + " directory exists but is not a git checkout: " + dir)
         } else if (project.update) {
             this.info(label + " git fetch")
-            this.run_shell("git -C " + this.shell_quote(dir) + " fetch --all --tags --prune", label + " git fetch")
+            this.run_process(["git", "-C", dir, "fetch", "--all", "--tags", "--prune"], label + " git fetch")
             branch = this.resolve_git_branch(project, label, dir, true)
             if (branch != null && branch != "") {
                 this.info(label + " git checkout branch: " + branch)
-                this.run_shell("git -C " + this.shell_quote(dir) + " checkout " + this.shell_quote(branch), label + " git checkout")
-                this.run_shell("git -C " + this.shell_quote(dir) + " pull --ff-only", label + " git pull")
+                this.run_process(["git", "-C", dir, "checkout", branch], label + " git checkout")
+                this.run_process(["git", "-C", dir, "pull", "--ff-only"], label + " git pull")
             }
         } else {
             branch = this.resolve_git_branch(project, label, dir, false)
@@ -560,15 +528,16 @@ class SqgiPkgStaging extends Base.SqgiPkgScripts {
 
         if (project.ref != null && project.ref != "") {
             this.info(label + " git checkout ref: " + project.ref)
-            this.run_shell("git -C " + this.shell_quote(dir) + " checkout " + this.shell_quote(project.ref), label + " git checkout ref")
+            this.run_process(["git", "-C", dir, "checkout", project.ref], label + " git checkout ref")
         } else if (branch != null && branch != "") {
-            this.run_shell("git -C " + this.shell_quote(dir) + " checkout " + this.shell_quote(branch), label + " git checkout branch")
+            this.run_process(["git", "-C", dir, "checkout", branch], label + " git checkout branch")
         }
 
         if (project.submodules) {
             this.info(label + " git submodules")
-            this.run_shell("git -C " + this.shell_quote(dir) + " submodule update --init --recursive", label + " git submodules")
+            this.run_process(["git", "-C", dir, "submodule", "update", "--init", "--recursive"], label + " git submodules")
         }
+        this.record_source(project)
     }
 
     function resolve_git_branch(project, label, dir, allow_remote_lookup) {
@@ -602,17 +571,15 @@ class SqgiPkgStaging extends Base.SqgiPkgScripts {
 
     function git_local_has_branch(dir, branch) {
         if (dir == null || dir == "" || branch == null || branch == "") return false
-        local prefix = "git -C " + this.shell_quote(dir) + " rev-parse --verify --quiet "
-        local quoted_branch = this.shell_quote(branch)
-        if (this.run_shell_status(prefix + "refs/heads/" + quoted_branch + " >/dev/null 2>&1") == 0)
-            return true
-        return this.run_shell_status(prefix + "refs/remotes/origin/" + quoted_branch + " >/dev/null 2>&1") == 0
+        foreach (prefix in ["refs/heads/", "refs/remotes/origin/"])
+            if (this.process_output(["git", "-C", dir, "rev-parse", "--verify", "--quiet", prefix + branch]) != null) return true
+        return false
     }
 
     function git_local_default_branch(dir) {
         if (dir == null || dir == "") return null
 
-        local output = this.run_shell_output("git -C " + this.shell_quote(dir) + " symbolic-ref --short refs/remotes/origin/HEAD")
+        local output = this.process_output(["git", "-C", dir, "symbolic-ref", "--short", "refs/remotes/origin/HEAD"])
         if (output == null) return null
 
         local lines = this.split_lines(output)
@@ -626,14 +593,13 @@ class SqgiPkgStaging extends Base.SqgiPkgScripts {
 
     function git_remote_has_branch(repo, branch) {
         if (repo == null || repo == "" || branch == null || branch == "") return false
-        return this.run_shell_status("git ls-remote --exit-code --heads " +
-            this.shell_quote(repo) + " " + this.shell_quote(branch) + " >/dev/null 2>&1") == 0
+        return this.process_output(["git", "ls-remote", "--exit-code", "--heads", repo, branch]) != null
     }
 
     function git_remote_default_branch(repo) {
         if (repo == null || repo == "") return null
 
-        local output = this.run_shell_output("git ls-remote --symref " + this.shell_quote(repo) + " HEAD")
+        local output = this.process_output(["git", "ls-remote", "--symref", repo, "HEAD"])
         if (output == null) return null
 
         foreach (line in this.split_lines(output)) {
@@ -651,6 +617,7 @@ class SqgiPkgStaging extends Base.SqgiPkgScripts {
         local dir = project.dir
         if (!this.path_exists(dir)) this.fail(label + " directory not found: " + dir)
 
+        this.run_native_recipe(opts, project)
         foreach (command in project.build) {
             this.info(label + " build: " + command)
             this.run_windows_shell_in_dir(opts, command, dir, label + " build")

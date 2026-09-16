@@ -5,6 +5,13 @@ local Base = import("core.nut")
 class SqgiPkgOptions extends Base.SqgiPkgCore {
     function new_options() {
         return {
+            locked = false,
+            write_lock = false,
+            host_path = GLib.getenv("PATH"),
+            nsis_script_only = false,
+            runtime_recipe = false,
+            runtime_jit = true,
+            features = [],
             script = "",
             entry_type = "sqgi",
             entry_linux = "",
@@ -14,6 +21,7 @@ class SqgiPkgOptions extends Base.SqgiPkgCore {
             name = "",
             app_id = "",
             target = "",
+            windows_format = "installer",
             build_dir = "build",
             build_dir_forced = false,
             output_dir = "dist",
@@ -83,7 +91,7 @@ class SqgiPkgOptions extends Base.SqgiPkgCore {
                 build_dir = "",
                 build = [],
                 msys2_root = "",
-                msys2_prefix = "mingw64",
+                msys2_prefix = this.host_windows() ? "ucrt64" : "mingw64",
                 build_packages = [],
                 packages = [],
                 repo_url = "",
@@ -379,6 +387,9 @@ class SqgiPkgOptions extends Base.SqgiPkgCore {
             opts.linux.deb.download_forced = false
         }
         if (this.option_present(option_dict, "keep-appdir")) opts.keep_appdir = true
+        if (this.option_present(option_dict, "nsis-script-only")) opts.nsis_script_only = true
+        if (this.option_present(option_dict, "locked")) opts.locked = true
+        if (this.option_present(option_dict, "write-lock")) opts.write_lock = true
         if (this.option_present(option_dict, "doctor")) opts.doctor = true
         if (this.option_present(option_dict, "smoke-test-isolated")) opts.smoke_test_isolated = true
         if (this.option_present(option_dict, "no-compile-scripts")) opts.compile_scripts = false

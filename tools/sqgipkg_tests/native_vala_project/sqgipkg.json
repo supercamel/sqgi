@@ -1,95 +1,32 @@
 {
+  "schema_version": 2,
   "name": "NativeVala",
-  "native_projects": [
+  "runtime": {
+    "sqgi": "HEAD",
+    "source": "../../.."
+  },
+  "native": [
     {
-      "dir": "native",
-      "build": [
-        "./build.sh"
-      ],
-      "libraries": [
-        "build/libsqvala-1.0.so"
-      ],
-      "typelibs": [
-        "build/SqVala-1.0.typelib"
-      ]
+      "name": "vala",
+      "dir": "native"
     }
   ],
-  "linux": {
-    "deb": {
-      "download": true
+  "platforms": {
+    "linux": {
+      "architectures": [
+        "x86_64",
+        "aarch64"
+      ],
+      "baseline": "ubuntu-24.04"
     },
-    "arches": [
-      {
-        "arch": "x86_64",
-        "build_dir": "build-linux-x86_64",
-        "inherit_native_projects": false,
-        "build": [
-          "cmake -E rm -rf \"$SQGI_LINUX_BUILD_DIR\"",
-          "cmake -S \"$SQGI_SOURCE_DIR\" -B \"$SQGI_LINUX_BUILD_DIR\" -G Ninja ${SQGI_LINUX_CMAKE_TOOLCHAIN:+-DCMAKE_TOOLCHAIN_FILE=\"$SQGI_LINUX_CMAKE_TOOLCHAIN\"} -DCMAKE_BUILD_TYPE=Release -DSQ_ENABLE_JIT=ON",
-          "cmake --build \"$SQGI_LINUX_BUILD_DIR\""
-        ],
-        "native_projects": [
-          {
-            "dir": "native",
-            "build": [
-              "BUILD_DIR=build-linux-x86_64 MESON_CROSS_FILE=\"$SQGI_LINUX_MESON_CROSS_FILE\" ./build.sh"
-            ],
-            "libraries": [
-              "build-linux-x86_64/libsqvala-1.0.so"
-            ],
-            "typelibs": [
-              "build-linux-x86_64/SqVala-1.0.typelib"
-            ]
-          }
-        ]
-      },
-      {
-        "arch": "aarch64",
-        "build_dir": "build-linux-aarch64",
-        "inherit_native_projects": false,
-        "build": [
-          "cmake -E rm -rf \"$SQGI_LINUX_BUILD_DIR\"",
-          "cmake -S \"$SQGI_SOURCE_DIR\" -B \"$SQGI_LINUX_BUILD_DIR\" -G Ninja ${SQGI_LINUX_CMAKE_TOOLCHAIN:+-DCMAKE_TOOLCHAIN_FILE=\"$SQGI_LINUX_CMAKE_TOOLCHAIN\"} -DCMAKE_BUILD_TYPE=Release -DSQ_ENABLE_JIT=ON",
-          "cmake --build \"$SQGI_LINUX_BUILD_DIR\""
-        ],
-        "native_projects": [
-          {
-            "dir": "native",
-            "build": [
-              "BUILD_DIR=build-linux-aarch64 MESON_CROSS_FILE=\"$SQGI_LINUX_MESON_CROSS_FILE\" ./build.sh"
-            ],
-            "libraries": [
-              "build-linux-aarch64/libsqvala-1.0.so"
-            ],
-            "typelibs": [
-              "build-linux-aarch64/SqVala-1.0.typelib"
-            ]
-          }
-        ]
-      }
-    ]
+    "windows": {
+      "architectures": [
+        "x86_64"
+      ],
+      "format": "installer"
+    }
   },
   "windows": {
-    "msys2_prefix": "mingw64",
-    "build": [
-      "cmake -E rm -rf \"$SQGI_WINDOWS_BUILD_DIR\"",
-      "cmake -S \"$SQGI_SOURCE_DIR\" -B \"$SQGI_WINDOWS_BUILD_DIR\" -G Ninja -DCMAKE_TOOLCHAIN_FILE=\"$SQGI_WIN_CMAKE_TOOLCHAIN\" -DCMAKE_BUILD_TYPE=Release -DSQ_ENABLE_JIT=ON",
-      "cmake --build \"$SQGI_WINDOWS_BUILD_DIR\""
-    ],
-    "build_dir": "build-windows-x86_64",
-    "native_projects": [
-      {
-        "dir": "native",
-        "build": [
-          "BUILD_DIR=build-windows-x86_64 MESON_CROSS_FILE=\"$SQGI_MESON_CROSS_FILE\" ./build.sh"
-        ],
-        "libraries": [
-          "build-windows-x86_64/libsqvala-1.0.dll"
-        ],
-        "typelibs": [
-          "build-windows-x86_64/SqVala-1.0.typelib"
-        ]
-      }
-    ]
+    "msys2_prefix": "mingw64"
   }
 }

@@ -1,7 +1,9 @@
 local GLib = import("GLib")
 local Gio = import("Gio")
 
-class SqgiPkgCore {
+local Host = import("provenance.nut")
+
+class SqgiPkgCore extends Host.SqgiPkgProvenance {
     function fail(message) {
         throw "sqgipkg: " + message
     }
@@ -39,6 +41,7 @@ class SqgiPkgCore {
     }
 
     function chmod_exec(path) {
+        if (this.host_windows()) return
         this.run_shell("chmod 755 " + this.shell_quote(path), "make executable: " + path)
     }
 
@@ -66,17 +69,19 @@ class SqgiPkgCore {
     }
 
     function run_shell(command, description) {
-        local status = system(command)
+        local status = this.run_shell_status(command)
         if (status != 0) this.fail(description + " failed")
     }
 
     function run_shell_status(command) {
-        return system(command)
+        if (this.host_windows())
+            this.fail("POSIX shell command is not portable to Windows; use a built-in recipe or an argv build hook: " + command)
+        return this.process(["/bin/sh", "-c", command]).status
     }
 
     function run_shell_output(command) {
         local tmp = GLib.build_filenamev([GLib.get_tmp_dir(), "sqgipkg-output-" + GLib.get_monotonic_time()])
-        local status = system(command + " > " + this.shell_quote(tmp) + " 2>/dev/null")
+        local status = this.run_shell_status(command + " > " + this.shell_quote(tmp) + " 2>/dev/null")
         if (status != 0 || !this.path_exists(tmp)) {
             if (this.path_exists(tmp)) remove(tmp)
             return null
@@ -93,13 +98,13 @@ class SqgiPkgCore {
     }
 
     function run_shell_in_dir(command, dir, description) {
-        local status = system("cd " + this.shell_quote(dir) + " && " + command)
+        local status = this.run_shell_status("cd " + this.shell_quote(dir) + " && " + command)
         if (status != 0) this.fail(description + " failed")
     }
 
     function contains_slash(value) {
         for (local i = 0; i < value.len(); i++) {
-            if (value.slice(i, i + 1) == "/") return true
+            if (value.slice(i, i + 1) == "/" || value.slice(i, i + 1) == "\\") return true
         }
         return false
     }
@@ -148,25 +153,14 @@ class SqgiPkgCore {
 
     function command_list_contains(commands, needle) {
         foreach (command in commands) {
-            if (command.find(needle) != null) return true
+            if (sqgi.json.stringify(command).find(needle) != null) return true
         }
         return false
     }
 
     function machine_arch() {
-        local tmp = GLib.build_filenamev([GLib.get_tmp_dir(), "sqgipkg-uname-" + GLib.get_monotonic_time()])
-        local status = system("uname -m > " + this.shell_quote(tmp))
-        if (status == 0 && this.path_exists(tmp)) {
-            try {
-                local data = Gio.File.new_for_path(tmp).load_contents(null)
-                remove(tmp)
-                local text = (typeof(data) == "array") ? data[0] : data
-                while (text.len() > 0 && (text.slice(text.len() - 1) == "\n" || text.slice(text.len() - 1) == "\r"))
-                    text = text.slice(0, text.len() - 1)
-                if (text.len() > 0) return text
-            } catch (e) {}
-        }
-        return "x86_64"
+        local arch = import("system").cpu.arch
+        return arch == null || arch == "unknown" ? "x86_64" : arch
     }
 
     function appimagetool_asset_arch() {
@@ -308,6 +302,7 @@ class SqgiPkgCore {
     }
 
     function split_path(value) {
+        if (this.host_windows()) value = this.replace_char(value, "\\", "/")
         local out = []
         local start = 0
         for (local i = 0; i <= value.len(); i++) {
@@ -415,6 +410,8 @@ class SqgiPkgCore {
     }
 
     function relative_dest(dest) {
+        dest = this.replace_char(dest, "\\", "/")
+        if (dest.len() >= 2 && dest.slice(1, 2) == ":") this.fail("include destination must be relative: " + dest)
         if (dest.len() == 0) this.fail("empty destination in include spec")
         if (GLib.path_is_absolute(dest)) this.fail("include destination must be relative: " + dest)
 
@@ -452,7 +449,7 @@ class SqgiPkgCore {
     }
 
     function shell_has_matches(pattern) {
-        return system("find " + this.shell_quote(this.dirname(pattern)) + " -maxdepth 1 -name " + this.shell_quote(this.basename(pattern)) + " | grep -q .") == 0
+        return this.find_files(this.dirname(pattern), this.basename(pattern), 1).len() > 0
     }
 
     function sanitize_id(raw) {

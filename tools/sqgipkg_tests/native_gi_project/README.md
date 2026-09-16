@@ -33,12 +33,19 @@ cd tools/sqgipkg_tests/native_gi_project
 sqgipkg --target win-dir
 ```
 
-The manifest keeps native build outputs explicit, because `sqgipkg` needs to
-know which `.so`/`.dll` and `.typelib` files to stage. The generic SQGI runtime
-MSYS2 packages are inferred automatically for Windows targets.
 
-On non-Windows hosts, `sqgipkg` prepares the MSYS2 sysroot and generated
-CMake/Meson cross files automatically. This manifest uses the `mingw64` MSYS2
-prefix and ships a small Windows GIR template for the test library, so the
-typelib can be compiled during an Ubuntu cross build without requiring Wine to
-run `g-ir-scanner` on a Windows helper executable.
+The version 2 manifest builds SQGI from this checkout with `runtime.source`,
+and declares Linux architectures and the Ubuntu 24.04 dependency baseline once.
+Native recipes use generated cross files automatically. Build products live in
+`.sqgipkg/build/<platform>/<name>`; library and typelib outputs are discovered.
+For release projects, replace the local `HEAD` runtime recipe with a pinned
+SQGI revision. For a fast host-only test using installed development libraries,
+add `--no-linux-deb-download`.
+
+Use `sqgipkg check` to validate and `sqgipkg explain` to inspect the resolved
+recipes. Windows builds run from PowerShell/CMD without an MSYS2 shell; these
+examples explicitly retain the MinGW64 package ABI. `win-nsis` requires NSIS.
+Use `--target win-dir` to produce a directory without an installer compiler.
+
+The C library declares `gi.strategy: host` for cross builds. Native Windows
+builds compile the checked-in Windows GIR through a Meson target.

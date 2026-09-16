@@ -1,0 +1,52 @@
+name: Native Windows packaging
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install native toolchain and libraries
+        run: |
+          # pacman is used as a package source. Every build/test step runs from
+          # PowerShell; the MSYS shell and Unix tools are not added to PATH.
+          if (!(Test-Path C:\msys64\usr\bin\pacman.exe)) {
+            choco install msys2 --yes --no-progress
+            if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          }
+          $root = @('C:\msys64', 'C:\tools\msys64') | Where-Object { Test-Path "$_\usr\bin\pacman.exe" } | Select-Object -First 1
+          if (!$root) { throw 'MSYS2 package installation not found' }
+          $env:MSYSTEM = 'UCRT64'
+          & "$root\usr\bin\pacman.exe" -Syu --noconfirm
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          & "$root\usr\bin\pacman.exe" -S --needed --noconfirm mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-cmake mingw-w64-ucrt-x86_64-ninja mingw-w64-ucrt-x86_64-pkgconf mingw-w64-ucrt-x86_64-glib2 mingw-w64-ucrt-x86_64-gobject-introspection mingw-w64-ucrt-x86_64-cairo mingw-w64-ucrt-x86_64-libffi mingw-w64-ucrt-x86_64-meson mingw-w64-ucrt-x86_64-gtk4
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          "$root\ucrt64\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
+          "SQGI_TEST_MSYS_ROOT=$root" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "PKG_CONFIG_LIBDIR=$root/ucrt64/lib/pkgconfig;$root/ucrt64/share/pkgconfig" | Out-File -FilePath $env:GITHUB_ENV -Append
+          choco install nsis --yes --no-progress
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          'C:\Program Files (x86)\NSIS' | Out-File -FilePath $env:GITHUB_PATH -Append
+      - name: Build and install into a path containing spaces
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release '-DCMAKE_INSTALL_PREFIX=C:/sqgipkg test'
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          cmake --build build
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          cmake --install build
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: CLI, process, file, schema and native recipe regressions
+        run: |
+          python tools/sqgipkg_tests/test_ergonomics.py build/sqgi.exe
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: Package and run from PowerShell and CMD
+        run: |
+          python tools/sqgipkg_tests/test_windows_native.py 'C:/sqgipkg test/bin/sqgipkg.exe' $env:SQGI_TEST_MSYS_ROOT ucrt64
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }

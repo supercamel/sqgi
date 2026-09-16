@@ -1,0 +1,69 @@
+{
+  "schema_version": 2,
+  "name": "StlViewer",
+  "app_id": "io.github.sam.StlViewer",
+  "icon": "images/io.github.sam.StlViewer.png",
+  "desktop_categories": [
+    "Graphics",
+    "GTK"
+  ],
+  "script": "main.nut",
+  "resources": [
+    "examples",
+    "images/io.github.sam.StlViewer.png"
+  ],
+  "runtime": {
+    "sqgi": "3a5051af8aa8485a3ed0e2596b46ef2182bd1d81"
+  },
+  "features": [
+    "gtk4"
+  ],
+  "native": [
+    {
+      "name": "stlviewer-native",
+      "dir": "native",
+      "gi": {
+        "strategy": "host",
+        "namespace": "StlViewer",
+        "version": "1.0",
+        "library": "stlviewer-1.0"
+      }
+    }
+  ],
+  "platforms": {
+    "linux": {
+      "architectures": [
+        "x86_64",
+        "aarch64"
+      ],
+      "baseline": "ubuntu-24.04"
+    },
+    "windows": {
+      "architectures": [
+        "x86_64"
+      ],
+      "format": "installer"
+    }
+  },
+  "linux": {
+    "packages": [
+      "libglib2.0-0",
+      "libgirepository-1.0-1",
+      "libharfbuzz-gobject0",
+      "libepoxy0",
+      "libepoxy-dev"
+    ]
+  },
+  "windows": {
+    "packages": [
+      "mingw-w64-x86_64-libepoxy"
+    ],
+    "files": [
+      "images/io.github.sam.StlViewer.png=share/icons/hicolor/256x256/apps/io.github.sam.StlViewer.png"
+    ],
+    "nsis_options": {
+      "icon": "images/stlviewer.ico"
+    },
+    "msys2_prefix": "mingw64"
+  }
+}

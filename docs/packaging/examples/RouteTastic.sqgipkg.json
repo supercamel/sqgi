@@ -1,0 +1,148 @@
+{
+  "schema_version": 2,
+  "name": "RouteTastic",
+  "app_id": "dev.routetastic.reset",
+  "target": "appimage",
+  "appimage_arch": "x86_64",
+  "entry": {
+    "type": "native",
+    "linux": "packaging/routetastic-appimage"
+  },
+  "build_dir": ".cache/runtime/optimized",
+  "compile_scripts": false,
+  "keep_appdir": true,
+  "desktop_terminal": false,
+  "desktop_categories": [
+    "Development",
+    "Electronics"
+  ],
+  "native_projects": [
+    {
+      "dir": "native",
+      "libraries": [
+        "build/librtnative-1.0.so"
+      ],
+      "typelibs": [
+        "build/RtNative-1.0.typelib"
+      ]
+    }
+  ],
+  "files": [
+    {
+      "path": ".cache/runtime/optimized/sqgi",
+      "dest": "usr/bin/sqgi"
+    },
+    {
+      "path": "routetastic.nut",
+      "dest": "usr/share/sqgi/app/routetastic.nut"
+    },
+    {
+      "from": "src",
+      "to": "usr/share/sqgi/app/src",
+      "include": "*.nut"
+    },
+    {
+      "from": "scripts",
+      "to": "usr/share/sqgi/app/scripts",
+      "include": [
+        "routetastic",
+        "refill-step.nut",
+        "application_paths.py",
+        "routing_defaults.py",
+        "refill-route.py",
+        "refill-gui.py",
+        "refill_workflow.py",
+        "refill_checkpoint.py",
+        "reroute_evidence.py",
+        "gui_route.py",
+        "validate.py",
+        "connectivity_evidence.py",
+        "kicad-corpus-inventory.py",
+        "corpus_process.py"
+      ]
+    },
+    {
+      "path": "tools.lock.json",
+      "dest": "usr/share/sqgi/app/tools.lock.json"
+    },
+    {
+      "path": "native/build/librtnative-1.0.so",
+      "dest": "usr/share/sqgi/app/native/build/librtnative-1.0.so"
+    },
+    {
+      "path": "native/build/RtNative-1.0.typelib",
+      "dest": "usr/share/sqgi/app/native/build/RtNative-1.0.typelib"
+    },
+    {
+      "path": "packaging/smoke.nut",
+      "dest": "usr/share/sqgi/app/packaging/smoke.nut"
+    },
+    {
+      "path": "docs/INSTALLATION.md",
+      "dest": "usr/share/sqgi/app/INSTALLATION.md"
+    },
+    {
+      "path": "docs/RULE_SUPPORT.md",
+      "dest": "usr/share/sqgi/app/RULE_SUPPORT.md"
+    },
+    {
+      "path": "examples",
+      "dest": "usr/share/sqgi/app/examples"
+    },
+    {
+      "path": ".cache/runtime/optimized/provenance.json",
+      "dest": "usr/share/doc/RouteTastic/runtime-provenance.json"
+    },
+    {
+      "path": ".cache/runtime/optimized/source",
+      "dest": "usr/share/doc/RouteTastic/runtime-source"
+    },
+    {
+      "path": "packaging/verify-runtime.py",
+      "dest": "usr/share/sqgi/app/packaging/verify-runtime.py"
+    },
+    {
+      "path": ".cache/packaging-data/mime",
+      "dest": "usr/share/mime"
+    },
+    {
+      "path": "packaging/fonts.conf",
+      "dest": "usr/etc/fonts/fonts.conf"
+    },
+    {
+      "path": ".cache/packaging-data/provenance.json",
+      "dest": "usr/share/doc/RouteTastic/mime-provenance.json"
+    },
+    {
+      "path": "packaging/third_party.py",
+      "dest": "usr/share/sqgi/app/packaging/third_party.py"
+    }
+  ],
+  "linux": {
+    "copy_dependencies": true,
+    "deb": {
+      "suite": "noble",
+      "download": false,
+      "packages": [
+        "libgtk-4-1",
+        "gir1.2-gtk-4.0",
+        "gir1.2-glib-2.0",
+        "gir1.2-freedesktop",
+        "gsettings-desktop-schemas:all",
+        "adwaita-icon-theme:all",
+        "fonts-dejavu-core:all",
+        "librsvg2-common",
+        "libgdk-pixbuf-2.0-0",
+        "gir1.2-gdkpixbuf-2.0",
+        "gir1.2-graphene-1.0",
+        "gir1.2-pango-1.0",
+        "gir1.2-harfbuzz-0.0",
+        "libharfbuzz-gobject0",
+        "shared-mime-info"
+      ]
+    },
+    "build": [
+      "python3 scripts/prepare-package-data.py"
+    ]
+  }
+}

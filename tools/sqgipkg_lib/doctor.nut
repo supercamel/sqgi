@@ -117,9 +117,23 @@ class SqgiPkgDoctor extends Base.SqgiPkgTemplates {
         return errors
     }
 
+    function doctor_projects(errors, warnings, projects) {
+        foreach (project in projects) {
+            if (!this.path_exists(project.dir) && project.repo != null && project.repo != "")
+                warnings.push("native project will be fetched: " + project.name)
+            else errors = this.doctor_path(errors, "native project directory", project.dir)
+            foreach (path in this.array_join(project.libraries, project.typelibs))
+                if (!this.path_exists(path)) warnings.push("native output not built yet: " + path)
+            foreach (spec in project.files)
+                errors = this.doctor_file_spec(errors, warnings, spec, "native file", true)
+        }
+        return errors
+    }
+
     function doctor(opts) {
         local errors = 0
         local warnings = []
+        local windows_target = this.starts_with(opts.target, "win-")
         local script_abs = opts.script == "" ? "" : this.abs_path(opts.script)
 
         print("sqgipkg doctor\n")
@@ -167,6 +181,7 @@ class SqgiPkgDoctor extends Base.SqgiPkgTemplates {
 
         foreach (path in opts.resources)
             errors = this.doctor_path(errors, "resource", path)
+        if (!windows_target) {
         foreach (path in opts.libraries)
             errors = this.doctor_path(errors, "shared library", path)
         foreach (path in opts.gstreamer_plugins)
@@ -181,6 +196,7 @@ class SqgiPkgDoctor extends Base.SqgiPkgTemplates {
             errors = this.doctor_path(errors, "GIO module", path)
         foreach (path in opts.gdk_pixbuf_loaders)
             errors = this.doctor_path(errors, "gdk-pixbuf loader", path)
+        }
         if (opts.desktop_icon != "")
             errors = this.doctor_path(errors, "desktop icon", opts.desktop_icon)
         if (opts.windows.nsis_license != "")
@@ -201,41 +217,41 @@ class SqgiPkgDoctor extends Base.SqgiPkgTemplates {
             }
         }
 
-        foreach (project in opts.native_projects) {
-            errors = this.doctor_path(errors, "native project directory", project.dir)
-            if (project.build.len() == 0)
-                warnings.push("native project has no build commands: " + project.dir)
-            foreach (command in project.build)
-                print("OK: native build command: " + command + "\n")
-            foreach (path in project.libraries) {
-                if (this.path_exists(path)) print("OK: native shared library output: " + path + "\n")
-                else warnings.push("native shared library output not found yet: " + path)
-            }
-            foreach (path in project.typelibs) {
-                if (this.path_exists(path)) print("OK: native GI typelib output: " + path + "\n")
-                else warnings.push("native GI typelib output not found yet: " + path)
-            }
-            foreach (spec in project.files)
-                errors = this.doctor_file_spec(errors, warnings, spec, "native file", true)
+        if (windows_target) {
+            errors = this.doctor_projects(errors, warnings, opts.windows.native_dependencies)
+            errors = this.doctor_projects(errors, warnings, opts.windows.native_projects)
+            foreach (path in this.array_join(opts.windows.libraries, opts.windows.typelibs))
+                errors = this.doctor_path(errors, "Windows payload", path)
+            foreach (spec in opts.windows.files)
+                errors = this.doctor_file_spec(errors, warnings, spec, "Windows file", false)
+        } else {
+            errors = this.doctor_projects(errors, warnings, opts.native_projects)
+            errors = this.doctor_linux_arches(errors, warnings, opts)
         }
 
-        errors = this.doctor_linux_arches(errors, warnings, opts)
-
         local linux_auto_runtime = this.linux_auto_runtime_packages_enabled(opts)
-        if (opts.report.used_gst && opts.gstreamer_plugins.len() == 0 && !linux_auto_runtime)
+        if (!windows_target && opts.report.used_gst && opts.gstreamer_plugins.len() == 0 && !linux_auto_runtime)
             warnings.push("GStreamer import detected; package may rely on host GStreamer plugins")
-        if (opts.report.used_gtk && opts.gtk_data.len() == 0 && opts.typelibs.len() == 0 && !linux_auto_runtime)
+        if (!windows_target && opts.report.used_gtk && opts.gtk_data.len() == 0 && opts.typelibs.len() == 0 && !linux_auto_runtime)
             warnings.push("GTK import detected; package may rely on host GTK assets and typelibs")
 
-        if (opts.entry_type == "sqgi") {
+        if (opts.entry_type == "sqgi" && !windows_target) {
             if (!this.path_exists(GLib.build_filenamev([opts.build_dir, "sqgi"])))
                 warnings.push("sqgi binary not found in build_dir yet: " + opts.build_dir)
             if (!this.path_exists(GLib.build_filenamev([opts.build_dir, "libsqgi.so.1"])))
                 warnings.push("libsqgi.so.1 not found in build_dir yet: " + opts.build_dir)
         }
-        if (this.executable_path(opts.appimagetool) == null)
+        if (!windows_target && this.executable_path(opts.appimagetool) == null)
             warnings.push("appimagetool not found in PATH; build will download it if curl or wget is available")
 
+        if (windows_target && opts.entry_type == "sqgi" && !this.table_get(opts, "runtime_recipe", false) &&
+                !this.path_exists(GLib.build_filenamev([this.windows_build_dir(opts), "sqgi.exe"])) &&
+                this.executable_path("sqgi.exe") == null && opts.windows.build.len() == 0)
+            warnings.push("Windows runtime not found; configure runtime.sqgi or windows.build_dir")
+        if (opts.target == "win-nsis" && !opts.nsis_script_only && this.executable_path(opts.windows.nsis) == null) {
+            print("ERROR: Windows installer requires makensis (NSIS)\n")
+            errors++
+        }
         foreach (warning in warnings)
             print("WARN: " + warning + "\n")
 

@@ -1,14 +1,29 @@
 local GLib = import("GLib")
 local Gio = import("Gio")
-local Base = import("options.nut")
+local Base = import("schema.nut")
 
-class SqgiPkgManifest extends Base.SqgiPkgOptions {
+class SqgiPkgManifest extends Base.SqgiPkgSchema {
     function apply_default_manifest(opts) {
         if (opts.manifest != "") return
         if (this.path_exists("sqgipkg.json")) opts.manifest = "sqgipkg.json"
     }
 
+    function validate_recipe_names(projects) {
+        local names = {}
+        foreach (project in projects) {
+            if (project.build_system == "") continue
+            local name = project.name.tolower()
+            if (name in names) this.fail("duplicate native recipe name: " + project.name)
+            names[name] <- true
+        }
+        foreach (project in projects)
+            if (project.gi != null && (project.name.tolower() + "-gi-host") in names)
+                this.fail("native recipe name conflicts with generated host GI build: " + project.name)
+    }
+
     function apply_project_defaults(opts) {
+        this.validate_recipe_names(opts.native_projects)
+        this.validate_recipe_names(opts.windows.native_projects)
         local project_dir = opts.manifest_dir == "" ? GLib.get_current_dir() : opts.manifest_dir
 
         if (opts.entry_type == "sqgi" && opts.script == "") {
@@ -17,7 +32,8 @@ class SqgiPkgManifest extends Base.SqgiPkgOptions {
         }
 
         if (opts.name == "") opts.name = this.basename(project_dir)
-        if (opts.target == "") opts.target = "appimage"
+        if (opts.target == "") opts.target = this.host_windows() ? "windows" : "appimage"
+        if (opts.target == "windows") opts.target = opts.windows_format == "directory" ? "win-dir" : "win-nsis"
         opts.appimage_arch = this.normalize_appimage_arch(opts.appimage_arch)
 
         if (!opts.output_dir_forced)
@@ -61,8 +77,10 @@ class SqgiPkgManifest extends Base.SqgiPkgOptions {
         if (!this.path_exists(manifest_path)) this.fail("manifest not found: " + opts.manifest)
 
         local manifest = sqgi.json.parse(this.read_file(manifest_path))
+        this.validate_manifest_schema(manifest)
         local base_dir = this.dirname(manifest_path)
         opts.manifest_dir = base_dir
+        this.apply_recipe_manifest(opts, manifest, base_dir)
 
         local entry = this.table_get(manifest, "entry")
         local script = this.table_get(manifest, "script")
@@ -632,6 +650,9 @@ class SqgiPkgManifest extends Base.SqgiPkgOptions {
             local project_dir = this.manifest_path(base_dir, dir)
             if (name == null) name = this.basename(project_dir)
 
+            if (this.table_get(item, "build_system", "") != "" &&
+                    (name == "." || name == ".." || name == "sqgi" || this.contains_slash(name)))
+                this.fail("native recipe name must be a single directory name other than sqgi: " + name)
             local build = this.manifest_command_list(this.table_get(item, "build"))
             local install = this.manifest_command_list(this.table_get(item, "install"))
             local libraries = this.manifest_native_project_paths(base_dir, project_dir, this.table_get(item, "libraries"))
@@ -641,6 +662,10 @@ class SqgiPkgManifest extends Base.SqgiPkgOptions {
 
             out.push({
                 name = name,
+                build_system = this.table_get(item, "build_system", ""),
+                gi = this.table_get(item, "gi", null),
+                targets = this.table_get(item, "targets", []),
+                options = this.table_get(item, "options", {}),
                 dir = project_dir,
                 repo = repo,
                 branch = branch,
@@ -743,6 +768,10 @@ class SqgiPkgManifest extends Base.SqgiPkgOptions {
     }
 
     function validate_options(opts) {
+        if (!this.array_contains(["clean", "appimage", "linux-sysroot", "win-dir", "win-nsis", "win-sysroot", "all"], opts.target))
+            this.fail("unknown or unavailable target: " + opts.target)
+        if (this.host_windows() && !this.starts_with(opts.target, "win-") && !opts.clean)
+            this.fail("Linux targets require a Linux build host; Windows hosts support win-dir, win-nsis and win-sysroot")
         if (opts.clean || opts.target == "clean") return
         if (opts.target == "linux-sysroot" || opts.target == "win-sysroot") return
         if (opts.entry_type == "sqgi") {

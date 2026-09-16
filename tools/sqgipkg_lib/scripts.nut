@@ -55,26 +55,19 @@ class SqgiPkgScripts extends Base.SqgiPkgManifest {
     function copy_into_appdir(src, appdir, dest_rel, description) {
         local src_abs = this.abs_path(src)
         if (!this.path_exists(src_abs)) this.fail(description + " not found: " + src)
-
-        dest_rel = this.relative_dest(dest_rel)
-        local dest_abs = GLib.build_filenamev([appdir, dest_rel])
+        local dest_abs = GLib.build_filenamev([appdir, this.relative_dest(dest_rel)])
         this.mkdir_p(this.dirname(dest_abs))
-        this.run_shell(
-            "cp -a " + this.shell_quote(src_abs) + " " + this.shell_quote(dest_abs),
-            "copying " + description
-        )
+        if (this.host_windows()) this.copy_path(src_abs, dest_abs)
+        else this.run_process(["cp", "-a", src_abs, dest_abs], description)
     }
 
     function copy_to_dir(src, appdir, dest_dir_rel, description) {
         local src_abs = this.abs_path(src)
         if (!this.path_exists(src_abs)) this.fail(description + " not found: " + src)
-
-        local dest_dir_abs = GLib.build_filenamev([appdir, this.relative_dest(dest_dir_rel)])
-        this.mkdir_p(dest_dir_abs)
-        this.run_shell(
-            "cp -a " + this.shell_quote(src_abs) + " " + this.shell_quote(dest_dir_abs) + "/",
-            "copying " + description
-        )
+        local dest = GLib.build_filenamev([appdir, this.relative_dest(dest_dir_rel)])
+        this.mkdir_p(dest)
+        if (this.host_windows()) this.copy_path(src_abs, GLib.build_filenamev([dest, this.basename(src_abs)]))
+        else this.run_process(["cp", "-a", src_abs, dest + "/"], description)
     }
 
     function script_dest_for_source(src, script_root = null) {
@@ -269,6 +262,12 @@ class SqgiPkgScripts extends Base.SqgiPkgManifest {
     }
 
     function scan_project_imports(opts) {
+        foreach (feature in opts.features) {
+            if (feature == "gtk4") opts.report.used_gtk = true
+            if (feature == "gstreamer") opts.report.used_gst = true
+            if (feature == "gdk-pixbuf") opts.report.used_gdk_pixbuf = true
+            if (feature == "soup3") opts.report.used_soup = true
+        }
         local visited = {}
 
         if (opts.script != "") {
@@ -311,7 +310,7 @@ class SqgiPkgScripts extends Base.SqgiPkgManifest {
     }
 
     function windows_project_has_build_steps(project) {
-        return project.build.len() > 0 || project.install.len() > 0
+        return project.build.len() > 0 || project.install.len() > 0 || this.table_get(project, "build_system", "") != ""
     }
 
     function windows_needs_default_vala(opts) {
@@ -330,6 +329,10 @@ class SqgiPkgScripts extends Base.SqgiPkgManifest {
     function apply_windows_package_defaults(opts) {
         if (!this.starts_with(opts.target, "win-")) return
 
+        if (this.host_windows() && (opts.runtime_recipe || opts.windows.native_projects.len() > 0)) {
+            foreach (package in ["gcc", "cmake", "ninja", "meson", "pkgconf", "gobject-introspection"])
+                this.append_unique(opts.windows.build_packages, this.msys2_pkg(opts, package))
+        }
         if (this.windows_needs_default_vala(opts))
             this.append_unique(opts.windows.build_packages, this.msys2_pkg(opts, "vala"))
 

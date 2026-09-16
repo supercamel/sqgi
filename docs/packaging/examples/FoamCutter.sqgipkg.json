@@ -1,0 +1,117 @@
+{
+  "schema_version": 2,
+  "name": "FoamCutter",
+  "app_id": "io.github.supercamel.FoamCutter",
+  "icon": "images/io.github.supercamel.FoamCutter.png",
+  "desktop_categories": [
+    "Graphics",
+    "Engineering",
+    "GTK"
+  ],
+  "entry": "main.nut",
+  "script_dirs": [
+    "src",
+    "test"
+  ],
+  "resources": [
+    "assets",
+    "examples"
+  ],
+  "compile_scripts": false,
+  "runtime": {
+    "sqgi": "4820070802a6286ab2ffdb86c319e69cdd97b4df"
+  },
+  "features": [
+    "gtk4"
+  ],
+  "native": [
+    {
+      "name": "gscenegraph",
+      "repo": "https://github.com/supercamel/gscenegraph.git",
+      "branch": "main",
+      "targets": [
+        "gscenegraph",
+        "GSceneGraph typelib"
+      ]
+    },
+    {
+      "name": "gserial",
+      "repo": "https://github.com/supercamel/gserial.git",
+      "branch": "master",
+      "gi": {
+        "strategy": "host",
+        "namespace": "GSerial",
+        "version": "1.0",
+        "library": "gserial-1.0"
+      }
+    }
+  ],
+  "platforms": {
+    "linux": {
+      "architectures": [
+        "x86_64",
+        "aarch64"
+      ],
+      "baseline": "ubuntu-24.04"
+    },
+    "windows": {
+      "architectures": [
+        "x86_64"
+      ],
+      "format": "installer"
+    }
+  },
+  "linux": {
+    "packages": [
+      "libgtk-4-dev",
+      "libgdk-pixbuf-2.0-0",
+      "gir1.2-gdkpixbuf-2.0",
+      "libgdk-pixbuf-2.0-dev",
+      "libepoxy0",
+      "libepoxy-dev",
+      "libgirepository1.0-dev",
+      "gobject-introspection",
+      "libharfbuzz-gobject0",
+      "libassimp-dev",
+      "dconf-gsettings-backend",
+      "gvfs-libs",
+      "adwaita-icon-theme",
+      "hicolor-icon-theme",
+      "librsvg2-common",
+      "shared-mime-info"
+    ]
+  },
+  "windows": {
+    "packages": [
+      "mingw-w64-x86_64-glib2",
+      "mingw-w64-x86_64-gobject-introspection",
+      "mingw-w64-x86_64-gobject-introspection-runtime",
+      "mingw-w64-x86_64-libffi",
+      "mingw-w64-x86_64-cairo",
+      "mingw-w64-x86_64-gtk4",
+      "mingw-w64-x86_64-gdk-pixbuf2",
+      "mingw-w64-x86_64-libepoxy",
+      "mingw-w64-x86_64-librsvg",
+      "mingw-w64-x86_64-hicolor-icon-theme",
+      "mingw-w64-x86_64-adwaita-icon-theme",
+      "mingw-w64-x86_64-gsettings-desktop-schemas",
+      "mingw-w64-x86_64-graphene",
+      "mingw-w64-x86_64-pango",
+      "mingw-w64-x86_64-harfbuzz"
+    ],
+    "nsis_options": {
+      "installer_name": "FoamCutter-Setup.exe",
+      "install_dir": "$LOCALAPPDATA\\Programs\\FoamCutter",
+      "request_execution_level": "user",
+      "desktop_shortcut": true,
+      "start_menu_shortcut": true,
+      "start_menu_folder": "FoamCutter",
+      "uninstall_registry": true,
+      "icon": "images/foamcutter.ico"
+    },
+    "files": [
+      "images/io.github.supercamel.FoamCutter.png=share/icons/hicolor/256x256/apps/io.github.supercamel.FoamCutter.png"
+    ],
+    "msys2_prefix": "mingw64"
+  }
+}

@@ -3,6 +3,45 @@ local Gio = import("Gio")
 local Base = import("doctor.nut")
 
 class SqgiPkgBuild extends Base.SqgiPkgDoctor {
+    function selected_configurations(opts) {
+        if (this.starts_with(opts.target, "win-")) return [opts]
+        local out = []
+        foreach (config in this.effective_linux_arches(opts)) {
+            if (opts.target == "all" || config.arch == opts.appimage_arch) {
+                local output = opts.target == "all" ? (config.output != "" ? config.output : opts.output_dir + "-linux-" + this.linux_arch_display_suffix(config.arch)) : opts.output_dir
+                local selected = this.clone_opts_for_linux_arch(opts, config, output)
+                if (opts.target == "linux-sysroot") selected.target = opts.target
+                out.push(selected)
+            }
+        }
+        if (out.len() == 0) {
+            local linux = clone opts
+            if (opts.target == "all") { linux.target = "appimage"; linux.output_dir += "-linux-" + opts.appimage_arch }
+            out.push(linux)
+        }
+        if (opts.target == "all") {
+            local windows = clone opts
+            windows.target = opts.windows_format == "directory" ? "win-dir" : "win-nsis"
+            windows.output_dir = opts.output_dir + "-windows-x86_64"
+            windows.report = this.new_report()
+            out.push(windows)
+        }
+        return out
+    }
+
+    function check_selected(opts) {
+        local status = 0
+        foreach (config in this.selected_configurations(opts)) {
+            this.validate_doctor_options(config)
+            if (this.doctor(config) != 0) status = 1
+        }
+        return status
+    }
+
+    function explain(opts) {
+        foreach (config in this.selected_configurations(opts)) this.explain_one(config)
+    }
+
     function stage_appdir(opts) {
         local app_id = this.desktop_app_id(opts)
         local package_name = this.package_basename(opts.name)
@@ -44,11 +83,13 @@ class SqgiPkgBuild extends Base.SqgiPkgDoctor {
 
         foreach (command in commands) {
             this.info("Linux " + opts.appimage_arch + " build: " + command)
-            this.run_shell_in_dir(env + command, dir, "Linux " + opts.appimage_arch + " build")
+            if (typeof(command) == "table") this.run_build_hook(command, dir, "Linux build", this.recipe_environment(opts))
+            else this.run_shell_in_dir(env + command, dir, "Linux " + opts.appimage_arch + " build")
         }
     }
 
     function build_appimage(opts) {
+        this.begin_inputs(opts)
         this.mkdir_p(opts.output_dir)
 
         this.scan_project_imports(opts)
@@ -57,6 +98,7 @@ class SqgiPkgBuild extends Base.SqgiPkgDoctor {
         this.prepare_linux_build_environment(opts)
         this.validate_linux_build_dir_state(opts)
         this.run_linux_build_commands(opts)
+        this.build_runtime_recipe(opts)
 
         local package_name = this.package_basename(opts.name)
         local appdir = this.stage_appdir(opts)
@@ -79,6 +121,7 @@ class SqgiPkgBuild extends Base.SqgiPkgDoctor {
             this.info("kept AppDir at " + appdir)
         }
 
+        this.finish_inputs(opts, appimage)
         this.info("wrote " + appimage)
     }
 
@@ -185,25 +228,25 @@ class SqgiPkgBuild extends Base.SqgiPkgDoctor {
         this.mkdir_p(opts.output_dir)
         local windir = this.stage_windows_dir(opts)
         this.print_report(opts, windir, null)
+        this.finish_inputs(opts, windir)
         this.info("wrote Windows dist directory " + windir)
     }
 
     function build_windows_nsis(opts) {
+        local nsis = this.executable_path(opts.windows.nsis)
+        if (nsis == null && !opts.nsis_script_only) this.fail("Windows installer requires makensis; install NSIS or select --target win-dir")
         this.mkdir_p(opts.output_dir)
         local windir = this.stage_windows_dir(opts)
         local script = this.write_nsis_script(opts, windir)
-        local nsis = this.executable_path(opts.windows.nsis)
 
         this.print_report(opts, windir, null)
 
-        if (nsis == null) {
-            this.info("makensis not found; wrote NSIS script at " + script)
-            this.info("run makensis from " + opts.output_dir + " to build the installer")
-            return
-        }
-
+        if (opts.nsis_script_only) { this.info("wrote NSIS script: " + script); return }
         this.info("building NSIS installer")
-        this.run_shell_in_dir(this.shell_quote(nsis) + " " + this.shell_quote(this.basename(script)), opts.output_dir, "building NSIS installer")
+        this.run_process([nsis, this.basename(script)], "building NSIS installer", this.abs_path(opts.output_dir))
+        if (!this.path_exists(GLib.build_filenamev([opts.output_dir, this.nsis_installer_name(opts, this.package_basename(opts.name))])))
+            this.fail("NSIS completed without producing the requested installer")
+        this.finish_inputs(opts, GLib.build_filenamev([opts.output_dir, this.nsis_installer_name(opts, this.package_basename(opts.name))]))
         this.info("wrote " + GLib.build_filenamev([opts.output_dir, this.nsis_installer_name(opts, this.package_basename(opts.name))]))
     }
 
@@ -231,11 +274,12 @@ class SqgiPkgBuild extends Base.SqgiPkgDoctor {
         if (path == null || path == "") return
         local abs = this.clean_abs_path(project_dir, path)
         if (!this.path_exists(abs)) return
+        if (abs == this.clean_abs_path(project_dir, ".")) this.fail("refusing to clean the project root: " + abs)
         if (!this.path_is_within_dir(abs, project_dir)) {
             this.info("skipping " + label + " outside project: " + abs)
             return
         }
-        this.run_shell("rm -rf " + this.shell_quote(abs), "removing " + label)
+        this.remove_tree(abs)
         this.info("removed " + label + ": " + abs)
     }
 
@@ -253,6 +297,7 @@ class SqgiPkgBuild extends Base.SqgiPkgDoctor {
         this.add_clean_path(output_paths, this.default_windows_output_dir(opts))
 
         this.add_clean_path(build_paths, opts.build_dir)
+        this.add_clean_path(build_paths, ".sqgipkg/build")
         this.add_clean_path(build_paths, "build")
         this.add_clean_path(build_paths, "build-win")
         this.add_clean_path(build_paths, this.default_linux_build_dir(opts))
@@ -356,6 +401,13 @@ class SqgiPkgBuild extends Base.SqgiPkgDoctor {
             ? this.array_join(opts.native_projects, config.native_projects)
             : this.array_copy(config.native_projects)
 
+        this.validate_recipe_names(out.native_projects)
+        for (local i = 0; i < out.native_projects.len(); i++) {
+            local project = clone out.native_projects[i]
+            project.libraries = this.array_copy(project.libraries)
+            project.typelibs = this.array_copy(project.typelibs)
+            out.native_projects[i] = project
+        }
         return out
     }
 
@@ -380,10 +432,11 @@ class SqgiPkgBuild extends Base.SqgiPkgDoctor {
             }
         }
 
-        opts.target = "win-nsis"
+        opts.target = opts.windows_format == "directory" ? "win-dir" : "win-nsis"
         opts.output_dir = base_output + "-windows-x86_64"
         opts.report = this.new_report()
-        this.build_windows_nsis(opts)
+        if (opts.target == "win-dir") this.build_windows_dir(opts)
+        else this.build_windows_nsis(opts)
 
         opts.output_dir = base_output
     }

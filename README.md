@@ -318,7 +318,9 @@ tools/sqgipkg_tests/native_vala_project/
 
 ## Packaging Apps
 
-`sqgipkg` packages SQGI applications for distribution.
+`sqgipkg` packages SQGI applications for distribution. Start with the
+[simple manifest guide](docs/packaging/10-simple-manifests.md) for built-in runtime
+and native-library recipes, or run `sqgipkg --help` for the common workflow.
 
 From a directory containing `main.nut`:
 
@@ -326,7 +328,7 @@ From a directory containing `main.nut`:
 sqgipkg
 ```
 
-By default, this builds a Linux AppImage:
+On Linux, this builds an AppImage (on Windows, the default is an NSIS installer):
 
 ```text
 dist-linux-<arch>/<project-name>.AppImage
