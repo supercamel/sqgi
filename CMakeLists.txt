@@ -67,6 +67,9 @@ endif()
 # The JIT is experimental and defaults off. When disabled, no JIT sources are
 # compiled and the interpreter remains the only execution engine.
 option(SQ_ENABLE_JIT "Build experimental Squirrel bytecode JIT support" OFF)
+option(SQGI_ENABLE_KERNELS "Build experimental typed kernel compiler" OFF)
+set(SQGI_KERNEL_BACKEND "LLVM" CACHE STRING "Kernel compiler backend: LLVM or NATIVE")
+set_property(CACHE SQGI_KERNEL_BACKEND PROPERTY STRINGS LLVM NATIVE)
 set(SQGI_HAS_NATIVE_JIT OFF)
 set(SQGI_JIT_BACKEND none)
 if(SQ_ENABLE_JIT AND (UNIX OR WIN32) AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|amd64)$")
@@ -91,6 +94,9 @@ set(DISABLE_STATIC ON CACHE BOOL "" FORCE)
 set(SQ_DISABLE_INSTALLER ON CACHE BOOL "" FORCE)
 add_subdirectory(Squirrel3)
 add_library(sqgi-runtime-config INTERFACE)
+if(SQGI_ENABLE_KERNELS)
+    target_compile_definitions(sqgi-runtime-config INTERFACE SQGI_ENABLE_KERNELS)
+endif()
 if(SQ_ENABLE_JIT)
     # All consumers of sqgi-core's internal headers must share its layouts.
     # The independent bundled libsquirrel target above remains interpreter-only.
@@ -166,6 +172,32 @@ set(LIBSQGI_SRC
     src/sqgi_cairo.c
     src/sqgi_system.c
 )
+if(SQGI_ENABLE_KERNELS)
+    add_library(sqgi-kernel-backend INTERFACE)
+    if(SQGI_KERNEL_BACKEND STREQUAL "LLVM")
+        find_path(SQGI_LLVM_INCLUDE_DIR llvm-c/LLJIT.h
+            HINTS "${LLVM_ROOT}/include" PATHS /usr/lib/llvm-18/include)
+        find_library(SQGI_LLVM_LIBRARY NAMES LLVM-18 LLVM LLVM-C
+            HINTS "${LLVM_ROOT}/lib")
+        if(NOT SQGI_LLVM_INCLUDE_DIR OR NOT SQGI_LLVM_LIBRARY)
+            message(FATAL_ERROR "LLVM kernels require LLVM 18 development headers and library. Install llvm-18-dev or set SQGI_LLVM_INCLUDE_DIR/SQGI_LLVM_LIBRARY; use SQGI_KERNEL_BACKEND=NATIVE for the minimal emitter.")
+        endif()
+        file(STRINGS "${SQGI_LLVM_INCLUDE_DIR}/llvm/Config/llvm-config.h" SQGI_LLVM_MAJOR
+            REGEX "^#define LLVM_VERSION_MAJOR 18$")
+        if(NOT SQGI_LLVM_MAJOR)
+            message(FATAL_ERROR "The kernel LLVM backend currently requires LLVM 18 headers and matching library")
+        endif()
+        target_include_directories(sqgi-kernel-backend SYSTEM INTERFACE "${SQGI_LLVM_INCLUDE_DIR}")
+        target_link_libraries(sqgi-kernel-backend INTERFACE "${SQGI_LLVM_LIBRARY}" Threads::Threads)
+        set(SQGI_KERNEL_ENGINE_SOURCES src/kernel/kernel.cpp src/kernel/llvm.cpp)
+    elseif(SQGI_KERNEL_BACKEND STREQUAL "NATIVE")
+        set(SQGI_KERNEL_ENGINE_SOURCES src/kernel/kernel.cpp src/kernel/native_x64.cpp)
+    else()
+        message(FATAL_ERROR "SQGI_KERNEL_BACKEND must be LLVM or NATIVE")
+    endif()
+    list(APPEND SQGI_DEPS sqgi-kernel-backend)
+    list(APPEND LIBSQGI_SRC src/sqgi_kernel.cpp ${SQGI_KERNEL_ENGINE_SOURCES})
+endif()
 
 
 # ── Squirrel3 and sqstdlib sources ──
@@ -462,6 +494,29 @@ function(add_sqgi_nut_test test_name test_file)
 endfunction()
 
 add_sqgi_nut_test(sqgi_test_glib                        test_glib.nut)
+if(SQGI_ENABLE_KERNELS)
+    # Keep the compiler's native tests independent of GI and the Squirrel VM.
+    add_executable(sqgi_test_kernel_native test/kernel/test_kernel.cpp
+        test/kernel/reference.cpp ${SQGI_KERNEL_ENGINE_SOURCES})
+    target_include_directories(sqgi_test_kernel_native PRIVATE src)
+    target_link_libraries(sqgi_test_kernel_native PRIVATE sqgi-kernel-backend)
+    add_executable(sqgi_kernel_benchmark EXCLUDE_FROM_ALL
+        test/kernel/benchmark.cpp ${SQGI_KERNEL_ENGINE_SOURCES})
+    target_include_directories(sqgi_kernel_benchmark PRIVATE src)
+    target_link_libraries(sqgi_kernel_benchmark PRIVATE sqgi-kernel-backend)
+    # LLVM targets the running CPU. Give the comparison C++ loop the same
+    # opportunity, while retaining separate multiply/add floating semantics.
+    if(NOT CMAKE_CROSSCOMPILING AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(sqgi_kernel_benchmark PRIVATE -O3 -march=native -ffp-contract=off)
+    endif()
+    add_test(NAME sqgi_test_kernel_native COMMAND sqgi_test_kernel_native)
+    set_tests_properties(sqgi_test_kernel_native PROPERTIES
+        ENVIRONMENT "${SQGI_TEST_ENV}" LABELS "kernel" SKIP_RETURN_CODE 77 TIMEOUT 30)
+    if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|amd64)$")
+        add_sqgi_nut_test(sqgi_test_kernel_integration test_kernel.nut)
+        set_tests_properties(sqgi_test_kernel_integration PROPERTIES LABELS "kernel" TIMEOUT 30)
+    endif()
+endif()
 add_sqgi_nut_test(sqgi_test_gobject                     test_gobject.nut)
 add_sqgi_nut_test(sqgi_test_signals                     test_signals.nut)
 add_sqgi_nut_test(sqgi_test_import_nut                  test_import_nut.nut)

@@ -6,6 +6,9 @@
 #include "sqgi_gerror.h"
 #include "sqgi_subclass.h"
 #include "sqgi_json.h"
+#ifdef SQGI_ENABLE_KERNELS
+#include "sqgi_kernel.h"
+#endif
 #include "sqgi_cairo.h"
 #include "sqgi_gi.h"
 
@@ -136,6 +139,9 @@ HSQUIRRELVM sqgi_vm_new(void)
 
     /* Install sqgi.json parse/stringify. */
     sqgi_json_register_helpers(v);
+#ifdef SQGI_ENABLE_KERNELS
+    sqgi_kernel_register(v);
+#endif
 
     /* Register native cairo classes (foreign GI records). */
     sqgi_cairo_register(v);
