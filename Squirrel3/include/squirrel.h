@@ -175,6 +175,14 @@ typedef struct SQVM* HSQUIRRELVM;
 typedef SQObject HSQOBJECT;
 typedef SQMemberHandle HSQMEMBERHANDLE;
 typedef SQInteger (*SQFUNCTION)(HSQUIRRELVM);
+// Restricted native leaf: must not access/re-enter/suspend the VM,
+// retain argument pointers, or return reference-counted values. Arguments are
+// rooted tagged objects at the supplied byte stride, including `this` at 0.
+// Context must remain alive through the closure's captured values. On failure,
+// error must point to text valid until the VM copies it immediately after return.
+typedef SQRESULT (*SQLEAFFUNCTION)(SQUserPointer context, const void *arguments,
+    SQInteger count, SQUnsignedInteger stride, HSQOBJECT *result, const SQChar **error);
+
 typedef SQInteger (*SQRELEASEHOOK)(SQUserPointer,SQInteger size);
 typedef void (*SQCOMPILERERROR)(HSQUIRRELVM,const SQChar * /*desc*/,const SQChar * /*source*/,SQInteger /*line*/,SQInteger /*column*/);
 typedef void (*SQPRINTFUNCTION)(HSQUIRRELVM,const SQChar * ,...);
@@ -243,6 +251,9 @@ SQUIRREL_API void sq_newtable(HSQUIRRELVM v);
 SQUIRREL_API void sq_newtableex(HSQUIRRELVM v,SQInteger initialcapacity);
 SQUIRREL_API void sq_newarray(HSQUIRRELVM v,SQInteger size);
 SQUIRREL_API void sq_newclosure(HSQUIRRELVM v,SQFUNCTION func,SQUnsignedInteger nfreevars);
+SQUIRREL_API SQRESULT sq_setnativeleaf(HSQUIRRELVM v,SQInteger idx,SQLEAFFUNCTION function,SQUserPointer context);
+// Object-only inspection; safe inside a leaf, with no VM access or allocation.
+SQUIRREL_API SQRESULT sq_getobjuserdata(const HSQOBJECT *object,SQUserPointer *data,SQUserPointer *tag);
 SQUIRREL_API SQRESULT sq_setparamscheck(HSQUIRRELVM v,SQInteger nparamscheck,const SQChar *typemask);
 SQUIRREL_API SQRESULT sq_bindenv(HSQUIRRELVM v,SQInteger idx);
 SQUIRREL_API SQRESULT sq_setclosureroot(HSQUIRRELVM v,SQInteger idx);

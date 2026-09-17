@@ -1474,6 +1474,29 @@ bool SQVM::CallNative(SQNativeClosure *nclosure, SQInteger nargs, SQInteger newb
         }
     }
 
+    // These registered callbacks cannot touch the VM or return objects. The
+    // caller's stack roots the arguments and closure throughout execution.
+    // Retain ordinary frames for debugger visibility and bound environments.
+    if(nclosure->_leaf && !_debughook && !nclosure->_env) {
+        SQObject result; result._type = OT_NULL; result._unVal.raw = 0;
+        const SQChar *error = NULL;
+        SQRESULT status = nclosure->_leaf(nclosure->_leaf_context,
+            static_cast<const SQObject*>(&_stack._vals[newbase]), nargs, sizeof(SQObjectPtr), &result, &error);
+        suspend = false;
+        tailcall = false;
+        if(SQ_FAILED(status)) {
+            Raise_Error(_SC("%s"), error ? error : _SC("native leaf failed"));
+            return false;
+        }
+        if(result._type != OT_NULL && result._type != OT_INTEGER &&
+           result._type != OT_FLOAT && result._type != OT_BOOL) {
+            Raise_Error(_SC("native leaf returned a non-scalar value"));
+            return false;
+        }
+        retval = result;
+        return true;
+    }
+
     if(!EnterFrame(newbase, newtop, false)) return false;
     ci->_closure  = nclosure;
 	ci->_target = target;

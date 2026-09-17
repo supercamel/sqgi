@@ -807,6 +807,8 @@ add_sqgi_c_test(sqgi_test_cpp_sqvector test/cpp/test_sqvector.cpp)
 add_sqgi_c_test(sqgi_test_cpp_sqbytecode test/cpp/test_sqbytecode.cpp)
 add_sqgi_c_test(sqgi_test_cpp_sqoptimizer test/cpp/test_sqoptimizer.cpp)
 add_sqgi_c_test(sqgi_test_cpp_sqmembercache test/cpp/test_sqmembercache.cpp)
+add_sqgi_c_test(sqgi_test_cpp_sqnativeleaf test/cpp/test_sqnativeleaf.cpp)
+set_tests_properties(sqgi_test_cpp_sqnativeleaf PROPERTIES LABELS "kernel;runtime")
 add_sqgi_c_test(sqgi_test_c_vm_lifecycle test/c/test_vm_lifecycle.c recreate)
 add_test(NAME sqgi_test_c_vm_lifecycle_pending COMMAND sqgi_test_c_vm_lifecycle pending)
 set_tests_properties(sqgi_test_c_vm_lifecycle_pending PROPERTIES
