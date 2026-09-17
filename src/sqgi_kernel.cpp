@@ -5,16 +5,26 @@
 #include <glib/gstdio.h>
 #include <new>
 #include <vector>
+#ifdef SQGI_ENABLE_LLVM_SQUIRREL
+#include "kernel/inline.h"
+#include <atomic>
+#endif
 
 namespace {
 using namespace sqkernel;
 char holder_tag, buffer_tag;
+#ifdef SQGI_ENABLE_LLVM_SQUIRREL
+std::atomic<uint64_t> next_identity{1};
+#endif
 struct Holder {
     std::shared_ptr<Module> module;
     size_t index;
     std::vector<const Record*> schemas;
     std::string error;
     PreparedCall prepared;
+#ifdef SQGI_ENABLE_LLVM_SQUIRREL
+    const uint64_t identity=next_identity.fetch_add(1,std::memory_order_relaxed);
+#endif
     SQObjectType scalar_types[4],result_type;
     Holder(const std::shared_ptr<Module> &module,size_t index):module(module),index(index),prepared{nullptr,true},scalar_types{},result_type(OT_NULL) {}
 };
@@ -345,7 +355,33 @@ SQInteger load_source(HSQUIRRELVM v) {
     } catch(const std::exception &e) { return sq_throwerror(v,e.what()); }
 }
 }
+#ifdef SQGI_ENABLE_LLVM_SQUIRREL
+bool sqgi_kernel_describe_leaf(SQLEAFFUNCTION leaf,void *context,SQKernelInline &out) {
+    const SQLEAFFUNCTION entries[]={invoke_scalars<0>,invoke_scalars<1>,invoke_scalars<2>,invoke_scalars<3>,invoke_scalars<4>,
+        invoke_scalars<0,true>,invoke_scalars<1,true>,invoke_scalars<2,true>,invoke_scalars<3,true>,invoke_scalars<4,true>};
+    bool known=false;for(auto entry:entries)if(leaf==entry)known=true;
+    if(!known || !context)return false;
+    auto &h=*static_cast<Holder*>(context);
+    out.module=h.module;out.function=h.index;out.identity=h.identity;
+    out.leaf=leaf;out.context=context;out.prepared=h.prepared;return true;
+}
+bool sqgi_kernel_inline_receiver(const SQKernelInline &k,const HSQOBJECT &value,uint64_t *&cells) {
+    const auto &f=k.module->functions[k.function];
+    if(f.owner.empty() || f.parameters.empty() || !f.parameters[0].instance)return false;
+    void *data=nullptr,*tag=nullptr;
+    if(SQ_FAILED(sq_getobjuserdata(&value,&data,&tag)) || tag!=&buffer_tag)return false;
+    const auto &b=*static_cast<Buffer*>(data);
+    const Record *schema=nullptr;
+    for(const auto &r:k.module->records)if(r.name==f.owner)schema=&r;
+    if(b.module!=k.module || b.type!=Type::Void || b.schema!=schema || !b.instance || b.count!=1)return false;
+    cells=static_cast<Buffer*>(data)->cells.data();return true;
+}
+extern "C" void sqgi_llvm_register(HSQUIRRELVM v);
+#endif
 extern "C" void sqgi_kernel_register(HSQUIRRELVM v) {
+#ifdef SQGI_ENABLE_LLVM_SQUIRREL
+    sqgi_llvm_register(v);
+#endif
     sq_pushroottable(v); sq_pushstring(v,"sqgi",-1);
     if(SQ_FAILED(sq_rawget(v,-2))) { sq_poptop(v); return; }
     sq_pushstring(v,"kernel",-1); sq_newtable(v);

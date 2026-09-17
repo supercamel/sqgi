@@ -861,6 +861,14 @@ exception_restore:
     {
         for(;;)
         {
+#ifdef SQGI_ENABLE_LLVM_SQUIRREL
+            SQFunctionProto *llvm_proto = _closure(ci->_closure)->_function;
+            if(llvm_proto->_llvm_entry && !_debughook) {
+                int pc = llvm_proto->_llvm_entry(this, (int)(ci->_ip - llvm_proto->_instructions));
+                if(pc < 0) { SQ_THROW(); }
+                ci->_ip = llvm_proto->_instructions + pc;
+            }
+#endif
 #ifdef SQ_VM_THREADED
             instruction = ci->_ip++;
 #define _i_ (*instruction)

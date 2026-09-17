@@ -509,6 +509,11 @@ bool SQClosure::Load(SQVM *v,SQUserPointer up,SQREADFUNC read,SQObjectPtr &ret)
 
 SQFunctionProto::SQFunctionProto(SQSharedState *ss)
 {
+#ifdef SQGI_ENABLE_LLVM_SQUIRREL
+    _llvm_code = NULL;
+    _llvm_entry = NULL;
+    _llvm_release = NULL;
+#endif
     _stacksize=0;
     _bgenerator=false;
 #ifdef SQ_ENABLE_JIT
@@ -519,6 +524,9 @@ SQFunctionProto::SQFunctionProto(SQSharedState *ss)
 
 SQFunctionProto::~SQFunctionProto()
 {
+#ifdef SQGI_ENABLE_LLVM_SQUIRREL
+    if(_llvm_release) _llvm_release(_llvm_code);
+#endif
     REMOVE_FROM_CHAIN(&_ss(this)->_gc_chain,this);
 }
 
