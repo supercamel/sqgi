@@ -67,6 +67,7 @@ endif()
 # The JIT is experimental and defaults off. When disabled, no JIT sources are
 # compiled and the interpreter remains the only execution engine.
 option(SQ_ENABLE_JIT "Build experimental Squirrel bytecode JIT support" OFF)
+option(SQGI_THREADED_DISPATCH "Use experimental GCC/Clang threaded interpreter dispatch" OFF)
 option(SQGI_ENABLE_KERNELS "Build experimental typed kernel compiler" OFF)
 set(SQGI_KERNEL_BACKEND "LLVM" CACHE STRING "Kernel compiler backend: LLVM or NATIVE")
 set_property(CACHE SQGI_KERNEL_BACKEND PROPERTY STRINGS LLVM NATIVE)
@@ -94,6 +95,12 @@ set(DISABLE_STATIC ON CACHE BOOL "" FORCE)
 set(SQ_DISABLE_INSTALLER ON CACHE BOOL "" FORCE)
 add_subdirectory(Squirrel3)
 add_library(sqgi-runtime-config INTERFACE)
+if(SQGI_THREADED_DISPATCH)
+    if(NOT CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        message(FATAL_ERROR "SQGI_THREADED_DISPATCH requires GCC or Clang")
+    endif()
+    target_compile_definitions(sqgi-runtime-config INTERFACE SQGI_THREADED_DISPATCH)
+endif()
 if(SQGI_ENABLE_KERNELS)
     target_compile_definitions(sqgi-runtime-config INTERFACE SQGI_ENABLE_KERNELS)
 endif()
@@ -607,6 +614,22 @@ add_sqgi_nut_test(sqgi_test_jit_fastpath                test_jit_fastpath.nut)
 add_sqgi_nut_test(sqgi_test_jit_fastpath_runtime        test_jit_fastpath.nut)
 add_sqgi_nut_test(sqgi_test_jit_correctness             test_jit_correctness.nut)
 add_sqgi_nut_test(sqgi_test_jit_correctness_runtime     test_jit_correctness.nut)
+add_sqgi_nut_test(sqgi_test_integer_edges test_integer_edges.nut)
+add_sqgi_nut_test(sqgi_test_interpreter_dispatch test_interpreter_dispatch.nut)
+set_tests_properties(sqgi_test_interpreter_dispatch PROPERTIES
+    ENVIRONMENT "${SQGI_TEST_ENV};SQGI_JIT=0"
+    PASS_REGULAR_EXPRESSION "interpreter dispatch tests passed")
+add_sqgi_nut_test(sqgi_test_interpreter_dispatch_runtime test_interpreter_dispatch.nut)
+set_tests_properties(sqgi_test_interpreter_dispatch_runtime PROPERTIES
+    ENVIRONMENT "${SQGI_TEST_ENV};SQGI_JIT=1;SQGI_JIT_THRESHOLD=1"
+    PASS_REGULAR_EXPRESSION "interpreter dispatch tests passed")
+set_tests_properties(sqgi_test_integer_edges PROPERTIES
+    ENVIRONMENT "${SQGI_TEST_ENV};SQGI_JIT=0"
+    PASS_REGULAR_EXPRESSION "integer edge tests passed")
+add_sqgi_nut_test(sqgi_test_integer_edges_runtime test_integer_edges.nut)
+set_tests_properties(sqgi_test_integer_edges_runtime PROPERTIES
+    ENVIRONMENT "${SQGI_TEST_ENV};SQGI_JIT=1;SQGI_JIT_THRESHOLD=1"
+    PASS_REGULAR_EXPRESSION "integer edge tests passed")
 add_sqgi_nut_test(sqgi_test_jit_perf_correctness        test_jit_perf_correctness.nut)
 add_sqgi_nut_test(sqgi_test_jit_perf_correctness_runtime test_jit_perf_correctness.nut)
 set(JIT_TESTS
