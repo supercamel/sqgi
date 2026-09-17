@@ -1201,12 +1201,15 @@ exception_restore:
                     SQFunctionProto *jitfunc = _closure(ci->_closure)->_function;
                     SQInteger jit_ip = (SQInteger)((ci->_ip - jitfunc->_instructions) - 1);
                     SQJitProto *jit = jitfunc->_jit;
+                    bool jit_error = false;
                     if((!jit || (jit->_loop_code.Entry() && jit->_loop_header_ip == jit_ip) ||
                         (!jit->_loop_code.Entry() && (jit->_loop_fail_count == 0 ||
                             jit->_loop_header_ip != jit_ip))) &&
-                        sqjit_try_execute_current_loop(this, jit_ip)) {
-                        continue;
+                        (!jit || !jit->RejectedLoop(jit_ip)) &&
+                        sqjit_try_execute_current_loop(this, jit_ip, &jit_error)) {
+                        SQ_VM_NEXT(_OP_JCMP);
                     }
+                    if(jit_error) { SQ_THROW(); }
                 }
 #endif
                 _GUARD(CMP_OP((CmpOP)arg3,STK(arg2),STK(arg0),temp_reg));
@@ -1218,12 +1221,15 @@ exception_restore:
                     SQFunctionProto *jitfunc = _closure(ci->_closure)->_function;
                     SQInteger jit_ip = (SQInteger)((ci->_ip - jitfunc->_instructions) - 1);
                     SQJitProto *jit = jitfunc->_jit;
+                    bool jit_error = false;
                     if((!jit || (jit->_loop_code.Entry() && jit->_loop_header_ip == jit_ip) ||
                         (!jit->_loop_code.Entry() && (jit->_loop_fail_count == 0 ||
                             jit->_loop_header_ip != jit_ip))) &&
-                        sqjit_try_execute_current_loop(this, jit_ip)) {
-                        continue;
+                        (!jit || !jit->RejectedLoop(jit_ip)) &&
+                        sqjit_try_execute_current_loop(this, jit_ip, &jit_error)) {
+                        SQ_VM_NEXT(_OP_JZ);
                     }
+                    if(jit_error) { SQ_THROW(); }
                 }
 #endif
                 if(IsFalse(STK(arg0))) ci->_ip+=(sarg1); SQ_VM_NEXT(_OP_JZ);

@@ -83,7 +83,6 @@ SINGLE_ARG_FUNC(floor)
 SINGLE_ARG_FUNC(ceil)
 SINGLE_ARG_FUNC(exp)
 
-#ifdef SQ_ENABLE_JIT
 #include "../squirrel/sqnativebuiltins.h"
 static SQFloat native_sqrt(SQFloat x) { return (SQFloat)sqrt(x); }
 static SQFloat native_sin(SQFloat x) { return (SQFloat)sin(x); }
@@ -127,7 +126,26 @@ const SQNativeMathSpec *sq_native_math_spec(SQFUNCTION function)
     for(const SQNativeMathSpec &spec : native_math_specs) if(spec.function && spec.function == function) return &spec;
     return NULL;
 }
-#endif
+// Pure numeric evaluators can use the existing scalar leaf-call ABI in both
+// interpreter-only and JIT builds. VM arity/type checks still precede this call;
+// bound environments and debugger hooks retain the ordinary native frame.
+static SQRESULT math_leaf(SQUserPointer context, const void *arguments,
+    SQInteger count, SQUnsignedInteger stride, HSQOBJECT *result, const SQChar **error)
+{
+    const SQNativeMathSpec &spec = *static_cast<const SQNativeMathSpec *>(context);
+    if(count != spec.nargs + 1) { *error = _SC("wrong number of parameters"); return SQ_ERROR; }
+    SQFloat values[2];
+    for(SQInteger i = 0; i < spec.nargs; ++i) {
+        const HSQOBJECT &arg = *reinterpret_cast<const HSQOBJECT *>(
+            static_cast<const char *>(arguments) + (i + 1) * stride);
+        if(arg._type == OT_FLOAT) values[i] = arg._unVal.fFloat;
+        else if(arg._type == OT_INTEGER) values[i] = (SQFloat)arg._unVal.nInteger;
+        else { *error = _SC("numeric argument required"); return SQ_ERROR; }
+    }
+    result->_type = OT_FLOAT;
+    result->_unVal.fFloat = spec.nargs == 1 ? spec.unary(values[0]) : spec.binary(values[0],values[1]);
+    return SQ_OK;
+}
 
 #define _DECL_FUNC(name,nparams,tycheck) {_SC(#name),math_##name,nparams,tycheck}
 static const SQRegFunction mathlib_funcs[] = {
@@ -206,6 +224,8 @@ SQRESULT sqstd_register_mathlib(HSQUIRRELVM v)
         sq_newclosure(v,mathlib_funcs[i].f,0);
         sq_setparamscheck(v,mathlib_funcs[i].nparamscheck,mathlib_funcs[i].typemask);
         sq_setnativeclosurename(v,-1,mathlib_funcs[i].name);
+        const SQNativeMathSpec *spec = sq_native_math_spec(mathlib_funcs[i].f);
+        if(spec) sq_setnativeleaf(v,-1,math_leaf,const_cast<SQNativeMathSpec *>(spec));
         sq_newslot(v,-3,SQFalse);
         i++;
     }

@@ -1,7 +1,10 @@
 /* Backend capability and calling convention selection. */
 #ifndef _SQJIT_PLATFORM_H_
 #define _SQJIT_PLATFORM_H_
-#if defined(__x86_64__) || defined(_M_X64)
+#if defined(SQJIT_BACKEND_LLVM)
+#define SQJIT_HAS_X64_NATIVE 0
+#define SQJIT_HAS_EXTERNAL_NATIVE 0
+#elif defined(__x86_64__) || defined(_M_X64)
 #define SQJIT_HAS_X64_NATIVE 1
 #define SQJIT_HAS_EXTERNAL_NATIVE 0
 #elif defined(__aarch64__) && defined(__linux__)

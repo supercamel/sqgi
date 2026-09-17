@@ -507,6 +507,9 @@ int main()
         "guard backoff preserves rollback and replay");
     CHECK(ctx.Diagnostics().total.proto_backoffs > 0 && ctx.Diagnostics().total.proto_backoff_skips > 0,
         "repeated guard failure really enters and exercises backoff");
+#elif defined(SQJIT_BACKEND_LLVM)
+    CHECK(add.compilation.compiled && add.compilation.backend == SQ_JIT_BACKEND_LLVM, "LLVM scalar code installed");
+    CHECK(add.frame.successes + add.direct.successes > 0, "LLVM scalar code executed");
 #else
     CHECK(!add.compilation.compiled && add.compilation.backend == SQ_JIT_BACKEND_NONE, "unsupported host falls back");
 #endif
@@ -534,6 +537,19 @@ int main()
         "new shared state has no stale runtime state");
     sq_close(fresh);
 
+    int external_releases = 0;
+    {
+        SQJitCode external;
+        auto release = [](void *p) { ++*static_cast<int *>(p); };
+        external.SetExternal((void *)stub, &external_releases, release);
+        external.SetStub((void *)stub);
+        CHECK(external_releases == 1, "external resource released when replaced by stub");
+        external.SetExternal((void *)stub, &external_releases, release);
+        external.Reset(); external.Reset();
+        CHECK(external_releases == 2, "external reset releases exactly once");
+        external.SetExternal((void *)stub, &external_releases, release);
+    }
+    CHECK(external_releases == 3, "external resource released on destruction");
     SQJitCode code;
     CHECK(!code && code.MappedSize() == 0, "empty code owns nothing");
     code.SetStub((void *)stub);

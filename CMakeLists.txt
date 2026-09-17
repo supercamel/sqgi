@@ -71,9 +71,20 @@ option(SQGI_THREADED_DISPATCH "Use experimental GCC/Clang threaded interpreter d
 option(SQGI_ENABLE_KERNELS "Build experimental typed kernel compiler" OFF)
 set(SQGI_KERNEL_BACKEND "LLVM" CACHE STRING "Kernel compiler backend: LLVM or NATIVE")
 set_property(CACHE SQGI_KERNEL_BACKEND PROPERTY STRINGS LLVM NATIVE)
+set(SQGI_BYTECODE_JIT_BACKEND "AUTO" CACHE STRING "Bytecode compiler: AUTO or LLVM")
+set_property(CACHE SQGI_BYTECODE_JIT_BACKEND PROPERTY STRINGS AUTO LLVM)
+if(NOT SQGI_BYTECODE_JIT_BACKEND MATCHES "^(AUTO|LLVM)$")
+    message(FATAL_ERROR "SQGI_BYTECODE_JIT_BACKEND must be AUTO or LLVM")
+endif()
 set(SQGI_HAS_NATIVE_JIT OFF)
 set(SQGI_JIT_BACKEND none)
-if(SQ_ENABLE_JIT AND (UNIX OR WIN32) AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|amd64)$")
+if(SQ_ENABLE_JIT AND SQGI_BYTECODE_JIT_BACKEND STREQUAL "LLVM")
+    if(NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
+        message(FATAL_ERROR "The LLVM bytecode backend requires a 64-bit host")
+    endif()
+    set(SQGI_HAS_NATIVE_JIT ON)
+    set(SQGI_JIT_BACKEND llvm)
+elseif(SQ_ENABLE_JIT AND (UNIX OR WIN32) AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|amd64)$")
     set(SQGI_HAS_NATIVE_JIT ON)
     set(SQGI_JIT_BACKEND x64)
 elseif(SQ_ENABLE_JIT AND CMAKE_SYSTEM_NAME STREQUAL "Linux" AND
@@ -84,7 +95,7 @@ endif()
 if(SQ_ENABLE_JIT)
     message(STATUS "SQGI: experimental Squirrel bytecode JIT enabled")
     if(SQGI_HAS_NATIVE_JIT)
-        message(STATUS "SQGI: native Squirrel JIT backend enabled for ${CMAKE_SYSTEM_PROCESSOR}")
+        message(STATUS "SQGI: native Squirrel JIT backend ${SQGI_JIT_BACKEND} enabled for ${CMAKE_SYSTEM_PROCESSOR}")
     else()
         message(STATUS "SQGI: no native Squirrel JIT backend for ${CMAKE_SYSTEM_PROCESSOR}; using interpreter fallback")
     endif()
@@ -179,23 +190,31 @@ set(LIBSQGI_SRC
     src/sqgi_cairo.c
     src/sqgi_system.c
 )
+if((SQGI_ENABLE_KERNELS AND SQGI_KERNEL_BACKEND STREQUAL "LLVM") OR SQGI_JIT_BACKEND STREQUAL "llvm")
+    add_library(sqgi-llvm-backend INTERFACE)
+    find_path(SQGI_LLVM_INCLUDE_DIR llvm-c/LLJIT.h
+        HINTS "${LLVM_ROOT}/include" PATHS /usr/lib/llvm-18/include)
+    find_library(SQGI_LLVM_LIBRARY NAMES LLVM-18 LLVM LLVM-C
+        HINTS "${LLVM_ROOT}/lib")
+    if(NOT SQGI_LLVM_INCLUDE_DIR OR NOT SQGI_LLVM_LIBRARY)
+        message(FATAL_ERROR "LLVM backends require LLVM 18 development headers and library. Install llvm-18-dev or set SQGI_LLVM_INCLUDE_DIR/SQGI_LLVM_LIBRARY.")
+    endif()
+    file(STRINGS "${SQGI_LLVM_INCLUDE_DIR}/llvm/Config/llvm-config.h" SQGI_LLVM_MAJOR
+        REGEX "^#define LLVM_VERSION_MAJOR 18$")
+    if(NOT SQGI_LLVM_MAJOR)
+        message(FATAL_ERROR "The LLVM backends require LLVM 18 headers and matching library")
+    endif()
+    target_include_directories(sqgi-llvm-backend SYSTEM INTERFACE "${SQGI_LLVM_INCLUDE_DIR}")
+    target_link_libraries(sqgi-llvm-backend INTERFACE "${SQGI_LLVM_LIBRARY}" Threads::Threads)
+endif()
+if(SQGI_JIT_BACKEND STREQUAL "llvm")
+    target_compile_definitions(sqgi-runtime-config INTERFACE SQJIT_BACKEND_LLVM)
+    list(APPEND SQGI_DEPS sqgi-llvm-backend)
+endif()
 if(SQGI_ENABLE_KERNELS)
     add_library(sqgi-kernel-backend INTERFACE)
     if(SQGI_KERNEL_BACKEND STREQUAL "LLVM")
-        find_path(SQGI_LLVM_INCLUDE_DIR llvm-c/LLJIT.h
-            HINTS "${LLVM_ROOT}/include" PATHS /usr/lib/llvm-18/include)
-        find_library(SQGI_LLVM_LIBRARY NAMES LLVM-18 LLVM LLVM-C
-            HINTS "${LLVM_ROOT}/lib")
-        if(NOT SQGI_LLVM_INCLUDE_DIR OR NOT SQGI_LLVM_LIBRARY)
-            message(FATAL_ERROR "LLVM kernels require LLVM 18 development headers and library. Install llvm-18-dev or set SQGI_LLVM_INCLUDE_DIR/SQGI_LLVM_LIBRARY; use SQGI_KERNEL_BACKEND=NATIVE for the minimal emitter.")
-        endif()
-        file(STRINGS "${SQGI_LLVM_INCLUDE_DIR}/llvm/Config/llvm-config.h" SQGI_LLVM_MAJOR
-            REGEX "^#define LLVM_VERSION_MAJOR 18$")
-        if(NOT SQGI_LLVM_MAJOR)
-            message(FATAL_ERROR "The kernel LLVM backend currently requires LLVM 18 headers and matching library")
-        endif()
-        target_include_directories(sqgi-kernel-backend SYSTEM INTERFACE "${SQGI_LLVM_INCLUDE_DIR}")
-        target_link_libraries(sqgi-kernel-backend INTERFACE "${SQGI_LLVM_LIBRARY}" Threads::Threads)
+        target_link_libraries(sqgi-kernel-backend INTERFACE sqgi-llvm-backend)
         set(SQGI_KERNEL_ENGINE_SOURCES src/kernel/kernel.cpp src/kernel/llvm.cpp)
     elseif(SQGI_KERNEL_BACKEND STREQUAL "NATIVE")
         set(SQGI_KERNEL_ENGINE_SOURCES src/kernel/kernel.cpp src/kernel/native_x64.cpp)
@@ -249,7 +268,16 @@ if(SQ_ENABLE_JIT)
         Squirrel3/squirrel/jit/sqjit_object_plan.cpp
         Squirrel3/squirrel/jit/sqjit_specialize.cpp
     )
-    if(SQGI_JIT_BACKEND STREQUAL "x64")
+    if(SQGI_JIT_BACKEND STREQUAL "llvm")
+        list(APPEND SQUIRREL3_SRC Squirrel3/squirrel/jit/sqjit_backend_llvm.cpp
+            Squirrel3/squirrel/jit/sqjit_scalar_inline.cpp
+            Squirrel3/squirrel/jit/sqjit_local_array.cpp
+            Squirrel3/squirrel/jit/sqjit_local_graph.cpp
+            Squirrel3/squirrel/jit/sqjit_numeric.cpp
+            Squirrel3/squirrel/jit/sqjit_dynamic_array.cpp
+            Squirrel3/squirrel/jit/sqjit_object_inline.cpp
+            Squirrel3/squirrel/jit/sqjit_llvm_objects.cpp)
+    elseif(SQGI_JIT_BACKEND STREQUAL "x64")
         list(APPEND SQUIRREL3_SRC
             Squirrel3/squirrel/jit/sqjit_backend_x64.cpp
             Squirrel3/squirrel/jit/sqjit_backend_x64_emit.cpp
@@ -601,7 +629,7 @@ set_tests_properties(sqgi_test_jit_loop_regressions PROPERTIES
     LABELS "jit"
     ENVIRONMENT "${SQGI_TEST_ENV};SQGI_JIT=1;SQGI_JIT_THRESHOLD=1"
     PASS_REGULAR_EXPRESSION "test_jit_loop_regressions.nut passed")
-if(SQGI_HAS_NATIVE_JIT AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64|ARM64)$")
+if(SQGI_JIT_BACKEND STREQUAL "aarch64")
     add_sqgi_nut_test(sqgi_test_jit_leaf_loop_native test_jit_loop_regressions.nut)
     set_tests_properties(sqgi_test_jit_leaf_loop_native PROPERTIES
         LABELS "jit"
@@ -890,6 +918,13 @@ if(SQ_ENABLE_JIT)
     set_tests_properties(sqgi_test_cpp_sqjit_values PROPERTIES LABELS "jit")
     add_sqgi_c_test(sqgi_test_cpp_sqjit_memory test/cpp/test_sqjit_memory.cpp)
     set_tests_properties(sqgi_test_cpp_sqjit_memory PROPERTIES LABELS "jit")
+    if(SQGI_JIT_BACKEND STREQUAL "llvm")
+        add_executable(sqgi_bench_bytecode_jit test/cpp/bench_sqjit_compile.cpp $<TARGET_OBJECTS:sqgi-core>)
+        target_link_libraries(sqgi_bench_bytecode_jit PRIVATE ${SQGI_DEPS})
+        target_include_directories(sqgi_bench_bytecode_jit PRIVATE Squirrel3/include Squirrel3/squirrel)
+        add_sqgi_c_test(sqgi_test_cpp_sqjit_llvm test/cpp/test_sqjit_llvm.cpp)
+        set_tests_properties(sqgi_test_cpp_sqjit_llvm PROPERTIES LABELS "jit;llvm")
+    endif()
     add_sqgi_c_test(sqgi_test_cpp_sqjit_leaf test/cpp/test_sqjit_leaf.cpp)
     set_tests_properties(sqgi_test_cpp_sqjit_leaf PROPERTIES LABELS "jit")
     add_sqgi_c_test(sqgi_test_cpp_sqjit_arithmetic test/cpp/test_sqjit_arithmetic.cpp)

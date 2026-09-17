@@ -26,9 +26,7 @@ enum SQJitExecResult {
     SQ_JIT_EXEC_RESUMED = 4
 };
 
-enum {
-    SQ_JIT_LOOP_REJECT_CACHE_SIZE = 8
-};
+enum { SQ_JIT_LOOP_REJECT_CACHE_SIZE = 8 };
 
 struct SQJitProto {
     SQJitProto();
@@ -57,6 +55,11 @@ struct SQJitProto {
     SQInteger _guard_fail_count;
     SQInteger _guard_backoff_until;
     SQInteger _guard_backoff_delay;
+    bool RejectedLoop(SQInteger header) const {
+        for(SQInteger n=0;n<_loop_reject_count;++n)
+            if(_loop_reject_headers[n]==header)return true;
+        return false;
+    }
     SQInteger _version;
     SQJitEligibility _eligibility;
 };
@@ -68,7 +71,7 @@ bool sqjit_try_execute_closure(SQVM *v, SQClosure *closure, SQObjectPtr *stack, 
 // A frameless call may borrow only live VM slots. Raw native callers retain
 // their existing caller-provided-storage contract and have no VM frame to pop.
 bool sqjit_native_call_fits_stack(SQVM *v, SQObjectPtr *stack, SQInteger slots, SQInteger live_slots = -1);
-bool sqjit_try_execute_current_loop(SQVM *v, SQInteger header_ip);
+bool sqjit_try_execute_current_loop(SQVM *v, SQInteger header_ip, bool *error = NULL);
 SQJitExecResult sqjit_try_execute_current(SQVM *v, SQObjectPtr &outres);
 void sqjit_release_proto(SQFunctionProto *proto);
 
