@@ -12,7 +12,7 @@ there is no compiler subprocess, generated C++ or interpreter fallback.
 The original dependency-free x64 emitter remains available explicitly as
 `SQGI_KERNEL_BACKEND=NATIVE`. It is a smaller, slower alternative and a useful
 comparison backend. Kernel support itself remains opt-in. The LLVM backend has
-been validated on Linux x86_64; Windows x64 tests under Wine cover the NATIVE
+been validated on Linux x86_64 and Linux AArch64; Windows x64 tests under Wine cover the NATIVE
 backend, not LLVM. Native Windows/MSVC acceptance remains outstanding.
 
 ## Build and run
@@ -45,6 +45,13 @@ this build. CTest sets the matching library path automatically. Unsupported host
 expose `sqgi.kernel.available == false` and reject compilation. With the CMake
 option off, the `sqgi.kernel` table is absent. `sqgi.kernel.backend` reports
 `"llvm"` or `"native"`.
+
+On Linux AArch64, floating-point kernel calls save FPCR and FPSR, execute with
+default controls (nearest rounding, gradual underflow and masked exceptions),
+and restore both registers even when a kernel returns an error. Integer-only
+calls leave the floating-point environment untouched. The speculative LLVM
+bytecode JIT instead checks FPCR and falls back to the interpreter under
+non-default controls, preserving the host program's arithmetic settings.
 
 Packaged LLVM-enabled applications must include a compatible LLVM runtime library
 and its dependencies; end users do not need development headers or compiler tools.

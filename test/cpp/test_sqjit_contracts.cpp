@@ -416,7 +416,7 @@ int main()
     int rc = 0;
     entry_guard_tests(rc);
     loop_variant_tests(rc);
-#if defined(__aarch64__) && defined(__linux__)
+#if SQJIT_HAS_EXTERNAL_NATIVE
     CHECK(receiver_publication_tests_ran,"AArch64 receiver publication contracts actually execute");
     fprintf(stdout,"[coverage] executed AArch64 receiver publication contracts (scalar, final, nonfinal, ancestors)\n");
     CHECK(entry_guard_tests_ran,"AArch64 entry guard contracts actually execute");

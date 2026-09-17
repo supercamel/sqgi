@@ -67,7 +67,7 @@ public:
     Status run(Call &call) const {return (Status)entry(&call);}
 };
 bool supported() {
-#if defined(__x86_64__) || defined(_M_X64)
+#if defined(__x86_64__) || defined(_M_X64) || (defined(__aarch64__) && defined(__linux__))
     return true;
 #else
     return false; // Other hosts need floating-environment and platform validation.
@@ -295,6 +295,24 @@ Status execute(PreparedCall prepared,Call &call) {
     unsigned old=_mm_getcsr();
     _mm_setcsr((old & ~unsigned(0xe040)) | 0x1f80);
     Status result=(Status)prepared.entry(&call);_mm_setcsr(old);return result;
+#elif defined(__aarch64__) && defined(__linux__)
+    if(!prepared.floating)return (Status)prepared.entry(&call);
+    // Kernels promise a normalized FP environment, unlike speculative
+    // bytecode entries which decline non-default host controls. Restore both
+    // controls and accumulated status on success, checked errors and unwinding.
+    struct FloatingState {
+        uint64_t control, status;
+        FloatingState() {
+            __asm__ __volatile__("mrs %0, fpcr\n\tmrs %1, fpsr"
+                : "=r"(control), "=r"(status) : : "memory");
+            __asm__ __volatile__("msr fpcr, xzr\n\tmsr fpsr, xzr" : : : "memory");
+        }
+        ~FloatingState() {
+            __asm__ __volatile__("msr fpcr, %0\n\tmsr fpsr, %1"
+                : : "r"(control), "r"(status) : "memory");
+        }
+    } state;
+    return (Status)prepared.entry(&call);
 #else
     (void)prepared;(void)call;
     throw std::runtime_error("kernel LLVM host not yet validated");

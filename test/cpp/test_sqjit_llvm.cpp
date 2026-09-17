@@ -17,6 +17,8 @@
 #include <cstdio>
 #if defined(__x86_64__) || defined(_M_X64)
 #include <xmmintrin.h>
+#elif defined(__aarch64__) && defined(__linux__)
+#include <fpu_control.h>
 #endif
 
 static bool run(SQVM *v, const SQChar *source) {
@@ -533,6 +535,48 @@ class_weak<-RootValue.weakref();RootValue=null;
                 CHECK(before.frame.successes + before.direct.successes == after.frame.successes + after.direct.successes);
                 CHECK((_mm_getcsr() & ~0x3fu) == (hostile & ~0x3fu));
                 _mm_setcsr(saved);
+            }
+        }
+#elif defined(__aarch64__) && defined(__linux__)
+        if(ctx.enabled) {
+            struct Restore {
+                fpu_control_t control; fpu_fpsr_t status;
+                Restore() { _FPU_GETCW(control); _FPU_GETFPSR(status); }
+                ~Restore() { _FPU_SETCW(control); _FPU_SETFPSR(status); }
+            } restore;
+            _FPU_SETCW(0);
+            // Sticky status flags must not prevent native floating execution.
+            _FPU_SETFPSR(0x11);
+            auto before = observation(v, _SC("float_loop"));
+            CHECK(run(v, _SC("if(float_loop(3)!=2.5) throw \"ARM64 native float\";")));
+            auto after = observation(v, _SC("float_loop"));
+            CHECK(after.direct.successes + after.frame.successes > before.direct.successes + before.frame.successes);
+            // Rounding, flush-to-zero, default NaNs, and implemented exception
+            // enables must fall back without changing the caller's FPCR. Three
+            // iterations are exact, so the interpreter cannot trip inexact traps.
+            for(unsigned mode : {0x400000u, 0x800000u, 0xc00000u,
+                                 0x1000000u, 0x2000000u, 0x80000u,
+                                 0x100u, 0x200u, 0x400u, 0x800u, 0x1000u, 0x8000u}) {
+                _FPU_SETCW(mode);
+                fpu_control_t actual; _FPU_GETCW(actual);
+                if(actual == 0) continue; // Some CPUs do not implement traps/FZ16.
+                ctx.enabled = false;
+                CHECK(run(v, _SC("fp_expected <- float_loop(3);")));
+                ctx.enabled = true;
+                before = observation(v, _SC("float_loop"));
+                CHECK(run(v, _SC("if(float_loop(3)!=fp_expected || protected_div(0.0,0.0,false)!=1.0) throw \"ARM64 host FP environment\";")));
+                after = observation(v, _SC("float_loop"));
+                CHECK(before.direct.successes + before.frame.successes == after.direct.successes + after.frame.successes);
+                CHECK(after.direct.guard_failures + after.frame.guard_failures > before.direct.guard_failures + before.frame.guard_failures);
+                fpu_control_t current; _FPU_GETCW(current);
+                CHECK(current == actual);
+                _FPU_SETCW(0);
+                // Allow any guard-failure backoff to expire before testing the
+                // next control mode, and prove native execution resumes.
+                before = observation(v, _SC("float_loop"));
+                CHECK(run(v, _SC("for(local i=0;i<1000;i++) if(float_loop(3)!=2.5) throw \"ARM64 FP recovery\";")));
+                after = observation(v, _SC("float_loop"));
+                CHECK(after.direct.successes + after.frame.successes > before.direct.successes + before.frame.successes);
             }
         }
 #endif

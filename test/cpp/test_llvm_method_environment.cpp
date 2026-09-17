@@ -2,7 +2,31 @@
 #include "sqgi_kernel.h"
 #include <cstdio>
 #include <cstring>
+#if defined(__x86_64__) || defined(_M_X64)
 #include <xmmintrin.h>
+#elif defined(__aarch64__) && defined(__linux__)
+#include <fpu_control.h>
+#endif
+struct FloatingState {
+    unsigned control=0,status=0;
+    FloatingState() {
+#if defined(__x86_64__) || defined(_M_X64)
+        control=_mm_getcsr();
+#elif defined(__aarch64__) && defined(__linux__)
+        _FPU_GETCW(control);_FPU_GETFPSR(status);
+#endif
+    }
+    void restore() const {
+#if defined(__x86_64__) || defined(_M_X64)
+        _mm_setcsr(control);
+#elif defined(__aarch64__) && defined(__linux__)
+        _FPU_SETCW(control);_FPU_SETFPSR(status);
+#endif
+    }
+    bool operator==(const FloatingState &other) const {
+        return control==other.control && status==other.status;
+    }
+};
 static bool run(HSQUIRRELVM v,const char *source,SQObject *result=nullptr) {
     const SQInteger top=sq_gettop(v);
     bool ok=SQ_SUCCEEDED(sq_compilebuffer(v,source,std::strlen(source),"method-environment",SQTrue));
@@ -28,19 +52,24 @@ int main(){
         if(sqgi.llvm.info(loop).prepared_calls==0 || sqgi.llvm.info(fail).prepared_calls==0)throw "not prepared";
         state.count=0;
     )SQ");
-    const unsigned saved=_mm_getcsr();
-    const unsigned hostile=(saved & ~0x6000u)|0x6000u|0x8040u|0x1f80u|0x21u;
+    const FloatingState saved;
+    FloatingState hostile=saved;
+#if defined(__x86_64__) || defined(_M_X64)
+    hostile.control=(saved.control & ~0x6000u)|0x6000u|0x8040u|0x1f80u|0x21u;
+#elif defined(__aarch64__) && defined(__linux__)
+    hostile.control=0x3c00000u;hostile.status=0x8000011u;
+#endif
     // Passing the smallest normal value must produce a subnormal, even with FTZ.
     sq_pushroottable(v);sq_pushstring(v,"input",-1);
     uint64_t bits=0x0010000000000000ull;SQFloat value;std::memcpy(&value,&bits,8);sq_pushfloat(v,value);sq_newslot(v,-3,SQFalse);sq_pop(v,1);
-    SQObject result{};_mm_setcsr(hostile);
+    SQObject result{};hostile.restore();
     ok=run(v,"return loop(state,10,input);",&result) && ok;
-    const unsigned after=_mm_getcsr();_mm_setcsr(saved);
+    const FloatingState after;saved.restore();
     uint64_t output=0;std::memcpy(&output,&result._unVal,8);
     ok=ok && result._type==OT_FLOAT && output==0x0008000000000000ull && after==hostile;
-    _mm_setcsr(hostile);
+    hostile.restore();
     bool failed=!run(v,"fail(state,10,-1.0);");
-    const unsigned after_failure=_mm_getcsr();_mm_setcsr(saved);
+    const FloatingState after_failure;saved.restore();
     ok=ok && failed && after_failure==hostile;
     ok=run(v,"if(state.count!=11)throw \"failed method replayed\";") && ok;
     // Changing native signature metadata must disable the prevalidated path.

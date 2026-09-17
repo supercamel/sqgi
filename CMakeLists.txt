@@ -501,6 +501,22 @@ endif()
 # (Now declared above so flags reach all targets — kept here as a no-op
 # anchor to preserve the prior file layout for diff readability.)
 
+# Optional native baseline for the cross-runtime computational benchmarks.
+add_executable(sqgi_bench_cpp_kernels EXCLUDE_FROM_ALL demo/benchmarks/cpp_jit_kernels.cpp)
+set(SQGI_CPP_BENCH_OPTIONS)
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    list(APPEND SQGI_CPP_BENCH_OPTIONS -O3 -fno-fast-math -ffp-contract=off)
+    if(NOT CMAKE_CROSSCOMPILING)
+        list(APPEND SQGI_CPP_BENCH_OPTIONS -march=native)
+    endif()
+elseif(MSVC)
+    list(APPEND SQGI_CPP_BENCH_OPTIONS /O2 /fp:strict)
+endif()
+target_compile_options(sqgi_bench_cpp_kernels PRIVATE ${SQGI_CPP_BENCH_OPTIONS})
+string(JOIN " " SQGI_CPP_BENCH_FLAGS ${SQGI_CPP_BENCH_OPTIONS})
+target_compile_definitions(sqgi_bench_cpp_kernels PRIVATE
+    SQGI_CPP_BENCH_FLAGS="${SQGI_CPP_BENCH_FLAGS}")
+
 # ── Tests (CTest) ────────────────────────────────────────────────────────────
 enable_testing()
 
@@ -579,7 +595,9 @@ if(SQGI_ENABLE_KERNELS)
     add_test(NAME sqgi_test_kernel_native COMMAND sqgi_test_kernel_native)
     set_tests_properties(sqgi_test_kernel_native PROPERTIES
         ENVIRONMENT "${SQGI_TEST_ENV}" LABELS "kernel" SKIP_RETURN_CODE 77 TIMEOUT 30)
-    if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|amd64)$")
+    if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|amd64)$" OR
+       (SQGI_KERNEL_BACKEND STREQUAL "LLVM" AND CMAKE_SYSTEM_NAME STREQUAL "Linux" AND
+        CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64|ARM64)$"))
         foreach(recurrence matrix vector math)
             add_test(NAME sqgi_demo_kernel_${recurrence}_recurrence COMMAND sqgi-bin
                 "${CMAKE_SOURCE_DIR}/demo/benchmarks/kernels/${recurrence}_recurrence.nut")
@@ -972,6 +990,12 @@ if(SQ_ENABLE_JIT)
     add_sqgi_c_test(sqgi_test_cpp_sqjit_leaf test/cpp/test_sqjit_leaf.cpp)
     set_tests_properties(sqgi_test_cpp_sqjit_leaf PROPERTIES LABELS "jit")
     add_sqgi_c_test(sqgi_test_cpp_sqjit_arithmetic test/cpp/test_sqjit_arithmetic.cpp)
+    if(SQGI_JIT_BACKEND STREQUAL "llvm" AND CMAKE_SYSTEM_NAME STREQUAL "Linux" AND
+       CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64|ARM64)$")
+        # This test executes AArch64 encoder output even with the LLVM backend.
+        target_sources(sqgi_test_cpp_sqjit_arithmetic PRIVATE
+            Squirrel3/squirrel/jit/sqjit_backend_aarch64_emit.cpp)
+    endif()
     set_tests_properties(sqgi_test_cpp_sqjit_arithmetic PROPERTIES LABELS "jit;math")
     add_sqgi_c_test(sqgi_test_cpp_sqjit_virtual_array test/cpp/test_sqjit_virtual_array.cpp)
     set_tests_properties(sqgi_test_cpp_sqjit_virtual_array PROPERTIES LABELS "jit")

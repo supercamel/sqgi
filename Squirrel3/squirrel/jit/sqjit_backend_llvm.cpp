@@ -132,10 +132,17 @@ SQInteger publish(SQObjectPtr *out, SQInteger value, SQInteger kind, SQJitContex
     return SQ_JIT_NATIVE_RETURNED;
 }
 // Ordinary LLVM FP optimizations assume the standard rounding environment.
-// Preserve hostile host state by declining execution, never changing MXCSR.
+// Preserve non-default host state by declining execution, never changing it.
 SQInteger floating_environment_safe() {
 #if defined(__x86_64__) || defined(_M_X64)
     return (_mm_getcsr() & 0xffc0) == 0x1f80;
+#elif defined(__aarch64__) && defined(__linux__)
+    uint64_t fpcr;
+    __asm__ __volatile__("mrs %0, fpcr" : "=r"(fpcr) : : "memory");
+    // Conservatively accept only default controls: nearest rounding, gradual
+    // underflow, no default-NaN mode or traps (including newer FPCR controls).
+    // FPSR contains accumulated status, not controls, and need not be zero.
+    return fpcr == 0;
 #else
     return 0;
 #endif

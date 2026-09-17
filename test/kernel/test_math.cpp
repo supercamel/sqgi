@@ -7,6 +7,8 @@
 #include <sstream>
 #if defined(__x86_64__) || defined(_M_X64)
 #include <xmmintrin.h>
+#elif defined(__aarch64__) && defined(__linux__)
+#include <fpu_control.h>
 #endif
 using namespace sqkernel;
 static int failures=0;
@@ -92,6 +94,22 @@ int main() {
         uint64_t value=run(*m,"test_sqrt",{bits(-1)});
         unsigned restored=_mm_getcsr();_mm_setcsr(saved);
         check(std::isnan(real(value)) && restored==hostile,"masked domain operation and exact caller FP restoration");
+#elif defined(__aarch64__) && defined(__linux__)
+        {
+            struct Restore {
+                fpu_control_t control; fpu_fpsr_t status;
+                Restore(){_FPU_GETCW(control);_FPU_GETFPSR(status);}
+                ~Restore(){_FPU_SETCW(control);_FPU_SETFPSR(status);}
+            } restore;
+            _FPU_SETCW(0x3c00000u | _FPU_FPCR_IEEE);
+            _FPU_SETFPSR(0x8000010u);
+            fpu_control_t hostile,after; fpu_fpsr_t sticky,status;
+            _FPU_GETCW(hostile);_FPU_GETFPSR(sticky);
+            uint64_t value=run(*m,"test_sqrt",{0xbff0000000000000ull});
+            _FPU_GETCW(after);_FPU_GETFPSR(status);
+            check(std::isnan(real(value)) && after==hostile && status==sticky,
+                "ARM64 masked domain operation and exact caller FP restoration");
+        }
 #endif
         for(const char *bad:{"export f64 f(){return sqrt(1);}","export f64 f(){return sin(true);}",
             "export f64 f(){return sqrt();}","export f64 f(){return sqrt(1.0,2.0);}",

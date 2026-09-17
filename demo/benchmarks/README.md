@@ -1,6 +1,6 @@
 # SQGI benchmark demos
 
-Small cross-runtime benchmarks for SQGI, Python, Node.js, and GJS.
+Small cross-runtime benchmarks for SQGI, Python, Node.js, GJS, and optional C++.
 
 For typed runtime kernels, see the separate [kernel benchmark suite](kernels/README.md):
 85 workload cases, LLVM/NATIVE comparisons, C++ baselines and Squirrel A*.
@@ -109,6 +109,33 @@ optimization of calls and math. `--gjs-mode script` measures that mode explicitl
 Python uses ordinary CPython objects, loops, lists and `math`, with fixed-field
 classes (`__slots__`), not NumPy/BLAS. Its direct-call kernel explicitly preserves
 SQGI/JavaScript's signed-remainder behavior for negative accumulators.
+
+Add an optimized C++ baseline for the same 15 computational workloads:
+
+```sh
+cmake --build build-jit-release --target sqgi_bench_cpp_kernels -j4
+python3 tools/run_runtime_benchmarks.py --sqgi build-jit-release/sqgi \
+  --cpp build-jit-release/sqgi_bench_cpp_kernels \
+  --runs 5 --iterations 80000 --warmups 5 --cpu 4 --output runtime-with-cpp.json
+```
+
+The optional target uses `-O3 -fno-fast-math -ffp-contract=off` with GCC/Clang,
+plus `-march=native` for host builds; MSVC uses `/O2 /fp:strict`. C++ uses int64
+and double, typed fields and fixed arrays for numeric objects, growing
+`std::vector` without pre-reserving capacity for append, and
+`std::unordered_map<std::string, int64_t>` for dynamic string-key fields.
+Payload swaps retain reference identity through pointers. This is an algorithm
+comparison using normal C++ representations, not a boxed dynamic-language VM.
+There are no hand-written SIMD kernels, precomputed results, or BLAS calls.
+
+The C++ harness checks the same known checksums, consumes warmup results, and
+uses opaque calls and compiler barriers around timing so pure computations
+cannot be reused from warmups. Helpers inside each workload remain inlineable.
+The runner includes C++ in rotated process order, checks every checksum against
+the interpreter, and records compiler version, target flags, binary/source hashes
+and build settings. `--cpp` currently supports `--suite kernels` only.
+Run the binary with `--check` for the known-result checks or `--metadata` to
+inspect its build identity. Compilation is outside the measured intervals.
 
 The independent application-component suite adds eight workloads:
 
