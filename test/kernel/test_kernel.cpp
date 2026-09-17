@@ -33,6 +33,13 @@ int main() {
             i64 helper(i64 x) { if (x < 0) { return -x; } else { return x + 1; } }
             export i64 arithmetic(i64 a, i64 b) { return (a + b) * 3 - b; }
             export i64 divide(i64 a, i64 b) { return a / b; }
+            export i64 remainder(i64 a, i64 b) { return a % b; }
+            export i64 rem_assign(i64 a, i64 b) { a %= b; return a; }
+            export i64 rem_precedence() { return 3 + 20 % 6 * 2 - 20 / 3 % 4; }
+            export bool rem_short(i64 a) { return a == 0 || 7 % a == 1; }
+            export void rem_store(inout i64 output[8],i64 d) {
+                output[0] = 17; output[0] %= d; output[1] = 99;
+            }
             export f64 floating(f64 a, f64 b) { return (a + b) * 0.5 - b / 2.0; }
             export bool equal(f64 a, f64 b) { return a == b; }
             export bool unequal(f64 a, f64 b) { return a != b; }
@@ -71,6 +78,21 @@ int main() {
         check((int64_t)run(*m,"divide",{uint64_t(-7),3}).result==-2,"division truncation");
         run(*m,"divide",{1,0},ArithmeticError);
         run(*m,"divide",{uint64_t(INT64_MIN),uint64_t(-1)},ArithmeticError);
+        for(const char *name:{"remainder","rem_assign"}) {
+            for(int64_t a:{INT64_MIN,INT64_MIN+1,int64_t(-7),int64_t(0),int64_t(7),INT64_MAX}) {
+                for(int64_t b:{INT64_MIN,int64_t(-3),int64_t(-1),int64_t(1),int64_t(3),INT64_MAX}) {
+                    int64_t expected=b==-1?0:a%b;
+                    check(run(*m,name,{uint64_t(a),uint64_t(b)}).result==uint64_t(expected),"signed remainder edges");
+                }
+            }
+            check(run(*m,name,{17,0},ArithmeticError).error_line!=0,"remainder zero source line");
+        }
+        check(run(*m,"rem_precedence",{}).result==5,"remainder multiplicative precedence and left associativity");
+        check(run(*m,"rem_short",{0}).result==1,"short circuit avoids remainder by zero");
+        reject("export f64 f(f64 a,f64 b){return a%b;}","remainder requires i64");
+        reject("export bool f(bool a,bool b){return a%b;}","remainder requires i64");
+        reject("export f64 f(f64 a){a%=2.0;return a;}","remainder requires i64");
+        reject("export i64 f(i64 a){return a%2.0;}","type mismatch");
         check(real(run(*m,"floating",{bits(8),bits(2)}).result)==4.0,"floating expected result");
         check(run(*m,"shortcircuit",{0}).result==1,"OR skips failing RHS");
         check(run(*m,"andshort",{0}).result==0,"AND skips failing RHS");
@@ -91,6 +113,11 @@ int main() {
         check(output==before,"precondition before writes");
         std::vector<uint64_t> integers(8,0);
         auto pointer=(uint64_t)(uintptr_t)integers.data();
+        run(*m,"rem_store",{pointer,0},ArithmeticError);
+        check(integers[0]==17 && integers[1]==0,"failed remainder retains prior writes without storing result");
+        run(*m,"rem_store",{pointer,5});
+        check(integers[0]==2 && integers[1]==99,"compound array remainder stores result");
+        std::fill(integers.begin(),integers.end(),0);
         run(*m,"read",{pointer,uint64_t(-1)},BoundsError);
         run(*m,"read",{pointer,8},BoundsError);
         run(*m,"read",{pointer,uint64_t(INT64_MAX)},BoundsError);
@@ -100,7 +127,7 @@ int main() {
 
         // Deterministic differential corpus, including NaN ordering and full i64 bits.
         std::mt19937_64 random(0x5a17);
-        for(const char *name:{"arithmetic","divide","floating","equal","unequal","less","lesseq","greater","greatereq","calls","loops"}) {
+        for(const char *name:{"arithmetic","divide","remainder","rem_assign","floating","equal","unequal","less","lesseq","greater","greatereq","calls","loops"}) {
             size_t n=index(*m,name); const auto &f=m->functions[n];
             for(int trial=0;trial<150;++trial) {
                 std::vector<uint64_t> args;

@@ -1,0 +1,38 @@
+// Standard binary64 math, including explicit domain validation where wanted.
+export f64 wave(f64 phase, f64 amplitude) {
+    require(isfinite(phase) && isfinite(amplitude));
+    return sin(phase) * amplitude;
+}
+export f64 length(f64 x, f64 y) { return hypot(x, y); }
+export bool valid_root(f64 x) { return isfinite(sqrt(x)); }
+
+void inputs(inout f64 values[97]) {
+    f64 x = 1.0;
+    for (i64 i = 0; i < 97; i += 1) { values[i] = x; x += 1.0; }
+}
+// Exact ports of the two math rows in test_jit_perf_correctness.nut.
+export f64 constant_workload(i64 n) {
+    require(n >= 0);
+    f64 values[97]; inputs(values);
+    f64 exponents[5];
+    exponents[0] = 0.0; exponents[1] = 1.0; exponents[2] = 2.0;
+    exponents[3] = 3.0; exponents[4] = 4.0;
+    f64 total = 0.0;
+    for (i64 i = 0; i < n; i += 1) {
+        f64 x = values[i % 97];
+        total += sqrt(x) + sin(0.0) + cos(0.0);
+        total += fabs(-3.5) + floor(1.75) + ceil(1.25);
+        total += pow(1.0001, exponents[i % 5]);
+    }
+    return total;
+}
+export f64 variable_workload(i64 n) {
+    require(n >= 0);
+    f64 values[97]; inputs(values);
+    f64 total = 0.0;
+    for (i64 i = 0; i < n; i += 1) {
+        f64 x = values[i % 97] * 0.01;
+        total += sqrt(x) + sin(x) + cos(x) + log(x) + atan2(x, 0.75) + pow(x, 1.125);
+    }
+    return total;
+}

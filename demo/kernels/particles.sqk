@@ -1,0 +1,16 @@
+// Mixed integer/floating fields, in-place updates and collision branches.
+struct Particle { f64 x; f64 y; f64 vx; f64 vy; i64 active; };
+export void step(inout Particle particles[128], i64 count, f64 dt) {
+    require(count >= 0 && count <= 128);
+    require(dt >= 0.0 && dt <= 1.0);
+    for (i64 i = 0; i < count; i += 1) {
+        if (particles[i].active != 0) {
+            particles[i].vy -= 9.0 * dt;
+            particles[i].x += particles[i].vx * dt;
+            particles[i].y += particles[i].vy * dt;
+            if (particles[i].x < 0.0) { particles[i].x = 0.0; particles[i].vx = -particles[i].vx; }
+            if (particles[i].x > 10.0) { particles[i].x = 10.0; particles[i].vx = -particles[i].vx; }
+            if (particles[i].y < 0.0) { particles[i].y = 0.0; particles[i].vy = -particles[i].vy * 0.8; }
+        }
+    }
+}

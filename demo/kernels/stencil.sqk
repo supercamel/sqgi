@@ -1,0 +1,12 @@
+// One Jacobi diffusion step on a packed width*width grid. Edges are fixed.
+// The host swaps input/output buffers between steps; they must not alias.
+export void diffuse(in f64 input[1024], inout f64 output[1024], i64 width) {
+    require(width >= 0 && width <= 32);
+    for (i64 i = 0; i < width * width; i += 1) { output[i] = input[i]; }
+    for (i64 row = 1; row < width - 1; row += 1) {
+        for (i64 col = 1; col < width - 1; col += 1) {
+            i64 i = row * width + col;
+            output[i] = (input[i - 1] + input[i + 1] + input[i - width] + input[i + width]) * 0.25;
+        }
+    }
+}

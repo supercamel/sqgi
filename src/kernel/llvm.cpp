@@ -1,5 +1,6 @@
 // LLVM 18 C API keeps the dependency isolated from SQGI's C++11 runtime.
 #include "kernel.h"
+#include "math.h"
 #include <llvm-c/Analysis.h>
 #include <llvm-c/Core.h>
 #include <llvm-c/Error.h>
@@ -9,6 +10,8 @@
 #include <llvm-c/Transforms/PassBuilder.h>
 #include <cstddef>
 #include <cstring>
+#include <cstdlib>
+#include <cstdio>
 #include <mutex>
 #if defined(__x86_64__) || defined(_M_X64)
 #include <xmmintrin.h>
@@ -59,6 +62,7 @@ public:
     LLVMOrcLLJITRef jit=nullptr;
     char symbol_prefix=0;
     int (*entry)(Call*)=nullptr;
+    bool floating=true;
     ~Executable() { if(jit) if(auto error=LLVMOrcDisposeLLJIT(jit)) LLVMConsumeError(error); }
     Status run(Call &call) const {return (Status)entry(&call);}
 };
@@ -74,6 +78,7 @@ std::shared_ptr<Executable> lower(const Function &f) {
     static_assert(offsetof(Call,result)==8 && offsetof(Call,fuel)==16 && offsetof(Call,error_line)==24,"kernel ABI requires 64-bit pointers");
     initialize();
     auto executable=std::make_shared<Executable>();
+    executable->floating=uses_floating_environment(f);
     checked(LLVMOrcCreateLLJIT(&executable->jit,nullptr));
     // Optimizers/codegen may introduce memory helpers or Windows stack probes.
     // Resolve only compiler-runtime helpers; source kernels cannot call externs.
@@ -82,6 +87,22 @@ std::shared_ptr<Executable> lower(const Function &f) {
     checked(LLVMOrcCreateDynamicLibrarySearchGeneratorForProcess(&runtime,
         executable->symbol_prefix,compiler_runtime_symbol,&executable->symbol_prefix));
     LLVMOrcJITDylibAddGenerator(LLVMOrcLLJITGetMainJITDylib(executable->jit),runtime);
+    // Intrinsics may lower to these exact libm entry points on older CPUs.
+    // Bind audited wrappers explicitly rather than widening process lookup.
+    std::vector<LLVMOrcCSymbolMapPair> math_symbols;
+    size_t math_count; const auto *catalog=math_builtins(math_count);
+    for(size_t n=0;n<math_count;++n) {
+        const auto &spec=catalog[n];
+        if(!spec.intrinsic || !std::strcmp(spec.name,"abs")) continue;
+        LLVMOrcCSymbolMapPair symbol{};
+        symbol.Name=LLVMOrcLLJITMangleAndIntern(executable->jit,spec.name);
+        symbol.Sym.Address=spec.binary?(uintptr_t)spec.binary:(uintptr_t)spec.unary;
+        symbol.Sym.Flags.GenericFlags=LLVMJITSymbolGenericFlagsExported | LLVMJITSymbolGenericFlagsCallable;
+        math_symbols.push_back(symbol);
+    }
+    auto symbols=LLVMOrcAbsoluteSymbols(math_symbols.data(),math_symbols.size());
+    auto define_error=LLVMOrcJITDylibDefine(LLVMOrcLLJITGetMainJITDylib(executable->jit),symbols);
+    if(define_error) { LLVMOrcDisposeMaterializationUnit(symbols); checked(define_error); }
     Lowering l;
     l.thread_context=LLVMOrcCreateNewThreadSafeContext();
     l.context=LLVMOrcThreadSafeContextGetContext(l.thread_context);
@@ -107,14 +128,24 @@ std::shared_ptr<Executable> lower(const Function &f) {
     auto ctx=LLVMGetParam(function,0);
     auto entry=LLVMAppendBasicBlockInContext(l.context,function,"entry");
     LLVMPositionBuilderAtEnd(b,entry);
-    std::vector<LLVMValueRef> slots;
-    for(int n=0;n<f.slots;++n) slots.push_back(LLVMBuildAlloca(b,i64,"slot"));
+    // Addressable objects/arrays must not share an allocation with scalar
+    // temporaries: an indexed store could otherwise alias the entire frame,
+    // preventing LLVM from promoting even ordinary arithmetic into registers.
+    std::vector<LLVMValueRef> slots(f.slots,nullptr);
+    for(const auto &region:f.local_storage) {
+        auto storage=LLVMBuildArrayAlloca(b,i64,constant(region.cells),"local.storage");
+        for(size_t n=0;n<region.cells;++n) {
+            auto offset=constant(n);
+            slots.at(region.first+n)=LLVMBuildGEP2(b,i64,storage,&offset,1,"local.cell");
+        }
+    }
+    for(int n=0;n<f.slots;++n) if(!slots[n]) slots[n]=LLVMBuildAlloca(b,i64,"slot");
     auto fuel=LLVMBuildAlloca(b,i64,"fuel");
     auto field=[&](unsigned n) {auto offset=constant(n);return LLVMBuildGEP2(b,i64,ctx,&offset,1,"context.field");};
     auto fuel_field=field(2),result_field=field(1),line_field=field(3);
     LLVMBuildStore(b,LLVMBuildLoad2(b,i64,fuel_field,"initial.fuel"),fuel);
     auto args=LLVMBuildLoad2(b,ptr,field(0),"arguments");
-    for(size_t n=0;n<f.parameters.size();++n) {
+    for(size_t n=0;n<f.argument_slots();++n) {
         auto offset=constant(n),address=LLVMBuildGEP2(b,i64,args,&offset,1,"argument");
         LLVMBuildStore(b,LLVMBuildLoad2(b,i64,address,"value"),slots[n]);
     }
@@ -143,6 +174,7 @@ std::shared_ptr<Executable> lower(const Function &f) {
         switch(i.op) {
         case Op::Constant:out=constant(i.immediate);break;
         case Op::Copy:out=a;break;
+        case Op::LocalAddress:out=LLVMBuildPtrToInt(b,slots.at(i.immediate),i64,"local.address");break;
         case Op::Add:case Op::Sub:case Op::Mul:case Op::Div:
             if(i.type==Type::F64) {
                 auto x=real(a),y=real(c);
@@ -164,6 +196,35 @@ std::shared_ptr<Executable> lower(const Function &f) {
                     out=LLVMBuildSDiv(b,a,c,"divide");
                 }
             } break;
+        case Op::Rem: {
+            guard(LLVMBuildICmp(b,LLVMIntNE,c,constant(0),"nonzero"),ArithmeticError,i.line);
+            // LLVM srem(INT64_MIN,-1) is poison. Remainder by -1 is always
+            // zero, so use +1 instead, including if optimization speculates.
+            auto minus_one=LLVMBuildICmp(b,LLVMIntEQ,c,constant(UINT64_MAX),"minus.one");
+            auto divisor=LLVMBuildSelect(b,minus_one,constant(1),c,"remainder.divisor");
+            out=LLVMBuildSRem(b,a,divisor,"remainder");
+            break;
+        }
+        case Op::Math: {
+            const auto &spec=math_builtin(i.immediate);
+            LLVMTypeRef args_type[]={fp,fp};
+            auto result_type=spec.predicate?LLVMInt1TypeInContext(l.context):fp;
+            auto type=LLVMFunctionType(result_type,args_type,spec.arity(),false);
+            LLVMValueRef callee=nullptr;
+            if(spec.intrinsic) {
+                callee=LLVMGetNamedFunction(l.module,spec.intrinsic);
+                if(!callee) callee=LLVMAddFunction(l.module,spec.intrinsic,type);
+            } else {
+                uintptr_t address=spec.unary?(uintptr_t)spec.unary:
+                    spec.binary?(uintptr_t)spec.binary:(uintptr_t)spec.predicate;
+                callee=LLVMConstIntToPtr(constant(address),ptr);
+            }
+            LLVMValueRef args[]={real(a),spec.binary?real(c):nullptr};
+            auto result=LLVMBuildCall2(b,type,callee,args,spec.arity(),"math.result");
+            out=spec.predicate?LLVMBuildZExt(b,result,i64,"math.bool"):
+                LLVMBuildBitCast(b,result,i64,"math.bits");
+            break;
+        }
         case Op::Neg:
             out=i.type==Type::F64?LLVMBuildXor(b,a,constant(uint64_t(1)<<63),"negate.sign"):LLVMBuildNeg(b,a,"negate");break;
         case Op::Eq:case Op::Ne:case Op::Lt:case Op::Le:case Op::Gt:case Op::Ge:
@@ -182,7 +243,7 @@ std::shared_ptr<Executable> lower(const Function &f) {
             else LLVMBuildStore(b,load(i.dst),address);
             break;
         }
-        case Op::Bounds:guard(LLVMBuildICmp(b,LLVMIntULT,a,constant(i.immediate),"in.bounds"),BoundsError,i.line);break;
+        case Op::Bounds:guard(LLVMBuildICmp(b,LLVMIntULT,a,i.b>=0?c:constant(i.immediate),"in.bounds"),BoundsError,i.line);break;
         case Op::Require:guard(boolean(a),RequirementError,i.line);break;
         case Op::Tick: {
             auto remaining=LLVMBuildLoad2(b,i64,fuel,"fuel");
@@ -210,6 +271,11 @@ std::shared_ptr<Executable> lower(const Function &f) {
     l.passes=LLVMCreatePassBuilderOptions();
     checked(LLVMRunPasses(l.module,"default<O3>",l.machine,l.passes));
     verify();
+    if(std::getenv("SQGI_KERNEL_DUMP_IR")) {
+        char *ir=LLVMPrintModuleToString(l.module);
+        std::fprintf(stderr,"; kernel function: %s\n%s\n",f.name.c_str(),ir);
+        LLVMDisposeMessage(ir);
+    }
     auto safe_module=LLVMOrcCreateNewThreadSafeModule(l.module,l.thread_context);
     l.module=nullptr; // ownership transfers to the JIT, including error paths
     checked(LLVMOrcLLJITAddLLVMIRModule(executable->jit,LLVMOrcLLJITGetMainJITDylib(executable->jit),safe_module));
@@ -218,14 +284,19 @@ std::shared_ptr<Executable> lower(const Function &f) {
     executable->entry=(int(*)(Call*))(uintptr_t)address;
     return executable;
 }
-Status execute(const Module &m,size_t index,Call &call) {
-#if defined(__x86_64__) || defined(_M_X64)
+PreparedCall prepare(const Module &m,size_t index) {
     const auto &native=m.native.at(index);
+    return {native->entry,native->floating};
+}
+Status execute(const Module &m,size_t index,Call &call) {return execute(prepare(m,index),call);}
+Status execute(PreparedCall prepared,Call &call) {
+#if defined(__x86_64__) || defined(_M_X64)
+    if(!prepared.floating)return (Status)prepared.entry(&call);
     unsigned old=_mm_getcsr();
     _mm_setcsr((old & ~unsigned(0xe040)) | 0x1f80);
-    Status result=native->run(call);_mm_setcsr(old);return result;
+    Status result=(Status)prepared.entry(&call);_mm_setcsr(old);return result;
 #else
-    (void)m;(void)index;(void)call;
+    (void)prepared;(void)call;
     throw std::runtime_error("kernel LLVM host not yet validated");
 #endif
 }

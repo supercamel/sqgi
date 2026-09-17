@@ -1,0 +1,11 @@
+// AoS geometry: transform a fixed-capacity batch, preserving its unused tail.
+struct Vec3 { f64 x; f64 y; f64 z; };
+export void transform(in Vec3 input[256], inout Vec3 output[256],
+                      i64 count, f64 scale, f64 dx, f64 dy, f64 dz) {
+    require(count >= 0 && count <= 256);
+    for (i64 i = 0; i < count; i += 1) {
+        output[i].x = input[i].x * scale + dx;
+        output[i].y = input[i].y * scale + dy;
+        output[i].z = input[i].z * scale + dz;
+    }
+}

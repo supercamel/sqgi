@@ -1,7 +1,8 @@
-// Leaf-only x64 code generator. Every operation is native, with no interpreter
-// dispatch or helper calls. Stack-backed temporaries prioritize auditability;
+// x64 code generator with direct calls to audited math functions and no VM
+// dispatch. Stack-backed temporaries prioritize auditability;
 // use the LLVM backend for optimized code generation.
 #include "kernel.h"
+#include "math.h"
 #include <cstring>
 #include <climits>
 #include <cstddef>
@@ -21,7 +22,8 @@ class Executable {
     void *memory = nullptr;
     size_t length = 0;
 public:
-    explicit Executable(const std::vector<unsigned char> &bytes) {
+    bool floating;
+    explicit Executable(const std::vector<unsigned char> &bytes,bool floating):floating(floating) {
         length=bytes.size();
 #ifdef _WIN32
         memory=VirtualAlloc(nullptr,length,MEM_COMMIT|MEM_RESERVE,PAGE_READWRITE);
@@ -52,7 +54,7 @@ public:
     }
     Executable(const Executable &)=delete;
     Executable &operator=(const Executable &)=delete;
-    Status run(Call &call) const { return (Status)((int(*)(Call*))memory)(&call); }
+    PreparedCall prepared() const { return {(int(*)(Call*))memory,floating}; }
 };
 bool supported() {
 #if (defined(__x86_64__) || defined(_M_X64)) && (defined(_WIN32) || defined(__unix__))
@@ -65,6 +67,8 @@ const char *backend_name() { return "native"; }
 namespace {
 class Emitter {
 public:
+    int frame_slots=0;
+    uint32_t displacement(int slot) const { return (uint32_t)(-8-frame_slots*8+slot*8); }
     std::vector<unsigned char> bytes;
     struct Fix { size_t offset; size_t target; };
     std::vector<Fix> branches;
@@ -74,10 +78,10 @@ public:
     void word(uint32_t v) { for(int n=0;n<4;++n) b(v>>(n*8)); }
     void quad(uint64_t v) { for(int n=0;n<8;++n) b((unsigned)(v>>(n*8))); }
     void imm(uint64_t v) { raw({0x48,0xb8}); quad(v); } // rax
-    void load(int s,int reg=0) { raw({0x48,0x8b,(unsigned)(0x85|(reg<<3))}); word((uint32_t)(-16-s*8)); }
-    void store(int s) { raw({0x48,0x89,0x85}); word((uint32_t)(-16-s*8)); }
-    void fp_load(int s,int reg=0) { raw({0xf2,0x0f,0x10,(unsigned)(0x85|(reg<<3))}); word((uint32_t)(-16-s*8)); }
-    void fp_store(int s) { raw({0xf2,0x0f,0x11,0x85}); word((uint32_t)(-16-s*8)); }
+    void load(int s,int reg=0) { raw({0x48,0x8b,(unsigned)(0x85|(reg<<3))}); word(displacement(s)); }
+    void store(int s) { raw({0x48,0x89,0x85}); word(displacement(s)); }
+    void fp_load(int s,int reg=0) { raw({0xf2,0x0f,0x10,(unsigned)(0x85|(reg<<3))}); word(displacement(s)); }
+    void fp_store(int s) { raw({0xf2,0x0f,0x11,0x85}); word(displacement(s)); }
     size_t branch(unsigned condition=0) {
         if(condition) raw({0x0f,condition}); else b(0xe9);
         size_t p=bytes.size(); word(0); return p;
@@ -100,7 +104,7 @@ public:
 }
 std::shared_ptr<Executable> lower(const Function &f) {
     static_assert(offsetof(Call,result)==8 && offsetof(Call,fuel)==16 && offsetof(Call,error_line)==24,"kernel ABI requires 64-bit pointers");
-    Emitter e;
+    Emitter e; e.frame_slots=f.slots;
     e.raw({0x55,0x48,0x89,0xe5,0x41,0x54}); // rbp, r12 preserved
 #ifdef _WIN32
     e.raw({0x49,0x89,0xcc}); // r12 = rcx
@@ -109,7 +113,7 @@ std::shared_ptr<Executable> lower(const Function &f) {
 #endif
     e.raw({0x48,0x81,0xec}); e.word((uint32_t)(f.slots*8+8));
     e.raw({0x49,0x8b,0x14,0x24}); // rdx = arguments
-    for(size_t i=0;i<f.parameters.size();++i) {
+    for(size_t i=0;i<f.argument_slots();++i) {
         e.raw({0x48,0x8b,0x82}); e.word((uint32_t)i*8); e.store((int)i);
     }
     for(const auto &i:f.code) {
@@ -117,6 +121,8 @@ std::shared_ptr<Executable> lower(const Function &f) {
         switch(i.op) {
         case Op::Constant: e.imm(i.immediate); e.store(i.dst); break;
         case Op::Copy: e.load(i.a); e.store(i.dst); break;
+        case Op::LocalAddress:
+            e.raw({0x48,0x8d,0x85}); e.word(e.displacement((int)i.immediate)); e.store(i.dst); break;
         case Op::Add: case Op::Sub: case Op::Mul: case Op::Div:
             if(i.type==Type::F64) {
                 e.fp_load(i.a); e.fp_load(i.b,1);
@@ -138,6 +144,36 @@ std::shared_ptr<Executable> lower(const Function &f) {
                 e.store(i.dst);
             }
             break;
+        case Op::Rem: {
+            e.load(i.a); e.load(i.b,1);
+            e.raw({0x48,0x85,0xc9}); e.guard(0x85,ArithmeticError,i.line);
+            // idiv would trap for INT64_MIN/-1. Dividing by +1 gives the
+            // same zero remainder for every dividend without that trap.
+            e.raw({0x48,0x83,0xf9,0xff}); size_t ordinary=e.branch(0x85);
+            e.raw({0xb9,0x01,0x00,0x00,0x00});
+            e.patch(ordinary,e.bytes.size());
+            e.raw({0x48,0x99,0x48,0xf7,0xf9,0x48,0x89,0xd0});
+            e.store(i.dst); break;
+        }
+        case Op::Math: {
+            const auto &spec=math_builtin(i.immediate);
+            e.fp_load(i.a);
+            if(spec.binary) e.fp_load(i.b,1);
+            // The existing frame is 16-byte aligned when its slot count is even.
+            // Allocate Windows shadow space below all live kernel locals.
+            unsigned extra=(f.slots & 1)?8:0;
+#ifdef _WIN32
+            extra+=32;
+#endif
+            if(extra) e.raw({0x48,0x83,0xec,extra});
+            uintptr_t address=spec.unary?(uintptr_t)spec.unary:
+                spec.binary?(uintptr_t)spec.binary:(uintptr_t)spec.predicate;
+            e.imm(address); e.raw({0xff,0xd0});
+            if(extra) e.raw({0x48,0x83,0xc4,extra});
+            if(spec.predicate) { e.raw({0x0f,0xb6,0xc0}); e.store(i.dst); }
+            else e.fp_store(i.dst);
+            break;
+        }
         case Op::Neg:
             e.load(i.a);
             if(i.type==Type::F64) { e.raw({0x48,0xb9}); e.quad(uint64_t(1)<<63); e.raw({0x48,0x31,0xc8}); }
@@ -163,7 +199,9 @@ std::shared_ptr<Executable> lower(const Function &f) {
         case Op::Store:
             e.load(i.a); e.load(i.b,1); e.load(i.dst,2); e.raw({0x48,0x89,0x14,0xc8}); break;
         case Op::Bounds:
-            e.load(i.a); e.raw({0x48,0xb9}); e.quad(i.immediate); e.raw({0x48,0x39,0xc8});
+            e.load(i.a);
+            if(i.b>=0) e.load(i.b,1); else { e.raw({0x48,0xb9}); e.quad(i.immediate); }
+            e.raw({0x48,0x39,0xc8});
             e.guard(0x82,BoundsError,i.line); break; // unsigned < rejects negatives
         case Op::Require:
             e.load(i.a); e.raw({0x48,0x85,0xc0}); e.guard(0x85,RequirementError,i.line); break;
@@ -183,19 +221,21 @@ std::shared_ptr<Executable> lower(const Function &f) {
     // Unreachable terminal guards protect against an accidentally malformed IR.
     e.error(RequirementError,0);
     for(auto &f:e.branches) e.patch(f.offset,e.labels.at(f.target));
-    return std::make_shared<Executable>(e.bytes);
+    return std::make_shared<Executable>(e.bytes,uses_floating_environment(f));
 }
-Status execute(const Module &m,size_t index,Call &call) {
+PreparedCall prepare(const Module &m,size_t index) {return m.native.at(index)->prepared();}
+Status execute(const Module &m,size_t index,Call &call) {return execute(prepare(m,index),call);}
+Status execute(PreparedCall prepared,Call &call) {
 #if defined(__x86_64__) || defined(_M_X64)
-    const auto &native=m.native.at(index);
+    if(!prepared.floating)return (Status)prepared.entry(&call);
     unsigned old=_mm_getcsr();
     // Mask hardware FP exceptions, use nearest-even and gradual underflow.
     _mm_setcsr((old & ~unsigned(0xe040)) | 0x1f80);
-    Status result=native->run(call);
+    Status result=(Status)prepared.entry(&call);
     _mm_setcsr(old);
     return result;
 #else
-    (void)m; (void)index; (void)call;
+    (void)prepared; (void)call;
     throw std::runtime_error("kernel native backend unavailable");
 #endif
 }
