@@ -15,11 +15,6 @@ SQJitProto::SQJitProto()
     _loop_guard_fail_count = 0;
     _loop_guard_backoff_until = 0;
     _loop_guard_backoff_delay = 0;
-    _loop_reject_count = 0;
-    _loop_reject_next = 0;
-    for(SQInteger n = 0; n < SQ_JIT_LOOP_REJECT_CACHE_SIZE; n++) {
-        _loop_reject_headers[n] = -1;
-    }
     _loop_trace_executed = false;
     _hot_count = 0;
     _fail_count = 0;

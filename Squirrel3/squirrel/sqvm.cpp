@@ -324,6 +324,23 @@ bool SQVM::CMP_OP(CmpOP op, const SQObjectPtr &o1,const SQObjectPtr &o2,SQObject
     return false;
 }
 
+// Decimal integer conversion needs neither printf's format parser nor locale
+// machinery. Unsigned subtraction also handles the most negative SQInteger.
+static const SQChar *IntegerString(SQInteger value, SQChar *end, SQInteger &length)
+{
+    SQChar *cursor = end;
+    *cursor = 0;
+    SQUnsignedInteger magnitude = value < 0 ?
+        SQUnsignedInteger(0) - (SQUnsignedInteger)value : (SQUnsignedInteger)value;
+    do {
+        *--cursor = (SQChar)(_SC('0') + magnitude % 10);
+        magnitude /= 10;
+    } while(magnitude);
+    if(value < 0) *--cursor = _SC('-');
+    length = (SQInteger)(end - cursor);
+    return cursor;
+}
+
 bool SQVM::ToString(const SQObjectPtr &o,SQObjectPtr &res)
 {
     switch(sq_type(o)) {
@@ -333,9 +350,13 @@ bool SQVM::ToString(const SQObjectPtr &o,SQObjectPtr &res)
     case OT_FLOAT:
         scsprintf(_sp(sq_rsl(NUMBER_MAX_CHAR+1)),sq_rsl(NUMBER_MAX_CHAR),_SC("%g"),_float(o));
         break;
-    case OT_INTEGER:
-        scsprintf(_sp(sq_rsl(NUMBER_MAX_CHAR+1)),sq_rsl(NUMBER_MAX_CHAR),_PRINT_INT_FMT,_integer(o));
-        break;
+    case OT_INTEGER: {
+        SQChar buffer[NUMBER_MAX_CHAR + 1];
+        SQInteger length;
+        const SQChar *digits = IntegerString(_integer(o), buffer + NUMBER_MAX_CHAR, length);
+        res = SQString::Create(_ss(this), digits, length);
+        return true;
+    }
     case OT_BOOL:
         scsprintf(_sp(sq_rsl(6)),sq_rsl(6),_integer(o)?_SC("true"):_SC("false"));
         break;
@@ -399,9 +420,7 @@ bool SQVM::StringAppendInPlace(SQObjectPtr &str, const SQObjectPtr &obj)
             suffixlen = _string(obj)->_len;
             break;
         case OT_INTEGER:
-            scsprintf(numbuf, NUMBER_MAX_CHAR + 1, _PRINT_INT_FMT, _integer(obj));
-            suffix = numbuf;
-            suffixlen = (SQInteger)scstrlen(numbuf);
+            suffix = IntegerString(_integer(obj), numbuf + NUMBER_MAX_CHAR, suffixlen);
             break;
         case OT_FLOAT:
             scsprintf(numbuf, NUMBER_MAX_CHAR + 1, _SC("%g"), _float(obj));

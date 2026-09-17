@@ -4,6 +4,7 @@
 
 #include "sqopcodes.h"
 #include "sqjit_code.h"
+#include <vector>
 
 struct SQJitNative;
 
@@ -26,8 +27,6 @@ enum SQJitExecResult {
     SQ_JIT_EXEC_RESUMED = 4
 };
 
-enum { SQ_JIT_LOOP_REJECT_CACHE_SIZE = 8 };
-
 struct SQJitProto {
     SQJitProto();
     ~SQJitProto();
@@ -46,9 +45,9 @@ struct SQJitProto {
     SQInteger _loop_guard_fail_count;
     SQInteger _loop_guard_backoff_until;
     SQInteger _loop_guard_backoff_delay;
-    SQInteger _loop_reject_count;
-    SQInteger _loop_reject_next;
-    SQInteger _loop_reject_headers[SQ_JIT_LOOP_REJECT_CACHE_SIZE];
+    // Bytecode is immutable: rejected regions must not be rediscovered when
+    // a branch-heavy function exceeds a small eviction cache. One bit per IP.
+    std::vector<unsigned char> _loop_rejected;
     bool _loop_trace_executed;
     SQInteger _hot_count;
     SQInteger _fail_count;
@@ -56,9 +55,8 @@ struct SQJitProto {
     SQInteger _guard_backoff_until;
     SQInteger _guard_backoff_delay;
     bool RejectedLoop(SQInteger header) const {
-        for(SQInteger n=0;n<_loop_reject_count;++n)
-            if(_loop_reject_headers[n]==header)return true;
-        return false;
+        return header >= 0 && (SQUnsignedInteger)(header / 8) < _loop_rejected.size() &&
+            (_loop_rejected[(size_t)(header / 8)] & (1u << (header % 8))) != 0;
     }
     SQInteger _version;
     SQJitEligibility _eligibility;

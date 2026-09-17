@@ -8,6 +8,7 @@
 #include <vector>
 #include "jit/sqjit.h"
 #include "jit/sqjit_context.h"
+#include "jit/sqjit_policy.h"
 #include "jit/sqjit_diagnostics.h"
 #include "jit/sqjit_observe.h"
 #include "jit/sqjit_write_log.h"
@@ -536,6 +537,47 @@ int main()
     CHECK(fresh_ctx.proto_tick == 0 && fresh_ctx.loop_tick == 0 && !fresh_ctx.ExistingDiagnostics(),
         "new shared state has no stale runtime state");
     sq_close(fresh);
+
+    {
+        SQJitProto rejected;
+        CHECK(!rejected.RejectedLoop(-1) && !rejected.RejectedLoop(2048), "fresh loop rejection map is empty");
+        for(SQInteger ip = 0; ip < 2048; ip += 3) sqjit_loop_reject_header(&rejected, ip);
+        for(SQInteger ip = 0; ip < 2048; ++ip)
+            CHECK(rejected.RejectedLoop(ip) == (ip % 3 == 0), "branch-heavy rejection map never evicts or rejects neighboring IPs");
+        const size_t bytes = rejected._loop_rejected.size();
+        sqjit_loop_reject_header(&rejected, -1);
+        sqjit_loop_reject_header(&rejected, 0);
+        CHECK(rejected._loop_rejected.size() == bytes && bytes == 256, "negative and duplicate rejections preserve compact storage");
+    }
+
+#if defined(SQJIT_BACKEND_LLVM)
+    {
+        SQVM *branch_vm = sq_open(64);
+        SQJitContext &branch_ctx = sqjit_context(branch_vm->_sharedstate);
+        branch_ctx.enabled = true; branch_ctx.threshold = 1;
+        branch_ctx.trace = branch_ctx.trace_stats = false;
+        sqjit_observe_enable(branch_vm);
+        CHECK(run(branch_vm, _SC("function branchy(n) { local x=0; while(n>0) { local kind=typeof n;"
+            "if(n>0)x++; if(n>0)x++; if(n>0)x++; if(n>0)x++;"
+            "if(n>0)x++; if(n>0)x++; if(n>0)x++; if(n>0)x++;"
+            "if(n>0)x++; if(n>0)x++; if(n>0)x++; if(n>0)x++; n--; }"
+            "return x; }"
+            "function mixed_regions(n) { while(n>0) { local kind=typeof n; n--; }"
+            "local a=[0]; for(local i=0;i<20;i++)a[0]=a[0]+1; return a[0]; }")),
+            "define branch-heavy fallback followed by an eligible boxed loop");
+        CHECK(run(branch_vm, _SC("branchy(20);")), "warm every branch and the eligible loop");
+        const SQInteger failures = branch_ctx.Diagnostics().total.loop_find_failures;
+        CHECK(failures > 8, "exercise more rejected branch locations than the old cache held");
+        CHECK(run(branch_vm, _SC("branchy(20);")), "repeat branch-heavy function");
+        CHECK(branch_ctx.Diagnostics().total.loop_find_failures == failures,
+            "rejected branch locations are never reanalyzed on a subsequent call");
+        CHECK(run(branch_vm, _SC("if(branchy(20)!=240 || mixed_regions(20)!=20) throw \"branch result\";")), "fallback and native loop preserve result");
+        SQJitObservation branches = {};
+        CHECK(sqjit_observe_proto(proto(branch_vm, _SC("mixed_regions")), branches) && branches.loop.successes > 0,
+            "rejected branches do not disable an eligible neighboring loop");
+        sq_close(branch_vm);
+    }
+#endif
 
     int external_releases = 0;
     {

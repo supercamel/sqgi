@@ -85,3 +85,24 @@ for(local pass=0;pass<40;pass++) {
 }
 print("dynamic object read tests passed\n");
 
+// Integer formatting is shared by tostring, concatenation and in-place append.
+// Compare against the independent printf implementation, including signed ends.
+local integer_cases=[0,1,-1,9,-9,10,-10,99,-99,100,-100,2147483647,-2147483647-1];
+if(_intsize_ == 8) {
+    integer_cases.append("9223372036854775807".tointeger());
+    integer_cases.append(-"9223372036854775807".tointeger()-1);
+}
+local magnitude=1, digits=(_intsize_ == 8 ? 19 : 10);
+for(local digit=0;digit<digits;digit++) {
+    integer_cases.append(magnitude-1); integer_cases.append(magnitude+1);
+    integer_cases.append(-magnitude+1); integer_cases.append(-magnitude-1);
+    if(digit+1<digits) magnitude*=10;
+}
+foreach(value in integer_cases) {
+    local expected=format("%d",value);
+    check(value.tostring()==expected,"integer decimal conversion");
+    check("prefix:"+value=="prefix:"+expected,"integer concatenation");
+    local text="prefix:"; local original=text; text+=value;
+    check(text=="prefix:"+expected && original=="prefix:","integer append preserves aliases");
+    check(value+":suffix"==expected+":suffix","integer left concatenation");
+}
