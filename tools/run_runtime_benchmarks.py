@@ -17,7 +17,8 @@ from run_sqgi_node_benchmarks import FLOAT_KERNELS, parse, positive
 
 def cache_settings(binary):
     path = binary.parent / 'CMakeCache.txt'
-    wanted = {'CMAKE_BUILD_TYPE', 'CMAKE_CXX_COMPILER', 'SQ_ENABLE_JIT',
+    wanted = {'CMAKE_BUILD_TYPE', 'CMAKE_CXX_COMPILER', 'SQ_ENABLE_JIT', 'SQGI_BYTECODE_JIT_BACKEND',
+              'SQGI_THREADED_DISPATCH',
               'SQGI_ENABLE_LTO', 'SQGI_PGO_MODE', 'SQGI_PGO_DIRECTORY', 'SQGI_ENABLE_ASAN'}
     result = {}
     if path.exists():
@@ -58,6 +59,8 @@ def main():
     parser.add_argument('--iterations', type=positive, default=80000)
     parser.add_argument('--warmups', type=positive, default=5)
     parser.add_argument('--threshold', type=positive, default=1)
+    parser.add_argument('--jit', type=int, choices=[0, 1], default=1,
+                        help='enable JIT or measure the interpreter in all SQGI builds')
     parser.add_argument('--cpu', type=int)
     parser.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
@@ -76,7 +79,8 @@ def main():
     py_script = f'python_{port_name}.py'
     envs, commands, runtime_metadata = {}, {}, {}
     for name, binary in binaries.items():
-        env = dict(os.environ, SQGI_JIT='1', SQGI_JIT_THRESHOLD=str(args.threshold), SQGI_JIT_TRACE='0')
+        env = dict(os.environ, SQGI_JIT=str(args.jit),
+                   SQGI_JIT_THRESHOLD=str(args.threshold), SQGI_JIT_TRACE='0')
         env['LD_LIBRARY_PATH'] = str(binary.parent) + (':' + env['LD_LIBRARY_PATH'] if env.get('LD_LIBRARY_PATH') else '')
         widths = subprocess.check_output([str(binary), '-e', 'print(_intsize_ + " " + _floatsize_)'], env=env, text=True).split()
         if widths != ['8', '8']:
@@ -104,7 +108,7 @@ def main():
     names = list(commands)
     prefix = ['taskset', '-c', str(args.cpu)] if args.cpu is not None else []
     metadata = dict(runtimes=runtime_metadata, platform=platform.platform(), runs=args.runs,
-                    iterations=args.iterations, warmups=args.warmups, threshold=args.threshold,
+                    iterations=args.iterations, warmups=args.warmups, threshold=args.threshold, jit=args.jit,
                     cpu=args.cpu, suite=args.suite, seed=args.seed,
                     started_utc=datetime.now(timezone.utc).isoformat(),
                     load_average_start=os.getloadavg() if hasattr(os, 'getloadavg') else None,

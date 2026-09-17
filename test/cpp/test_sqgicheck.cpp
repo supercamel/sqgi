@@ -1188,6 +1188,20 @@ void test_deterministic_metadata()
     CHECK(metadata->lookup_member(root_sqgi.value, "sleap", false).definite_missing,
           "unknown SQGI built-in has candidates");
 
+    for (const std::string &module : {"kernel", "llvm"}) {
+        LookupResult optional = metadata->lookup_member(root_sqgi.value, module, false);
+        CHECK(optional.found && optional.value.kind == ValueKind::Table,
+              "optional compiler module is known without its runtime backend");
+        LookupResult compile = metadata->lookup_member(optional.value, "compile", true);
+        CHECK(compile.found && compile.value.minimum_args == 1 &&
+                  compile.value.maximum_args == (module == "kernel" ? 2 : -1),
+              "compiler module arity matches its native API");
+        CHECK(!metadata->lookup_member(optional.value, "complie", true).found,
+              "compiler module typos remain unknown");
+        CHECK(metadata->lookup_member(optional.value, module == "kernel" ? "load" : "info", true).found,
+              "compiler module secondary API is known");
+    }
+
     LookupResult scalar = metadata->lookup_member(fixture.value, "scalar", true);
     LookupResult make_widget =
         metadata->lookup_member(fixture.value, "make_widget", true);

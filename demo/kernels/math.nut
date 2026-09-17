@@ -7,6 +7,6 @@ D.near(m.variable_workload(80),122.66761111643609,"variable math benchmark check
 D.near(m.constant_workload(0),0.0,"empty constant loop");
 D.near(m.variable_workload(0),0.0,"empty variable loop");
 local caught=false;
-try {m.wave(1.0/0.0,2.0);} catch(e) {caught=e.tostring().find("require failed")!=null;}
+try {m.wave(1.0/0.0,2.0);} catch(e) {caught=(""+e).find("require failed")!=null;}
 D.check(caught,"nonfinite input guard");
 print("kernel math demo passed\n");

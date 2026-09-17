@@ -1,0 +1,74 @@
+[
+  {
+    "label": "before",
+    "command": [
+      "taskset",
+      "-c",
+      "0",
+      "/tmp/sqgi-before-routetastic-goal",
+      "/home/sam/Programming/sqgi/demo/benchmarks/routetastic/search.nut",
+      "2"
+    ],
+    "threshold": 1000,
+    "returncode": 0,
+    "stats": [
+      "[sqjit:stats] proto enters=6131401 hot=15 compile=15 success=1 fail=14",
+      "[sqjit:stats] proto exec attempts=6131401 success=1 guard_fail=0",
+      "[sqjit:stats] proto side_exits=0",
+      "[sqjit:stats] direct calls attempts=106334 success=106334 miss=0 guard_fail=0",
+      "[sqjit:stats] loops try=2065787 find_fail=2065787 compile=0 success=0 fail=0 exec=0 exec_success=0 guard_fail=0",
+      "[sqjit:stats] rejects=14 unique_reasons=1",
+      "[sqjit:stats] backoff proto=0 proto_skips=0 loop=0 loop_skips=0",
+      "[sqjit:stats] reject category count=14 category=opcode",
+      "[sqjit:stats] reject reason count=14 reason=LLVM requires a scalar function",
+      "[sqjit:stats] reject_site rank=1 proto=(nil) name=precedes source=src/route_search.nut line=-1 ip=-1 count=1 reason=LLVM requires a scalar function",
+      "[sqjit:stats] reject_site rank=2 proto=(nil) name=rs_position source=src/route_search.nut line=-1 ip=-1 count=1 reason=LLVM requires a scalar function",
+      "[sqjit:stats] reject_site rank=3 proto=(nil) name=rs_key source=src/route_search.nut line=-1 ip=-1 count=1 reason=LLVM requires a scalar function",
+      "[sqjit:stats] reject_site rank=4 proto=(nil) name=wt_octile source=src/weighted_targets.nut line=-1 ip=-1 count=1 reason=LLVM requires a scalar function",
+      "[sqjit:stats] reject_site rank=5 proto=(nil) name=estimate source=src/route_search.nut line=-1 ip=-1 count=1 reason=LLVM requires a scalar function",
+      "[sqjit:stats] reject_site rank=6 proto=(nil) name=estimate source=src/weighted_targets.nut line=-1 ip=-1 count=1 reason=LLVM requires a scalar function",
+      "[sqjit:stats] reject_site rank=7 proto=(nil) name=wt_lower source=src/weighted_targets.nut line=-1 ip=-1 count=1 reason=LLVM requires a scalar function",
+      "[sqjit:stats] reject_site rank=8 proto=(nil) name=wt_query source=src/weighted_targets.nut line=-1 ip=-1 count=1 reason=LLVM requires a scalar function",
+      "[sqjit:stats] reject_site rank=9 proto=(nil) name=<anonymous> source=/home/sam/Programming/sqgi/demo/benchmarks/routetastic/search.nut line=-1 ip=-1 count=1 reason=LLVM requires a scalar function",
+      "[sqjit:stats] reject_site rank=10 proto=(nil) name=offer source=src/route_search.nut line=-1 ip=-1 count=1 reason=LLVM requires a scalar function",
+      "[sqjit:stats] reject_site rank=11 proto=(nil) name=push source=src/route_search.nut line=-1 ip=-1 count=1 reason=LLVM requires a scalar function",
+      "[sqjit:stats] reject_site rank=12 proto=(nil) name=push_entry source=src/route_search.nut line=-1 ip=-1 count=1 reason=LLVM requires a scalar function"
+    ]
+  },
+  {
+    "label": "current",
+    "command": [
+      "taskset",
+      "-c",
+      "0",
+      "/tmp/sqgi-jit-llvm/sqgi",
+      "/home/sam/Programming/sqgi/demo/benchmarks/routetastic/search.nut",
+      "2"
+    ],
+    "threshold": 1000,
+    "returncode": 0,
+    "stats": [
+      "[sqjit:stats] proto enters=6131401 hot=15 compile=15 success=1 fail=14",
+      "[sqjit:stats] proto exec attempts=6131401 success=1 guard_fail=0",
+      "[sqjit:stats] proto side_exits=0",
+      "[sqjit:stats] direct calls attempts=106334 success=106334 miss=0 guard_fail=0",
+      "[sqjit:stats] loops try=88 find_fail=88 compile=0 success=0 fail=0 exec=0 exec_success=0 guard_fail=0",
+      "[sqjit:stats] rejects=14 unique_reasons=1",
+      "[sqjit:stats] backoff proto=0 proto_skips=0 loop=0 loop_skips=0",
+      "[sqjit:stats] reject category count=14 category=opcode",
+      "[sqjit:stats] reject reason count=14 reason=LLVM requires a scalar function",
+      "[sqjit:stats] reject_site rank=1 proto=(nil) name=precedes source=src/route_search.nut line=-1 ip=-1 count=1 reason=LLVM requires a scalar function",
+      "[sqjit:stats] reject_site rank=2 proto=(nil) name=rs_position source=src/route_search.nut line=-1 ip=-1 count=1 reason=LLVM requires a scalar function",
+      "[sqjit:stats] reject_site rank=3 proto=(nil) name=rs_key source=src/route_search.nut line=-1 ip=-1 count=1 reason=LLVM requires a scalar function",
+      "[sqjit:stats] reject_site rank=4 proto=(nil) name=wt_octile source=src/weighted_targets.nut line=-1 ip=-1 count=1 reason=LLVM requires a scalar function",
+      "[sqjit:stats] reject_site rank=5 proto=(nil) name=estimate source=src/route_search.nut line=-1 ip=-1 count=1 reason=LLVM requires a scalar function",
+      "[sqjit:stats] reject_site rank=6 proto=(nil) name=estimate source=src/weighted_targets.nut line=-1 ip=-1 count=1 reason=LLVM requires a scalar function",
+      "[sqjit:stats] reject_site rank=7 proto=(nil) name=wt_lower source=src/weighted_targets.nut line=-1 ip=-1 count=1 reason=LLVM requires a scalar function",
+      "[sqjit:stats] reject_site rank=8 proto=(nil) name=wt_query source=src/weighted_targets.nut line=-1 ip=-1 count=1 reason=LLVM requires a scalar function",
+      "[sqjit:stats] reject_site rank=9 proto=(nil) name=<anonymous> source=/home/sam/Programming/sqgi/demo/benchmarks/routetastic/search.nut line=-1 ip=-1 count=1 reason=LLVM requires a scalar function",
+      "[sqjit:stats] reject_site rank=10 proto=(nil) name=offer source=src/route_search.nut line=-1 ip=-1 count=1 reason=LLVM requires a scalar function",
+      "[sqjit:stats] reject_site rank=11 proto=(nil) name=push source=src/route_search.nut line=-1 ip=-1 count=1 reason=LLVM requires a scalar function",
+      "[sqjit:stats] reject_site rank=12 proto=(nil) name=push_entry source=src/route_search.nut line=-1 ip=-1 count=1 reason=LLVM requires a scalar function"
+    ]
+  }
+]

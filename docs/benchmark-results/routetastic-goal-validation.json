@@ -1,0 +1,112 @@
+[
+  {
+    "label": "normal",
+    "command": [
+      "ctest",
+      "--test-dir",
+      "/tmp/sqgi-jit-llvm",
+      "-R",
+      "(sqgi_test_cpp_sqjit_|sqgi_test_jit_|sqgi_test_interpreter_dispatch|sqgi_test_cpp_sqmembercache)",
+      "--output-on-failure"
+    ],
+    "cwd": "/home/sam/Programming/sqgi",
+    "environment": {},
+    "returncode": 0,
+    "stdout": "Internal ctest changing into directory: /tmp/sqgi-jit-llvm\nTest project /tmp/sqgi-jit-llvm\n      Start  73: sqgi_test_jit_math\n 1/31 Test  #73: sqgi_test_jit_math .......................   Passed    0.20 sec\n      Start  74: sqgi_test_jit_loop_regressions\n 2/31 Test  #74: sqgi_test_jit_loop_regressions ...........   Passed    0.06 sec\n      Start  75: sqgi_test_jit_math_runtime\n 3/31 Test  #75: sqgi_test_jit_math_runtime ...............   Passed    0.20 sec\n      Start  76: sqgi_test_jit_fastpath\n 4/31 Test  #76: sqgi_test_jit_fastpath ...................   Passed    0.02 sec\n      Start  77: sqgi_test_jit_fastpath_runtime\n 5/31 Test  #77: sqgi_test_jit_fastpath_runtime ...........   Passed    0.14 sec\n      Start  78: sqgi_test_jit_correctness\n 6/31 Test  #78: sqgi_test_jit_correctness ................   Passed    0.01 sec\n      Start  79: sqgi_test_jit_correctness_runtime\n 7/31 Test  #79: sqgi_test_jit_correctness_runtime ........   Passed    0.19 sec\n      Start  81: sqgi_test_interpreter_dispatch\n 8/31 Test  #81: sqgi_test_interpreter_dispatch ...........   Passed    0.01 sec\n      Start  82: sqgi_test_interpreter_dispatch_runtime\n 9/31 Test  #82: sqgi_test_interpreter_dispatch_runtime ...   Passed    0.01 sec\n      Start  84: sqgi_test_jit_perf_correctness\n10/31 Test  #84: sqgi_test_jit_perf_correctness ...........   Passed    0.01 sec\n      Start  85: sqgi_test_jit_perf_correctness_runtime\n11/31 Test  #85: sqgi_test_jit_perf_correctness_runtime ...   Passed    0.09 sec\n      Start  86: sqgi_test_jit_native_runtime\n12/31 Test  #86: sqgi_test_jit_native_runtime .............   Passed    0.15 sec\n      Start 110: sqgi_test_cpp_sqmembercache\n13/31 Test #110: sqgi_test_cpp_sqmembercache ..............   Passed    0.01 sec\n      Start 115: sqgi_test_cpp_sqjit_x64_emit\n14/31 Test #115: sqgi_test_cpp_sqjit_x64_emit .............   Passed    0.00 sec\n      Start 116: sqgi_test_cpp_sqjit_aarch64_emit\n15/31 Test #116: sqgi_test_cpp_sqjit_aarch64_emit .........   Passed    0.00 sec\n      Start 117: sqgi_test_cpp_sqjit_x64_win64_emit\n16/31 Test #117: sqgi_test_cpp_sqjit_x64_win64_emit .......   Passed    0.00 sec\n      Start 118: sqgi_test_cpp_sqjit_contracts\n17/31 Test #118: sqgi_test_cpp_sqjit_contracts ............   Passed    0.05 sec\n      Start 119: sqgi_test_cpp_sqjit_side_exit\n18/31 Test #119: sqgi_test_cpp_sqjit_side_exit ............   Passed    0.01 sec\n      Start 120: sqgi_test_cpp_sqjit_values\n19/31 Test #120: sqgi_test_cpp_sqjit_values ...............   Passed    0.03 sec\n      Start 121: sqgi_test_cpp_sqjit_memory\n20/31 Test #121: sqgi_test_cpp_sqjit_memory ...............   Passed    0.14 sec\n      Start 122: sqgi_test_cpp_sqjit_llvm\n21/31 Test #122: sqgi_test_cpp_sqjit_llvm .................   Passed    0.97 sec\n      Start 123: sqgi_test_cpp_sqjit_leaf\n22/31 Test #123: sqgi_test_cpp_sqjit_leaf .................   Passed    0.08 sec\n      Start 124: sqgi_test_cpp_sqjit_arithmetic\n23/31 Test #124: sqgi_test_cpp_sqjit_arithmetic ...........   Passed    0.00 sec\n      Start 125: sqgi_test_cpp_sqjit_virtual_array\n24/31 Test #125: sqgi_test_cpp_sqjit_virtual_array ........   Passed    0.02 sec\n      Start 126: sqgi_test_cpp_sqjit_objects\n25/31 Test #126: sqgi_test_cpp_sqjit_objects ..............   Passed    0.07 sec\n      Start 127: sqgi_test_cpp_sqjit_object_plan\n26/31 Test #127: sqgi_test_cpp_sqjit_object_plan ..........   Passed    0.15 sec\n      Start 128: sqgi_test_cpp_sqjit_write_log\n27/31 Test #128: sqgi_test_cpp_sqjit_write_log ............   Passed    0.02 sec\n      Start 129: sqgi_test_cpp_sqjit_member_plan\n28/31 Test #129: sqgi_test_cpp_sqjit_member_plan ..........   Passed    0.59 sec\n      Start 130: sqgi_test_cpp_sqjit_release_order\n29/31 Test #130: sqgi_test_cpp_sqjit_release_order ........   Passed    0.02 sec\n      Start 131: sqgi_test_cpp_sqjit_float_cache\n30/31 Test #131: sqgi_test_cpp_sqjit_float_cache ..........   Passed    0.07 sec\n      Start 132: sqgi_test_cpp_sqjit_intrinsics\n31/31 Test #132: sqgi_test_cpp_sqjit_intrinsics ...........   Passed    0.08 sec\n\n100% tests passed, 0 tests failed out of 31\n\nLabel Time Summary:\njit     =   3.37 sec*proc (28 tests)\nllvm    =   0.97 sec*proc (1 test)\nmath    =   1.16 sec*proc (12 tests)\n\nTotal Test time (real) =   3.42 sec\n",
+    "stderr": "",
+    "seconds": 3.4232299919240177
+  },
+  {
+    "label": "sanitizer-build",
+    "command": [
+      "cmake",
+      "--build",
+      "/tmp/sqgi-jit-llvm-asan",
+      "-j",
+      "4"
+    ],
+    "cwd": "/home/sam/Programming/sqgi",
+    "environment": {},
+    "returncode": 0,
+    "stdout": "[1/87] Building CXX object CMakeFiles/sqgi-core.dir/Squirrel3/squirrel/sqclass.cpp.o\n[2/87] Building CXX object CMakeFiles/sqgi-core.dir/Squirrel3/squirrel/sqdebug.cpp.o\n[3/87] Building CXX object CMakeFiles/sqgi-core.dir/Squirrel3/squirrel/sqcompiler.cpp.o\n[4/87] Building CXX object CMakeFiles/sqgi-core.dir/Squirrel3/squirrel/sqbaselib.cpp.o\n[5/87] Building CXX object CMakeFiles/sqgi-core.dir/Squirrel3/squirrel/sqapi.cpp.o\n[6/87] Building CXX object CMakeFiles/sqgi-core.dir/Squirrel3/squirrel/sqfuncstate.cpp.o\n[7/87] Building CXX object CMakeFiles/sqgi-core.dir/Squirrel3/squirrel/sqtable.cpp.o\n[8/87] Building CXX object CMakeFiles/sqgi-core.dir/Squirrel3/squirrel/sqstate.cpp.o\n[9/87] Building CXX object CMakeFiles/sqgi-core.dir/Squirrel3/squirrel/sqoptimizer.cpp.o\n[10/87] Building CXX object CMakeFiles/sqgi-core.dir/Squirrel3/squirrel/sqobject.cpp.o\n[11/87] Building CXX object CMakeFiles/sqgi-core.dir/Squirrel3/squirrel/jit/sqjit_policy.cpp.o\n[12/87] Building CXX object CMakeFiles/sqgi-core.dir/Squirrel3/squirrel/jit/sqjit_observe.cpp.o\n[13/87] Building CXX object CMakeFiles/sqgi-core.dir/Squirrel3/squirrel/jit/sqjit_compile.cpp.o\n[14/87] Building CXX object CMakeFiles/sqgi-core.dir/Squirrel3/squirrel/jit/sqjit.cpp.o\n[15/87] Building CXX object CMakeFiles/sqgi-core.dir/Squirrel3/squirrel/jit/sqjit_artifact.cpp.o\n[16/87] Building CXX object CMakeFiles/sqgi-core.dir/Squirrel3/squirrel/jit/sqjit_diagnostics.cpp.o\n[17/87] Building CXX object CMakeFiles/sqgi-core.dir/Squirrel3/squirrel/jit/sqjit_intrinsics.cpp.o\n[18/87] Building CXX object CMakeFiles/sqgi-core.dir/Squirrel3/squirrel/jit/sqjit_member_plan.cpp.o\n[19/87] Building CXX object CMakeFiles/sqgi-core.dir/Squirrel3/squirrel/jit/sqjit_leaf.cpp.o\n[20/87] Building CXX object CMakeFiles/sqgi-core.dir/Squirrel3/squirrel/jit/sqjit_specialize.cpp.o\n[21/87] Building CXX object CMakeFiles/sqgi-core.dir/Squirrel3/squirrel/sqvm.cpp.o\n[22/87] Building CXX object CMakeFiles/sqgi-core.dir/Squirrel3/squirrel/jit/sqjit_backend_llvm.cpp.o\n[23/87] Building CXX object CMakeFiles/sqgi-core.dir/Squirrel3/squirrel/jit/sqjit_scalar_inline.cpp.o\n[24/87] Building CXX object CMakeFiles/sqgi-core.dir/Squirrel3/squirrel/jit/sqjit_object_plan.cpp.o\n[25/87] Building CXX object CMakeFiles/sqgi-core.dir/Squirrel3/squirrel/jit/sqjit_numeric.cpp.o\n[26/87] Building CXX object CMakeFiles/sqgi-core.dir/Squirrel3/squirrel/jit/sqjit_dynamic_array.cpp.o\n[27/87] Building CXX object CMakeFiles/sqgi-core.dir/Squirrel3/squirrel/jit/sqjit_local_array.cpp.o\n[28/87] Building CXX object CMakeFiles/sqgi-core.dir/Squirrel3/squirrel/jit/sqjit_local_graph.cpp.o\n[29/87] Building CXX object CMakeFiles/sqgi-core.dir/Squirrel3/squirrel/jit/sqjit_llvm_objects.cpp.o\nIn file included from /usr/include/time.h:29,\n                 from /usr/include/pthread.h:23,\n                 from /usr/include/x86_64-linux-gnu/c++/13/bits/gthr-default.h:35,\n                 from /usr/include/x86_64-linux-gnu/c++/13/bits/gthr.h:148,\n                 from /usr/include/c++/13/ext/atomicity.h:35,\n                 from /usr/include/c++/13/bits/shared_ptr_base.h:61,\n                 from /usr/include/c++/13/bits/shared_ptr.h:53,\n                 from /usr/include/c++/13/memory:80,\n                 from /home/sam/Programming/sqgi/Squirrel3/squirrel/jit/sqjit_llvm_objects.cpp:23:\n/home/sam/Programming/sqgi/Squirrel3/squirrel/jit/sqjit_llvm_objects.cpp: In lambda function:\n/home/sam/Programming/sqgi/Squirrel3/squirrel/jit/sqjit_llvm_objects.cpp:505:104: warning: \u2018offsetof\u2019 within non-standard-layout type \u2018SQRefCounted\u2019 is conditionally-supported [-Winvalid-offsetof]\n  505 |             auto rc=[&](LLVMValueRef value){return gep(LLVMBuildIntToPtr(b,value,ptr,\"owner\"),offsetof(SQRefCounted,_uiRef));};\n      |                                                                                                        ^\n/home/sam/Programming/sqgi/Squirrel3/squirrel/jit/sqjit_llvm_objects.cpp: In lambda function:\n/home/sam/Programming/sqgi/Squirrel3/squirrel/jit/sqjit_llvm_objects.cpp:513:61: warning: \u2018offsetof\u2019 within non-standard-layout type \u2018SQJitContext\u2019 is conditionally-supported [-Winvalid-offsetof]\n  513 |             auto logs=LLVMBuildLoad2(b,ptr,gep(ctx,offsetof(SQJitContext,active_logs)),\"ancestor_logs\");\n      |                                                             ^\n/home/sam/Programming/sqgi/Squirrel3/squirrel/jit/sqjit_llvm_objects.cpp: In function \u2018bool {anonymous}::compile(SQFunctionProto*, SQInteger, SQInteger, SQInteger, SQJitCode*, bool)\u2019:\n/home/sam/Programming/sqgi/Squirrel3/squirrel/jit/sqjit_llvm_objects.cpp:566:91: warning: \u2018offsetof\u2019 within non-standard-layout type \u2018SQWeakRef\u2019 is conditionally-supported [-Winvalid-offsetof]\n  566 |             auto weak_target=gep(LLVMBuildIntToPtr(b,bits(raw),ptr,\"weak_owner\"),offsetof(SQWeakRef,_obj));\n      |                                                                                           ^\n[30/87] Building CXX object CMakeFiles/sqgi_test_cpp_sqvm_hotpaths.dir/test/cpp/test_sqvm_hotpaths.cpp.o\n[31/87] Building CXX object CMakeFiles/sqgi-core.dir/Squirrel3/squirrel/jit/sqjit_object_inline.cpp.o\n[32/87] Building CXX object CMakeFiles/sqgi_test_cpp_sqoptimizer.dir/test/cpp/test_sqoptimizer.cpp.o\n[33/87] Linking CXX shared library libsqgi.so.1.0.0\n[34/87] Creating library symlink libsqgi.so.1 libsqgi.so\n[35/87] Linking CXX executable sqgi\n[36/87] Linking C executable sqgi_test_c_signal_crossthread\n[37/87] Building CXX object CMakeFiles/sqgicheck-core.dir/tools/sqgicheck/analyzer.cpp.o\n[38/87] Linking CXX static library libsqgicheck-core.a\n[39/87] Linking C executable sqgi_test_c_signal_crossthread_sync\n[40/87] Linking C executable sqgi_test_c_signal_vm_closing\n[41/87] Linking C executable sqgi_test_c_gvalue_branches\n[42/87] Building CXX object CMakeFiles/sqgi_test_cpp_sqgicheck.dir/test/cpp/test_sqgicheck.cpp.o\n[43/87] Linking C executable sqgi_test_c_gi_call_plan\n[44/87] Linking CXX executable sqgicheck\n[45/87] Linking C executable sqgi_test_c_list_ownership\n[46/87] Linking C executable sqgi_test_c_squirrel_core_hardening\n[47/87] Linking C executable sqgi_test_c_numeric64\n[48/87] Linking CXX executable sqgi_test_cpp_sqgicheck\n[49/87] Linking CXX executable sqgi_test_cpp_sqvm_hotpaths\n[50/87] Linking CXX executable sqgi_test_cpp_sqvector\n[51/87] Linking CXX executable sqgi_test_cpp_sqbytecode\n[52/87] Linking CXX executable sqgi_test_cpp_sqoptimizer\n[53/87] Building CXX object CMakeFiles/sqgi_test_cpp_sqmembercache.dir/test/cpp/test_sqmembercache.cpp.o\n[54/87] Building CXX object CMakeFiles/sqgi_test_cpp_sqjit_contracts.dir/test/cpp/test_sqjit_contracts.cpp.o\n[55/87] Linking C executable sqgi_test_c_vm_lifecycle\n[56/87] Linking CXX executable sqgi_test_cpp_sqnativeleaf\n[57/87] Building CXX object CMakeFiles/sqgi_test_cpp_sqjit_values.dir/test/cpp/test_sqjit_values.cpp.o\n[58/87] Linking CXX executable sqgi_test_cpp_sqmembercache\n[59/87] Linking CXX executable sqgi_test_cpp_sqjit_contracts\n[60/87] Building CXX object CMakeFiles/sqgi_test_cpp_sqjit_side_exit.dir/test/cpp/test_sqjit_side_exit.cpp.o\n[61/87] Building CXX object CMakeFiles/sqgi_test_cpp_sqjit_memory.dir/test/cpp/test_sqjit_memory.cpp.o\n[62/87] Linking CXX executable sqgi_test_cpp_sqjit_values\n[63/87] Building CXX object CMakeFiles/sqgi_bench_bytecode_jit.dir/test/cpp/bench_sqjit_compile.cpp.o\n[64/87] Linking CXX executable sqgi_test_cpp_sqjit_memory\n[65/87] Linking CXX executable sqgi_test_cpp_sqjit_side_exit\n[66/87] Building CXX object CMakeFiles/sqgi_test_cpp_sqjit_leaf.dir/test/cpp/test_sqjit_leaf.cpp.o\n[67/87] Building CXX object CMakeFiles/sqgi_test_cpp_sqjit_llvm.dir/test/cpp/test_sqjit_llvm.cpp.o\n[68/87] Linking CXX executable sqgi_test_cpp_sqjit_arithmetic\n[69/87] Linking CXX executable sqgi_bench_bytecode_jit\n[70/87] Linking CXX executable sqgi_test_cpp_sqjit_leaf\n[71/87] Building CXX object CMakeFiles/sqgi_test_cpp_sqjit_objects.dir/test/cpp/test_sqjit_objects.cpp.o\n[72/87] Linking CXX executable sqgi_test_cpp_sqjit_llvm\n[73/87] Building CXX object CMakeFiles/sqgi_test_cpp_sqjit_virtual_array.dir/test/cpp/test_sqjit_virtual_array.cpp.o\n[74/87] Building CXX object CMakeFiles/sqgi_test_cpp_sqjit_object_plan.dir/test/cpp/test_sqjit_object_plan.cpp.o\n[75/87] Linking CXX executable sqgi_test_cpp_sqjit_objects\n[76/87] Linking CXX executable sqgi_test_cpp_sqjit_write_log\n[77/87] Linking CXX executable sqgi_test_cpp_sqjit_virtual_array\n[78/87] Linking CXX executable sqgi_test_cpp_sqjit_object_plan\n[79/87] Building CXX object CMakeFiles/sqgi_test_cpp_sqjit_intrinsics.dir/test/cpp/test_sqjit_intrinsics.cpp.o\n[80/87] Building CXX object CMakeFiles/sqgi_test_cpp_sqjit_float_cache.dir/test/cpp/test_sqjit_float_cache.cpp.o\n[81/87] Linking CXX executable sqgi_test_cpp_sqjit_intrinsics\n[82/87] Linking CXX executable sqgi_test_cpp_sqjit_float_cache\n[83/87] Building CXX object CMakeFiles/sqgi_test_cpp_sqjit_member_plan.dir/test/cpp/test_sqjit_member_plan.cpp.o\n[84/87] Linking CXX executable sqgi_test_cpp_sqjit_member_plan\n[85/87] Building CXX object Squirrel3/squirrel/CMakeFiles/squirrel.dir/sqvm.cpp.o\n[86/87] Linking CXX shared library Squirrel3/squirrel/libsquirrel.so\n[87/87] Linking CXX shared library Squirrel3/sqstdlib/libsqstdlib.so\n",
+    "stderr": "",
+    "seconds": 10.652717298013158
+  },
+  {
+    "label": "sanitizers",
+    "command": [
+      "ctest",
+      "--test-dir",
+      "/tmp/sqgi-jit-llvm-asan",
+      "-R",
+      "(sqgi_test_cpp_sqjit_|sqgi_test_jit_|sqgi_test_interpreter_dispatch|sqgi_test_cpp_sqmembercache)",
+      "--output-on-failure"
+    ],
+    "cwd": "/home/sam/Programming/sqgi",
+    "environment": {},
+    "returncode": 0,
+    "stdout": "Internal ctest changing into directory: /tmp/sqgi-jit-llvm-asan\nTest project /tmp/sqgi-jit-llvm-asan\n      Start  47: sqgi_test_jit_math\n 1/31 Test  #47: sqgi_test_jit_math .......................   Passed    5.22 sec\n      Start  48: sqgi_test_jit_loop_regressions\n 2/31 Test  #48: sqgi_test_jit_loop_regressions ...........   Passed    0.15 sec\n      Start  49: sqgi_test_jit_math_runtime\n 3/31 Test  #49: sqgi_test_jit_math_runtime ...............   Passed    5.28 sec\n      Start  50: sqgi_test_jit_fastpath\n 4/31 Test  #50: sqgi_test_jit_fastpath ...................   Passed    0.13 sec\n      Start  51: sqgi_test_jit_fastpath_runtime\n 5/31 Test  #51: sqgi_test_jit_fastpath_runtime ...........   Passed    0.36 sec\n      Start  52: sqgi_test_jit_correctness\n 6/31 Test  #52: sqgi_test_jit_correctness ................   Passed    0.09 sec\n      Start  53: sqgi_test_jit_correctness_runtime\n 7/31 Test  #53: sqgi_test_jit_correctness_runtime ........   Passed    0.48 sec\n      Start  55: sqgi_test_interpreter_dispatch\n 8/31 Test  #55: sqgi_test_interpreter_dispatch ...........   Passed    0.03 sec\n      Start  56: sqgi_test_interpreter_dispatch_runtime\n 9/31 Test  #56: sqgi_test_interpreter_dispatch_runtime ...   Passed    0.05 sec\n      Start  58: sqgi_test_jit_perf_correctness\n10/31 Test  #58: sqgi_test_jit_perf_correctness ...........   Passed    0.08 sec\n      Start  59: sqgi_test_jit_perf_correctness_runtime\n11/31 Test  #59: sqgi_test_jit_perf_correctness_runtime ...   Passed    0.28 sec\n      Start  60: sqgi_test_jit_native_runtime\n12/31 Test  #60: sqgi_test_jit_native_runtime .............   Passed    0.35 sec\n      Start  84: sqgi_test_cpp_sqmembercache\n13/31 Test  #84: sqgi_test_cpp_sqmembercache ..............   Passed    0.06 sec\n      Start  89: sqgi_test_cpp_sqjit_x64_emit\n14/31 Test  #89: sqgi_test_cpp_sqjit_x64_emit .............   Passed    0.01 sec\n      Start  90: sqgi_test_cpp_sqjit_aarch64_emit\n15/31 Test  #90: sqgi_test_cpp_sqjit_aarch64_emit .........   Passed    0.01 sec\n      Start  91: sqgi_test_cpp_sqjit_x64_win64_emit\n16/31 Test  #91: sqgi_test_cpp_sqjit_x64_win64_emit .......   Passed    0.01 sec\n      Start  92: sqgi_test_cpp_sqjit_contracts\n17/31 Test  #92: sqgi_test_cpp_sqjit_contracts ............   Passed    0.12 sec\n      Start  93: sqgi_test_cpp_sqjit_side_exit\n18/31 Test  #93: sqgi_test_cpp_sqjit_side_exit ............   Passed    0.03 sec\n      Start  94: sqgi_test_cpp_sqjit_values\n19/31 Test  #94: sqgi_test_cpp_sqjit_values ...............   Passed    0.08 sec\n      Start  95: sqgi_test_cpp_sqjit_memory\n20/31 Test  #95: sqgi_test_cpp_sqjit_memory ...............   Passed    0.45 sec\n      Start  96: sqgi_test_cpp_sqjit_llvm\n21/31 Test  #96: sqgi_test_cpp_sqjit_llvm .................   Passed    2.21 sec\n      Start  97: sqgi_test_cpp_sqjit_leaf\n22/31 Test  #97: sqgi_test_cpp_sqjit_leaf .................   Passed    0.22 sec\n      Start  98: sqgi_test_cpp_sqjit_arithmetic\n23/31 Test  #98: sqgi_test_cpp_sqjit_arithmetic ...........   Passed    0.03 sec\n      Start  99: sqgi_test_cpp_sqjit_virtual_array\n24/31 Test  #99: sqgi_test_cpp_sqjit_virtual_array ........   Passed    0.07 sec\n      Start 100: sqgi_test_cpp_sqjit_objects\n25/31 Test #100: sqgi_test_cpp_sqjit_objects ..............   Passed    0.16 sec\n      Start 101: sqgi_test_cpp_sqjit_object_plan\n26/31 Test #101: sqgi_test_cpp_sqjit_object_plan ..........   Passed    2.66 sec\n      Start 102: sqgi_test_cpp_sqjit_write_log\n27/31 Test #102: sqgi_test_cpp_sqjit_write_log ............   Passed    0.09 sec\n      Start 103: sqgi_test_cpp_sqjit_member_plan\n28/31 Test #103: sqgi_test_cpp_sqjit_member_plan ..........   Passed    1.65 sec\n      Start 104: sqgi_test_cpp_sqjit_release_order\n29/31 Test #104: sqgi_test_cpp_sqjit_release_order ........   Passed    0.07 sec\n      Start 105: sqgi_test_cpp_sqjit_float_cache\n30/31 Test #105: sqgi_test_cpp_sqjit_float_cache ..........   Passed    0.25 sec\n      Start 106: sqgi_test_cpp_sqjit_intrinsics\n31/31 Test #106: sqgi_test_cpp_sqjit_intrinsics ...........   Passed    0.23 sec\n\n100% tests passed, 0 tests failed out of 31\n\nLabel Time Summary:\njit     =  20.78 sec*proc (28 tests)\nllvm    =   2.21 sec*proc (1 test)\nmath    =  12.78 sec*proc (12 tests)\n\nTotal Test time (real) =  20.94 sec\n",
+    "stderr": "",
+    "seconds": 20.94911047804635
+  },
+  {
+    "label": "oracle-interpreter",
+    "command": [
+      "python3",
+      "tests/test_route_search.py"
+    ],
+    "cwd": "/home/sam/Programming/RouteTastic",
+    "environment": {
+      "ROUTETASTIC_SQGI": "/tmp/sqgi-jit-llvm/sqgi",
+      "ROUTETASTIC_ROOT": "/home/sam/Programming/RouteTastic",
+      "SQGI_JIT": "0",
+      "SQGI_JIT_THRESHOLD": "1000",
+      "ROUTETASTIC_GEOMETRY_BACKEND": "squirrel",
+      "ROUTETASTIC_DISABLE_KERNELS": "1"
+    },
+    "returncode": 0,
+    "stdout": "",
+    "stderr": "......\n----------------------------------------------------------------------\nRan 6 tests in 0.548s\n\nOK\n",
+    "seconds": 0.585065278923139
+  },
+  {
+    "label": "oracle-jit",
+    "command": [
+      "python3",
+      "tests/test_route_search.py"
+    ],
+    "cwd": "/home/sam/Programming/RouteTastic",
+    "environment": {
+      "ROUTETASTIC_SQGI": "/tmp/sqgi-jit-llvm/sqgi",
+      "ROUTETASTIC_ROOT": "/home/sam/Programming/RouteTastic",
+      "SQGI_JIT": "1",
+      "SQGI_JIT_THRESHOLD": "1000",
+      "ROUTETASTIC_GEOMETRY_BACKEND": "squirrel",
+      "ROUTETASTIC_DISABLE_KERNELS": "1"
+    },
+    "returncode": 0,
+    "stdout": "",
+    "stderr": "......\n----------------------------------------------------------------------\nRan 6 tests in 0.556s\n\nOK\n",
+    "seconds": 0.5907451149541885
+  },
+  {
+    "label": "oracle-kernels",
+    "command": [
+      "python3",
+      "tests/test_route_search.py"
+    ],
+    "cwd": "/home/sam/Programming/RouteTastic",
+    "environment": {
+      "ROUTETASTIC_SQGI": "/tmp/sqgi-jit-llvm/sqgi",
+      "ROUTETASTIC_ROOT": "/home/sam/Programming/RouteTastic",
+      "SQGI_JIT": "1",
+      "SQGI_JIT_THRESHOLD": "1000",
+      "ROUTETASTIC_GEOMETRY_BACKEND": "kernels",
+      "ROUTETASTIC_DISABLE_KERNELS": "0"
+    },
+    "returncode": 0,
+    "stdout": "",
+    "stderr": "......\n----------------------------------------------------------------------\nRan 6 tests in 1.708s\n\nOK\n",
+    "seconds": 1.7451688449364156
+  }
+]

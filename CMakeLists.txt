@@ -548,6 +548,23 @@ if(SQGI_ENABLE_KERNELS)
     if(NOT CMAKE_CROSSCOMPILING AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
         target_compile_options(sqgi_kernel_benchmark PRIVATE -O3 -march=native -ffp-contract=off)
     endif()
+    add_executable(sqgi_kernel_benchmark_suite EXCLUDE_FROM_ALL
+        demo/benchmarks/kernels/suite.cpp ${SQGI_KERNEL_ENGINE_SOURCES})
+    target_include_directories(sqgi_kernel_benchmark_suite PRIVATE src test/kernel)
+    target_link_libraries(sqgi_kernel_benchmark_suite PRIVATE sqgi-kernel-backend)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(sqgi_kernel_benchmark_suite PRIVATE -O3 -ffp-contract=off)
+        if(NOT CMAKE_CROSSCOMPILING)
+            target_compile_options(sqgi_kernel_benchmark_suite PRIVATE -march=native)
+        endif()
+    endif()
+    add_executable(sqgi_kernel_call_boundary EXCLUDE_FROM_ALL
+        demo/benchmarks/kernels/call_boundary.cpp ${SQGI_KERNEL_ENGINE_SOURCES})
+    target_include_directories(sqgi_kernel_call_boundary PRIVATE src)
+    target_link_libraries(sqgi_kernel_call_boundary PRIVATE sqgi-kernel-backend)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(sqgi_kernel_call_boundary PRIVATE -ffp-contract=off)
+    endif()
     foreach(kind workloads guard_pages generated typed prepared math)
         add_executable(sqgi_test_kernel_${kind} test/kernel/test_${kind}.cpp
             test/kernel/reference.cpp ${SQGI_KERNEL_ENGINE_SOURCES})
@@ -563,6 +580,13 @@ if(SQGI_ENABLE_KERNELS)
     set_tests_properties(sqgi_test_kernel_native PROPERTIES
         ENVIRONMENT "${SQGI_TEST_ENV}" LABELS "kernel" SKIP_RETURN_CODE 77 TIMEOUT 30)
     if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|amd64)$")
+        foreach(recurrence matrix vector math)
+            add_test(NAME sqgi_demo_kernel_${recurrence}_recurrence COMMAND sqgi-bin
+                "${CMAKE_SOURCE_DIR}/demo/benchmarks/kernels/${recurrence}_recurrence.nut")
+            set_tests_properties(sqgi_demo_kernel_${recurrence}_recurrence PROPERTIES
+                ENVIRONMENT "${SQGI_TEST_ENV}" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+                LABELS "kernel;demo" TIMEOUT 30)
+        endforeach()
         foreach(demo geometry reductions particles image matrix routing histogram stencil astar typed_objects compiled_workflow math)
             add_test(NAME sqgi_demo_kernel_${demo} COMMAND sqgi-bin "${CMAKE_SOURCE_DIR}/demo/kernels/${demo}.nut")
             set_tests_properties(sqgi_demo_kernel_${demo} PROPERTIES
