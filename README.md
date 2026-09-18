@@ -99,22 +99,29 @@ Measured on Linux x86-64, Intel i7-12700, against **Node.js 26.9.0** on
 lower is better. Runs use one pinned CPU, five warmups, a JIT threshold of one,
 and no LTO/PGO. Compilation is excluded; checksums matched across runtimes.
 
-| SQGI execution | Workload | SQGI | Node.js |
-|---|---|---:|---:|
-| Ordinary Squirrel JIT | Direct function call | 3.171 | 3.907 |
-| Ordinary Squirrel JIT | Branching function call | 3.224 | 2.977 |
-| Ordinary Squirrel JIT | Dynamic member operations | 6.038 | 27.778 |
-| Typed kernel | Vector recurrence | 8.425 | 112.542 |
-| Typed kernel | Matrix recurrence | 7.025 | 8.615 |
+| SQGI execution | Workload | SQGI | Node.js | Native C++ |
+|---|---|---:|---:|---:|
+| Ordinary Squirrel JIT | Direct function call | 3.156 | 4.003 | 3.776 |
+| Ordinary Squirrel JIT | Branching function call | 3.223 | 3.022 | 2.703 |
+| Ordinary Squirrel JIT | Dynamic member operations | 6.025 | 28.056 | 26.930 |
+| Typed kernel | Vector recurrence | 8.425 | 112.542 | 8.485 |
+| Typed kernel | Matrix recurrence | 7.025 | 8.615 | 5.670 |
 
 These are selected warm microbenchmarks, not application-wide speed guarantees.
-Kernel rows come from separate dedicated comparisons, with a complete loop per
-Squirrel-to-kernel call. The vector kernel uses fixed storage, while the Node
+Kernel SQGI/Node timings come from separate dedicated comparisons, with a
+complete loop per Squirrel-to-kernel call; C++ timings come from the refreshed
+runtime comparison. The vector kernel uses fixed storage, while the Node
 version uses objects; it is not an allocation-free JavaScript comparison.
 Batching work also amortizes call overhead, so a tiny individual kernel call can
 have a different performance profile.
 
-See the [JIT results and raw samples](docs/benchmark-results/kernel-module-architecture-2026-09-18.json),
+Native C++ uses GCC 13.3.0 with `-O3 -march=native`,
+`-fno-fast-math`, and `-ffp-contract=off`. Its ports use typed fields and fixed arrays, with
+`std::unordered_map` for dynamic string keys. Data representation and compiler
+specialization affect the comparison. The vector kernel roughly matches native
+C++ here; the matrix kernel remains slower.
+
+See the [JIT/C++ results and raw samples](docs/benchmark-results/readme-native-comparison-2026-09-18.json),
 [kernel vector comparison](docs/benchmark-results/llvm-kernel-vector-2026-09-18.json),
 and [kernel matrix comparison](docs/benchmark-results/llvm-kernel-matrix-2026-09-18.json).
 The [kernel guide](docs/kernels/README.md) covers the language, Squirrel API,
