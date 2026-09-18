@@ -67,9 +67,24 @@ endif()
 # The JIT is experimental and defaults off. When disabled, no JIT sources are
 # compiled and the interpreter remains the only execution engine.
 option(SQ_ENABLE_JIT "Build experimental Squirrel bytecode JIT support" OFF)
+option(SQGI_THREADED_DISPATCH "Use experimental GCC/Clang threaded interpreter dispatch" OFF)
+option(SQGI_ENABLE_KERNELS "Build experimental typed kernel compiler" OFF)
+set(SQGI_KERNEL_BACKEND "LLVM" CACHE STRING "Kernel compiler backend: LLVM or NATIVE")
+set_property(CACHE SQGI_KERNEL_BACKEND PROPERTY STRINGS LLVM NATIVE)
+set(SQGI_BYTECODE_JIT_BACKEND "AUTO" CACHE STRING "Bytecode compiler: AUTO or LLVM")
+set_property(CACHE SQGI_BYTECODE_JIT_BACKEND PROPERTY STRINGS AUTO LLVM)
+if(NOT SQGI_BYTECODE_JIT_BACKEND MATCHES "^(AUTO|LLVM)$")
+    message(FATAL_ERROR "SQGI_BYTECODE_JIT_BACKEND must be AUTO or LLVM")
+endif()
 set(SQGI_HAS_NATIVE_JIT OFF)
 set(SQGI_JIT_BACKEND none)
-if(SQ_ENABLE_JIT AND (UNIX OR WIN32) AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|amd64)$")
+if(SQ_ENABLE_JIT AND SQGI_BYTECODE_JIT_BACKEND STREQUAL "LLVM")
+    if(NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
+        message(FATAL_ERROR "The LLVM bytecode backend requires a 64-bit host")
+    endif()
+    set(SQGI_HAS_NATIVE_JIT ON)
+    set(SQGI_JIT_BACKEND llvm)
+elseif(SQ_ENABLE_JIT AND (UNIX OR WIN32) AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|amd64)$")
     set(SQGI_HAS_NATIVE_JIT ON)
     set(SQGI_JIT_BACKEND x64)
 elseif(SQ_ENABLE_JIT AND CMAKE_SYSTEM_NAME STREQUAL "Linux" AND
@@ -80,7 +95,7 @@ endif()
 if(SQ_ENABLE_JIT)
     message(STATUS "SQGI: experimental Squirrel bytecode JIT enabled")
     if(SQGI_HAS_NATIVE_JIT)
-        message(STATUS "SQGI: native Squirrel JIT backend enabled for ${CMAKE_SYSTEM_PROCESSOR}")
+        message(STATUS "SQGI: native Squirrel JIT backend ${SQGI_JIT_BACKEND} enabled for ${CMAKE_SYSTEM_PROCESSOR}")
     else()
         message(STATUS "SQGI: no native Squirrel JIT backend for ${CMAKE_SYSTEM_PROCESSOR}; using interpreter fallback")
     endif()
@@ -91,6 +106,15 @@ set(DISABLE_STATIC ON CACHE BOOL "" FORCE)
 set(SQ_DISABLE_INSTALLER ON CACHE BOOL "" FORCE)
 add_subdirectory(Squirrel3)
 add_library(sqgi-runtime-config INTERFACE)
+if(SQGI_THREADED_DISPATCH)
+    if(NOT CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        message(FATAL_ERROR "SQGI_THREADED_DISPATCH requires GCC or Clang")
+    endif()
+    target_compile_definitions(sqgi-runtime-config INTERFACE SQGI_THREADED_DISPATCH)
+endif()
+if(SQGI_ENABLE_KERNELS)
+    target_compile_definitions(sqgi-runtime-config INTERFACE SQGI_ENABLE_KERNELS)
+endif()
 if(SQ_ENABLE_JIT)
     # All consumers of sqgi-core's internal headers must share its layouts.
     # The independent bundled libsquirrel target above remains interpreter-only.
@@ -151,6 +175,11 @@ set(SQGI_DEPS
 )
 
 # ── libsqgi shared library ─────────────────────────────────────────────────────
+# Isolate the C++17 locale-free numeric conversions from the C/C++11 runtime.
+add_library(sqgi-json-numbers STATIC src/sqgi_json_numbers.cpp)
+set_target_properties(sqgi-json-numbers PROPERTIES CXX_STANDARD 17
+    CXX_STANDARD_REQUIRED ON POSITION_INDEPENDENT_CODE ON)
+list(APPEND SQGI_DEPS sqgi-json-numbers)
 set(LIBSQGI_SRC
     src/sqgi_vm.c
     src/sqgi_marshal.c
@@ -162,10 +191,48 @@ set(LIBSQGI_SRC
     src/sqgi_async.c
     src/sqgi_gerror.c
     src/sqgi_subclass.c
-    src/sqgi_json.c
+    src/sqgi_json.cpp
     src/sqgi_cairo.c
     src/sqgi_system.c
 )
+if((SQGI_ENABLE_KERNELS AND SQGI_KERNEL_BACKEND STREQUAL "LLVM") OR SQGI_JIT_BACKEND STREQUAL "llvm")
+    add_library(sqgi-llvm-backend INTERFACE)
+    find_path(SQGI_LLVM_INCLUDE_DIR llvm-c/LLJIT.h
+        HINTS "${LLVM_ROOT}/include" PATHS /usr/lib/llvm-18/include)
+    find_library(SQGI_LLVM_LIBRARY NAMES LLVM-18 LLVM LLVM-C
+        HINTS "${LLVM_ROOT}/lib")
+    if(NOT SQGI_LLVM_INCLUDE_DIR OR NOT SQGI_LLVM_LIBRARY)
+        message(FATAL_ERROR "LLVM backends require LLVM 18 development headers and library. Install llvm-18-dev or set SQGI_LLVM_INCLUDE_DIR/SQGI_LLVM_LIBRARY.")
+    endif()
+    file(STRINGS "${SQGI_LLVM_INCLUDE_DIR}/llvm/Config/llvm-config.h" SQGI_LLVM_MAJOR
+        REGEX "^#define LLVM_VERSION_MAJOR 18$")
+    if(NOT SQGI_LLVM_MAJOR)
+        message(FATAL_ERROR "The LLVM backends require LLVM 18 headers and matching library")
+    endif()
+    target_include_directories(sqgi-llvm-backend SYSTEM INTERFACE "${SQGI_LLVM_INCLUDE_DIR}")
+    target_link_libraries(sqgi-llvm-backend INTERFACE "${SQGI_LLVM_LIBRARY}" Threads::Threads)
+endif()
+if(SQGI_JIT_BACKEND STREQUAL "llvm")
+    target_compile_definitions(sqgi-runtime-config INTERFACE SQJIT_BACKEND_LLVM)
+    list(APPEND SQGI_DEPS sqgi-llvm-backend)
+endif()
+if(SQGI_ENABLE_KERNELS)
+    add_library(sqgi-kernel-backend INTERFACE)
+    if(SQGI_KERNEL_BACKEND STREQUAL "LLVM")
+        target_link_libraries(sqgi-kernel-backend INTERFACE sqgi-llvm-backend)
+        set(SQGI_KERNEL_ENGINE_SOURCES src/kernel/kernel.cpp src/kernel/llvm.cpp)
+        if(NOT SQ_ENABLE_JIT)
+            target_compile_definitions(sqgi-runtime-config INTERFACE SQGI_ENABLE_LLVM_SQUIRREL)
+            list(APPEND LIBSQGI_SRC src/sqgi_llvm.cpp)
+        endif()
+    elseif(SQGI_KERNEL_BACKEND STREQUAL "NATIVE")
+        set(SQGI_KERNEL_ENGINE_SOURCES src/kernel/kernel.cpp src/kernel/native_x64.cpp)
+    else()
+        message(FATAL_ERROR "SQGI_KERNEL_BACKEND must be LLVM or NATIVE")
+    endif()
+    list(APPEND SQGI_DEPS sqgi-kernel-backend)
+    list(APPEND LIBSQGI_SRC src/sqgi_kernel.cpp ${SQGI_KERNEL_ENGINE_SOURCES})
+endif()
 
 
 # ── Squirrel3 and sqstdlib sources ──
@@ -210,7 +277,16 @@ if(SQ_ENABLE_JIT)
         Squirrel3/squirrel/jit/sqjit_object_plan.cpp
         Squirrel3/squirrel/jit/sqjit_specialize.cpp
     )
-    if(SQGI_JIT_BACKEND STREQUAL "x64")
+    if(SQGI_JIT_BACKEND STREQUAL "llvm")
+        list(APPEND SQUIRREL3_SRC Squirrel3/squirrel/jit/sqjit_backend_llvm.cpp
+            Squirrel3/squirrel/jit/sqjit_scalar_inline.cpp
+            Squirrel3/squirrel/jit/sqjit_local_array.cpp
+            Squirrel3/squirrel/jit/sqjit_local_graph.cpp
+            Squirrel3/squirrel/jit/sqjit_numeric.cpp
+            Squirrel3/squirrel/jit/sqjit_dynamic_array.cpp
+            Squirrel3/squirrel/jit/sqjit_object_inline.cpp
+            Squirrel3/squirrel/jit/sqjit_llvm_objects.cpp)
+    elseif(SQGI_JIT_BACKEND STREQUAL "x64")
         list(APPEND SQUIRREL3_SRC
             Squirrel3/squirrel/jit/sqjit_backend_x64.cpp
             Squirrel3/squirrel/jit/sqjit_backend_x64_emit.cpp
@@ -430,6 +506,22 @@ endif()
 # (Now declared above so flags reach all targets — kept here as a no-op
 # anchor to preserve the prior file layout for diff readability.)
 
+# Optional native baseline for the cross-runtime computational benchmarks.
+add_executable(sqgi_bench_cpp_kernels EXCLUDE_FROM_ALL demo/benchmarks/cpp_jit_kernels.cpp)
+set(SQGI_CPP_BENCH_OPTIONS)
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    list(APPEND SQGI_CPP_BENCH_OPTIONS -O3 -fno-fast-math -ffp-contract=off)
+    if(NOT CMAKE_CROSSCOMPILING)
+        list(APPEND SQGI_CPP_BENCH_OPTIONS -march=native)
+    endif()
+elseif(MSVC)
+    list(APPEND SQGI_CPP_BENCH_OPTIONS /O2 /fp:strict)
+endif()
+target_compile_options(sqgi_bench_cpp_kernels PRIVATE ${SQGI_CPP_BENCH_OPTIONS})
+string(JOIN " " SQGI_CPP_BENCH_FLAGS ${SQGI_CPP_BENCH_OPTIONS})
+target_compile_definitions(sqgi_bench_cpp_kernels PRIVATE
+    SQGI_CPP_BENCH_FLAGS="${SQGI_CPP_BENCH_FLAGS}")
+
 # ── Tests (CTest) ────────────────────────────────────────────────────────────
 enable_testing()
 
@@ -462,6 +554,95 @@ function(add_sqgi_nut_test test_name test_file)
 endfunction()
 
 add_sqgi_nut_test(sqgi_test_glib                        test_glib.nut)
+if(SQGI_ENABLE_KERNELS)
+    # Keep the compiler's native tests independent of GI and the Squirrel VM.
+    add_executable(sqgi_test_kernel_native test/kernel/test_kernel.cpp
+        test/kernel/reference.cpp ${SQGI_KERNEL_ENGINE_SOURCES})
+    target_include_directories(sqgi_test_kernel_native PRIVATE src)
+    target_link_libraries(sqgi_test_kernel_native PRIVATE sqgi-kernel-backend)
+    add_executable(sqgi_kernel_benchmark EXCLUDE_FROM_ALL
+        test/kernel/benchmark.cpp ${SQGI_KERNEL_ENGINE_SOURCES})
+    target_include_directories(sqgi_kernel_benchmark PRIVATE src)
+    target_link_libraries(sqgi_kernel_benchmark PRIVATE sqgi-kernel-backend)
+    # LLVM targets the running CPU. Give the comparison C++ loop the same
+    # opportunity, while retaining separate multiply/add floating semantics.
+    if(NOT CMAKE_CROSSCOMPILING AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(sqgi_kernel_benchmark PRIVATE -O3 -march=native -ffp-contract=off)
+    endif()
+    add_executable(sqgi_kernel_benchmark_suite EXCLUDE_FROM_ALL
+        demo/benchmarks/kernels/suite.cpp ${SQGI_KERNEL_ENGINE_SOURCES})
+    target_include_directories(sqgi_kernel_benchmark_suite PRIVATE src test/kernel)
+    target_link_libraries(sqgi_kernel_benchmark_suite PRIVATE sqgi-kernel-backend)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(sqgi_kernel_benchmark_suite PRIVATE -O3 -ffp-contract=off)
+        if(NOT CMAKE_CROSSCOMPILING)
+            target_compile_options(sqgi_kernel_benchmark_suite PRIVATE -march=native)
+        endif()
+    endif()
+    add_executable(sqgi_kernel_call_boundary EXCLUDE_FROM_ALL
+        demo/benchmarks/kernels/call_boundary.cpp ${SQGI_KERNEL_ENGINE_SOURCES})
+    target_include_directories(sqgi_kernel_call_boundary PRIVATE src)
+    target_link_libraries(sqgi_kernel_call_boundary PRIVATE sqgi-kernel-backend)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(sqgi_kernel_call_boundary PRIVATE -ffp-contract=off)
+    endif()
+    foreach(kind workloads guard_pages generated typed prepared math calls)
+        add_executable(sqgi_test_kernel_${kind} test/kernel/test_${kind}.cpp
+            test/kernel/reference.cpp ${SQGI_KERNEL_ENGINE_SOURCES})
+        target_include_directories(sqgi_test_kernel_${kind} PRIVATE src)
+        target_link_libraries(sqgi_test_kernel_${kind} PRIVATE sqgi-kernel-backend)
+        if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+            target_compile_options(sqgi_test_kernel_${kind} PRIVATE -ffp-contract=off)
+        endif()
+        add_test(NAME sqgi_test_kernel_${kind} COMMAND sqgi_test_kernel_${kind} "${CMAKE_SOURCE_DIR}")
+        set_tests_properties(sqgi_test_kernel_${kind} PROPERTIES LABELS "kernel" SKIP_RETURN_CODE 77 TIMEOUT 120)
+    endforeach()
+    if(SQGI_KERNEL_BACKEND STREQUAL "LLVM")
+        add_test(NAME sqgi_test_kernel_calls_noinline COMMAND sqgi_test_kernel_calls)
+        set_tests_properties(sqgi_test_kernel_calls_noinline PROPERTIES
+            LABELS "kernel" SKIP_RETURN_CODE 77 TIMEOUT 120 ENVIRONMENT "SQGI_KERNEL_NOINLINE=1")
+    endif()
+    add_test(NAME sqgi_test_kernel_native COMMAND sqgi_test_kernel_native)
+    set_tests_properties(sqgi_test_kernel_native PROPERTIES
+        ENVIRONMENT "${SQGI_TEST_ENV}" LABELS "kernel" SKIP_RETURN_CODE 77 TIMEOUT 30)
+    if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|amd64)$" OR
+       (SQGI_KERNEL_BACKEND STREQUAL "LLVM" AND CMAKE_SYSTEM_NAME STREQUAL "Linux" AND
+        CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64|ARM64)$"))
+        foreach(recurrence matrix vector math)
+            add_test(NAME sqgi_demo_kernel_${recurrence}_recurrence COMMAND sqgi-bin
+                "${CMAKE_SOURCE_DIR}/demo/benchmarks/kernels/${recurrence}_recurrence.nut")
+            set_tests_properties(sqgi_demo_kernel_${recurrence}_recurrence PROPERTIES
+                ENVIRONMENT "${SQGI_TEST_ENV}" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+                LABELS "kernel;demo" TIMEOUT 30)
+        endforeach()
+        foreach(demo geometry reductions particles image matrix routing histogram stencil astar typed_objects compiled_workflow math)
+            add_test(NAME sqgi_demo_kernel_${demo} COMMAND sqgi-bin "${CMAKE_SOURCE_DIR}/demo/kernels/${demo}.nut")
+            set_tests_properties(sqgi_demo_kernel_${demo} PROPERTIES
+                ENVIRONMENT "${SQGI_TEST_ENV}" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+                LABELS "kernel;demo" TIMEOUT 30)
+        endforeach()
+        if(SQGI_KERNEL_BACKEND STREQUAL "LLVM" AND NOT SQ_ENABLE_JIT)
+            add_sqgi_nut_test(sqgi_test_llvm_regions test_llvm_regions.nut)
+            set_tests_properties(sqgi_test_llvm_regions PROPERTIES LABELS "kernel;llvm-squirrel" TIMEOUT 60)
+            add_sqgi_nut_test(sqgi_test_llvm_methods test_llvm_methods.nut)
+            set_tests_properties(sqgi_test_llvm_methods PROPERTIES LABELS "kernel;llvm-squirrel" TIMEOUT 60)
+            add_sqgi_nut_test(sqgi_test_llvm_inline test_llvm_inline.nut)
+            set_tests_properties(sqgi_test_llvm_inline PROPERTIES LABELS "kernel;llvm-squirrel" TIMEOUT 60)
+            add_sqgi_nut_test(sqgi_test_llvm_scalars test_llvm_scalars.nut)
+            set_tests_properties(sqgi_test_llvm_scalars PROPERTIES LABELS "kernel;llvm-squirrel" TIMEOUT 60)
+            add_sqgi_nut_test(sqgi_test_llvm_squirrel test_llvm_squirrel.nut)
+            set_tests_properties(sqgi_test_llvm_squirrel PROPERTIES LABELS "kernel;llvm-squirrel" TIMEOUT 60)
+        endif()
+        add_sqgi_nut_test(sqgi_test_kernel_small_calls test_kernel_small_calls.nut)
+        set_tests_properties(sqgi_test_kernel_small_calls PROPERTIES LABELS "kernel" TIMEOUT 30)
+        add_sqgi_nut_test(sqgi_test_kernel_locals test_kernel_locals.nut)
+        set_tests_properties(sqgi_test_kernel_locals PROPERTIES LABELS "kernel" TIMEOUT 30)
+        add_sqgi_nut_test(sqgi_test_typed_modules test_typed_modules.nut)
+        set_tests_properties(sqgi_test_typed_modules PROPERTIES LABELS "kernel" TIMEOUT 30)
+        add_sqgi_nut_test(sqgi_test_kernel_integration test_kernel.nut)
+        set_tests_properties(sqgi_test_kernel_integration PROPERTIES LABELS "kernel" TIMEOUT 30)
+    endif()
+endif()
 add_sqgi_nut_test(sqgi_test_gobject                     test_gobject.nut)
 add_sqgi_nut_test(sqgi_test_signals                     test_signals.nut)
 add_sqgi_nut_test(sqgi_test_import_nut                  test_import_nut.nut)
@@ -492,7 +673,18 @@ add_sqgi_nut_test(sqgi_test_marshal_fuzz                test_marshal_fuzz.nut)
 set_tests_properties(sqgi_test_marshal_fuzz PROPERTIES TIMEOUT 300 LABELS "slow;fuzz")
 add_sqgi_nut_test(sqgi_test_soak                        test_soak.nut)
 set_tests_properties(sqgi_test_soak PROPERTIES LABELS "slow")
+foreach(mode simd scalar)
+    add_executable(sqgi_test_json_fast_${mode} test/cpp/test_json_fast.cpp)
+    target_include_directories(sqgi_test_json_fast_${mode} PRIVATE src)
+    target_link_libraries(sqgi_test_json_fast_${mode} PRIVATE sqgi-json-numbers)
+    if(mode STREQUAL "scalar")
+        target_compile_definitions(sqgi_test_json_fast_${mode} PRIVATE SQGI_JSON_SCALAR)
+    endif()
+    add_test(NAME sqgi_test_json_fast_${mode} COMMAND sqgi_test_json_fast_${mode})
+    set_tests_properties(sqgi_test_json_fast_${mode} PROPERTIES TIMEOUT 120)
+endforeach()
 add_sqgi_nut_test(sqgi_test_json                        test_json.nut)
+add_sqgi_nut_test(sqgi_test_json_fast_paths             test_json_fast.nut)
 add_sqgi_nut_test(sqgi_test_json_instance_cycles        test_json_instance_cycles.nut)
 add_sqgi_nut_test(sqgi_test_json_fuzz                   test_json_fuzz.nut)
 set_tests_properties(sqgi_test_json_fuzz PROPERTIES TIMEOUT 600 LABELS "slow;fuzz")
@@ -516,7 +708,7 @@ set_tests_properties(sqgi_test_jit_loop_regressions PROPERTIES
     LABELS "jit"
     ENVIRONMENT "${SQGI_TEST_ENV};SQGI_JIT=1;SQGI_JIT_THRESHOLD=1"
     PASS_REGULAR_EXPRESSION "test_jit_loop_regressions.nut passed")
-if(SQGI_HAS_NATIVE_JIT AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64|ARM64)$")
+if(SQGI_JIT_BACKEND STREQUAL "aarch64")
     add_sqgi_nut_test(sqgi_test_jit_leaf_loop_native test_jit_loop_regressions.nut)
     set_tests_properties(sqgi_test_jit_leaf_loop_native PROPERTIES
         LABELS "jit"
@@ -529,6 +721,22 @@ add_sqgi_nut_test(sqgi_test_jit_fastpath                test_jit_fastpath.nut)
 add_sqgi_nut_test(sqgi_test_jit_fastpath_runtime        test_jit_fastpath.nut)
 add_sqgi_nut_test(sqgi_test_jit_correctness             test_jit_correctness.nut)
 add_sqgi_nut_test(sqgi_test_jit_correctness_runtime     test_jit_correctness.nut)
+add_sqgi_nut_test(sqgi_test_integer_edges test_integer_edges.nut)
+add_sqgi_nut_test(sqgi_test_interpreter_dispatch test_interpreter_dispatch.nut)
+set_tests_properties(sqgi_test_interpreter_dispatch PROPERTIES
+    ENVIRONMENT "${SQGI_TEST_ENV};SQGI_JIT=0"
+    PASS_REGULAR_EXPRESSION "interpreter dispatch tests passed")
+add_sqgi_nut_test(sqgi_test_interpreter_dispatch_runtime test_interpreter_dispatch.nut)
+set_tests_properties(sqgi_test_interpreter_dispatch_runtime PROPERTIES
+    ENVIRONMENT "${SQGI_TEST_ENV};SQGI_JIT=1;SQGI_JIT_THRESHOLD=1"
+    PASS_REGULAR_EXPRESSION "interpreter dispatch tests passed")
+set_tests_properties(sqgi_test_integer_edges PROPERTIES
+    ENVIRONMENT "${SQGI_TEST_ENV};SQGI_JIT=0"
+    PASS_REGULAR_EXPRESSION "integer edge tests passed")
+add_sqgi_nut_test(sqgi_test_integer_edges_runtime test_integer_edges.nut)
+set_tests_properties(sqgi_test_integer_edges_runtime PROPERTIES
+    ENVIRONMENT "${SQGI_TEST_ENV};SQGI_JIT=1;SQGI_JIT_THRESHOLD=1"
+    PASS_REGULAR_EXPRESSION "integer edge tests passed")
 add_sqgi_nut_test(sqgi_test_jit_perf_correctness        test_jit_perf_correctness.nut)
 add_sqgi_nut_test(sqgi_test_jit_perf_correctness_runtime test_jit_perf_correctness.nut)
 set(JIT_TESTS
@@ -752,6 +960,12 @@ add_sqgi_c_test(sqgi_test_cpp_sqvector test/cpp/test_sqvector.cpp)
 add_sqgi_c_test(sqgi_test_cpp_sqbytecode test/cpp/test_sqbytecode.cpp)
 add_sqgi_c_test(sqgi_test_cpp_sqoptimizer test/cpp/test_sqoptimizer.cpp)
 add_sqgi_c_test(sqgi_test_cpp_sqmembercache test/cpp/test_sqmembercache.cpp)
+if(SQGI_ENABLE_KERNELS AND SQGI_KERNEL_BACKEND STREQUAL "LLVM" AND NOT SQ_ENABLE_JIT)
+    add_sqgi_c_test(sqgi_test_cpp_llvm_method_environment test/cpp/test_llvm_method_environment.cpp)
+    set_tests_properties(sqgi_test_cpp_llvm_method_environment PROPERTIES LABELS "kernel;llvm-squirrel")
+endif()
+add_sqgi_c_test(sqgi_test_cpp_sqnativeleaf test/cpp/test_sqnativeleaf.cpp)
+set_tests_properties(sqgi_test_cpp_sqnativeleaf PROPERTIES LABELS "kernel;runtime")
 add_sqgi_c_test(sqgi_test_c_vm_lifecycle test/c/test_vm_lifecycle.c recreate)
 add_test(NAME sqgi_test_c_vm_lifecycle_pending COMMAND sqgi_test_c_vm_lifecycle pending)
 set_tests_properties(sqgi_test_c_vm_lifecycle_pending PROPERTIES
@@ -787,9 +1001,22 @@ if(SQ_ENABLE_JIT)
     set_tests_properties(sqgi_test_cpp_sqjit_values PROPERTIES LABELS "jit")
     add_sqgi_c_test(sqgi_test_cpp_sqjit_memory test/cpp/test_sqjit_memory.cpp)
     set_tests_properties(sqgi_test_cpp_sqjit_memory PROPERTIES LABELS "jit")
+    if(SQGI_JIT_BACKEND STREQUAL "llvm")
+        add_executable(sqgi_bench_bytecode_jit test/cpp/bench_sqjit_compile.cpp $<TARGET_OBJECTS:sqgi-core>)
+        target_link_libraries(sqgi_bench_bytecode_jit PRIVATE ${SQGI_DEPS})
+        target_include_directories(sqgi_bench_bytecode_jit PRIVATE Squirrel3/include Squirrel3/squirrel)
+        add_sqgi_c_test(sqgi_test_cpp_sqjit_llvm test/cpp/test_sqjit_llvm.cpp)
+        set_tests_properties(sqgi_test_cpp_sqjit_llvm PROPERTIES LABELS "jit;llvm")
+    endif()
     add_sqgi_c_test(sqgi_test_cpp_sqjit_leaf test/cpp/test_sqjit_leaf.cpp)
     set_tests_properties(sqgi_test_cpp_sqjit_leaf PROPERTIES LABELS "jit")
     add_sqgi_c_test(sqgi_test_cpp_sqjit_arithmetic test/cpp/test_sqjit_arithmetic.cpp)
+    if(SQGI_JIT_BACKEND STREQUAL "llvm" AND CMAKE_SYSTEM_NAME STREQUAL "Linux" AND
+       CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64|ARM64)$")
+        # This test executes AArch64 encoder output even with the LLVM backend.
+        target_sources(sqgi_test_cpp_sqjit_arithmetic PRIVATE
+            Squirrel3/squirrel/jit/sqjit_backend_aarch64_emit.cpp)
+    endif()
     set_tests_properties(sqgi_test_cpp_sqjit_arithmetic PROPERTIES LABELS "jit;math")
     add_sqgi_c_test(sqgi_test_cpp_sqjit_virtual_array test/cpp/test_sqjit_virtual_array.cpp)
     set_tests_properties(sqgi_test_cpp_sqjit_virtual_array PROPERTIES LABELS "jit")

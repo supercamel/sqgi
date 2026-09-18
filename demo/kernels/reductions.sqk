@@ -1,0 +1,21 @@
+// Strict floating reductions retain source order; no fast-math reassociation.
+export f64 sum(in f64 values[1024], i64 count) {
+    require(count >= 0 && count <= 1024);
+    f64 total = 0.0;
+    for (i64 i = 0; i < count; i += 1) { total += values[i]; }
+    return total;
+}
+export f64 dot(in f64 a[1024], in f64 b[1024], i64 count) {
+    require(count >= 0 && count <= 1024);
+    f64 total = 0.0;
+    for (i64 i = 0; i < count; i += 1) { total += a[i] * b[i]; }
+    return total;
+}
+export void prefix(in f64 values[1024], inout f64 output[1024], i64 count) {
+    require(count >= 0 && count <= 1024);
+    f64 total = 0.0;
+    for (i64 i = 0; i < count; i += 1) {
+        total += values[i];
+        output[i] = total;
+    }
+}

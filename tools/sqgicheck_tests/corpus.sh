@@ -29,6 +29,7 @@ except Exception as error:
     raise SystemExit(f"sqgicheck corpus: invalid JSON: {error}")
 optional = {"Gtk", "Gdk", "GdkPixbuf", "Gst", "Soup", "cairo"}
 skipped = set()
+external_imports = 0
 unreviewed = []
 for item in diagnostics:
     message = item.get("message", "")
@@ -37,7 +38,15 @@ for item in diagnostics:
     if item.get("code") == "SQGI100" and message.startswith(prefix):
         tail = message[len(prefix):]
         namespace = tail.split("'", 1)[0]
-    if namespace in optional:
+    # These drivers run with an external RouteTastic checkout as their import
+    # root. Only its unresolved src/ imports are expected here; retain every
+    # other diagnostic, including syntax and compiler-API errors.
+    driver = "/demo/benchmarks/routetastic/" in pathlib.Path(item.get("path", "")).as_posix()
+    if (driver and item.get("code") == "SQGI110" and
+            message.startswith("local import 'src/") and
+            message.endswith("' could not be resolved")):
+        external_imports += 1
+    elif namespace in optional:
         skipped.add(namespace)
     else:
         unreviewed.append(item)
@@ -49,5 +58,7 @@ if unreviewed or (status not in (0, 1)):
 suffix = ""
 if skipped:
     suffix = "; optional typelibs unavailable: " + ", ".join(sorted(skipped))
+if external_imports:
+    suffix += f"; {external_imports} external RouteTastic imports require its checkout"
 print(f"sqgicheck corpus: {count} demos clean{suffix}")
 PY

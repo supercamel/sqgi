@@ -62,7 +62,8 @@ enum SQJitBackendKind {
     SQ_JIT_BACKEND_NONE = 0,
     SQ_JIT_BACKEND_CPP,
     SQ_JIT_BACKEND_X64,
-    SQ_JIT_BACKEND_AARCH64
+    SQ_JIT_BACKEND_AARCH64,
+    SQ_JIT_BACKEND_LLVM
 };
 
 struct SQJitCompileResult {

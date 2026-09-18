@@ -1,0 +1,45 @@
+// Flat storage with fixed row stride 16; n selects the active square.
+export void multiply(in f64 a[256], in f64 b[256], inout f64 output[256], i64 n) {
+    require(n >= 0 && n <= 16);
+    for (i64 row = 0; row < n; row += 1) {
+        for (i64 col = 0; col < n; col += 1) {
+            f64 value = 0.0;
+            for (i64 k = 0; k < n; k += 1) { value += a[row * 16 + k] * b[k * 16 + col]; }
+            output[row * 16 + col] = value;
+        }
+    }
+}
+
+// Same evolving 3x3 matrix/vector recurrence as the ordinary-Squirrel runtime
+// benchmark. Keep the complete time loop native; scratch resets on every call.
+export f64 recurrence(i64 n) {
+    require(n >= 0);
+    f64 a[9];
+    a[0] = 1.0;   a[1] = 0.5;  a[2] = -0.25;
+    a[3] = -0.75; a[4] = 1.25; a[5] = 0.375;
+    a[6] = 0.625; a[7] = -0.5; a[8] = 1.5;
+    f64 v[3];
+    v[0] = 1.0; v[1] = -2.0; v[2] = 0.75;
+    // Exact small integer-to-double conversion without a language cast.
+    f64 digits[11];
+    digits[0] = 0.0; digits[1] = 1.0; digits[2] = 2.0; digits[3] = 3.0;
+    digits[4] = 4.0; digits[5] = 5.0; digits[6] = 6.0; digits[7] = 7.0;
+    digits[8] = 8.0; digits[9] = 9.0; digits[10] = 10.0;
+    f64 checksum = 0.0;
+    for (i64 i = 0; i < n; i += 1) {
+        f64 x = a[0] * v[0] + a[1] * v[1] + a[2] * v[2];
+        f64 y = a[3] * v[0] + a[4] * v[1] + a[5] * v[2];
+        f64 z = a[6] * v[0] + a[7] * v[1] + a[8] * v[2];
+        i64 r5 = i % 5;
+        i64 r7 = i % 7;
+        i64 r11 = i % 11;
+        v[0] = x * 0.125 + (digits[r5] - 2.0) * 0.01;
+        v[1] = y * 0.125 - (digits[r7] - 3.0) * 0.015;
+        v[2] = z * 0.125 + (digits[r11] - 5.0) * 0.005;
+        i64 row = i % 3;
+        i64 slot = row * 3 + (i + 1) % 3;
+        a[slot] = a[slot] * 0.99 + v[row] * 0.001;
+        checksum = checksum + v[0] * 0.25 + v[1] * 0.5 - v[2] * 0.125;
+    }
+    return checksum + v[0] * 3.0 + v[1] * 5.0 + v[2] * 7.0;
+}

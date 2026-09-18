@@ -1,0 +1,18 @@
+// Grayscale intensities use i64 until compact pixel types are implemented.
+i64 clamp_pixel(i64 value) {
+    if (value < 0) { return 0; }
+    if (value > 255) { return 255; }
+    return value;
+}
+export void threshold(in i64 pixels[1024], inout i64 output[1024],
+                      i64 count, i64 bias, i64 cutoff) {
+    require(count >= 0 && count <= 1024);
+    require(bias >= -255 && bias <= 255);
+    require(cutoff >= 0 && cutoff <= 255);
+    for (i64 i = 0; i < count; i += 1) {
+        require(pixels[i] >= 0 && pixels[i] <= 255);
+        i64 adjusted = clamp_pixel(pixels[i] + bias);
+        if (adjusted >= cutoff) { output[i] = 255; }
+        else { output[i] = 0; }
+    }
+}

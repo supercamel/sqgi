@@ -75,6 +75,9 @@ SQJitCode::~SQJitCode() { Reset(); }
 
 void SQJitCode::Reset()
 {
+    if(dispose) dispose(owner);
+    owner = NULL;
+    dispose = NULL;
     sqjit_code_free(entry, size);
     entry = NULL;
     size = 0;
@@ -106,4 +109,13 @@ void SQJitCode::SetStub(void *stub)
 {
     Reset();
     entry = stub;
+}
+
+void SQJitCode::SetExternal(void *code, void *resource, void (*release)(void *))
+{
+    assert(code && resource && release);
+    Reset();
+    entry = code;
+    owner = resource;
+    dispose = release;
 }

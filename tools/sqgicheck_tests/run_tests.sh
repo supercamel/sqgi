@@ -211,4 +211,27 @@ EOF
 run_status 0 imported-nonexecution "${SQGICHECK}" "${WORK_DIR}/side-main.nut"
 [[ ! -e "${MARKER}" ]] || fail "imported source executed"
 
+
+# Optional compiler APIs are checked without loading an LLVM/kernel backend.
+cat >"${WORK_DIR}/compiler-modules.nut" <<'EOF'
+local m = sqgi.kernel.compile("export i64 answer(){return 42;}", "answer.sqk");
+local loaded = sqgi.kernel.load("answer.sqk");
+local f = function(x) { return x+1; };
+sqgi.llvm.compile(f);
+local info = sqgi.llvm.info(f);
+EOF
+run_status 0 compiler-modules "${SQGICHECK}" "${WORK_DIR}/compiler-modules.nut"
+cat >"${WORK_DIR}/compiler-module-arity.nut" <<'EOF'
+sqgi.kernel.compile();
+sqgi.kernel.load("a", "b");
+sqgi.llvm.info();
+EOF
+run_status 1 compiler-module-arity "${SQGICHECK}" "${WORK_DIR}/compiler-module-arity.nut"
+assert_contains "${WORK_DIR}/compiler-module-arity.out" "SQGI103"
+cat >"${WORK_DIR}/compiler-module-typo.nut" <<'EOF'
+sqgi.kernel.complie("source");
+EOF
+run_status 1 compiler-module-typo "${SQGICHECK}" "${WORK_DIR}/compiler-module-typo.nut"
+assert_contains "${WORK_DIR}/compiler-module-typo.out" "SQGI101"
+
 echo "sqgicheck CLI tests passed"

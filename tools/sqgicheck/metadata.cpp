@@ -311,6 +311,11 @@ public:
             if (found != base.fields.end()) {
                 result.found = true;
                 result.value = found->second;
+            } else if (base.namespace_name == "__sqgi" &&
+                       (base.type_name == "kernel" || base.type_name == "llvm")) {
+                result.definite_missing = true;
+                for (const auto &field : base.fields) result.candidates.push_back(field.first);
+                sort_unique(&result.candidates);
             }
             return result;
         }
@@ -438,6 +443,24 @@ private:
         if (function != functions.end())
             return found(builtin_callable(name, function->second.first,
                                           function->second.second));
+        // Optional runtime modules are known statically even when this checker
+        // is built without their execution backend. Dynamic exports stay unknown.
+        if (name == "kernel" || name == "llvm") {
+            Value value;
+            value.kind = ValueKind::Table;
+            value.namespace_name = "__sqgi";
+            value.type_name = name;
+            if (name == "kernel") {
+                value.fields["compile"] = builtin_callable("kernel.compile", 1, 2);
+                value.fields["load"] = builtin_callable("kernel.load", 1, 1);
+                value.fields["available"] = Value::unknown();
+                value.fields["backend"] = Value::unknown();
+            } else {
+                value.fields["compile"] = builtin_callable("llvm.compile", 1, -1);
+                value.fields["info"] = builtin_callable("llvm.info", 1, -1);
+            }
+            return found(value);
+        }
         if (name == "json" || name == "GError") {
             Value value;
             value.kind = ValueKind::Table;
@@ -451,6 +474,8 @@ private:
         LookupResult result;
         result.definite_missing = true;
         for (const auto &entry : functions) result.candidates.push_back(entry.first);
+        result.candidates.push_back("kernel");
+        result.candidates.push_back("llvm");
         result.candidates.push_back("json");
         result.candidates.push_back("GError");
         sort_unique(&result.candidates);

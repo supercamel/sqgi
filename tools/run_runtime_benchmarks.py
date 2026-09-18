@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compare equivalent warmed SQGI, Node, GJS and pure-Python kernels."""
+"""Compare warmed SQGI, Node, GJS, Python and optional C++ workloads."""
 import argparse
 from datetime import datetime, timezone
 import hashlib
@@ -17,7 +17,10 @@ from run_sqgi_node_benchmarks import FLOAT_KERNELS, parse, positive
 
 def cache_settings(binary):
     path = binary.parent / 'CMakeCache.txt'
-    wanted = {'CMAKE_BUILD_TYPE', 'CMAKE_CXX_COMPILER', 'SQ_ENABLE_JIT',
+    wanted = {'CMAKE_BUILD_TYPE', 'CMAKE_CXX_COMPILER', 'CMAKE_CXX_FLAGS',
+              'CMAKE_CXX_FLAGS_RELEASE', 'CMAKE_CXX_FLAGS_RELWITHDEBINFO',
+              'SQ_ENABLE_JIT', 'SQGI_BYTECODE_JIT_BACKEND',
+              'SQGI_THREADED_DISPATCH',
               'SQGI_ENABLE_LTO', 'SQGI_PGO_MODE', 'SQGI_PGO_DIRECTORY', 'SQGI_ENABLE_ASAN'}
     result = {}
     if path.exists():
@@ -54,13 +57,19 @@ def main():
     parser.add_argument('--gjs', default=shutil.which('gjs') or 'gjs')
     parser.add_argument('--gjs-mode', choices=['module', 'script'], default='module')
     parser.add_argument('--python', default=sys.executable)
+    parser.add_argument('--cpp', type=Path,
+                        help='optional sqgi_bench_cpp_kernels binary (kernels suite only)')
     parser.add_argument('--runs', type=positive, default=5)
     parser.add_argument('--iterations', type=positive, default=80000)
     parser.add_argument('--warmups', type=positive, default=5)
     parser.add_argument('--threshold', type=positive, default=1)
+    parser.add_argument('--jit', type=int, choices=[0, 1], default=1,
+                        help='enable JIT or measure the interpreter in all SQGI builds')
     parser.add_argument('--cpu', type=int)
     parser.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
+    if args.cpp and args.suite != 'kernels':
+        parser.error('--cpp currently supports only --suite kernels')
     binaries = {'sqgi': args.sqgi.resolve()}
     if args.sqgi_pgo:
         binaries['sqgi_pgo'] = args.sqgi_pgo.resolve()
@@ -76,7 +85,8 @@ def main():
     py_script = f'python_{port_name}.py'
     envs, commands, runtime_metadata = {}, {}, {}
     for name, binary in binaries.items():
-        env = dict(os.environ, SQGI_JIT='1', SQGI_JIT_THRESHOLD=str(args.threshold), SQGI_JIT_TRACE='0')
+        env = dict(os.environ, SQGI_JIT=str(args.jit),
+                   SQGI_JIT_THRESHOLD=str(args.threshold), SQGI_JIT_TRACE='0')
         env['LD_LIBRARY_PATH'] = str(binary.parent) + (':' + env['LD_LIBRARY_PATH'] if env.get('LD_LIBRARY_PATH') else '')
         widths = subprocess.check_output([str(binary), '-e', 'print(_intsize_ + " " + _floatsize_)'], env=env, text=True).split()
         if widths != ['8', '8']:
@@ -101,16 +111,31 @@ def main():
             runtime_metadata[name]['mode'] = args.gjs_mode
         commands[name] = [resolved, *mode, str(root / 'demo/benchmarks' / script),
                           str(args.iterations), str(args.warmups), str(args.seed)]
+    sources = [sq_script, root / 'demo/benchmarks' / js_script,
+               root / 'demo/benchmarks' / py_script]
+    if args.cpp:
+        binary = args.cpp.resolve()
+        details = dict(line.split('\t', 1) for line in subprocess.check_output(
+            [str(binary), '--metadata'], text=True).splitlines())
+        if details.get('integer_bytes') != '8' or details.get('float_bytes') != '8':
+            parser.error('C++ comparison requires int64 and double')
+        runtime_metadata['cpp'] = dict(binary=str(binary),
+            sha256=hashlib.sha256(binary.read_bytes()).hexdigest(),
+            compiler=details['compiler'], target_flags=details['flags'],
+            build=cache_settings(binary), integer_bytes=8, float_bytes=8,
+            representation='typed fixed fields/arrays; unordered_map string keys; growing vector')
+        envs['cpp'] = os.environ.copy()
+        commands['cpp'] = [str(binary), str(args.iterations), str(args.warmups)]
+        sources.append(root / 'demo/benchmarks/cpp_jit_kernels.cpp')
     names = list(commands)
     prefix = ['taskset', '-c', str(args.cpu)] if args.cpu is not None else []
     metadata = dict(runtimes=runtime_metadata, platform=platform.platform(), runs=args.runs,
-                    iterations=args.iterations, warmups=args.warmups, threshold=args.threshold,
+                    iterations=args.iterations, warmups=args.warmups, threshold=args.threshold, jit=args.jit,
                     cpu=args.cpu, suite=args.suite, seed=args.seed,
                     started_utc=datetime.now(timezone.utc).isoformat(),
                     load_average_start=os.getloadavg() if hasattr(os, 'getloadavg') else None,
                     source_hashes={str(p.relative_to(root)): hashlib.sha256(p.read_bytes()).hexdigest()
-                                   for p in (sq_script, root / 'demo/benchmarks' / js_script,
-                                             root / 'demo/benchmarks' / py_script)},
+                                   for p in sources},
                     order='rotating runtime order, one fresh process per runtime per round')
     if args.cpu is not None:
         cpufreq = Path(f'/sys/devices/system/cpu/cpu{args.cpu}/cpufreq')

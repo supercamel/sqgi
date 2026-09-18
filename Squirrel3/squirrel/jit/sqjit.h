@@ -4,6 +4,7 @@
 
 #include "sqopcodes.h"
 #include "sqjit_code.h"
+#include <vector>
 
 struct SQJitNative;
 
@@ -26,10 +27,6 @@ enum SQJitExecResult {
     SQ_JIT_EXEC_RESUMED = 4
 };
 
-enum {
-    SQ_JIT_LOOP_REJECT_CACHE_SIZE = 8
-};
-
 struct SQJitProto {
     SQJitProto();
     ~SQJitProto();
@@ -48,15 +45,19 @@ struct SQJitProto {
     SQInteger _loop_guard_fail_count;
     SQInteger _loop_guard_backoff_until;
     SQInteger _loop_guard_backoff_delay;
-    SQInteger _loop_reject_count;
-    SQInteger _loop_reject_next;
-    SQInteger _loop_reject_headers[SQ_JIT_LOOP_REJECT_CACHE_SIZE];
+    // Bytecode is immutable: rejected regions must not be rediscovered when
+    // a branch-heavy function exceeds a small eviction cache. One bit per IP.
+    std::vector<unsigned char> _loop_rejected;
     bool _loop_trace_executed;
     SQInteger _hot_count;
     SQInteger _fail_count;
     SQInteger _guard_fail_count;
     SQInteger _guard_backoff_until;
     SQInteger _guard_backoff_delay;
+    bool RejectedLoop(SQInteger header) const {
+        return header >= 0 && (SQUnsignedInteger)(header / 8) < _loop_rejected.size() &&
+            (_loop_rejected[(size_t)(header / 8)] & (1u << (header % 8))) != 0;
+    }
     SQInteger _version;
     SQJitEligibility _eligibility;
 };
@@ -68,7 +69,7 @@ bool sqjit_try_execute_closure(SQVM *v, SQClosure *closure, SQObjectPtr *stack, 
 // A frameless call may borrow only live VM slots. Raw native callers retain
 // their existing caller-provided-storage contract and have no VM frame to pop.
 bool sqjit_native_call_fits_stack(SQVM *v, SQObjectPtr *stack, SQInteger slots, SQInteger live_slots = -1);
-bool sqjit_try_execute_current_loop(SQVM *v, SQInteger header_ip);
+bool sqjit_try_execute_current_loop(SQVM *v, SQInteger header_ip, bool *error = NULL);
 SQJitExecResult sqjit_try_execute_current(SQVM *v, SQObjectPtr &outres);
 void sqjit_release_proto(SQFunctionProto *proto);
 

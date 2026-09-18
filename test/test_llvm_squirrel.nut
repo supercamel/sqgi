@@ -1,0 +1,65 @@
+function check(ok,msg){if(!ok)throw "FAIL: "+msg;}
+function error(fn){try{fn();}catch(e){return e.tostring();}throw "expected error";}
+local llvm=sqgi.llvm;
+local arithmetic=function(n,seed){local sum=seed;for(local i=0;i<n;i++)sum=sum+i*2;return sum;};
+check(arithmetic(100,0)==9900,"interpreter baseline");
+check(llvm.compile(arithmetic)==arithmetic,"closure identity");
+check(arithmetic(100,0)==9900,"compiled integer loop");
+check(arithmetic(4,0.5)==12.5,"dynamic float");
+check(arithmetic(3,"")=="024","string arithmetic handoff");
+check(llvm.info(arithmetic).operations>100,"actually executed LLVM");
+local m=sqgi.kernel.compile(@"
+class Counter { i64 value; i64 add(i64 n){this.value+=n;return this.value;} };
+export i64 twice(i64 n){return n*2;}
+export void fail(inout Counter c){c.value+=1;require(false);}
+");
+local loop=function(fn,n){local s=0;for(local i=0;i<n;i++)s+=fn(i);return s;};
+llvm.compile(loop);
+check(loop(m.twice,100)==9900,"direct kernel bridge");
+check(llvm.info(loop).leaf_calls==100,"leaf bridge counter");
+check(loop(function(x){return x*2;},100)==9900,"ordinary callable handoff");
+local c=m.Counter();
+local method=function(c,n){local x=0;for(local i=0;i<n;i++)x=c.add(1);return x;};
+llvm.compile(method);check(method(c,10)==10,"method receiver and lookup handoff");
+check(llvm.info(method).leaf_calls==10,"methods directly called");
+check(llvm.info(method).entries<10,"typed method lookup must stay compiled");
+local alternate=m.Counter();check(method(alternate,3)==3 && alternate.value==3,"receiver change");
+local plain={value=0,add=function(n){this.value+=n;return this.value;}};
+check(method(plain,3)==3 && plain.value==3,"ordinary receiver handoff");
+local fail=function(fn,c){fn(c);return 99;};llvm.compile(fail);
+local e=error(function(){fail(m.fail,c);});
+check(c.value==11,"failed native call not replayed");
+check(e.find("require")!=null,"kernel error propagated");
+local complex=function(n){local t={value=1},a=[];try{for(local i=0;i<n;i++){a.append(i);t.value+=i;}throw "caught";}catch(e){t.error<-e;}return t.value+a.len();};
+local baseline=complex(20);llvm.compile(complex);check(complex(20)==baseline,"tables arrays traps");
+local captured=3;
+local outer=function(n=4){captured+=n;return captured;};llvm.compile(outer);
+check(outer()==7 && outer(2)==9,"outer cells default args");
+local grow=null;grow=function(n){if(n==0){collectgarbage();return 1;}return grow(n-1)+1;};
+check(loop(function(i){return grow(100);},5)==505,"stack growth and GC across handoff");
+local gen=function(n){for(local i=0;i<n;i++)yield i;};llvm.compile(gen);
+local g=gen(3);check(resume g==0 && resume g==1 && resume g==2,"generator resume");
+local Gio=import("Gio");
+local gi=function(Gio){local c=Gio.Cancellable.new();c.cancel();return c.is_cancelled();};
+llvm.compile(gi);check(gi(Gio),"GI boxed object calls");
+local maker=function(n){return function(x){return n+x;};};llvm.compile(maker);
+local child=maker(8);collectgarbage();check(child(2)==10,"closures retain outers");
+local debugging=function(n){local s=0;for(local i=0;i<n;i++)s+=i;return s;};llvm.compile(debugging);
+local before=llvm.info(debugging).entries;
+setdebughook(function(...){ });check(debugging(10)==45,"debug fallback");setdebughook(null);
+check(llvm.info(debugging).entries==before,"debugger bypasses LLVM");
+check(debugging(10)==45 && llvm.info(debugging).entries>before,"resumes compiled execution");
+for(local i=0;i<20;i++){local f=compilestring("return 42;");llvm.compile(f);check(f()==42,"code lifetime");}collectgarbage();
+local bad=function(fn){local result=fn("wrong");return result;};llvm.compile(bad);
+check(error(function(){bad(m.twice);}).len()>0,"leaf type error");
+check(llvm.info(bad).leaf_calls==1,"type error used compiled bridge");
+local arity=function(fn){local r=fn();return r;};llvm.compile(arity);
+check(error(function(){arity(m.twice);}).len()>0,"leaf arity error");
+local bound=m.twice.bindenv({});check(loop(bound,10)==90,"bound native uses ordinary frame");
+local coroutine=function(){local x=2;suspend(x);return x+3;};llvm.compile(coroutine);
+local thread=newthread(coroutine);check(thread.call()==2 && thread.wakeup()==5,"suspend resume");
+local fired=0;
+local callback=function(){fired+=grow(100);};llvm.compile(callback);
+local signal=function(Gio,cb){local obj=Gio.Cancellable.new();obj.connect("cancelled",cb);obj.cancel();return obj.is_cancelled();};
+llvm.compile(signal);check(signal(Gio,callback) && fired==101,"GI callback reentry with GC");
+print("LLVM Squirrel integration passed\n");

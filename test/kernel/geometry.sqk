@@ -1,0 +1,25 @@
+// A dependency-free, runtime-compiled fixed-capacity geometry kernel.
+struct Point {
+    f64 x;
+    f64 y;
+};
+
+f64 square(f64 x) { return x * x; }
+
+export void transform(in Point input[8], inout Point output[8],
+                      i64 count, f64 scale) {
+    require(count >= 0 && count <= 8);
+    for (i64 i = 0; i < count; i += 1) {
+        output[i].x = input[i].x * scale;
+        output[i].y = input[i].y * scale;
+    }
+}
+
+export f64 sum_squared(in Point input[8], i64 count) {
+    require(count >= 0 && count <= 8);
+    f64 sum = 0.0;
+    for (i64 i = 0; i < count; i += 1) {
+        sum += square(input[i].x) + square(input[i].y);
+    }
+    return sum;
+}

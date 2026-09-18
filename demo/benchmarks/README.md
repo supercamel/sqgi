@@ -1,6 +1,9 @@
 # SQGI benchmark demos
 
-Small cross-runtime benchmarks for SQGI, Python, Node.js, and GJS.
+Small cross-runtime benchmarks for SQGI, Python, Node.js, GJS, and optional C++.
+
+For typed runtime kernels, see the separate [kernel benchmark suite](kernels/README.md):
+85 workload cases, LLVM/NATIVE comparisons, C++ baselines and Squirrel A*.
 
 Run from the repository root:
 
@@ -13,6 +16,9 @@ The runner prints tab-separated rows:
 ```text
 runtime  benchmark  iterations  ms  checksum
 ```
+
+For parse, stringify, and round-trip comparisons across six document shapes,
+see the [JSON benchmark suite](json/README.md).
 
 ## Workloads
 
@@ -68,8 +74,10 @@ For changes shared with the interpreter, add `--jit 0` to
 `run_execution_benchmarks.py` to compare both builds with native execution
 disabled. The default remains `--jit 1`; the saved result records this setting.
 Run on an otherwise idle machine. The historical
-`object_member_write_fallback` kernel name is retained for comparison; eligible
-array/string member transfers now use native loop code on x64.
+`object_member_write_fallback` kernel name is retained for comparison. Its private
+table and arrays now use [LLVM object-graph elimination](../../docs/llvm-local-graphs.md),
+including reference swaps and string lengths. Shared transfers retain the boxed
+native loop path.
 
 For the same 15 kernels across SQGI, Node, GJS and pure Python:
 
@@ -84,6 +92,19 @@ python3 tools/run_runtime_benchmarks.py \
 process. Results use medians, exact integer checksums and tight double-result
 checks. The JSON contains executable identities, versions, build settings,
 commands, samples and raw output. The runner requires all requested runtimes.
+Add `--jit 0` to measure the SQGI interpreter with native execution disabled.
+The [interpreter performance report](../../docs/interpreter-performance.md)
+documents the optional threaded-dispatch experiment and its tradeoffs.
+The [private-table compilation report](../../docs/llvm-local-objects.md) describes
+the LLVM optimization for the unchanged dynamic-key workload, its correctness
+constraints, and before/after results against Node, GJS and Python.
+The [modern Node comparison](../../docs/modern-node-benchmarks.md) reruns the
+runtime suite and typed numerical kernels against Node 24 LTS and Node 26 Current.
+The [ordinary-Squirrel Node parity report](../../docs/llvm-node-parity.md) records
+the subsequent improvements to vectors, mixed classes, append, math and matrix
+loops, with a complete five-runtime comparison and raw measurements.
+The [LLVM shared-object loop report](../../docs/llvm-boxed-loops.md) covers native
+reference-valued field updates and precise exits after committed writes.
 
 Node and GJS execute the **same** `node_jit_kernels.js` file. GJS uses ES module
 mode (`gjs -m`) by default: classic script bindings can materially change JIT
@@ -91,6 +112,33 @@ optimization of calls and math. `--gjs-mode script` measures that mode explicitl
 Python uses ordinary CPython objects, loops, lists and `math`, with fixed-field
 classes (`__slots__`), not NumPy/BLAS. Its direct-call kernel explicitly preserves
 SQGI/JavaScript's signed-remainder behavior for negative accumulators.
+
+Add an optimized C++ baseline for the same 15 computational workloads:
+
+```sh
+cmake --build build-jit-release --target sqgi_bench_cpp_kernels -j4
+python3 tools/run_runtime_benchmarks.py --sqgi build-jit-release/sqgi \
+  --cpp build-jit-release/sqgi_bench_cpp_kernels \
+  --runs 5 --iterations 80000 --warmups 5 --cpu 4 --output runtime-with-cpp.json
+```
+
+The optional target uses `-O3 -fno-fast-math -ffp-contract=off` with GCC/Clang,
+plus `-march=native` for host builds; MSVC uses `/O2 /fp:strict`. C++ uses int64
+and double, typed fields and fixed arrays for numeric objects, growing
+`std::vector` without pre-reserving capacity for append, and
+`std::unordered_map<std::string, int64_t>` for dynamic string-key fields.
+Payload swaps retain reference identity through pointers. This is an algorithm
+comparison using normal C++ representations, not a boxed dynamic-language VM.
+There are no hand-written SIMD kernels, precomputed results, or BLAS calls.
+
+The C++ harness checks the same known checksums, consumes warmup results, and
+uses opaque calls and compiler barriers around timing so pure computations
+cannot be reused from warmups. Helpers inside each workload remain inlineable.
+The runner includes C++ in rotated process order, checks every checksum against
+the interpreter, and records compiler version, target flags, binary/source hashes
+and build settings. `--cpp` currently supports `--suite kernels` only.
+Run the binary with `--check` for the known-result checks or `--metadata` to
+inspect its build identity. Compilation is outside the measured intervals.
 
 The independent application-component suite adds eight workloads:
 
@@ -205,3 +253,33 @@ exact final checksums against the interpreter. The
 [floating-call report](https://github.com/supercamel/sqgi/blob/7de5513c2feb807d4587fcece54ba8f88477fe28/devdocs/internals/float-call-optimization-2026-09-08.md)
 includes the original float-call kernel, these independent workloads, hardware
 counters and the remaining Node performance gaps.
+
+Compare the old JIT suites with the explicit LLVM Squirrel tier without rewriting
+algorithms as typed kernels:
+
+```sh
+taskset -c 0 python3 tools/compare_legacy_llvm.py \
+  --llvm /path/to/llvm-jit-off/sqgi --legacy /path/to/old-jit-on/sqgi \
+  --runs 3 --iterations 40000 --warmups 5 --output /tmp/legacy-llvm
+```
+
+This covers 60 cases across the original regression kernels, application/root
+workloads, GI execution, floating helpers and member/ownership suites. It compares
+the interpreter, explicit LLVM compilation, old JIT and available existing
+Node/GJS/Python ports. Temporary instrumented copies opt declared functions,
+class methods and case wrappers into LLVM; their algorithm bodies stay unchanged.
+Original benchmark files are not modified. Warmup/compilation are outside timings;
+checksums, raw output and per-function LLVM counters are retained. Both SQGI builds
+should use matching optimization options. `--suite` can select individual suites.
+
+These suites mostly exercise features outside LLVM's promoted-region subset.
+The September 17 local comparison entered no promoted regions and explicit LLVM
+compilation was slower than the interpreter and old JIT in all 60 cases. Earlier
+pure-integer kernel and ordinary scalar-loop wins do not imply equivalent support
+for dynamic arrays/tables, ordinary Squirrel callees, math intrinsics or GI calls.
+
+The [RouteTastic application validation](../../docs/realworld-routetastic-benchmarks.md)
+compares actual board analysis/routing, cold and warm execution, geometry backends,
+and identical spatial trees across SQGI, Node, GJS and Python. It demonstrates
+large kernel gains but also ordinary-JIT coverage gaps and an import slowdown.
+Reproduce using the [RouteTastic drivers](routetastic/README.md).

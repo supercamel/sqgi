@@ -1,5 +1,6 @@
 #include "sqpcheader.h"
 #include "sqbytecode.h"
+#include "jit/sqjit_numeric_ops.h"
 
 bool sq_bytecode_branch_target(const SQInstruction &i, SQInteger ip, SQInteger &target)
 {
@@ -33,6 +34,13 @@ SQBytecodeFacts sq_bytecode_facts(const SQInstruction &i, SQInteger ip, SQIntege
     const unsigned dynamic = SQ_BC_THROW | SQ_BC_CALL | SQ_BC_ALLOCATE;
     switch(i.op) {
     case _OP_LINE: case _OP_JMP: case _OP_POPTRAP: break;
+    case SQJIT_OP_TOFLOAT: read(i._arg1); write(i._arg0); break;
+    case SQJIT_OP_MATH: read(i._arg1); read(i._arg2); write(i._arg0); break;
+    case SQJIT_OP_VECTOR_APPEND: read(i._arg1); write(i._arg0); break;
+    case SQJIT_OP_VECTOR_GET: if(!i._arg3)read(i._arg1); write(i._arg0); break;
+    case SQJIT_OP_VECTOR_LEN: write(i._arg0); break;
+    case SQJIT_OP_INSTANCE: write(i._arg0); break;
+    case SQJIT_OP_CLASS_GUARD: read(i._arg0); break;
     case _OP_LOAD: case _OP_LOADINT: case _OP_LOADFLOAT: case _OP_LOADBOOL:
     case _OP_LOADROOT: case _OP_GETBASE: write(i._arg0); break;
     case _OP_DLOAD: write(i._arg0); write(i._arg2); break;

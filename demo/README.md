@@ -6,6 +6,10 @@ Small, runnable examples organized by GObject library. Run any of them with:
 ./build/sqgi demo/<library>/<example>.nut
 ```
 
+Typed native computation examples live in [kernels/](kernels/README.md), including
+a BFS-verified A* demo. The [kernel benchmarks](benchmarks/kernels/README.md)
+compare both native backends, C++ models and Squirrel.
+
 ## Layout
 
 | Folder         | Library       | Examples                                                          |
@@ -38,3 +42,6 @@ demos short, runnable end-to-end, and prefer `await obj.method_async(...)`
 over `await sqgi.gio_async(...)` in normal code. Use `sqgi.gio_async(...)`
 only for edge cases that need explicit control of a raw `_async`/`_finish`
 pair.
+
+`kernels/boxed_squirrel.nut` demonstrates the experimental ordinary-Squirrel LLVM
+bridge to typed kernel methods (LLVM backend, handwritten JIT off).

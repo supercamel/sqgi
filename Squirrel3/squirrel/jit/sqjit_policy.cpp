@@ -18,15 +18,7 @@ static SQInteger sqjit_backoff_next_delay(SQInteger delay, SQInteger initial,
 
 bool sqjit_loop_header_is_rejected(SQJitProto *jit, SQInteger header_ip)
 {
-    if(!jit) {
-        return false;
-    }
-    for(SQInteger n = 0; n < jit->_loop_reject_count; n++) {
-        if(jit->_loop_reject_headers[n] == header_ip) {
-            return true;
-        }
-    }
-    return false;
+    return jit && jit->RejectedLoop(header_ip);
 }
 
 void sqjit_loop_reject_header(SQJitProto *jit, SQInteger header_ip)
@@ -35,13 +27,9 @@ void sqjit_loop_reject_header(SQJitProto *jit, SQInteger header_ip)
         return;
     }
 
-    if(jit->_loop_reject_count < SQ_JIT_LOOP_REJECT_CACHE_SIZE) {
-        jit->_loop_reject_headers[jit->_loop_reject_count++] = header_ip;
-        return;
-    }
-
-    jit->_loop_reject_headers[jit->_loop_reject_next] = header_ip;
-    jit->_loop_reject_next = (jit->_loop_reject_next + 1) % SQ_JIT_LOOP_REJECT_CACHE_SIZE;
+    const size_t byte = (size_t)(header_ip / 8);
+    if(byte >= jit->_loop_rejected.size()) jit->_loop_rejected.resize(byte + 1, 0);
+    jit->_loop_rejected[byte] |= (unsigned char)(1u << (header_ip % 8));
 }
 
 bool sqjit_proto_backoff_active(SQFunctionProto *proto, SQJitProto *jit)

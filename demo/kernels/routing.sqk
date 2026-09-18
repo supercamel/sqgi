@@ -1,0 +1,16 @@
+// Broad-phase obstacle query: inclusive axis-aligned box intersections.
+struct Box { f64 left; f64 bottom; f64 right; f64 top; };
+export i64 overlaps(in Box obstacles[256], inout i64 hits[256], i64 count,
+                    f64 left, f64 bottom, f64 right, f64 top) {
+    require(count >= 0 && count <= 256);
+    require(left <= right && bottom <= top);
+    i64 total = 0;
+    for (i64 i = 0; i < count; i += 1) {
+        if (obstacles[i].right >= left && obstacles[i].left <= right &&
+            obstacles[i].top >= bottom && obstacles[i].bottom <= top) {
+            hits[i] = 1;
+            total += 1;
+        } else { hits[i] = 0; }
+    }
+    return total;
+}

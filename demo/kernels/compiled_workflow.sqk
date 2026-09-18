@@ -1,0 +1,30 @@
+// One evolving object; the time loop and scratch state stay compiled.
+class Oscillator {
+    f64 position;
+    f64 velocity;
+
+    f64 advance(f64 dt) {
+        require(dt > 0.0);
+        this.velocity -= this.position * dt;
+        this.position += this.velocity * dt;
+        return this.position;
+    }
+
+    f64 run(i64 steps, f64 dt) {
+        require(steps >= 0 && steps <= 100000);
+        f64 recent[4]; // Zeroed native scratch storage, no host buffer required.
+        i64 cursor = 0;
+        for (i64 i = 0; i < steps; i += 1) {
+            recent[cursor] = this.advance(dt);
+            cursor += 1;
+            if (cursor == 4) { cursor = 0; }
+        }
+        return (recent[0] + recent[1] + recent[2] + recent[3]) * 0.25;
+    }
+};
+
+export f64 simulate(i64 steps, f64 dt) {
+    Oscillator body; // Call-local object; no managed allocation or VM calls.
+    body.position = 1.0;
+    return body.run(steps, dt);
+}

@@ -2441,7 +2441,7 @@ static int generated_constant_division()
 int main()
 {
     int failures = generated_constant_division() + generated_shared_helpers() + generated_literal_addresses() + generated_owning_postincrement() + generated_repeated_receiver() + generated_length_intrinsics() + generated_exits() + generated_exit_sites() + generated_store_release() + generated_integer_comparisons() + generated_cache_proofs() + generated_caches() + generated_scalars() + generated_cached_release() + generated_reference_reads() + generated_copy_release();
-#if defined(__aarch64__) && defined(__linux__)
+#if SQJIT_HAS_EXTERNAL_NATIVE
     CHECK(native_test_groups==16,"all sixteen AArch64 generated-code test groups actually execute");
     fprintf(stdout,"[coverage] executed %d AArch64 generated-code groups\n",native_test_groups);
 #endif

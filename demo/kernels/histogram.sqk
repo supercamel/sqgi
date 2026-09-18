@@ -1,0 +1,10 @@
+// Data-dependent indexing; bins are reset on each call, including count=0.
+export void histogram(in i64 values[1024], inout i64 bins[16], i64 count) {
+    require(count >= 0 && count <= 1024);
+    for (i64 bin = 0; bin < 16; bin += 1) { bins[bin] = 0; }
+    for (i64 i = 0; i < count; i += 1) {
+        i64 bin = values[i];
+        require(bin >= 0 && bin < 16);
+        bins[bin] += 1;
+    }
+}

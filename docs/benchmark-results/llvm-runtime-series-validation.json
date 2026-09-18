@@ -1,0 +1,218 @@
+{
+  "base_commit": "045ead946325a50b0ff4876966553abe8cf7262a",
+  "configurations": [
+    {
+      "configuration": "llvm-jit",
+      "command": [
+        "ctest",
+        "--test-dir",
+        "/tmp/sqgi-series-jit",
+        "--output-on-failure",
+        "-E",
+        "^sqgi_test_sqgipkg$"
+      ],
+      "returncode": 0,
+      "seconds": 12.252554561011493,
+      "log": "/tmp/sqgi-series-final-llvm-jit.log",
+      "output_sha256": "f4459a6c2b6c901f40f8d7577b7349f8a0b845b4e47a0352947170706a685cc1",
+      "tests": 132,
+      "failed": 0,
+      "assertions": [],
+      "summary": "\n100% tests passed, 0 tests failed out of 132\n\nLabel Time Summary:\ndemo       =   0.49 sec*proc (15 tests)\nfuzz       =   0.07 sec*proc (2 tests)\njit        =   3.53 sec*proc (29 tests)\nkernel     =   3.18 sec*proc (27 tests)\nllvm       =   1.02 sec*proc (1 test)\nmath       =   1.23 sec*proc (13 tests)\nruntime    =   0.01 sec*proc (1 test)\nslow       =   0.10 sec*proc (3 tests)\n\nTotal Test time (real) =  12.25 sec\n"
+    },
+    {
+      "configuration": "explicit-llvm",
+      "command": [
+        "ctest",
+        "--test-dir",
+        "/tmp/sqgi-series-llvm-kernels",
+        "--output-on-failure",
+        "-E",
+        "^sqgi_test_sqgipkg$"
+      ],
+      "returncode": 0,
+      "seconds": 9.81917688192334,
+      "log": "/tmp/sqgi-series-final-explicit-llvm.log",
+      "output_sha256": "4a241e129ef097a8df5fe6fc2afb22c1483a38a3270571290f0115cb3c944f2e",
+      "tests": 119,
+      "failed": 0,
+      "assertions": [],
+      "summary": "\n100% tests passed, 0 tests failed out of 119\n\nLabel Time Summary:\ndemo             =   0.47 sec*proc (15 tests)\nfuzz             =   0.07 sec*proc (2 tests)\njit              =   0.54 sec*proc (10 tests)\nkernel           =   3.89 sec*proc (33 tests)\nllvm-squirrel    =   0.81 sec*proc (6 tests)\nmath             =   0.53 sec*proc (9 tests)\nruntime          =   0.01 sec*proc (1 test)\nslow             =   0.09 sec*proc (3 tests)\n\nTotal Test time (real) =   9.81 sec\n"
+    },
+    {
+      "configuration": "native-kernels",
+      "command": [
+        "ctest",
+        "--test-dir",
+        "/tmp/sqgi-series-native-kernels",
+        "--output-on-failure",
+        "-E",
+        "^sqgi_test_sqgipkg$"
+      ],
+      "returncode": 0,
+      "seconds": 5.292514935019426,
+      "log": "/tmp/sqgi-series-final-native-kernels.log",
+      "output_sha256": "74ea9cf7beff0071416505671f1009d6612e6b922bc15302ae438f47cf1eebbe",
+      "tests": 113,
+      "failed": 0,
+      "assertions": [],
+      "summary": "\n100% tests passed, 0 tests failed out of 113\n\nLabel Time Summary:\ndemo       =   0.12 sec*proc (15 tests)\nfuzz       =   0.06 sec*proc (2 tests)\njit        =   0.47 sec*proc (10 tests)\nkernel     =   0.26 sec*proc (27 tests)\nmath       =   0.47 sec*proc (9 tests)\nruntime    =   0.00 sec*proc (1 test)\nslow       =   0.08 sec*proc (3 tests)\n\nTotal Test time (real) =   5.29 sec\n"
+    },
+    {
+      "configuration": "interpreter-switch",
+      "command": [
+        "ctest",
+        "--test-dir",
+        "/tmp/sqgi-series-base",
+        "--output-on-failure",
+        "-E",
+        "^sqgi_test_sqgipkg$"
+      ],
+      "returncode": 0,
+      "seconds": 5.075289185973816,
+      "log": "/tmp/sqgi-series-final-interpreter-switch.log",
+      "output_sha256": "8b2df0964113efbb7158059223964fb8de73d8b25cf8931dacd66dfdd2393994",
+      "tests": 87,
+      "failed": 0,
+      "assertions": [],
+      "summary": "\n100% tests passed, 0 tests failed out of 87\n\nLabel Time Summary:\nfuzz       =   0.06 sec*proc (2 tests)\njit        =   0.48 sec*proc (10 tests)\nkernel     =   0.00 sec*proc (1 test)\nmath       =   0.47 sec*proc (9 tests)\nruntime    =   0.00 sec*proc (1 test)\nslow       =   0.08 sec*proc (3 tests)\n\nTotal Test time (real) =   5.07 sec\n"
+    },
+    {
+      "configuration": "legacy-x64",
+      "command": [
+        "ctest",
+        "--test-dir",
+        "/tmp/sqgi-series-auto",
+        "--output-on-failure",
+        "-E",
+        "^sqgi_test_sqgipkg$"
+      ],
+      "returncode": 8,
+      "seconds": 5.337217979016714,
+      "log": "/tmp/sqgi-series-final-legacy-x64.log",
+      "output_sha256": "8761262c83998c1fe45c5006af588072486ab92faf105c00c04f0e15ff34052c",
+      "tests": 105,
+      "failed": 5,
+      "assertions": [
+        "FAIL: native frame/direct memory reads: floats",
+        "FAIL: native loop memory reads: keys",
+        "FAIL: native loop contains leaf call",
+        "FAIL: array member dot executes natively",
+        "FAIL: displaced array owners survive native reads and guard rollback",
+        "FAIL: instance field arithmetic executes natively",
+        "FAIL: assignment-result cases execute native whole-function stores",
+        "FAIL: assignment-result cases execute native whole-function stores",
+        "FAIL: assignment-result cases execute native whole-function stores",
+        "FAIL: assignment-result cases execute native whole-function stores",
+        "FAIL: assignment-result cases execute native whole-function stores",
+        "FAIL: floating loop region executes natively"
+      ],
+      "summary": "\n95% tests passed, 5 tests failed out of 105\n\nLabel Time Summary:\nfuzz       =   0.07 sec*proc (2 tests)\njit        =   0.60 sec*proc (28 tests)\nkernel     =   0.00 sec*proc (1 test)\nmath       =   0.43 sec*proc (13 tests)\nruntime    =   0.00 sec*proc (1 test)\nslow       =   0.08 sec*proc (3 tests)\n\nTotal Test time (real) =   5.33 sec\n\nThe following tests FAILED:\n\t 94 - sqgi_test_cpp_sqjit_memory (Failed)\n\t 95 - sqgi_test_cpp_sqjit_leaf (Failed)\n\t 98 - sqgi_test_cpp_sqjit_objects (Failed)\n\t101 - sqgi_test_cpp_sqjit_member_plan (Failed)\n\t103 - sqgi_test_cpp_sqjit_float_cache (Failed)\nErrors while running CTest\n"
+    }
+  ],
+  "focused_checks": {
+    "native_leaf": {
+      "tests": 4,
+      "failed": 0,
+      "output_sha256": "21ebd129ac51bdfb0078d2ac91c2bf403b17113bf9b5061ba374a906047fa669",
+      "output": "Internal ctest changing into directory: /tmp/sqgi-series-base\nTest project /tmp/sqgi-series-base\n    Start 80: sqgi_test_cpp_sqnativeleaf\n1/4 Test #80: sqgi_test_cpp_sqnativeleaf ..........   Passed    0.00 sec\n    Start 81: sqgi_test_c_vm_lifecycle\n2/4 Test #81: sqgi_test_c_vm_lifecycle ............   Passed    0.03 sec\n    Start 82: sqgi_test_c_vm_lifecycle_pending\n3/4 Test #82: sqgi_test_c_vm_lifecycle_pending ....   Passed    0.01 sec\n    Start 83: sqgi_test_c_vm_lifecycle_subclass\n4/4 Test #83: sqgi_test_c_vm_lifecycle_subclass ...   Passed    0.01 sec\n\n100% tests passed, 0 tests failed out of 4\n\nLabel Time Summary:\nkernel     =   0.00 sec*proc (1 test)\nruntime    =   0.00 sec*proc (1 test)\n\nTotal Test time (real) =   0.05 sec\n"
+    },
+    "kernels_native": {
+      "tests": 24,
+      "failed": 0,
+      "output_sha256": "43fd5c2d94854469df05781d0d2646843e8a845130759f04494c7a87dccee627",
+      "output": "Internal ctest changing into directory: /tmp/sqgi-series-native-kernels\nTest project /tmp/sqgi-series-native-kernels\n      Start   2: sqgi_test_kernel_workloads\n 1/24 Test   #2: sqgi_test_kernel_workloads ...........   Passed    0.08 sec\n      Start   3: sqgi_test_kernel_guard_pages\n 2/24 Test   #3: sqgi_test_kernel_guard_pages .........   Passed    0.00 sec\n      Start   4: sqgi_test_kernel_generated\n 3/24 Test   #4: sqgi_test_kernel_generated ...........   Passed    0.01 sec\n      Start   5: sqgi_test_kernel_typed\n 4/24 Test   #5: sqgi_test_kernel_typed ...............   Passed    0.00 sec\n      Start   6: sqgi_test_kernel_prepared\n 5/24 Test   #6: sqgi_test_kernel_prepared ............   Passed    0.00 sec\n      Start   7: sqgi_test_kernel_math\n 6/24 Test   #7: sqgi_test_kernel_math ................   Passed    0.00 sec\n      Start   8: sqgi_test_kernel_native\n 7/24 Test   #8: sqgi_test_kernel_native ..............   Passed    0.01 sec\n      Start   9: sqgi_demo_kernel_geometry\n 8/24 Test   #9: sqgi_demo_kernel_geometry ............   Passed    0.01 sec\n      Start  10: sqgi_demo_kernel_reductions\n 9/24 Test  #10: sqgi_demo_kernel_reductions ..........   Passed    0.00 sec\n      Start  11: sqgi_demo_kernel_particles\n10/24 Test  #11: sqgi_demo_kernel_particles ...........   Passed    0.01 sec\n      Start  12: sqgi_demo_kernel_image\n11/24 Test  #12: sqgi_demo_kernel_image ...............   Passed    0.01 sec\n      Start  13: sqgi_demo_kernel_matrix\n12/24 Test  #13: sqgi_demo_kernel_matrix ..............   Passed    0.01 sec\n      Start  14: sqgi_demo_kernel_routing\n13/24 Test  #14: sqgi_demo_kernel_routing .............   Passed    0.00 sec\n      Start  15: sqgi_demo_kernel_histogram\n14/24 Test  #15: sqgi_demo_kernel_histogram ...........   Passed    0.00 sec\n      Start  16: sqgi_demo_kernel_stencil\n15/24 Test  #16: sqgi_demo_kernel_stencil .............   Passed    0.01 sec\n      Start  17: sqgi_demo_kernel_astar\n16/24 Test  #17: sqgi_demo_kernel_astar ...............   Passed    0.01 sec\n      Start  18: sqgi_demo_kernel_typed_objects\n17/24 Test  #18: sqgi_demo_kernel_typed_objects .......   Passed    0.00 sec\n      Start  19: sqgi_demo_kernel_compiled_workflow\n18/24 Test  #19: sqgi_demo_kernel_compiled_workflow ...   Passed    0.00 sec\n      Start  20: sqgi_demo_kernel_math\n19/24 Test  #20: sqgi_demo_kernel_math ................   Passed    0.00 sec\n      Start  21: sqgi_test_kernel_small_calls\n20/24 Test  #21: sqgi_test_kernel_small_calls .........   Passed    0.01 sec\n      Start  22: sqgi_test_kernel_locals\n21/24 Test  #22: sqgi_test_kernel_locals ..............   Passed    0.00 sec\n      Start  23: sqgi_test_typed_modules\n22/24 Test  #23: sqgi_test_typed_modules ..............   Passed    0.01 sec\n      Start  24: sqgi_test_kernel_integration\n23/24 Test  #24: sqgi_test_kernel_integration .........   Passed    0.01 sec\n      Start 103: sqgi_test_cpp_sqnativeleaf\n24/24 Test #103: sqgi_test_cpp_sqnativeleaf ...........   Passed    0.00 sec\n\n100% tests passed, 0 tests failed out of 24\n\nLabel Time Summary:\ndemo       =   0.06 sec*proc (12 tests)\nkernel     =   0.20 sec*proc (24 tests)\nruntime    =   0.00 sec*proc (1 test)\n\nTotal Test time (real) =   0.20 sec\n"
+    },
+    "kernels_llvm": {
+      "tests": 24,
+      "failed": 0,
+      "output_sha256": "b1392d5e8c9c8b5321167892dd043150da87eed2a55de51ea07f8e6da770ef36",
+      "output": "Internal ctest changing into directory: /tmp/sqgi-series-llvm-kernels\nTest project /tmp/sqgi-series-llvm-kernels\n      Start   2: sqgi_test_kernel_workloads\n 1/24 Test   #2: sqgi_test_kernel_workloads ...........   Passed    0.20 sec\n      Start   3: sqgi_test_kernel_guard_pages\n 2/24 Test   #3: sqgi_test_kernel_guard_pages .........   Passed    0.02 sec\n      Start   4: sqgi_test_kernel_generated\n 3/24 Test   #4: sqgi_test_kernel_generated ...........   Passed    1.41 sec\n      Start   5: sqgi_test_kernel_typed\n 4/24 Test   #5: sqgi_test_kernel_typed ...............   Passed    0.04 sec\n      Start   6: sqgi_test_kernel_prepared\n 5/24 Test   #6: sqgi_test_kernel_prepared ............   Passed    0.02 sec\n      Start   7: sqgi_test_kernel_math\n 6/24 Test   #7: sqgi_test_kernel_math ................   Passed    0.12 sec\n      Start   8: sqgi_test_kernel_native\n 7/24 Test   #8: sqgi_test_kernel_native ..............   Passed    0.29 sec\n      Start   9: sqgi_demo_kernel_geometry\n 8/24 Test   #9: sqgi_demo_kernel_geometry ............   Passed    0.02 sec\n      Start  10: sqgi_demo_kernel_reductions\n 9/24 Test  #10: sqgi_demo_kernel_reductions ..........   Passed    0.03 sec\n      Start  11: sqgi_demo_kernel_particles\n10/24 Test  #11: sqgi_demo_kernel_particles ...........   Passed    0.02 sec\n      Start  12: sqgi_demo_kernel_image\n11/24 Test  #12: sqgi_demo_kernel_image ...............   Passed    0.02 sec\n      Start  13: sqgi_demo_kernel_matrix\n12/24 Test  #13: sqgi_demo_kernel_matrix ..............   Passed    0.03 sec\n      Start  14: sqgi_demo_kernel_routing\n13/24 Test  #14: sqgi_demo_kernel_routing .............   Passed    0.02 sec\n      Start  15: sqgi_demo_kernel_histogram\n14/24 Test  #15: sqgi_demo_kernel_histogram ...........   Passed    0.02 sec\n      Start  16: sqgi_demo_kernel_stencil\n15/24 Test  #16: sqgi_demo_kernel_stencil .............   Passed    0.03 sec\n      Start  17: sqgi_demo_kernel_astar\n16/24 Test  #17: sqgi_demo_kernel_astar ...............   Passed    0.04 sec\n      Start  18: sqgi_demo_kernel_typed_objects\n17/24 Test  #18: sqgi_demo_kernel_typed_objects .......   Passed    0.03 sec\n      Start  19: sqgi_demo_kernel_compiled_workflow\n18/24 Test  #19: sqgi_demo_kernel_compiled_workflow ...   Passed    0.03 sec\n      Start  20: sqgi_demo_kernel_math\n19/24 Test  #20: sqgi_demo_kernel_math ................   Passed    0.04 sec\n      Start  21: sqgi_test_kernel_small_calls\n20/24 Test  #21: sqgi_test_kernel_small_calls .........   Passed    0.07 sec\n      Start  22: sqgi_test_kernel_locals\n21/24 Test  #22: sqgi_test_kernel_locals ..............   Passed    0.06 sec\n      Start  23: sqgi_test_typed_modules\n22/24 Test  #23: sqgi_test_typed_modules ..............   Passed    0.13 sec\n      Start  24: sqgi_test_kernel_integration\n23/24 Test  #24: sqgi_test_kernel_integration .........   Passed    0.15 sec\n      Start 103: sqgi_test_cpp_sqnativeleaf\n24/24 Test #103: sqgi_test_cpp_sqnativeleaf ...........   Passed    0.01 sec\n\n100% tests passed, 0 tests failed out of 24\n\nLabel Time Summary:\ndemo       =   0.33 sec*proc (12 tests)\nkernel     =   2.85 sec*proc (24 tests)\nruntime    =   0.01 sec*proc (1 test)\n\nTotal Test time (real) =   2.86 sec\n"
+    },
+    "dispatch_threaded": {
+      "tests": 6,
+      "failed": 0,
+      "output_sha256": "50afccc3ad4e78ee722ad194e0a9000c3861cf9ef451bea68e4980b47ddab8de",
+      "output": "Internal ctest changing into directory: /tmp/sqgi-series-base\nTest project /tmp/sqgi-series-base\n    Start 54: sqgi_test_integer_edges\n1/6 Test #54: sqgi_test_integer_edges ..................   Passed    0.00 sec\n    Start 55: sqgi_test_interpreter_dispatch\n2/6 Test #55: sqgi_test_interpreter_dispatch ...........   Passed    0.01 sec\n    Start 56: sqgi_test_interpreter_dispatch_runtime\n3/6 Test #56: sqgi_test_interpreter_dispatch_runtime ...   Passed    0.01 sec\n    Start 57: sqgi_test_integer_edges_runtime\n4/6 Test #57: sqgi_test_integer_edges_runtime ..........   Passed    0.00 sec\n    Start 83: sqgi_test_cpp_sqmembercache\n5/6 Test #83: sqgi_test_cpp_sqmembercache ..............   Passed    0.01 sec\n    Start 84: sqgi_test_cpp_sqnativeleaf\n6/6 Test #84: sqgi_test_cpp_sqnativeleaf ...............   Passed    0.00 sec\n\n100% tests passed, 0 tests failed out of 6\n\nLabel Time Summary:\nkernel     =   0.00 sec*proc (1 test)\nruntime    =   0.00 sec*proc (1 test)\n\nTotal Test time (real) =   0.03 sec\n"
+    },
+    "dispatch_switch": {
+      "tests": 6,
+      "failed": 0,
+      "output_sha256": "a785811e626f2f0319166c015d03758bc9083231c20ee02c293dfe1866b7417d",
+      "output": "Internal ctest changing into directory: /tmp/sqgi-series-base\nTest project /tmp/sqgi-series-base\n    Start 54: sqgi_test_integer_edges\n1/6 Test #54: sqgi_test_integer_edges ..................   Passed    0.00 sec\n    Start 55: sqgi_test_interpreter_dispatch\n2/6 Test #55: sqgi_test_interpreter_dispatch ...........   Passed    0.00 sec\n    Start 56: sqgi_test_interpreter_dispatch_runtime\n3/6 Test #56: sqgi_test_interpreter_dispatch_runtime ...   Passed    0.00 sec\n    Start 57: sqgi_test_integer_edges_runtime\n4/6 Test #57: sqgi_test_integer_edges_runtime ..........   Passed    0.01 sec\n    Start 83: sqgi_test_cpp_sqmembercache\n5/6 Test #83: sqgi_test_cpp_sqmembercache ..............   Passed    0.00 sec\n    Start 84: sqgi_test_cpp_sqnativeleaf\n6/6 Test #84: sqgi_test_cpp_sqnativeleaf ...............   Passed    0.00 sec\n\n100% tests passed, 0 tests failed out of 6\n\nLabel Time Summary:\nkernel     =   0.00 sec*proc (1 test)\nruntime    =   0.00 sec*proc (1 test)\n\nTotal Test time (real) =   0.03 sec\n"
+    },
+    "llvm_backend": {
+      "tests": 33,
+      "failed": 0,
+      "output_sha256": "eca83396732d942f2df87c8d03d0460688cd0d969d8a825a5ce5e210ec43217c",
+      "output": "Internal ctest changing into directory: /tmp/sqgi-series-jit\nTest project /tmp/sqgi-series-jit\n      Start  70: sqgi_test_jit_math\n 1/33 Test  #70: sqgi_test_jit_math .......................   Passed    0.21 sec\n      Start  71: sqgi_test_jit_loop_regressions\n 2/33 Test  #71: sqgi_test_jit_loop_regressions ...........   Passed    0.06 sec\n      Start  72: sqgi_test_jit_math_runtime\n 3/33 Test  #72: sqgi_test_jit_math_runtime ...............   Passed    0.21 sec\n      Start  73: sqgi_test_jit_fastpath\n 4/33 Test  #73: sqgi_test_jit_fastpath ...................   Passed    0.02 sec\n      Start  74: sqgi_test_jit_fastpath_runtime\n 5/33 Test  #74: sqgi_test_jit_fastpath_runtime ...........   Passed    0.16 sec\n      Start  75: sqgi_test_jit_correctness\n 6/33 Test  #75: sqgi_test_jit_correctness ................   Passed    0.01 sec\n      Start  76: sqgi_test_jit_correctness_runtime\n 7/33 Test  #76: sqgi_test_jit_correctness_runtime ........   Passed    0.20 sec\n      Start  77: sqgi_test_integer_edges\n 8/33 Test  #77: sqgi_test_integer_edges ..................   Passed    0.01 sec\n      Start  78: sqgi_test_interpreter_dispatch\n 9/33 Test  #78: sqgi_test_interpreter_dispatch ...........   Passed    0.01 sec\n      Start  79: sqgi_test_interpreter_dispatch_runtime\n10/33 Test  #79: sqgi_test_interpreter_dispatch_runtime ...   Passed    0.01 sec\n      Start  80: sqgi_test_integer_edges_runtime\n11/33 Test  #80: sqgi_test_integer_edges_runtime ..........   Passed    0.03 sec\n      Start  81: sqgi_test_jit_perf_correctness\n12/33 Test  #81: sqgi_test_jit_perf_correctness ...........   Passed    0.01 sec\n      Start  82: sqgi_test_jit_perf_correctness_runtime\n13/33 Test  #82: sqgi_test_jit_perf_correctness_runtime ...   Passed    0.10 sec\n      Start  83: sqgi_test_jit_native_runtime\n14/33 Test  #83: sqgi_test_jit_native_runtime .............   Passed    0.15 sec\n      Start 108: sqgi_test_cpp_sqnativeleaf\n15/33 Test #108: sqgi_test_cpp_sqnativeleaf ...............   Passed    0.01 sec\n      Start 112: sqgi_test_cpp_sqjit_x64_emit\n16/33 Test #112: sqgi_test_cpp_sqjit_x64_emit .............   Passed    0.00 sec\n      Start 113: sqgi_test_cpp_sqjit_aarch64_emit\n17/33 Test #113: sqgi_test_cpp_sqjit_aarch64_emit .........   Passed    0.00 sec\n      Start 114: sqgi_test_cpp_sqjit_x64_win64_emit\n18/33 Test #114: sqgi_test_cpp_sqjit_x64_win64_emit .......   Passed    0.00 sec\n      Start 115: sqgi_test_cpp_sqjit_contracts\n19/33 Test #115: sqgi_test_cpp_sqjit_contracts ............   Passed    0.04 sec\n      Start 116: sqgi_test_cpp_sqjit_side_exit\n20/33 Test #116: sqgi_test_cpp_sqjit_side_exit ............   Passed    0.01 sec\n      Start 117: sqgi_test_cpp_sqjit_values\n21/33 Test #117: sqgi_test_cpp_sqjit_values ...............   Passed    0.03 sec\n      Start 118: sqgi_test_cpp_sqjit_memory\n22/33 Test #118: sqgi_test_cpp_sqjit_memory ...............   Passed    0.14 sec\n      Start 119: sqgi_test_cpp_sqjit_llvm\n23/33 Test #119: sqgi_test_cpp_sqjit_llvm .................   Passed    1.05 sec\n      Start 120: sqgi_test_cpp_sqjit_leaf\n24/33 Test #120: sqgi_test_cpp_sqjit_leaf .................   Passed    0.08 sec\n      Start 121: sqgi_test_cpp_sqjit_arithmetic\n25/33 Test #121: sqgi_test_cpp_sqjit_arithmetic ...........   Passed    0.00 sec\n      Start 122: sqgi_test_cpp_sqjit_virtual_array\n26/33 Test #122: sqgi_test_cpp_sqjit_virtual_array ........   Passed    0.02 sec\n      Start 123: sqgi_test_cpp_sqjit_objects\n27/33 Test #123: sqgi_test_cpp_sqjit_objects ..............   Passed    0.07 sec\n      Start 124: sqgi_test_cpp_sqjit_object_plan\n28/33 Test #124: sqgi_test_cpp_sqjit_object_plan ..........   Passed    0.17 sec\n      Start 125: sqgi_test_cpp_sqjit_write_log\n29/33 Test #125: sqgi_test_cpp_sqjit_write_log ............   Passed    0.01 sec\n      Start 126: sqgi_test_cpp_sqjit_member_plan\n30/33 Test #126: sqgi_test_cpp_sqjit_member_plan ..........   Passed    0.64 sec\n      Start 127: sqgi_test_cpp_sqjit_release_order\n31/33 Test #127: sqgi_test_cpp_sqjit_release_order ........   Passed    0.02 sec\n      Start 128: sqgi_test_cpp_sqjit_float_cache\n32/33 Test #128: sqgi_test_cpp_sqjit_float_cache ..........   Passed    0.08 sec\n      Start 129: sqgi_test_cpp_sqjit_intrinsics\n33/33 Test #129: sqgi_test_cpp_sqjit_intrinsics ...........   Passed    0.10 sec\n\n100% tests passed, 0 tests failed out of 33\n\nLabel Time Summary:\njit        =   3.60 sec*proc (28 tests)\nkernel     =   0.01 sec*proc (1 test)\nllvm       =   1.05 sec*proc (1 test)\nmath       =   1.25 sec*proc (12 tests)\nruntime    =   0.01 sec*proc (1 test)\n\nTotal Test time (real) =   3.69 sec\n"
+    },
+    "explicit_llvm": {
+      "tests": 30,
+      "failed": 0,
+      "output_sha256": "08de036ce1a7ec10eb2ab216c5d674b52185c4c3a1b6721fbca4965e7565f0d7",
+      "output": "Internal ctest changing into directory: /tmp/sqgi-series-llvm-kernels\nTest project /tmp/sqgi-series-llvm-kernels\n      Start   2: sqgi_test_kernel_workloads\n 1/30 Test   #2: sqgi_test_kernel_workloads ..............   Passed    0.19 sec\n      Start   3: sqgi_test_kernel_guard_pages\n 2/30 Test   #3: sqgi_test_kernel_guard_pages ............   Passed    0.02 sec\n      Start   4: sqgi_test_kernel_generated\n 3/30 Test   #4: sqgi_test_kernel_generated ..............   Passed    1.41 sec\n      Start   5: sqgi_test_kernel_typed\n 4/30 Test   #5: sqgi_test_kernel_typed ..................   Passed    0.05 sec\n      Start   6: sqgi_test_kernel_prepared\n 5/30 Test   #6: sqgi_test_kernel_prepared ...............   Passed    0.03 sec\n      Start   7: sqgi_test_kernel_math\n 6/30 Test   #7: sqgi_test_kernel_math ...................   Passed    0.12 sec\n      Start   8: sqgi_test_kernel_native\n 7/30 Test   #8: sqgi_test_kernel_native .................   Passed    0.28 sec\n      Start   9: sqgi_demo_kernel_geometry\n 8/30 Test   #9: sqgi_demo_kernel_geometry ...............   Passed    0.02 sec\n      Start  10: sqgi_demo_kernel_reductions\n 9/30 Test  #10: sqgi_demo_kernel_reductions .............   Passed    0.02 sec\n      Start  11: sqgi_demo_kernel_particles\n10/30 Test  #11: sqgi_demo_kernel_particles ..............   Passed    0.02 sec\n      Start  12: sqgi_demo_kernel_image\n11/30 Test  #12: sqgi_demo_kernel_image ..................   Passed    0.02 sec\n      Start  13: sqgi_demo_kernel_matrix\n12/30 Test  #13: sqgi_demo_kernel_matrix .................   Passed    0.03 sec\n      Start  14: sqgi_demo_kernel_routing\n13/30 Test  #14: sqgi_demo_kernel_routing ................   Passed    0.02 sec\n      Start  15: sqgi_demo_kernel_histogram\n14/30 Test  #15: sqgi_demo_kernel_histogram ..............   Passed    0.02 sec\n      Start  16: sqgi_demo_kernel_stencil\n15/30 Test  #16: sqgi_demo_kernel_stencil ................   Passed    0.04 sec\n      Start  17: sqgi_demo_kernel_astar\n16/30 Test  #17: sqgi_demo_kernel_astar ..................   Passed    0.04 sec\n      Start  18: sqgi_demo_kernel_typed_objects\n17/30 Test  #18: sqgi_demo_kernel_typed_objects ..........   Passed    0.03 sec\n      Start  19: sqgi_demo_kernel_compiled_workflow\n18/30 Test  #19: sqgi_demo_kernel_compiled_workflow ......   Passed    0.03 sec\n      Start  20: sqgi_demo_kernel_math\n19/30 Test  #20: sqgi_demo_kernel_math ...................   Passed    0.04 sec\n      Start  21: sqgi_test_llvm_regions\n20/30 Test  #21: sqgi_test_llvm_regions ..................   Passed    0.12 sec\n      Start  22: sqgi_test_llvm_methods\n21/30 Test  #22: sqgi_test_llvm_methods ..................   Passed    0.16 sec\n      Start  23: sqgi_test_llvm_inline\n22/30 Test  #23: sqgi_test_llvm_inline ...................   Passed    0.19 sec\n      Start  24: sqgi_test_llvm_scalars\n23/30 Test  #24: sqgi_test_llvm_scalars ..................   Passed    0.14 sec\n      Start  25: sqgi_test_llvm_squirrel\n24/30 Test  #25: sqgi_test_llvm_squirrel .................   Passed    0.16 sec\n      Start  26: sqgi_test_kernel_small_calls\n25/30 Test  #26: sqgi_test_kernel_small_calls ............   Passed    0.08 sec\n      Start  27: sqgi_test_kernel_locals\n26/30 Test  #27: sqgi_test_kernel_locals .................   Passed    0.07 sec\n      Start  28: sqgi_test_typed_modules\n27/30 Test  #28: sqgi_test_typed_modules .................   Passed    0.13 sec\n      Start  29: sqgi_test_kernel_integration\n28/30 Test  #29: sqgi_test_kernel_integration ............   Passed    0.14 sec\n      Start 112: sqgi_test_cpp_llvm_method_environment\n29/30 Test #112: sqgi_test_cpp_llvm_method_environment ...   Passed    0.04 sec\n      Start 113: sqgi_test_cpp_sqnativeleaf\n30/30 Test #113: sqgi_test_cpp_sqnativeleaf ..............   Passed    0.01 sec\n\n100% tests passed, 0 tests failed out of 30\n\nLabel Time Summary:\ndemo             =   0.33 sec*proc (12 tests)\nkernel           =   3.68 sec*proc (30 tests)\nllvm-squirrel    =   0.81 sec*proc (6 tests)\nruntime          =   0.01 sec*proc (1 test)\n\nTotal Test time (real) =   3.69 sec\n"
+    },
+    "runtime_fixes": {
+      "tests": 33,
+      "failed": 0,
+      "output_sha256": "63af610e516cc5373b22871e13bd9500cb265049736f25a773c7061a8bc70bbc",
+      "output": "Internal ctest changing into directory: /tmp/sqgi-series-jit\nTest project /tmp/sqgi-series-jit\n      Start  70: sqgi_test_jit_math\n 1/33 Test  #70: sqgi_test_jit_math .......................   Passed    0.23 sec\n      Start  71: sqgi_test_jit_loop_regressions\n 2/33 Test  #71: sqgi_test_jit_loop_regressions ...........   Passed    0.06 sec\n      Start  72: sqgi_test_jit_math_runtime\n 3/33 Test  #72: sqgi_test_jit_math_runtime ...............   Passed    0.21 sec\n      Start  73: sqgi_test_jit_fastpath\n 4/33 Test  #73: sqgi_test_jit_fastpath ...................   Passed    0.01 sec\n      Start  74: sqgi_test_jit_fastpath_runtime\n 5/33 Test  #74: sqgi_test_jit_fastpath_runtime ...........   Passed    0.16 sec\n      Start  75: sqgi_test_jit_correctness\n 6/33 Test  #75: sqgi_test_jit_correctness ................   Passed    0.01 sec\n      Start  76: sqgi_test_jit_correctness_runtime\n 7/33 Test  #76: sqgi_test_jit_correctness_runtime ........   Passed    0.20 sec\n      Start  77: sqgi_test_integer_edges\n 8/33 Test  #77: sqgi_test_integer_edges ..................   Passed    0.01 sec\n      Start  78: sqgi_test_interpreter_dispatch\n 9/33 Test  #78: sqgi_test_interpreter_dispatch ...........   Passed    0.01 sec\n      Start  79: sqgi_test_interpreter_dispatch_runtime\n10/33 Test  #79: sqgi_test_interpreter_dispatch_runtime ...   Passed    0.02 sec\n      Start  80: sqgi_test_integer_edges_runtime\n11/33 Test  #80: sqgi_test_integer_edges_runtime ..........   Passed    0.03 sec\n      Start  81: sqgi_test_jit_perf_correctness\n12/33 Test  #81: sqgi_test_jit_perf_correctness ...........   Passed    0.01 sec\n      Start  82: sqgi_test_jit_perf_correctness_runtime\n13/33 Test  #82: sqgi_test_jit_perf_correctness_runtime ...   Passed    0.10 sec\n      Start  83: sqgi_test_jit_native_runtime\n14/33 Test  #83: sqgi_test_jit_native_runtime .............   Passed    0.15 sec\n      Start 108: sqgi_test_cpp_sqnativeleaf\n15/33 Test #108: sqgi_test_cpp_sqnativeleaf ...............   Passed    0.01 sec\n      Start 112: sqgi_test_cpp_sqjit_x64_emit\n16/33 Test #112: sqgi_test_cpp_sqjit_x64_emit .............   Passed    0.00 sec\n      Start 113: sqgi_test_cpp_sqjit_aarch64_emit\n17/33 Test #113: sqgi_test_cpp_sqjit_aarch64_emit .........   Passed    0.00 sec\n      Start 114: sqgi_test_cpp_sqjit_x64_win64_emit\n18/33 Test #114: sqgi_test_cpp_sqjit_x64_win64_emit .......   Passed    0.00 sec\n      Start 115: sqgi_test_cpp_sqjit_contracts\n19/33 Test #115: sqgi_test_cpp_sqjit_contracts ............   Passed    0.05 sec\n      Start 116: sqgi_test_cpp_sqjit_side_exit\n20/33 Test #116: sqgi_test_cpp_sqjit_side_exit ............   Passed    0.01 sec\n      Start 117: sqgi_test_cpp_sqjit_values\n21/33 Test #117: sqgi_test_cpp_sqjit_values ...............   Passed    0.03 sec\n      Start 118: sqgi_test_cpp_sqjit_memory\n22/33 Test #118: sqgi_test_cpp_sqjit_memory ...............   Passed    0.14 sec\n      Start 119: sqgi_test_cpp_sqjit_llvm\n23/33 Test #119: sqgi_test_cpp_sqjit_llvm .................   Passed    1.05 sec\n      Start 120: sqgi_test_cpp_sqjit_leaf\n24/33 Test #120: sqgi_test_cpp_sqjit_leaf .................   Passed    0.09 sec\n      Start 121: sqgi_test_cpp_sqjit_arithmetic\n25/33 Test #121: sqgi_test_cpp_sqjit_arithmetic ...........   Passed    0.00 sec\n      Start 122: sqgi_test_cpp_sqjit_virtual_array\n26/33 Test #122: sqgi_test_cpp_sqjit_virtual_array ........   Passed    0.02 sec\n      Start 123: sqgi_test_cpp_sqjit_objects\n27/33 Test #123: sqgi_test_cpp_sqjit_objects ..............   Passed    0.08 sec\n      Start 124: sqgi_test_cpp_sqjit_object_plan\n28/33 Test #124: sqgi_test_cpp_sqjit_object_plan ..........   Passed    0.17 sec\n      Start 125: sqgi_test_cpp_sqjit_write_log\n29/33 Test #125: sqgi_test_cpp_sqjit_write_log ............   Passed    0.02 sec\n      Start 126: sqgi_test_cpp_sqjit_member_plan\n30/33 Test #126: sqgi_test_cpp_sqjit_member_plan ..........   Passed    0.64 sec\n      Start 127: sqgi_test_cpp_sqjit_release_order\n31/33 Test #127: sqgi_test_cpp_sqjit_release_order ........   Passed    0.03 sec\n      Start 128: sqgi_test_cpp_sqjit_float_cache\n32/33 Test #128: sqgi_test_cpp_sqjit_float_cache ..........   Passed    0.08 sec\n      Start 129: sqgi_test_cpp_sqjit_intrinsics\n33/33 Test #129: sqgi_test_cpp_sqjit_intrinsics ...........   Passed    0.09 sec\n\n100% tests passed, 0 tests failed out of 33\n\nLabel Time Summary:\njit        =   3.66 sec*proc (28 tests)\nkernel     =   0.01 sec*proc (1 test)\nllvm       =   1.05 sec*proc (1 test)\nmath       =   1.26 sec*proc (12 tests)\nruntime    =   0.01 sec*proc (1 test)\n\nTotal Test time (real) =   3.76 sec\n"
+    },
+    "asan_ubsan_runtime": {
+      "tests": 33,
+      "failed": 0,
+      "output_sha256": "0288cf523ab88b1e766811ee15eb89fc0e1af5500360256b6f03866adc3e41c2",
+      "output": "Internal ctest changing into directory: /tmp/sqgi-series-asan\nTest project /tmp/sqgi-series-asan\n      Start  47: sqgi_test_jit_math\n 1/33 Test  #47: sqgi_test_jit_math .......................   Passed    5.25 sec\n      Start  48: sqgi_test_jit_loop_regressions\n 2/33 Test  #48: sqgi_test_jit_loop_regressions ...........   Passed    0.16 sec\n      Start  49: sqgi_test_jit_math_runtime\n 3/33 Test  #49: sqgi_test_jit_math_runtime ...............   Passed    5.28 sec\n      Start  50: sqgi_test_jit_fastpath\n 4/33 Test  #50: sqgi_test_jit_fastpath ...................   Passed    0.13 sec\n      Start  51: sqgi_test_jit_fastpath_runtime\n 5/33 Test  #51: sqgi_test_jit_fastpath_runtime ...........   Passed    0.36 sec\n      Start  52: sqgi_test_jit_correctness\n 6/33 Test  #52: sqgi_test_jit_correctness ................   Passed    0.09 sec\n      Start  53: sqgi_test_jit_correctness_runtime\n 7/33 Test  #53: sqgi_test_jit_correctness_runtime ........   Passed    0.47 sec\n      Start  54: sqgi_test_integer_edges\n 8/33 Test  #54: sqgi_test_integer_edges ..................   Passed    0.05 sec\n      Start  55: sqgi_test_interpreter_dispatch\n 9/33 Test  #55: sqgi_test_interpreter_dispatch ...........   Passed    0.03 sec\n      Start  56: sqgi_test_interpreter_dispatch_runtime\n10/33 Test  #56: sqgi_test_interpreter_dispatch_runtime ...   Passed    0.05 sec\n      Start  57: sqgi_test_integer_edges_runtime\n11/33 Test  #57: sqgi_test_integer_edges_runtime ..........   Passed    0.10 sec\n      Start  58: sqgi_test_jit_perf_correctness\n12/33 Test  #58: sqgi_test_jit_perf_correctness ...........   Passed    0.08 sec\n      Start  59: sqgi_test_jit_perf_correctness_runtime\n13/33 Test  #59: sqgi_test_jit_perf_correctness_runtime ...   Passed    0.29 sec\n      Start  60: sqgi_test_jit_native_runtime\n14/33 Test  #60: sqgi_test_jit_native_runtime .............   Passed    0.36 sec\n      Start  85: sqgi_test_cpp_sqnativeleaf\n15/33 Test  #85: sqgi_test_cpp_sqnativeleaf ...............   Passed    0.03 sec\n      Start  89: sqgi_test_cpp_sqjit_x64_emit\n16/33 Test  #89: sqgi_test_cpp_sqjit_x64_emit .............   Passed    0.01 sec\n      Start  90: sqgi_test_cpp_sqjit_aarch64_emit\n17/33 Test  #90: sqgi_test_cpp_sqjit_aarch64_emit .........   Passed    0.01 sec\n      Start  91: sqgi_test_cpp_sqjit_x64_win64_emit\n18/33 Test  #91: sqgi_test_cpp_sqjit_x64_win64_emit .......   Passed    0.01 sec\n      Start  92: sqgi_test_cpp_sqjit_contracts\n19/33 Test  #92: sqgi_test_cpp_sqjit_contracts ............   Passed    0.11 sec\n      Start  93: sqgi_test_cpp_sqjit_side_exit\n20/33 Test  #93: sqgi_test_cpp_sqjit_side_exit ............   Passed    0.03 sec\n      Start  94: sqgi_test_cpp_sqjit_values\n21/33 Test  #94: sqgi_test_cpp_sqjit_values ...............   Passed    0.08 sec\n      Start  95: sqgi_test_cpp_sqjit_memory\n22/33 Test  #95: sqgi_test_cpp_sqjit_memory ...............   Passed    0.45 sec\n      Start  96: sqgi_test_cpp_sqjit_llvm\n23/33 Test  #96: sqgi_test_cpp_sqjit_llvm .................   Passed    2.20 sec\n      Start  97: sqgi_test_cpp_sqjit_leaf\n24/33 Test  #97: sqgi_test_cpp_sqjit_leaf .................   Passed    0.22 sec\n      Start  98: sqgi_test_cpp_sqjit_arithmetic\n25/33 Test  #98: sqgi_test_cpp_sqjit_arithmetic ...........   Passed    0.03 sec\n      Start  99: sqgi_test_cpp_sqjit_virtual_array\n26/33 Test  #99: sqgi_test_cpp_sqjit_virtual_array ........   Passed    0.07 sec\n      Start 100: sqgi_test_cpp_sqjit_objects\n27/33 Test #100: sqgi_test_cpp_sqjit_objects ..............   Passed    0.16 sec\n      Start 101: sqgi_test_cpp_sqjit_object_plan\n28/33 Test #101: sqgi_test_cpp_sqjit_object_plan ..........   Passed    2.66 sec\n      Start 102: sqgi_test_cpp_sqjit_write_log\n29/33 Test #102: sqgi_test_cpp_sqjit_write_log ............   Passed    0.10 sec\n      Start 103: sqgi_test_cpp_sqjit_member_plan\n30/33 Test #103: sqgi_test_cpp_sqjit_member_plan ..........   Passed    1.65 sec\n      Start 104: sqgi_test_cpp_sqjit_release_order\n31/33 Test #104: sqgi_test_cpp_sqjit_release_order ........   Passed    0.07 sec\n      Start 105: sqgi_test_cpp_sqjit_float_cache\n32/33 Test #105: sqgi_test_cpp_sqjit_float_cache ..........   Passed    0.24 sec\n      Start 106: sqgi_test_cpp_sqjit_intrinsics\n33/33 Test #106: sqgi_test_cpp_sqjit_intrinsics ...........   Passed    0.23 sec\n\n100% tests passed, 0 tests failed out of 33\n\nLabel Time Summary:\njit        =  20.76 sec*proc (28 tests)\nkernel     =   0.03 sec*proc (1 test)\nllvm       =   2.20 sec*proc (1 test)\nmath       =  12.80 sec*proc (12 tests)\nruntime    =   0.03 sec*proc (1 test)\n\nTotal Test time (real) =  21.03 sec\n"
+    },
+    "checker_integration": {
+      "tests": 5,
+      "failed": 0,
+      "output_sha256": "80fc30ee44ca481a6b1a93a16f639e2d1c4b56fe9be3eaabe7c09ee753baf91d",
+      "output": "Internal ctest changing into directory: /tmp/sqgi-series-jit\nTest project /tmp/sqgi-series-jit\n    Start 23: sqgi_demo_kernel_math\n1/5 Test #23: sqgi_demo_kernel_math ............   Passed    0.05 sec\n    Start 93: sqgi_test_cpp_sqgicheck\n2/5 Test #93: sqgi_test_cpp_sqgicheck ..........   Passed    0.06 sec\n    Start 94: sqgi_test_sqgicheck_cli\n3/5 Test #94: sqgi_test_sqgicheck_cli ..........   Passed    0.43 sec\n    Start 95: sqgi_test_sqgicheck_corpus\n4/5 Test #95: sqgi_test_sqgicheck_corpus .......   Passed    0.27 sec\n    Start 96: sqgi_test_sqgicheck_install\n5/5 Test #96: sqgi_test_sqgicheck_install ......   Passed    0.06 sec\n\n100% tests passed, 0 tests failed out of 5\n\nLabel Time Summary:\ndemo      =   0.05 sec*proc (1 test)\nkernel    =   0.05 sec*proc (1 test)\n\nTotal Test time (real) =   0.88 sec\n"
+    },
+    "asan_ubsan_checker": {
+      "tests": 4,
+      "failed": 0,
+      "output_sha256": "ff8e71e8267a89eafe2768a5d6f4301d93e7a292e2b8115e1b8e70ebadd01e66",
+      "output": "Internal ctest changing into directory: /tmp/sqgi-series-asan\nTest project /tmp/sqgi-series-asan\n    Start 67: sqgi_test_cpp_sqgicheck\n1/4 Test #67: sqgi_test_cpp_sqgicheck ..........   Passed    0.95 sec\n    Start 68: sqgi_test_sqgicheck_cli\n2/4 Test #68: sqgi_test_sqgicheck_cli ..........   Passed    1.23 sec\n    Start 69: sqgi_test_sqgicheck_corpus\n3/4 Test #69: sqgi_test_sqgicheck_corpus .......   Passed    4.37 sec\n    Start 70: sqgi_test_sqgicheck_install\n4/4 Test #70: sqgi_test_sqgicheck_install ......   Passed    0.19 sec\n\n100% tests passed, 0 tests failed out of 4\n\nTotal Test time (real) =   6.74 sec\n"
+    }
+  },
+  "legacy_baseline_assertions": [
+    "FAIL: native frame/direct memory reads: floats",
+    "FAIL: native loop memory reads: keys",
+    "FAIL: native loop contains leaf call",
+    "FAIL: array member dot executes natively",
+    "FAIL: displaced array owners survive native reads and guard rollback",
+    "FAIL: instance field arithmetic executes natively",
+    "FAIL: assignment-result cases execute native whole-function stores",
+    "FAIL: assignment-result cases execute native whole-function stores",
+    "FAIL: assignment-result cases execute native whole-function stores",
+    "FAIL: assignment-result cases execute native whole-function stores",
+    "FAIL: assignment-result cases execute native whole-function stores",
+    "FAIL: floating loop region executes natively"
+  ],
+  "legacy_baseline_output": "Internal ctest changing into directory: /tmp/sqgi-series-legacy-base-build\nTest project /tmp/sqgi-series-legacy-base-build\n    Start 90: sqgi_test_cpp_sqjit_memory\n1/5 Test #90: sqgi_test_cpp_sqjit_memory ........***Failed    0.01 sec\nFAIL: native frame/direct memory reads: floats\nFAIL: native loop memory reads: keys\n\n    Start 91: sqgi_test_cpp_sqjit_leaf\n2/5 Test #91: sqgi_test_cpp_sqjit_leaf ..........***Failed    0.01 sec\nFAIL: native loop contains leaf call\n\n    Start 94: sqgi_test_cpp_sqjit_objects\n3/5 Test #94: sqgi_test_cpp_sqjit_objects .......***Failed    0.01 sec\nFAIL: array member dot executes natively\nFAIL: displaced array owners survive native reads and guard rollback\nFAIL: instance field arithmetic executes natively\n\n    Start 97: sqgi_test_cpp_sqjit_member_plan\n4/5 Test #97: sqgi_test_cpp_sqjit_member_plan ...***Failed    0.04 sec\nreference route capture_ref: frame ip=-1 reason=none\nFAIL: assignment-result cases execute native whole-function stores\nreference route replace_ref: frame ip=-1 reason=none\nFAIL: assignment-result cases execute native whole-function stores\nreference route receiver_ref: frame ip=-1 reason=none\nFAIL: assignment-result cases execute native whole-function stores\nreference route nested_ref: frame ip=-1 reason=none\nFAIL: assignment-result cases execute native whole-function stores\nreference route capture_late: frame ip=-1 reason=none\nFAIL: assignment-result cases execute native whole-function stores\n\n    Start 99: sqgi_test_cpp_sqjit_float_cache\n5/5 Test #99: sqgi_test_cpp_sqjit_float_cache ...***Failed    0.01 sec\nFAIL: floating loop region executes natively\n\n\n0% tests passed, 5 tests failed out of 5\n\nLabel Time Summary:\njit     =   0.08 sec*proc (5 tests)\nmath    =   0.01 sec*proc (1 test)\n\nTotal Test time (real) =   0.08 sec\n\nThe following tests FAILED:\n\t 90 - sqgi_test_cpp_sqjit_memory (Failed)\n\t 91 - sqgi_test_cpp_sqjit_leaf (Failed)\n\t 94 - sqgi_test_cpp_sqjit_objects (Failed)\n\t 97 - sqgi_test_cpp_sqjit_member_plan (Failed)\n\t 99 - sqgi_test_cpp_sqjit_float_cache (Failed)\nErrors while running CTest\n",
+  "oracles": [
+    {
+      "mode": "interpreter",
+      "returncode": 0,
+      "stdout": "",
+      "stderr": "......\n----------------------------------------------------------------------\nRan 6 tests in 0.546s\n\nOK\n"
+    },
+    {
+      "mode": "jit",
+      "returncode": 0,
+      "stdout": "",
+      "stderr": "......\n----------------------------------------------------------------------\nRan 6 tests in 0.565s\n\nOK\n"
+    },
+    {
+      "mode": "kernels",
+      "returncode": 0,
+      "stdout": "",
+      "stderr": "......\n----------------------------------------------------------------------\nRan 6 tests in 1.695s\n\nOK\n"
+    }
+  ],
+  "packaging_note": "The complete sqgi_test_sqgipkg passed in the initial full LLVM-JIT run. After correcting demo/checker integration, all tests were rerun in five configurations except this unchanged 157-second packaging test. Packaging ergonomics and checker tests were included in those reruns.",
+  "snapshot_note": "All 181 original snapshot files matched bytes and permissions before the explicitly documented checker/demo integration and validation-record additions."
+}

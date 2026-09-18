@@ -195,6 +195,11 @@ public:
     sqvector<SQInt32> _membercache_offsets;
     SQMemberCacheVec _membercache;
 
+#ifdef SQGI_ENABLE_LLVM_SQUIRREL
+    void *_llvm_code;
+    int (*_llvm_entry)(SQVM *, int);
+    void (*_llvm_release)(void *);
+#endif
     SQInteger _ninstructions;
     SQInstruction _instructions[1];
 };

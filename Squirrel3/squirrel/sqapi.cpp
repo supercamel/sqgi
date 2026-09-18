@@ -757,6 +757,24 @@ SQHash sq_gethash(HSQUIRRELVM v, SQInteger idx)
     return HashObj(o);
 }
 
+SQRESULT sq_setnativeleaf(HSQUIRRELVM v,SQInteger idx,SQLEAFFUNCTION function,SQUserPointer context)
+{
+    SQObjectPtr &object = stack_get(v,idx);
+    if(sq_type(object) != OT_NATIVECLOSURE) return SQ_ERROR;
+    _nativeclosure(object)->_leaf = function;
+    _nativeclosure(object)->_leaf_context = context;
+    return SQ_OK;
+}
+
+SQRESULT sq_getobjuserdata(const HSQOBJECT *object,SQUserPointer *data,SQUserPointer *tag)
+{
+    if(sq_type(*object) != OT_USERDATA) return SQ_ERROR;
+    SQUserData *ud = object->_unVal.pUserData;
+    *data = (SQUserPointer)sq_aligning(ud + 1);
+    if(tag) *tag = ud->_typetag;
+    return SQ_OK;
+}
+
 SQRESULT sq_getuserdata(HSQUIRRELVM v,SQInteger idx,SQUserPointer *p,SQUserPointer *typetag)
 {
     SQObjectPtr *o = NULL;

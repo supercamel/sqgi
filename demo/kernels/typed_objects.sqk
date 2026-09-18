@@ -1,0 +1,32 @@
+// Scalar state stays in a persistent typed object. Call advance() for one
+// sample, or process() to keep the entire call chain in compiled code.
+class Controller {
+    f64 target;
+    f64 gain;
+    f64 integral;
+    f64 integral_gain;
+    i64 samples;
+    bool enabled;
+
+    f64 advance(f64 measured, f64 dt) {
+        require(dt > 0.0);
+        if (!this.enabled) { return 0.0; }
+        f64 error = this.target - measured;
+        this.integral += error * dt;
+        this.samples += 1;
+        return error * this.gain + this.integral * this.integral_gain;
+    }
+
+    void process(in f64 measurements[], inout f64 output[], f64 dt) {
+        require(measurements.len() == output.len());
+        for (i64 i = 0; i < measurements.len(); i += 1) {
+            output[i] = this.advance(measurements[i], dt);
+        }
+    }
+};
+
+// Passing instances between typed functions preserves their identity.
+export void process(inout Controller controller, in f64 measurements[],
+                    inout f64 output[], f64 dt) {
+    controller.process(measurements, output, dt);
+}

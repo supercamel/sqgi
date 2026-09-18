@@ -1,0 +1,37 @@
+// Complete Vec3 recurrence from the ordinary-Squirrel runtime benchmark.
+// Fixed local storage replaces temporary Vec3 objects; arithmetic order stays
+// unchanged, including using the updated position in the velocity cross product.
+export f64 recurrence(i64 n) {
+    require(n >= 0);
+    f64 pos[3]; f64 vel[3];
+    pos[0] = 1.0; pos[1] = -2.0; pos[2] = 0.5;
+    vel[0] = 0.125; vel[1] = -0.250; vel[2] = 0.375;
+    // Exact conversion of the small remainder values; casts are not supported.
+    f64 digits[11];
+    digits[0] = 0.0; digits[1] = 1.0; digits[2] = 2.0; digits[3] = 3.0;
+    digits[4] = 4.0; digits[5] = 5.0; digits[6] = 6.0; digits[7] = 7.0;
+    digits[8] = 8.0; digits[9] = 9.0; digits[10] = 10.0;
+    f64 checksum = 0.0;
+    for (i64 i = 0; i < n; i += 1) {
+        f64 wx = (digits[i % 11] - 5.0) * 0.01;
+        f64 wy = (digits[i % 7] - 3.0) * 0.02;
+        f64 wz = (digits[i % 5] - 2.0) * 0.015;
+        f64 fx = (vel[1] * -0.75 - vel[2] * 0.5) + wx - pos[0] * 0.0125;
+        f64 fy = (vel[2] * 0.25 - vel[0] * -0.75) + wy - pos[1] * 0.0125;
+        f64 fz = (vel[0] * 0.5 - vel[1] * 0.25) + wz - pos[2] * 0.0125;
+        pos[0] = pos[0] + fx * 0.05;
+        pos[1] = pos[1] + fy * 0.05;
+        pos[2] = pos[2] + fz * 0.05;
+        f64 cx = pos[1] * fz - pos[2] * fy;
+        f64 cy = pos[2] * fx - pos[0] * fz;
+        f64 cz = pos[0] * fy - pos[1] * fx;
+        vel[0] = vel[0] + cx * 0.0025;
+        vel[1] = vel[1] + cy * 0.0025;
+        vel[2] = vel[2] + cz * 0.0025;
+        i64 idx = i % 3;
+        i64 next = (idx + 1) % 3;
+        pos[next] = pos[next] * 0.75 + pos[idx] * 0.125;
+        checksum = checksum + (pos[0] * vel[0] + pos[1] * vel[1] + pos[2] * vel[2]) * 0.0001;
+    }
+    return (pos[0] * vel[0] + pos[1] * vel[1] + pos[2] * vel[2]) + checksum;
+}

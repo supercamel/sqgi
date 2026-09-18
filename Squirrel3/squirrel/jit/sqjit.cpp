@@ -327,11 +327,12 @@ bool sqjit_try_execute_closure(SQVM *v, SQClosure *closure, SQObjectPtr *stack, 
     return true;
 }
 
-bool sqjit_try_execute_current_loop(SQVM *v, SQInteger header_ip)
+bool sqjit_try_execute_current_loop(SQVM *v, SQInteger header_ip, bool *error)
 {
+    if(error) *error = false;
     if(!v) { return false; }
     SQJitContext &ctx = sqjit_context(v->_sharedstate);
-#if !SQJIT_HAS_X64_NATIVE && !SQJIT_HAS_EXTERNAL_NATIVE
+#if !SQJIT_HAS_X64_NATIVE && !SQJIT_HAS_EXTERNAL_NATIVE && !defined(SQJIT_BACKEND_LLVM)
     (void)v;
     (void)header_ip;
     return false;
@@ -538,6 +539,22 @@ execute_loop:
                 else sqjit_diag_record_reject(proto,result);
             }
         }
+    }
+    if(status == SQ_JIT_NATIVE_SIDE_EXIT) {
+        // Canonical-slot loops commit each completed instruction. Resume the
+        // failing instruction rather than replaying earlier heap writes.
+        if(next_ip < 0 || next_ip >= proto->_ninstructions) {
+            v->Raise_Error(_SC("invalid native loop side exit"));
+            if(error) *error = true;
+            return false;
+        }
+        v->ci->_ip = &proto->_instructions[next_ip];
+        sqjit_loop_note_guard_fail(proto,jit,header_ip);
+        // A guard at the header must execute in the interpreter once; otherwise
+        // immediately reentering this same failing native header cannot progress.
+        if(jit->_loop_guard_backoff_until < ctx.loop_tick + 2)
+            jit->_loop_guard_backoff_until = ctx.loop_tick + 2;
+        return true;
     }
     if(status != SQ_JIT_NATIVE_RETURNED) {
         if(status == SQ_JIT_NATIVE_GUARD_FAILED) sqjit_loop_note_guard_fail(proto,jit,header_ip);
