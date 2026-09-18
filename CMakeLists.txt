@@ -175,6 +175,11 @@ set(SQGI_DEPS
 )
 
 # ── libsqgi shared library ─────────────────────────────────────────────────────
+# Isolate the C++17 locale-free numeric conversions from the C/C++11 runtime.
+add_library(sqgi-json-numbers STATIC src/sqgi_json_numbers.cpp)
+set_target_properties(sqgi-json-numbers PROPERTIES CXX_STANDARD 17
+    CXX_STANDARD_REQUIRED ON POSITION_INDEPENDENT_CODE ON)
+list(APPEND SQGI_DEPS sqgi-json-numbers)
 set(LIBSQGI_SRC
     src/sqgi_vm.c
     src/sqgi_marshal.c
@@ -186,7 +191,7 @@ set(LIBSQGI_SRC
     src/sqgi_async.c
     src/sqgi_gerror.c
     src/sqgi_subclass.c
-    src/sqgi_json.c
+    src/sqgi_json.cpp
     src/sqgi_cairo.c
     src/sqgi_system.c
 )
@@ -668,7 +673,18 @@ add_sqgi_nut_test(sqgi_test_marshal_fuzz                test_marshal_fuzz.nut)
 set_tests_properties(sqgi_test_marshal_fuzz PROPERTIES TIMEOUT 300 LABELS "slow;fuzz")
 add_sqgi_nut_test(sqgi_test_soak                        test_soak.nut)
 set_tests_properties(sqgi_test_soak PROPERTIES LABELS "slow")
+foreach(mode simd scalar)
+    add_executable(sqgi_test_json_fast_${mode} test/cpp/test_json_fast.cpp)
+    target_include_directories(sqgi_test_json_fast_${mode} PRIVATE src)
+    target_link_libraries(sqgi_test_json_fast_${mode} PRIVATE sqgi-json-numbers)
+    if(mode STREQUAL "scalar")
+        target_compile_definitions(sqgi_test_json_fast_${mode} PRIVATE SQGI_JSON_SCALAR)
+    endif()
+    add_test(NAME sqgi_test_json_fast_${mode} COMMAND sqgi_test_json_fast_${mode})
+    set_tests_properties(sqgi_test_json_fast_${mode} PROPERTIES TIMEOUT 120)
+endforeach()
 add_sqgi_nut_test(sqgi_test_json                        test_json.nut)
+add_sqgi_nut_test(sqgi_test_json_fast_paths             test_json_fast.nut)
 add_sqgi_nut_test(sqgi_test_json_instance_cycles        test_json_instance_cycles.nut)
 add_sqgi_nut_test(sqgi_test_json_fuzz                   test_json_fuzz.nut)
 set_tests_properties(sqgi_test_json_fuzz PROPERTIES TIMEOUT 600 LABELS "slow;fuzz")

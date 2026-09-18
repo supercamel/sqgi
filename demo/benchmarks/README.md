@@ -17,6 +17,9 @@ The runner prints tab-separated rows:
 runtime  benchmark  iterations  ms  checksum
 ```
 
+For parse, stringify, and round-trip comparisons across six document shapes,
+see the [JSON benchmark suite](json/README.md).
+
 ## Workloads
 
 - `numeric`: integer arithmetic in a tight loop.

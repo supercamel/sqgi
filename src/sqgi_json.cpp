@@ -1,11 +1,19 @@
-/* sqgi_json.c — first-class JSON parse/stringify for Squirrel.
+/* sqgi_json.cpp — first-class JSON parse/stringify for Squirrel.
  *
- * Hand-written to avoid any new build dependency. Uses GLib for strings
- * and dtostr (locale-safe). All values land on the Squirrel stack
- * directly; we never build intermediate trees.
+ * Bounded SSE2/NEON/scalar scans, locale-independent numeric conversion,
+ * and direct scalar traversal. Container and callback values stay rooted on
+ * the Squirrel stack; no intermediate DOM is built.
  */
 
+#include "sqpcheader.h"
+#include "sqvm.h"
+#include "sqarray.h"
+#include "sqtable.h"
+#include "sqstring.h"
 #include "sqgi_json.h"
+#include "sqgi_json_scan.h"
+#include "sqgi_json_numbers.h"
+#include <stdint.h>
 
 #include <glib.h>
 #include <stdio.h>
@@ -18,7 +26,7 @@
 
 /* ─── Parser ───────────────────────────────────────────────────────────── */
 
-typedef struct {
+typedef struct JsonParser {
     HSQUIRRELVM v;
     const char *src;
     gsize       len;
@@ -26,6 +34,8 @@ typedef struct {
     int         depth;
     /* Set by failure paths; sq_throwerror is called by the outer entry. */
     char        err[256];
+    GString    *scratch; // reused after each decoded string has been interned
+    ~JsonParser() { if (scratch) g_string_free(scratch, TRUE); }
 } JsonParser;
 
 static void set_err(JsonParser *p, const char *fmt, ...) G_GNUC_PRINTF(2, 3);
@@ -49,11 +59,7 @@ static void compute_line_col(const char *src, gsize pos, int *line, int *col)
 
 static void skip_ws(JsonParser *p)
 {
-    while (p->pos < p->len) {
-        char c = p->src[p->pos];
-        if (c == ' ' || c == '\t' || c == '\n' || c == '\r') p->pos++;
-        else break;
-    }
+    p->pos += sqgi_json_space_span(p->src + p->pos, p->len - p->pos);
 }
 
 static int peek(JsonParser *p) {
@@ -106,12 +112,22 @@ static int parse_string(JsonParser *p)
 {
     if (peek(p) != '"') { set_err(p, "expected string"); return -1; }
     p->pos++;
-    GString *out = g_string_new(NULL);
+    /* Most keys and strings need no decoding or temporary allocation. */
+    gsize start = p->pos;
+    p->pos += sqgi_json_plain_span(p->src + p->pos, p->len - p->pos);
+    if (peek(p) == '"') {
+        sq_pushstring(p->v, p->src + start, (SQInteger)(p->pos - start));
+        p->pos++;
+        return 0;
+    }
+    if (!p->scratch) p->scratch = g_string_sized_new(64);
+    GString *out = p->scratch;
+    g_string_truncate(out, 0);
+    g_string_append_len(out, p->src + start, p->pos - start);
     while (p->pos < p->len) {
         unsigned char c = (unsigned char)p->src[p->pos++];
         if (c == '"') {
             sq_pushstring(p->v, out->str, (SQInteger)out->len);
-            g_string_free(out, TRUE);
             return 0;
         }
         if (c == '\\') {
@@ -130,7 +146,6 @@ static int parse_string(JsonParser *p)
                 guint32 cp;
                 if (!parse_hex4(p, &cp)) {
                     set_err(p, "bad \\u escape");
-                    g_string_free(out, TRUE);
                     return -1;
                 }
                 /* Surrogate pair handling. */
@@ -144,18 +159,15 @@ static int parse_string(JsonParser *p)
                             low < 0xDC00 || low > 0xDFFF)
                         {
                             set_err(p, "bad surrogate pair");
-                            g_string_free(out, TRUE);
                             return -1;
                         }
                         cp = 0x10000 + (((cp - 0xD800) << 10) | (low - 0xDC00));
                     } else {
                         set_err(p, "lone high surrogate");
-                        g_string_free(out, TRUE);
                         return -1;
                     }
                 } else if (cp >= 0xDC00 && cp <= 0xDFFF) {
                     set_err(p, "lone low surrogate");
-                    g_string_free(out, TRUE);
                     return -1;
                 }
                 emit_utf8(out, cp);
@@ -163,19 +175,18 @@ static int parse_string(JsonParser *p)
             }
             default:
                 set_err(p, "bad escape \\%c", esc);
-                g_string_free(out, TRUE);
                 return -1;
             }
         } else if (c < 0x20) {
             set_err(p, "control char in string");
-            g_string_free(out, TRUE);
             return -1;
         } else {
-            g_string_append_c(out, (char)c);
+            gsize start = p->pos - 1;
+            p->pos += sqgi_json_plain_span(p->src + p->pos, p->len - p->pos);
+            g_string_append_len(out, p->src + start, p->pos - start);
         }
     }
     set_err(p, "unterminated string");
-    g_string_free(out, TRUE);
     return -1;
 }
 
@@ -206,6 +217,29 @@ static int parse_number(JsonParser *p)
             set_err(p, "digit expected after exponent"); return -1;
         }
         while (peek(p) >= '0' && peek(p) <= '9') p->pos++;
+    }
+    if (!is_float) {
+        gboolean negative = p->src[start] == '-';
+        uint64_t magnitude = 0;
+        uint64_t limit = negative ? (uint64_t)INT64_MAX + 1 : (uint64_t)INT64_MAX;
+        gsize i = start + negative;
+        for (; i < p->pos; ++i) {
+            unsigned digit = (unsigned)(p->src[i] - '0');
+            if (magnitude > (limit - digit) / 10) break;
+            magnitude = magnitude * 10 + digit;
+        }
+        if (i == p->pos) {
+            int64_t result = negative ? (magnitude == (UINT64_C(1) << 63)
+                                         ? INT64_MIN : -(int64_t)magnitude)
+                                      : (int64_t)magnitude;
+            sq_pushinteger(p->v, (SQInteger)result);
+            return 0;
+        }
+    }
+    double fast;
+    if (sqgi_json_parse_double(p->src + start, p->src + p->pos, &fast)) {
+        sq_pushfloat(p->v, (SQFloat)fast);
+        return 0;
     }
     /* Copy the slice to a NUL-terminated buffer for strtoll/strtod. */
     gsize n = p->pos - start;
@@ -257,7 +291,8 @@ static int parse_array(JsonParser *p)
     if (peek(p) == ']') { p->pos++; p->depth--; return 0; }
     for (;;) {
         if (parse_value(p) < 0) return -1;
-        sq_arrayappend(p->v, -2);
+        _array(p->v->GetUp(-2))->Append(p->v->GetUp(-1));
+        p->v->Pop();
         skip_ws(p);
         int c = peek(p);
         if (c == ',') { p->pos++; skip_ws(p); continue; }
@@ -285,7 +320,8 @@ static int parse_object(JsonParser *p)
         p->pos++;
         skip_ws(p);
         if (parse_value(p) < 0) return -1; /* value on stack */
-        sq_newslot(p->v, -3, SQFalse);
+        _table(p->v->GetUp(-3))->NewSlot(p->v->GetUp(-2), p->v->GetUp(-1));
+        p->v->Pop(2);
         skip_ws(p);
         int c = peek(p);
         if (c == ',') { p->pos++; continue; }
@@ -377,6 +413,12 @@ static void write_escaped_string(JsonWriter *w, const char *s, gsize n)
 {
     g_string_append_c(w->out, '"');
     for (gsize i = 0; i < n; i++) {
+        gsize span = sqgi_json_plain_span(s + i, n - i);
+        if (span) {
+            g_string_append_len(w->out, s + i, span);
+            i += span;
+            if (i == n) break;
+        }
         unsigned char c = (unsigned char)s[i];
         switch (c) {
         case '"':  g_string_append(w->out, "\\\""); break;
@@ -388,9 +430,9 @@ static void write_escaped_string(JsonWriter *w, const char *s, gsize n)
         case '\t': g_string_append(w->out, "\\t"); break;
         default:
             if (c < 0x20) {
-                char buf[8];
-                g_snprintf(buf, sizeof(buf), "\\u%04x", c);
-                g_string_append(w->out, buf);
+                static const char hex[] = "0123456789abcdef";
+                char buf[] = {'\\', 'u', '0', '0', hex[c >> 4], hex[c & 15]};
+                g_string_append_len(w->out, buf, sizeof(buf));
             } else {
                 /* Emit raw bytes; assume already valid UTF-8. */
                 g_string_append_c(w->out, (char)c);
@@ -400,95 +442,31 @@ static void write_escaped_string(JsonWriter *w, const char *s, gsize n)
     g_string_append_c(w->out, '"');
 }
 
-static int write_array(HSQUIRRELVM v, SQInteger idx, JsonWriter *w)
+/* Scalars never call user code and do not need VM stack traffic. A return
+ * value of 1 asks the rooted container/metamethod path to handle the value. */
+static int write_primitive(const SQObject &value, JsonWriter *w)
 {
-    SQInteger aidx = (idx < 0) ? sq_gettop(v) + idx + 1 : idx;
-    SQInteger len = sq_getsize(v, aidx);
-    if (len == 0) { g_string_append(w->out, "[]"); return 0; }
-    g_string_append_c(w->out, '[');
-    w->depth++;
-    for (SQInteger i = 0; i < len; i++) {
-        if (i > 0) g_string_append_c(w->out, ',');
-        write_newline_indent(w);
-        sq_pushinteger(v, i);
-        if (SQ_FAILED(sq_get(v, aidx))) {
-            g_snprintf(w->err, sizeof(w->err),
-                "json.stringify: failed to read array element %d", (int)i);
-            return -1;
-        }
-        if (write_value(v, -1, w) < 0) { sq_poptop(v); return -1; }
-        sq_poptop(v);
-    }
-    w->depth--;
-    write_newline_indent(w);
-    g_string_append_c(w->out, ']');
-    return 0;
-}
-
-static int write_table(HSQUIRRELVM v, SQInteger idx, JsonWriter *w)
-{
-    SQInteger tidx = (idx < 0) ? sq_gettop(v) + idx + 1 : idx;
-    g_string_append_c(w->out, '{');
-    w->depth++;
-    SQBool first = SQTrue;
-    sq_pushnull(v); /* iterator */
-    while (SQ_SUCCEEDED(sq_next(v, tidx))) {
-        /* key at -2, value at -1 */
-        if (sq_gettype(v, -2) != OT_STRING) {
-            sq_pop(v, 2);
-            g_snprintf(w->err, sizeof(w->err),
-                "json.stringify: table key must be a string");
-            sq_poptop(v); /* iterator */
-            return -1;
-        }
-        if (!first) g_string_append_c(w->out, ',');
-        first = SQFalse;
-        write_newline_indent(w);
-        const SQChar *k = NULL;
-        sq_getstring(v, -2, &k);
-        SQInteger klen = sq_getsize(v, -2);
-        write_escaped_string(w, k, (gsize)klen);
-        g_string_append_c(w->out, ':');
-        if (w->indent > 0) g_string_append_c(w->out, ' ');
-        if (write_value(v, -1, w) < 0) {
-            sq_pop(v, 3); /* k, val, iter */
-            return -1;
-        }
-        sq_pop(v, 2); /* k, val */
-    }
-    sq_poptop(v); /* iterator */
-    w->depth--;
-    if (!first) write_newline_indent(w);
-    g_string_append_c(w->out, '}');
-    return 0;
-}
-
-static int write_value(HSQUIRRELVM v, SQInteger idx, JsonWriter *w)
-{
-    if (w->depth > SQGI_JSON_MAX_DEPTH) {
-        g_snprintf(w->err, sizeof(w->err),
-            "json.stringify: nesting too deep (cycle?)");
-        return -1;
-    }
-    SQObjectType t = sq_gettype(v, idx);
+    SQObjectType t = sq_type(value);
     switch (t) {
     case OT_NULL:
         g_string_append(w->out, "null");
         return 0;
     case OT_BOOL: {
-        SQBool b; sq_getbool(v, idx, &b);
+        SQBool b = (SQBool)_integer(value);
         g_string_append(w->out, b ? "true" : "false");
         return 0;
     }
     case OT_INTEGER: {
-        SQInteger n; sq_getinteger(v, idx, &n);
-        char buf[32];
-        g_snprintf(buf, sizeof(buf), "%lld", (long long)n);
-        g_string_append(w->out, buf);
+        SQInteger n = _integer(value);
+        char buf[32], *end = buf + sizeof(buf), *q = end;
+        uint64_t magnitude = n < 0 ? UINT64_C(0) - (uint64_t)n : (uint64_t)n;
+        do { *--q = (char)('0' + magnitude % 10); magnitude /= 10; } while (magnitude);
+        if (n < 0) *--q = '-';
+        g_string_append_len(w->out, q, end - q);
         return 0;
     }
     case OT_FLOAT: {
-        SQFloat f; sq_getfloat(v, idx, &f);
+        SQFloat f = _float(value);
         double d = (double)f;
         if (isnan(d) || isinf(d)) {
             g_snprintf(w->err, sizeof(w->err),
@@ -497,8 +475,10 @@ static int write_value(HSQUIRRELVM v, SQInteger idx, JsonWriter *w)
             return -1;
         }
         char buf[G_ASCII_DTOSTR_BUF_SIZE];
-        g_ascii_dtostr(buf, sizeof(buf), d);
-        g_string_append(w->out, buf);
+        size_t length = sqgi_json_format_double(buf, sizeof(buf) - 1, d);
+        if (length) buf[length] = 0;
+        else { g_ascii_dtostr(buf, sizeof(buf), d); length = strlen(buf); }
+        g_string_append_len(w->out, buf, length);
         /* Floats that happen to print without a '.' or exponent would
          * round-trip as integers. Append ".0" to preserve the JSON
          * number-is-fractional convention and the Squirrel type. */
@@ -514,11 +494,92 @@ static int write_value(HSQUIRRELVM v, SQInteger idx, JsonWriter *w)
         return 0;
     }
     case OT_STRING: {
-        const SQChar *s; sq_getstring(v, idx, &s);
-        SQInteger slen = sq_getsize(v, idx);
+        const SQChar *s = _stringval(value);
+        SQInteger slen = _string(value)->_len;
         write_escaped_string(w, s, (gsize)slen);
         return 0;
     }
+    default: return 1;
+    }
+}
+
+static int write_item(HSQUIRRELVM v, const SQObjectPtr &value, JsonWriter *w)
+{
+    if (w->depth > SQGI_JSON_MAX_DEPTH) {
+        g_strlcpy(w->err, "json.stringify: nesting too deep (cycle?)", sizeof(w->err));
+        return -1;
+    }
+    int r = write_primitive(value, w);
+    if (r != 1) return r;
+    // Root every non-scalar before recursion: _tojson may resize containers,
+    // grow the VM stack, remove this value from its parent, or collect garbage.
+    v->Push(value);
+    r = write_value(v, -1, w);
+    sq_poptop(v);
+    return r;
+}
+
+static int write_array(HSQUIRRELVM v, SQInteger idx, JsonWriter *w)
+{
+    SQArray *array = _array(stack_get(v, idx)); // kept alive by the VM stack
+    SQInteger len = array->Size();
+    if (len == 0) { g_string_append(w->out, "[]"); return 0; }
+    g_string_append_c(w->out, '[');
+    w->depth++;
+    for (SQInteger i = 0; i < len; i++) {
+        if (i > 0) g_string_append_c(w->out, ',');
+        write_newline_indent(w);
+        SQObjectPtr item;
+        if (!array->Get(i, item)) {
+            g_snprintf(w->err, sizeof(w->err), "json.stringify: failed to read array element %d", (int)i);
+            return -1;
+        }
+        if (write_item(v, item, w) < 0) return -1;
+    }
+    w->depth--;
+    write_newline_indent(w);
+    g_string_append_c(w->out, ']');
+    return 0;
+}
+
+static int write_table(HSQUIRRELVM v, SQInteger idx, JsonWriter *w)
+{
+    SQTable *table = _table(stack_get(v, idx));
+    g_string_append_c(w->out, '{');
+    w->depth++;
+    SQObjectPtr iterator, key, value;
+    bool first = true;
+    SQInteger next;
+    while ((next = table->Next(false, iterator, key, value)) != -1) {
+        iterator = next;
+        if (sq_type(key) != OT_STRING) {
+            g_strlcpy(w->err, "json.stringify: table key must be a string", sizeof(w->err));
+            return -1;
+        }
+        if (!first) g_string_append_c(w->out, ',');
+        first = false;
+        write_newline_indent(w);
+        write_escaped_string(w, _stringval(key), (gsize)_string(key)->_len);
+        g_string_append_c(w->out, ':');
+        if (w->indent > 0) g_string_append_c(w->out, ' ');
+        if (write_item(v, value, w) < 0) return -1;
+    }
+    w->depth--;
+    if (!first) write_newline_indent(w);
+    g_string_append_c(w->out, '}');
+    return 0;
+}
+
+static int write_value(HSQUIRRELVM v, SQInteger idx, JsonWriter *w)
+{
+    if (w->depth > SQGI_JSON_MAX_DEPTH) {
+        g_strlcpy(w->err, "json.stringify: nesting too deep (cycle?)", sizeof(w->err));
+        return -1;
+    }
+    int primitive = write_primitive(stack_get(v, idx), w);
+    if (primitive != 1) return primitive;
+    SQObjectType t = sq_gettype(v, idx);
+    switch(t) {
     case OT_ARRAY:  return write_array(v, idx, w);
     case OT_TABLE:  return write_table(v, idx, w);
     case OT_INSTANCE: {

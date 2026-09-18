@@ -18,12 +18,12 @@ extern "C" {
  * Type mapping:
  *   JSON null     ↔ null
  *   JSON bool     ↔ bool
- *   JSON number   → integer if it round-trips to i64 without precision loss,
- *                   otherwise float; on stringify, integer → "%d", float →
- *                   g_ascii_dtostr
+ *   JSON number   → integer for in-range integer tokens, otherwise float;
+ *                   stringify uses shortest round-trippable float spelling
+ *                   and retains a decimal/exponent for floating values
  *   JSON string   ↔ string (UTF-8 bytes; \uXXXX decoded to UTF-8 on parse)
  *   JSON array    ↔ array
- *   JSON object   ↔ table  (insertion order preserved on stringify)
+ *   JSON object   ↔ table  (table iteration order on stringify)
  *
  * Limits:
  *   Parse recursion is capped at 128 to defeat trivial DoS via deeply
