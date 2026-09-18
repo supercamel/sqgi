@@ -68,6 +68,60 @@ SQGI is useful for:
   the underlying libraries are well-documented, which makes SQGI practical for
   AI-assisted development.
 
+## LLVM JIT and Typed Kernels
+
+SQGI offers two complementary ways to speed up hot code:
+
+- **LLVM bytecode JIT** compiles eligible hot ordinary Squirrel code, including
+  numeric loops and object operations. Guards preserve dynamic behavior, with
+  interpreter fallback when an optimization does not apply.
+- **Typed kernels** let you write hot sections in a small, explicitly typed
+  C-like language with functions, structs, typed classes, arrays, and math
+  intrinsics. LLVM compiles them into native code at runtime, and Squirrel calls
+  them through `sqgi.kernel`. Kernels can run independently of the bytecode JIT.
+
+Both are experimental and **opt-in**. With the normal build dependencies plus
+LLVM 18 development headers and its matching library installed:
+
+```sh
+cmake -S . -B build-llvm -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+  -DSQ_ENABLE_JIT=ON -DSQGI_BYTECODE_JIT_BACKEND=LLVM \
+  -DSQGI_THREADED_DISPATCH=ON \
+  -DSQGI_ENABLE_KERNELS=ON -DSQGI_KERNEL_BACKEND=LLVM
+cmake --build build-llvm -j"$(nproc)"
+build-llvm/sqgi demo/kernels/geometry.nut
+```
+
+### Selected performance results
+
+Measured on Linux x86-64, Intel i7-12700, against **Node.js 26.9.0** on
+2026-09-18. Times are **nanoseconds per loop iteration**, medians of five rounds;
+lower is better. Runs use one pinned CPU, five warmups, a JIT threshold of one,
+and no LTO/PGO. Compilation is excluded; checksums matched across runtimes.
+
+| SQGI execution | Workload | SQGI | Node.js |
+|---|---|---:|---:|
+| Ordinary Squirrel JIT | Direct function call | 3.171 | 3.907 |
+| Ordinary Squirrel JIT | Branching function call | 3.224 | 2.977 |
+| Ordinary Squirrel JIT | Dynamic member operations | 6.038 | 27.778 |
+| Typed kernel | Vector recurrence | 8.425 | 112.542 |
+| Typed kernel | Matrix recurrence | 7.025 | 8.615 |
+
+These are selected warm microbenchmarks, not application-wide speed guarantees.
+Kernel rows come from separate dedicated comparisons, with a complete loop per
+Squirrel-to-kernel call. The vector kernel uses fixed storage, while the Node
+version uses objects; it is not an allocation-free JavaScript comparison.
+Batching work also amortizes call overhead, so a tiny individual kernel call can
+have a different performance profile.
+
+See the [JIT results and raw samples](docs/benchmark-results/kernel-module-architecture-2026-09-18.json),
+[kernel vector comparison](docs/benchmark-results/llvm-kernel-vector-2026-09-18.json),
+and [kernel matrix comparison](docs/benchmark-results/llvm-kernel-matrix-2026-09-18.json).
+The [kernel guide](docs/kernels/README.md) covers the language, Squirrel API,
+platform support, and deployment requirements; the
+[benchmark suite](demo/benchmarks/kernels/README.md) includes more workloads and
+reproduction commands.
+
 ## A Tiny Demo
 
 ```squirrel
