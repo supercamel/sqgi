@@ -95,7 +95,7 @@ foreach(source in [
     "export void f(){i64 a[0];}",
     "export void f(i64 n){i64 a[n];}",
     "export void f(){f64 a[99999999999999999999];}",
-    "export void f(){i64 a[384];}",
+    "export void f(){i64 a[8193];}",
     "export void f(){bool a[2];}",
     "class C{i64 x;};export void f(){C a[2];}",
     "class C{i64 x;};export i64 f(){C c;return c;}",

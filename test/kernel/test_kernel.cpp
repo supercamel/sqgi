@@ -138,7 +138,7 @@ int main() {
                     args.push_back(v);
                 }
                 Call native{args.data(),0,10000,0}, reference=native;
-                auto a=execute(*m,n,native),b=interpret(f,reference);
+                auto a=execute(*m,n,native),b=interpret(*m,n,reference);
                 bool equal=native.result==reference.result;
                 if(f.result==Type::F64 && std::isnan(real(native.result)) && std::isnan(real(reference.result))) equal=true;
                 check(a==b && native.error_line==reference.error_line && native.fuel==reference.fuel && equal,std::string("differential ")+name);
@@ -150,7 +150,7 @@ int main() {
             uint64_t aa[]={(uint64_t)(uintptr_t)input.data(),(uint64_t)(uintptr_t)a.data(),(uint64_t)count,bits(1.5)};
             uint64_t bb[]={(uint64_t)(uintptr_t)input.data(),(uint64_t)(uintptr_t)b.data(),(uint64_t)count,bits(1.5)};
             Call ca{aa,0,10000,0},cb{bb,0,10000,0};size_t n=index(*m,"transform");
-            check(execute(*m,n,ca)==interpret(m->functions[n],cb) && a==b && ca.error_line==cb.error_line,"differential array effects");
+            check(execute(*m,n,ca)==interpret(*m,n,cb) && a==b && ca.error_line==cb.error_line,"differential array effects");
         }
         // Exercise vectorizable loops and their scalar/error tails. Compare
         // every output cell, exact fuel and the first failure location.
@@ -180,7 +180,7 @@ int main() {
                     uint64_t aa[]={(uint64_t)(uintptr_t)big_input.data(),(uint64_t)(uintptr_t)a.data(),(uint64_t)count};
                     uint64_t bb[]={(uint64_t)(uintptr_t)big_input.data(),(uint64_t)(uintptr_t)b.data(),(uint64_t)count};
                     Call ca{aa,0,fuel,0},cb{bb,0,fuel,0};
-                    auto status=execute(*maps,function,ca),reference=interpret(maps->functions[function],cb);
+                    auto status=execute(*maps,function,ca),reference=interpret(*maps,function,cb);
                     check(status==reference && a==b && ca.fuel==cb.fuel && ca.error_line==cb.error_line,"optimized loop preserves partial effects/bounds/budget");
                 }
 #if defined(__x86_64__) || defined(_M_X64)

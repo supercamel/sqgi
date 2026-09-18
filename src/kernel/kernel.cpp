@@ -8,6 +8,8 @@
 #include <cstdlib>
 #include <limits>
 #include <map>
+#include <deque>
+#include <chrono>
 #include <sstream>
 
 namespace sqkernel {
@@ -50,10 +52,16 @@ class Parser {
         if(take("void")) return Type::Void;
         fail("expected supported scalar type (i64, f64, bool, void)");
     }
-    int slot() { if(fn->slots >= 384) fail("prototype native frame limit exceeded"); return fn->slots++; }
+    int slot(Type type=Type::Void) { if(fn->slots >= 16384) fail("temporary value limit exceeded (16384)"); fn->slot_types.push_back(type); return fn->slots++; }
     int emit(Op op, Type t=Type::Void, int dst=-1, int a=-1, int b=-1, uint64_t imm=0, int line=0) {
         if(fn->code.size() >= 8192) fail("instruction limit exceeded");
-        fn->code.push_back({op,t,dst,a,b,imm,line ? line : peek().line});
+        if(dst>=0 && op!=Op::Store) {
+            Type result=(op==Op::Eq || op==Op::Ne || op==Op::Lt || op==Op::Le || op==Op::Gt || op==Op::Ge)?Type::Bool:
+                op==Op::LocalAddress?Type::Pointer:t;
+            if(fn->slot_types.at(dst)!=Type::Void && fn->slot_types[dst]!=result) fail("inconsistent temporary type");
+            fn->slot_types[dst]=result;
+        }
+        fn->code.push_back({op,t,dst,a,b,imm,line ? line : peek().line,(int)module.functions.size()});
         return (int)fn->code.size()-1;
     }
     Value constant(Type t,uint64_t bits) { int s=slot(); emit(Op::Constant,t,s,-1,-1,bits); return {s,t}; }
@@ -92,7 +100,7 @@ class Parser {
         if(field) { auto k=constant(Type::I64,field); int s=slot(); emit(Op::Add,Type::I64,s,index.slot,k.slot); index={s,Type::I64}; }
         return {v.value.slot,index.slot,t,p.writable};
     }
-    Value inline_call(const std::string &n, const Variable *receiver=nullptr) {
+    Value helper_call(const std::string &n, const Variable *receiver=nullptr) {
         const Function *callee=nullptr;
         for(auto &f:module.functions) if(f.name==n) callee=&f;
         if(!callee) fail("helper must be defined earlier; recursion and forward calls are unsupported: " + n);
@@ -110,10 +118,8 @@ class Parser {
         } while(take(","));
         need(")");
         if(args.size()!=callee->parameters.size()) fail("wrong helper argument count");
-        int base=fn->slots;
-        for(int i=0;i<callee->slots;++i) slot();
-        for(const auto &region:callee->local_storage)
-            fn->local_storage.push_back({base+region.first,region.cells});
+        CallSite call; call.function=(size_t)(callee-module.functions.data());
+        std::vector<int> lengths;
         for(size_t i=0;i<args.size();++i) {
             const auto &target=callee->parameters[i];
             if(target.borrowed()) {
@@ -126,33 +132,15 @@ class Parser {
                 for(size_t j=0;j<i;++j) if(references[j]==references[i] && (target.writable || callee->parameters[j].writable))
                     fail("overlapping mutable helper arguments");
                 if(target.dynamic) {
-                    if(source.dynamic) emit(Op::Copy,Type::I64,base+target.length_slot,source.length_slot);
-                    else emit(Op::Constant,Type::I64,base+target.length_slot,-1,-1,source.extent);
+                    lengths.push_back(source.dynamic?source.length_slot:constant(Type::I64,source.extent).slot);
                 }
             } else same(args[i].type,target.type);
-            emit(Op::Copy,args[i].type,base+(int)i,args[i].slot);
+            call.arguments.push_back(args[i].slot);
         }
         int result=callee->result==Type::Void?-1:slot();
-        std::vector<int> offsets(callee->code.size()+1);
-        int end=(int)fn->code.size();
-        for(size_t i=0;i<callee->code.size();++i) {
-            offsets[i]=end;
-            end+=callee->code[i].op==Op::Return && callee->result!=Type::Void ? 2 : 1;
-        }
-        offsets.back()=end;
-        for(auto ins:callee->code) {
-            if(ins.op==Op::Return) {
-                if(callee->result!=Type::Void) emit(Op::Copy,callee->result,result,ins.a+base,-1,0,ins.line);
-                emit(Op::Jump,Type::Void,-1,-1,-1,end,ins.line);
-            } else {
-                if(ins.dst>=0) ins.dst+=base;
-                if(ins.a>=0) ins.a+=base;
-                if(ins.b>=0) ins.b+=base;
-                if(ins.op==Op::Jump || ins.op==Op::JumpFalse) ins.immediate=offsets.at(ins.immediate);
-                if(ins.op==Op::LocalAddress) ins.immediate+=base;
-                emit(ins.op,ins.type,ins.dst,ins.a,ins.b,ins.immediate,ins.line);
-            }
-        }
+        call.arguments.insert(call.arguments.end(),lengths.begin(),lengths.end());
+        size_t site=fn->calls.size(); fn->calls.push_back(std::move(call));
+        emit(Op::Call,callee->result,result,-1,-1,site);
         return {result,callee->result};
     }
     bool method_call(Variable v) const {
@@ -161,14 +149,14 @@ class Parser {
     }
     Value call_method(Variable v) {
         need("."); std::string method=name(); need("(");
-        return inline_call(storage[v.parameter].record+"."+method,&v);
+        return helper_call(storage[v.parameter].record+"."+method,&v);
     }
     Value function_call(const std::string &n) {
         if(fn && fn->owner.empty() && fn->name==n) fail("recursion is unsupported: "+n);
         // Previously declared user helpers shadow standard math names.
-        for(const auto &f:module.functions) if(f.name==n) return inline_call(n);
+        for(const auto &f:module.functions) if(f.name==n) return helper_call(n);
         int index=math_builtin_index(n);
-        if(index<0) return inline_call(n);
+        if(index<0) return helper_call(n);
         const auto &spec=math_builtin(index);
         std::vector<Value> args;
         if(!at(")")) do {
@@ -265,7 +253,7 @@ class Parser {
             if(extent.empty() || !isdigit((unsigned char)extent[0])) fail("local array extent must be a positive literal");
             ++pos; char *end=nullptr; errno=0;
             auto count=strtoull(extent.c_str(),&end,10);
-            if(*end || errno || !count || count>384) fail("local array extent exceeds native frame limit");
+            if(*end || errno || !count || count>8192) fail("local array extent exceeds storage limit (8192 cells)");
             p.extent=(size_t)count; need("]");
             if(!p.record.empty() && record(p.record)->is_class) fail("local class arrays are unsupported");
             if(p.type==Type::Bool) fail("bool arrays are unsupported");
@@ -274,13 +262,14 @@ class Parser {
             p.instance=true; p.extent=1;
         }
         size_t cells=p.extent*p.stride;
-        if(cells>384) fail("local storage exceeds native frame limit");
-        int first=fn->slots;
-        fn->local_storage.push_back({first,cells});
-        // Initialization is emitted at the declaration, so loop-local state
-        // is reset on every iteration, not merely once at function entry.
-        for(size_t i=0;i<cells;++i) { int s=slot(); emit(Op::Constant,Type::I64,s,-1,-1,0); }
-        int pointer=slot(); emit(Op::LocalAddress,Type::I64,pointer,-1,-1,first);
+        size_t total=cells;
+        for(const auto &region:fn->local_storage) total+=region.cells;
+        if(total>8192) fail("local storage limit exceeded (65536 bytes)");
+        size_t region=fn->local_storage.size();
+        fn->local_storage.push_back({-1,cells});
+        // Reset at the declaration, including each iteration of a loop.
+        emit(Op::LocalZero,Type::Void,-1,-1,-1,region);
+        int pointer=slot(); emit(Op::LocalAddress,Type::I64,pointer,-1,-1,region);
         int descriptor=(int)storage.size(); storage.push_back(p);
         bind(p.name,{{pointer,p.type},descriptor});
     }
@@ -370,7 +359,7 @@ class Parser {
         if(!owner.empty()) {
             Parameter self; self.name="this"; self.record=owner; self.instance=true;
             self.writable=true; self.extent=1; self.stride=record(owner)->fields.size();
-            int s=slot(); bind("this",{{s,Type::Void},0}); f.parameters.push_back(self);
+            int s=slot(Type::Pointer); bind("this",{{s,Type::Void},0}); f.parameters.push_back(self);
         }
         if(!at(")")) do {
             Parameter p; bool borrow=false;
@@ -394,11 +383,11 @@ class Parser {
             if(borrow != p.borrowed()) fail("array parameters require in/inout, as do class references; scalar parameters are by value");
             if(!p.record.empty() && !p.borrowed()) fail("structs require array parameters");
             if(p.borrowed() && p.type==Type::Bool) fail("prototype bool arrays are unsupported");
-            int s=slot(); bind(p.name,{{s,p.type},(int)f.parameters.size()}); f.parameters.push_back(p);
+            int s=slot(p.borrowed()?Type::Pointer:p.type); bind(p.name,{{s,p.type},(int)f.parameters.size()}); f.parameters.push_back(p);
             if(f.parameters.size()>MaxParameters) fail("parameter limit exceeded");
         } while(take(","));
         need(")");
-        for(auto &p:f.parameters) if(p.dynamic) p.length_slot=slot();
+        for(auto &p:f.parameters) if(p.dynamic) p.length_slot=slot(Type::I64);
         storage=f.parameters;
         if(!at("{")) fail("expected function body"); bool returns=statement();
         if(!returns) { if(f.result!=Type::Void) fail("function must return on every path"); emit(Op::Return); }
@@ -471,11 +460,24 @@ public:
 };
 }
 
-std::shared_ptr<Executable> lower(const Function &);
 std::shared_ptr<Module> compile(const std::string &source,const std::string &filename) {
-    if(!supported()) throw std::runtime_error("kernel native backend unavailable: prototype requires x86_64");
+    const auto start=std::chrono::steady_clock::now();
+    if(!supported()) throw std::runtime_error("kernel native backend unavailable on this host");
     auto m=std::make_shared<Module>(); m->filename=filename; Parser(*m,source).run();
-    for(auto &f:m->functions) m->native.push_back(lower(f));
+    verify(*m);
+    for(auto &f:m->functions) {
+        m->stats.instructions+=f.code.size(); m->stats.values+=f.slots;
+        for(const auto &r:f.local_storage) m->stats.local_bytes+=r.cells*8;
+        f.floating=uses_floating_environment(f);
+        for(const auto &i:f.code) if(i.op==Op::Bounds || i.op==Op::Require || i.op==Op::Tick ||
+            i.op==Op::Rem || (i.op==Op::Div && i.type==Type::I64)) f.checked=true;
+        for(const auto &call:f.calls) {
+            f.floating=f.floating || m->functions.at(call.function).floating;
+            f.checked=f.checked || m->functions.at(call.function).checked;
+        }
+    }
+    lower(*m);
+    m->stats.compile_ms=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-start).count();
     return m;
 }
 const char *status_name(Status s) {
@@ -484,10 +486,196 @@ const char *status_name(Status s) {
     case ArithmeticError:return "invalid integer division or remainder"; } return "unknown kernel error";
 }
 bool uses_floating_environment(const Function &f) {
-    // Helpers/methods have already been inlined into this function's IR.
+    if(f.floating) return true;
+    // Include transitive helper effects computed during module verification.
     // Conservatively include all f64 instructions, even bitwise-only copies.
     for(const auto &i:f.code) if(i.type==Type::F64) return true;
     return false;
 }
 
+}
+
+namespace sqkernel {
+void verify(const Module &m) {
+    std::vector<size_t> depth(m.functions.size()), live_bytes(m.functions.size());
+    size_t instructions=0;
+    for(size_t n=0;n<m.functions.size();++n) {
+        const auto &f=m.functions[n];
+        auto fail=[&](const std::string &why) {throw std::runtime_error(m.filename+": "+f.name+": invalid kernel IR: "+why);};
+        if(f.slots<0 || (size_t)f.slots<f.argument_slots() || f.slots>16384) fail("temporary limit (16384)");
+        instructions+=f.code.size();
+        if(f.code.empty() || f.code.size()>8192 || instructions>65536) fail("instruction budget (8192/function, 65536/module)");
+        size_t locals=0, child_bytes=0; depth[n]=1;
+        for(const auto &r:f.local_storage) {if(!r.cells || r.cells>8192) fail("invalid storage extent"); locals+=r.cells*8;}
+        if(locals>65536) fail("local storage exceeds 65536 bytes");
+        for(const auto &c:f.calls) {
+            // Current declaration-before-use syntax makes the graph topological.
+            if(c.function>=n) fail("recursive or unresolved helper call");
+            if(c.arguments.size()!=m.functions[c.function].argument_slots()) fail("call argument count");
+            for(int a:c.arguments) if(a<0 || a>=f.slots) fail("call argument slot");
+            depth[n]=std::max(depth[n],depth[c.function]+1);
+            child_bytes=std::max(child_bytes,live_bytes[c.function]);
+        }
+        if(depth[n]>32) fail("call depth exceeds 32");
+        live_bytes[n]=locals+child_bytes;
+        if(live_bytes[n]>262144) fail("active source-local storage exceeds 262144 bytes");
+        for(const auto &i:f.code) {
+            if(i.dst < -1 || i.a < -1 || i.b < -1 || i.dst>=f.slots || i.a>=f.slots || i.b>=f.slots) fail("slot reference");
+            if((i.op==Op::Jump || i.op==Op::JumpFalse) && i.immediate>f.code.size()) fail("branch target");
+            if((i.op==Op::LocalAddress || i.op==Op::LocalZero) && i.immediate>=f.local_storage.size()) fail("storage reference");
+            if(i.op==Op::Call) {
+                if(i.immediate>=f.calls.size()) fail("call reference");
+                if(i.type!=m.functions[f.calls[i.immediate].function].result || ((i.dst<0)!=(i.type==Type::Void))) fail("call result type");
+            }
+        }
+        if(f.slot_types.size()!=(size_t)f.slots) fail("missing temporary types");
+        auto expect=[&](int slot,Type type) {
+            if(slot<0 || slot>=f.slots || f.slot_types[slot]!=type) fail("operand type mismatch");
+        };
+        std::vector<std::vector<int>> reads(f.code.size());
+        std::vector<int> writes(f.code.size(),-1);
+        for(size_t pc=0;pc<f.code.size();++pc) {
+            const auto &i=f.code[pc];
+            auto read=[&](int slot,Type type) {expect(slot,type);reads[pc].push_back(slot);};
+            Type result=i.type;
+            bool produces=true;
+            switch(i.op) {
+            case Op::Constant:break;
+            case Op::Copy:case Op::Neg:read(i.a,i.type);break;
+            case Op::Add:case Op::Sub:case Op::Mul:case Op::Div:case Op::Rem:
+            case Op::Eq:case Op::Ne:case Op::Lt:case Op::Le:case Op::Gt:case Op::Ge:
+                read(i.a,i.type);read(i.b,i.type);
+                if(i.op>=Op::Eq && i.op<=Op::Ge) result=Type::Bool;
+                break;
+            case Op::Math: {
+                size_t count;math_builtins(count);
+                if(i.immediate>=count) fail("math builtin reference");
+                const auto &spec=math_builtin(i.immediate);read(i.a,Type::F64);
+                if(spec.arity()==2) read(i.b,Type::F64);
+                if(i.type!=(spec.predicate?Type::Bool:Type::F64)) fail("math result type");
+                break;
+            }
+            case Op::LocalAddress:result=Type::Pointer;break;
+            case Op::LocalZero:case Op::Jump:case Op::Tick:produces=false;break;
+            case Op::Load:read(i.a,Type::Pointer);read(i.b,Type::I64);break;
+            case Op::Store:read(i.a,Type::Pointer);read(i.b,Type::I64);read(i.dst,i.type);produces=false;break;
+            case Op::Bounds:read(i.a,Type::I64);if(i.b>=0) read(i.b,Type::I64);produces=false;break;
+            case Op::Require:case Op::JumpFalse:read(i.a,Type::Bool);produces=false;break;
+            case Op::Return:
+                if(i.type!=f.result) fail("return type");
+                if(i.type!=Type::Void) read(i.a,i.type);
+                produces=false;break;
+            case Op::Call: {
+                const auto &site=f.calls.at(i.immediate);const auto &callee=m.functions[site.function];
+                for(size_t a=0;a<site.arguments.size();++a) {
+                    Type type=a>=callee.parameters.size()?Type::I64:
+                        callee.parameters[a].borrowed()?Type::Pointer:callee.parameters[a].type;
+                    read(site.arguments[a],type);
+                }
+                produces=i.type!=Type::Void;break;
+            }
+            }
+            if(produces) {if(result==Type::Void) fail("void temporary");expect(i.dst,result);writes[pc]=i.dst;}
+        }
+        // Definite assignment over basic blocks. Unreachable instructions do not
+        // participate; loops intersect their back-edge state with entry state.
+        std::vector<size_t> leaders{0};
+        for(size_t pc=0;pc<f.code.size();++pc) {
+            auto op=f.code[pc].op;
+            if(op==Op::Jump || op==Op::JumpFalse) leaders.push_back(f.code[pc].immediate);
+            if(op==Op::Jump || op==Op::JumpFalse || op==Op::Return) leaders.push_back(pc+1);
+        }
+        leaders.push_back(f.code.size());std::sort(leaders.begin(),leaders.end());
+        leaders.erase(std::unique(leaders.begin(),leaders.end()),leaders.end());
+        size_t blocks=leaders.size()-1,words=(f.slots+63)/64;
+        std::vector<std::vector<size_t>> successors(blocks);
+        for(size_t block=0;block<blocks;++block) {
+            const auto &last=f.code[leaders[block+1]-1];
+            auto edge=[&](size_t pc) {if(pc<f.code.size()) successors[block].push_back(std::lower_bound(leaders.begin(),leaders.end(),pc)-leaders.begin());};
+            if(last.op==Op::Jump || last.op==Op::JumpFalse) edge(last.immediate);
+            if(last.op!=Op::Jump && last.op!=Op::Return) edge(leaders[block+1]);
+        }
+        std::vector<std::vector<uint64_t>> input(blocks,std::vector<uint64_t>(words,UINT64_MAX));
+        std::fill(input[0].begin(),input[0].end(),0);
+        for(size_t a=0;a<f.argument_slots();++a) input[0][a/64]|=uint64_t(1)<<(a%64);
+        std::vector<bool> reached(blocks,false),queued(blocks,false);reached[0]=queued[0]=true;
+        std::deque<size_t> work{0};
+        while(!work.empty()) {
+            auto block=work.front();work.pop_front();queued[block]=false;
+            auto output=input[block];
+            for(size_t pc=leaders[block];pc<leaders[block+1];++pc) if(writes[pc]>=0) output[writes[pc]/64]|=uint64_t(1)<<(writes[pc]%64);
+            for(size_t next:successors[block]) {
+                bool changed=!reached[next];reached[next]=true;
+                for(size_t w=0;w<words;++w) {auto value=input[next][w]&output[w];changed|=value!=input[next][w];input[next][w]=value;}
+                if(changed && !queued[next]) {work.push_back(next);queued[next]=true;}
+            }
+        }
+        for(size_t block=0;block<blocks;++block) if(reached[block]) {
+            const auto &last=f.code[leaders[block+1]-1];
+            if(((last.op==Op::Jump || last.op==Op::JumpFalse) && last.immediate==f.code.size()) ||
+               (last.op!=Op::Jump && last.op!=Op::Return && leaders[block+1]==f.code.size()))
+                fail("reachable function fallthrough");
+            auto defined=input[block];
+            for(size_t pc=leaders[block];pc<leaders[block+1];++pc) {
+                for(int slot:reads[pc]) if(!(defined[slot/64]&(uint64_t(1)<<(slot%64)))) fail("read before assignment at line "+std::to_string(f.code[pc].line));
+                if(writes[pc]>=0) defined[writes[pc]/64]|=uint64_t(1)<<(writes[pc]%64);
+            }
+        }
+
+    }
+}
+Function flatten(const Module &m,size_t index,size_t max_slots) {
+    const auto &source=m.functions.at(index);
+    Function f=source; f.code.clear(); f.calls.clear(); f.local_storage.clear();
+    auto capacity=[&] {
+        if((size_t)f.slots>max_slots) throw std::runtime_error(m.filename+": "+source.name+": native backend frame limit exceeded ("+std::to_string(max_slots)+" cells)");
+        if(f.code.size()>8192) throw std::runtime_error(m.filename+": "+source.name+": native backend expanded instruction limit exceeded (8192)");
+    };
+    capacity();
+    std::vector<int> storage;
+    for(const auto &r:source.local_storage) {
+        storage.push_back(f.slots); f.local_storage.push_back({f.slots,r.cells});
+        f.slots+=(int)r.cells; capacity();
+    }
+    std::vector<size_t> offsets(source.code.size()+1);
+    std::vector<std::pair<size_t,size_t>> branches;
+    for(size_t pc=0;pc<source.code.size();++pc) {
+        offsets[pc]=f.code.size(); auto i=source.code[pc];
+        if(i.op==Op::LocalZero) {
+            auto r=source.local_storage.at(i.immediate);
+            for(size_t k=0;k<r.cells;++k) f.code.push_back({Op::Constant,Type::I64,storage.at(i.immediate)+(int)k,-1,-1,0,i.line});
+        } else if(i.op==Op::Call) {
+            const auto &call=source.calls.at(i.immediate);
+            auto callee=flatten(m,call.function,max_slots);
+            int base=f.slots; f.slots+=callee.slots; capacity();
+            for(auto r:callee.local_storage) {r.first+=base; f.local_storage.push_back(r);}
+            for(size_t a=0;a<call.arguments.size();++a) f.code.push_back({Op::Copy,Type::I64,base+(int)a,call.arguments[a],-1,0,i.line});
+            size_t start=f.code.size();
+            std::vector<size_t> map(callee.code.size()+1); size_t end=start;
+            for(size_t k=0;k<callee.code.size();++k) {map[k]=end;end+=(callee.code[k].op==Op::Return && i.dst>=0)?2:1;}
+            map.back()=end;
+            for(auto ins:callee.code) {
+                if(ins.op==Op::Return) {
+                    if(i.dst>=0) f.code.push_back({Op::Copy,i.type,i.dst,ins.a+base,-1,0,ins.line});
+                    f.code.push_back({Op::Jump,Type::Void,-1,-1,-1,end,ins.line});
+                } else {
+                    if(ins.dst>=0) ins.dst+=base;
+                    if(ins.a>=0) ins.a+=base;
+                    if(ins.b>=0) ins.b+=base;
+                    if(ins.op==Op::Jump || ins.op==Op::JumpFalse) ins.immediate=map.at(ins.immediate);
+                    if(ins.op==Op::LocalAddress) ins.immediate+=base;
+                    f.code.push_back(ins);
+                }
+            }
+        } else {
+            if(i.op==Op::LocalAddress) i.immediate=storage.at(i.immediate);
+            if(i.op==Op::Jump || i.op==Op::JumpFalse) branches.push_back({f.code.size(),i.immediate});
+            f.code.push_back(i);
+        }
+        capacity();
+    }
+    offsets.back()=f.code.size();
+    for(auto branch:branches) f.code[branch.first].immediate=offsets.at(branch.second);
+    return f;
+}
 }

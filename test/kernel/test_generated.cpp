@@ -24,7 +24,7 @@ int main() {
             for(int input=0;input<32;++input) {
                 uint64_t x=input==0?0:random(),y=input==1?0:random(),count=random()%5;
                 uint64_t args[]={x,y,count};Call native{args,0,1000,0},oracle{args,0,1000,0};
-                auto status=execute(*m,0,native),reference=interpret(m->functions[0],oracle);
+                auto status=execute(*m,0,native),reference=interpret(*m,0,oracle);
                 if(status!=reference||native.result!=oracle.result||native.fuel!=oracle.fuel||native.error_line!=oracle.error_line)
                     throw std::runtime_error("generated native/reference mismatch");
                 uint64_t result=0;bool done=false;
@@ -38,7 +38,7 @@ int main() {
                 if(status!=Success||native.result!=result)throw std::runtime_error("generated C++ model mismatch");
                 for(uint64_t fuel:{0,1,2,4}) {
                     native={args,0,fuel,0};oracle={args,0,fuel,0};
-                    status=execute(*m,0,native);reference=interpret(m->functions[0],oracle);
+                    status=execute(*m,0,native);reference=interpret(*m,0,oracle);
                     if(status!=reference||native.result!=oracle.result||native.fuel!=oracle.fuel||native.error_line!=oracle.error_line)
                         throw std::runtime_error("generated fuel mismatch");
                     ++cases;

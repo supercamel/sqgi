@@ -20,7 +20,7 @@ static void validate_path(const Fixture &f,uint64_t result) {
 static void compare(const Module &m,const Workload &w,Fixture fixture,Status expected=Success,uint64_t fuel=1000000) {
     Fixture oracle=fixture,cpp=fixture;auto args=fixture.args(),oracle_args=oracle.args();
     Call native{args.data(),0,fuel,0},reference{oracle_args.data(),0,fuel,0};size_t index=function_index(m,w);
-    Status actual=execute(m,index,native),wanted=interpret(m.functions[index],reference);
+    Status actual=execute(m,index,native),wanted=interpret(m,index,reference);
     std::string label=std::string(w.name)+" n="+std::to_string(fixture.count)+" "+fixture.pattern;
     check(actual==expected && actual==wanted,label+" status");
     check(native.result==reference.result && native.fuel==reference.fuel && native.error_line==reference.error_line,label+" result/fuel/error line");

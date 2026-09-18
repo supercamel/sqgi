@@ -216,7 +216,7 @@ void run(Holder &h,const void *objects,SQInteger count,SQUnsignedInteger stride,
     // Generated code cannot call the VM, allocate, resize or release owners.
     Call call{arguments,0,1000000,0};
     Status status=execute(h.prepared,call);
-    if(status!=Success) throw std::runtime_error(h.module->filename+":"+std::to_string(call.error_line)+": "+f.name+": "+status_name(status));
+    if(status!=Success) throw std::runtime_error(h.module->filename+":"+std::to_string(call.error_line)+": "+h.module->functions.at(call.error_function).name+": "+status_name(status));
     result._unVal.raw=0;
     if(f.result==Type::Void) result._type=OT_NULL;
     else if(f.result==Type::F64) {result._type=OT_FLOAT;memcpy(&result._unVal.fFloat,&call.result,8);}
@@ -263,7 +263,7 @@ template<size_t N,bool Instance=false> SQRESULT invoke_scalars(SQUserPointer con
         // Execution may have effects. Format the error without re-entering.
         try {
             const auto &f=h.module->functions[h.index];
-            h.error=h.module->filename+":"+std::to_string(call.error_line)+": "+f.name+": "+status_name(status);
+            h.error=h.module->filename+":"+std::to_string(call.error_line)+": "+h.module->functions.at(call.error_function).name+": "+status_name(status);
             *error=h.error.c_str();
         } catch(...) {*error="kernel: failed to allocate error diagnostic";}
         return SQ_ERROR;

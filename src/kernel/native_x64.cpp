@@ -67,7 +67,7 @@ const char *backend_name() { return "native"; }
 namespace {
 class Emitter {
 public:
-    int frame_slots=0;
+    int frame_slots=0, source_function=0;
     uint32_t displacement(int slot) const { return (uint32_t)(-8-frame_slots*8+slot*8); }
     std::vector<unsigned char> bytes;
     struct Fix { size_t offset; size_t target; };
@@ -94,7 +94,7 @@ public:
     }
     void epilogue() { raw({0x48,0x8d,0x65,0xf8,0x41,0x5c,0x5d,0xc3}); }
     void error(Status status,int line) {
-        imm((uint64_t)line); raw({0x49,0x89,0x44,0x24,0x18});
+        imm((uint64_t(source_function)<<32)|uint32_t(line)); raw({0x49,0x89,0x44,0x24,0x18});
         raw({0xb8}); word(status); epilogue();
     }
     void guard(unsigned success,Status status,int line) {
@@ -118,7 +118,9 @@ std::shared_ptr<Executable> lower(const Function &f) {
     }
     for(const auto &i:f.code) {
         e.labels.push_back(e.bytes.size());
+        e.source_function=i.function;
         switch(i.op) {
+        case Op::Call:case Op::LocalZero: throw std::runtime_error("unlowered native kernel instruction");
         case Op::Constant: e.imm(i.immediate); e.store(i.dst); break;
         case Op::Copy: e.load(i.a); e.store(i.dst); break;
         case Op::LocalAddress:
@@ -222,6 +224,11 @@ std::shared_ptr<Executable> lower(const Function &f) {
     e.error(RequirementError,0);
     for(auto &f:e.branches) e.patch(f.offset,e.labels.at(f.target));
     return std::make_shared<Executable>(e.bytes,uses_floating_environment(f));
+}
+void lower(Module &m) {
+    std::vector<std::shared_ptr<Executable>> entries;
+    for(size_t n=0;n<m.functions.size();++n) entries.push_back(lower(flatten(m,n)));
+    m.native=std::move(entries);
 }
 PreparedCall prepare(const Module &m,size_t index) {return m.native.at(index)->prepared();}
 Status execute(const Module &m,size_t index,Call &call) {return execute(prepare(m,index),call);}

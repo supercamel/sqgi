@@ -57,13 +57,17 @@ struct Lowering {
     }
 };
 }
-class Executable {
-public:
+struct JitOwner {
     LLVMOrcLLJITRef jit=nullptr;
     char symbol_prefix=0;
+    size_t object_bytes=0;
+    ~JitOwner() { if(jit) if(auto error=LLVMOrcDisposeLLJIT(jit)) LLVMConsumeError(error); }
+};
+class Executable {
+public:
+    std::shared_ptr<JitOwner> owner;
     int (*entry)(Call*)=nullptr;
     bool floating=true;
-    ~Executable() { if(jit) if(auto error=LLVMOrcDisposeLLJIT(jit)) LLVMConsumeError(error); }
     Status run(Call &call) const {return (Status)entry(&call);}
 };
 bool supported() {
@@ -74,19 +78,31 @@ bool supported() {
 #endif
 }
 const char *backend_name() { return "llvm"; }
-std::shared_ptr<Executable> lower(const Function &f) {
-    static_assert(offsetof(Call,result)==8 && offsetof(Call,fuel)==16 && offsetof(Call,error_line)==24,"kernel ABI requires 64-bit pointers");
+void lower(Module &m) {
+    static_assert(offsetof(Call,result)==8 && offsetof(Call,fuel)==16 && offsetof(Call,error_line)==24 && offsetof(Call,error_function)==28 && sizeof(Call)==32,"kernel ABI requires 64-bit pointers");
     initialize();
-    auto executable=std::make_shared<Executable>();
-    executable->floating=uses_floating_environment(f);
-    checked(LLVMOrcCreateLLJIT(&executable->jit,nullptr));
+    auto owner=std::make_shared<JitOwner>();
+    checked(LLVMOrcCreateLLJIT(&owner->jit,nullptr));
+    LLVMOrcObjectTransformLayerSetTransform(LLVMOrcLLJITGetObjTransformLayer(owner->jit),
+        [](void *context,LLVMMemoryBufferRef *object)->LLVMErrorRef {
+            auto &owner=*static_cast<JitOwner*>(context);
+            size_t bytes=LLVMGetBufferSize(*object);
+            // Object bytes include metadata, so this is a conservative emitted
+            // object budget, not a claim about text or machine stack size.
+            if(bytes>16*1024*1024-owner.object_bytes) {
+                LLVMDisposeMemoryBuffer(*object);*object=nullptr;
+                return LLVMCreateStringError("kernel module object budget exceeded (16777216 bytes)");
+            }
+            owner.object_bytes+=bytes;
+            return LLVMErrorSuccess;
+        },owner.get());
     // Optimizers/codegen may introduce memory helpers or Windows stack probes.
     // Resolve only compiler-runtime helpers; source kernels cannot call externs.
-    executable->symbol_prefix=LLVMOrcLLJITGetGlobalPrefix(executable->jit);
+    owner->symbol_prefix=LLVMOrcLLJITGetGlobalPrefix(owner->jit);
     LLVMOrcDefinitionGeneratorRef runtime=nullptr;
     checked(LLVMOrcCreateDynamicLibrarySearchGeneratorForProcess(&runtime,
-        executable->symbol_prefix,compiler_runtime_symbol,&executable->symbol_prefix));
-    LLVMOrcJITDylibAddGenerator(LLVMOrcLLJITGetMainJITDylib(executable->jit),runtime);
+        owner->symbol_prefix,compiler_runtime_symbol,&owner->symbol_prefix));
+    LLVMOrcJITDylibAddGenerator(LLVMOrcLLJITGetMainJITDylib(owner->jit),runtime);
     // Intrinsics may lower to these exact libm entry points on older CPUs.
     // Bind audited wrappers explicitly rather than widening process lookup.
     std::vector<LLVMOrcCSymbolMapPair> math_symbols;
@@ -95,23 +111,23 @@ std::shared_ptr<Executable> lower(const Function &f) {
         const auto &spec=catalog[n];
         if(!spec.intrinsic || !std::strcmp(spec.name,"abs")) continue;
         LLVMOrcCSymbolMapPair symbol{};
-        symbol.Name=LLVMOrcLLJITMangleAndIntern(executable->jit,spec.name);
+        symbol.Name=LLVMOrcLLJITMangleAndIntern(owner->jit,spec.name);
         symbol.Sym.Address=spec.binary?(uintptr_t)spec.binary:(uintptr_t)spec.unary;
         symbol.Sym.Flags.GenericFlags=LLVMJITSymbolGenericFlagsExported | LLVMJITSymbolGenericFlagsCallable;
         math_symbols.push_back(symbol);
     }
     auto symbols=LLVMOrcAbsoluteSymbols(math_symbols.data(),math_symbols.size());
-    auto define_error=LLVMOrcJITDylibDefine(LLVMOrcLLJITGetMainJITDylib(executable->jit),symbols);
+    auto define_error=LLVMOrcJITDylibDefine(LLVMOrcLLJITGetMainJITDylib(owner->jit),symbols);
     if(define_error) { LLVMOrcDisposeMaterializationUnit(symbols); checked(define_error); }
     Lowering l;
     l.thread_context=LLVMOrcCreateNewThreadSafeContext();
     l.context=LLVMOrcThreadSafeContextGetContext(l.thread_context);
-    l.module=LLVMModuleCreateWithNameInContext(f.name.c_str(),l.context);
+    l.module=LLVMModuleCreateWithNameInContext(m.filename.c_str(),l.context);
     l.builder=LLVMCreateBuilderInContext(l.context);
     auto b=l.builder;
-    const char *triple=LLVMOrcLLJITGetTripleString(executable->jit);
+    const char *triple=LLVMOrcLLJITGetTripleString(owner->jit);
     LLVMSetTarget(l.module,triple);
-    LLVMSetDataLayout(l.module,LLVMOrcLLJITGetDataLayoutStr(executable->jit));
+    LLVMSetDataLayout(l.module,LLVMOrcLLJITGetDataLayoutStr(owner->jit));
     LLVMTargetRef target=nullptr; char *error=nullptr;
     if(LLVMGetTargetFromTriple(triple,&target,&error)) {
         std::string message=error; LLVMDisposeMessage(error); throw std::runtime_error(message);
@@ -124,47 +140,100 @@ std::shared_ptr<Executable> lower(const Function &f) {
     auto fp=LLVMDoubleTypeInContext(l.context),ptr=LLVMPointerTypeInContext(l.context,0);
     auto constant=[&](uint64_t value){return LLVMConstInt(i64,value,false);};
     auto fn_type=LLVMFunctionType(i32,&ptr,1,false);
-    auto function=LLVMAddFunction(l.module,"kernel_entry",fn_type);
-    auto ctx=LLVMGetParam(function,0);
+    std::vector<LLVMTypeRef> result_types;
+    std::vector<LLVMValueRef> functions;
+    std::vector<LLVMTypeRef> signatures;
+    const bool noinline=std::getenv("SQGI_KERNEL_NOINLINE")!=nullptr;
+    for(size_t index=0;index<m.functions.size();++index) {
+        const auto &f=m.functions[index];
+        std::vector<LLVMTypeRef> args;
+        if(f.checked) args.push_back(ptr);
+        for(const auto &p:f.parameters) args.push_back(p.borrowed()?ptr:p.type==Type::F64?fp:i64);
+        for(const auto &p:f.parameters) if(p.dynamic) args.push_back(i64);
+        LLVMTypeRef fields[]={i32,f.result==Type::F64?fp:i64};
+        auto result_type=f.checked?LLVMStructTypeInContext(l.context,fields,2,false):
+            f.result==Type::Void?LLVMVoidTypeInContext(l.context):fields[1];
+        result_types.push_back(result_type);
+        auto type=LLVMFunctionType(result_type,args.data(),args.size(),false);
+        auto function=LLVMAddFunction(l.module,("kernel.body."+std::to_string(index)).c_str(),type);
+        LLVMSetLinkage(function,LLVMInternalLinkage);
+        if(noinline) LLVMAddAttributeAtIndex(function,LLVMAttributeFunctionIndex,
+            LLVMCreateEnumAttribute(l.context,LLVMGetEnumAttributeKindForName("noinline",8),0));
+        functions.push_back(function); signatures.push_back(type);
+    }
+    for(size_t index=0;index<m.functions.size();++index) {
+    const auto &f=m.functions[index];
+    // Emit the public ABI directly from the same IR. Keeping a checked-return
+    // aggregate shim around the hot entry inhibited loop optimizations and
+    // added tiny-call overhead. Private helper bodies still use typed calls.
+    for(bool public_entry: {false,true}) {
+    auto function=public_entry?LLVMAddFunction(l.module,("kernel.entry."+std::to_string(index)).c_str(),fn_type):functions[index];
+    auto result_type=result_types[index];
+    auto ctx=(public_entry || f.checked)?LLVMGetParam(function,0):nullptr;
     auto entry=LLVMAppendBasicBlockInContext(l.context,function,"entry");
     LLVMPositionBuilderAtEnd(b,entry);
-    // Addressable objects/arrays must not share an allocation with scalar
-    // temporaries: an indexed store could otherwise alias the entire frame,
-    // preventing LLVM from promoting even ordinary arithmetic into registers.
+    std::vector<LLVMValueRef> storage;
+    for(const auto &region:f.local_storage)
+        storage.push_back(LLVMBuildArrayAlloca(b,i64,constant(region.cells),"local.storage"));
     std::vector<LLVMValueRef> slots(f.slots,nullptr);
-    for(const auto &region:f.local_storage) {
-        auto storage=LLVMBuildArrayAlloca(b,i64,constant(region.cells),"local.storage");
-        for(size_t n=0;n<region.cells;++n) {
-            auto offset=constant(n);
-            slots.at(region.first+n)=LLVMBuildGEP2(b,i64,storage,&offset,1,"local.cell");
-        }
-    }
-    for(int n=0;n<f.slots;++n) if(!slots[n]) slots[n]=LLVMBuildAlloca(b,i64,"slot");
+    for(int n=0;n<f.slots;++n) slots[n]=LLVMBuildAlloca(b,f.slot_types[n]==Type::F64?fp:i64,"slot");
     auto fuel=LLVMBuildAlloca(b,i64,"fuel");
     auto field=[&](unsigned n) {auto offset=constant(n);return LLVMBuildGEP2(b,i64,ctx,&offset,1,"context.field");};
-    auto fuel_field=field(2),result_field=field(1),line_field=field(3);
-    LLVMBuildStore(b,LLVMBuildLoad2(b,i64,fuel_field,"initial.fuel"),fuel);
-    auto args=LLVMBuildLoad2(b,ptr,field(0),"arguments");
+    auto fuel_field=ctx?field(2):nullptr,line_field=ctx?field(3):nullptr;
+    if(ctx) LLVMBuildStore(b,LLVMBuildLoad2(b,i64,fuel_field,"initial.fuel"),fuel);
+    auto public_args=public_entry?LLVMBuildLoad2(b,ptr,ctx,"arguments"):nullptr;
     for(size_t n=0;n<f.argument_slots();++n) {
-        auto offset=constant(n),address=LLVMBuildGEP2(b,i64,args,&offset,1,"argument");
-        LLVMBuildStore(b,LLVMBuildLoad2(b,i64,address,"value"),slots[n]);
+        LLVMValueRef value=nullptr;
+        if(public_entry) {
+            auto offset=constant(n);auto address=LLVMBuildGEP2(b,i64,public_args,&offset,1,"argument");
+            value=LLVMBuildLoad2(b,i64,address,"argument.value");
+        } else value=LLVMGetParam(function,n+(f.checked?1:0));
+        if(!public_entry && n<f.parameters.size()) {
+            const auto &p=f.parameters[n];
+            if(p.borrowed()) value=LLVMBuildPtrToInt(b,value,i64,"argument.bits");
+            else if(p.type==Type::F64) value=LLVMBuildBitCast(b,value,i64,"argument.bits");
+        }
+        if(f.slot_types[n]==Type::F64) value=LLVMBuildBitCast(b,value,fp,"argument.float");
+        LLVMBuildStore(b,value,slots[n]);
     }
     std::vector<LLVMBasicBlockRef> blocks;
     for(size_t n=0;n<=f.code.size();++n) blocks.push_back(LLVMAppendBasicBlockInContext(l.context,function,("instruction."+std::to_string(n)).c_str()));
     LLVMBuildBr(b,blocks[0]);
-    auto load=[&](int s){return LLVMBuildLoad2(b,i64,slots.at(s),"value");};
+    auto load=[&](int s){
+        auto value=LLVMBuildLoad2(b,f.slot_types.at(s)==Type::F64?fp:i64,slots.at(s),"value");
+        return f.slot_types[s]==Type::F64?LLVMBuildBitCast(b,value,i64,"bits"):value;
+    };
     auto real=[&](LLVMValueRef v){return LLVMBuildBitCast(b,v,fp,"float");};
     auto boolean=[&](LLVMValueRef v){return LLVMBuildICmp(b,LLVMIntNE,v,constant(0),"condition");};
-    auto finish=[&](Status status,int line) {
-        if(status!=Success) LLVMBuildStore(b,constant(line),line_field);
+    auto finish=[&](Status status,int line,LLVMValueRef value) {
+        if(!public_entry && !f.checked) {
+            if(status!=Success) {LLVMBuildUnreachable(b);return;}
+            if(f.result==Type::Void) LLVMBuildRetVoid(b);
+            else LLVMBuildRet(b,f.result==Type::F64?real(value):value);
+            return;
+        }
+        if(status!=Success) {
+            uint32_t location[]={uint32_t(line),uint32_t(index)};
+            uint64_t packed;std::memcpy(&packed,location,sizeof(packed));
+            LLVMBuildStore(b,constant(packed),line_field);
+        }
+        if(public_entry) {
+            if(status==Success && value) LLVMBuildStore(b,value,field(1));
+            LLVMBuildStore(b,LLVMBuildLoad2(b,i64,fuel,"remaining.fuel"),fuel_field);
+            LLVMBuildRet(b,LLVMConstInt(i32,status,false));return;
+        }
         LLVMBuildStore(b,LLVMBuildLoad2(b,i64,fuel,"remaining.fuel"),fuel_field);
-        LLVMBuildRet(b,LLVMConstInt(i32,status,false));
+        auto result=LLVMBuildInsertValue(b,LLVMGetUndef(result_type),LLVMConstInt(i32,status,false),0,"status");
+        auto returned=value?value:constant(0);
+        if(f.result==Type::F64) returned=real(returned);
+        result=LLVMBuildInsertValue(b,result,returned,1,"result");
+        LLVMBuildRet(b,result);
     };
     auto guard=[&](LLVMValueRef condition,Status status,int line) {
         auto okay=LLVMAppendBasicBlockInContext(l.context,function,"checked");
         auto failed=LLVMAppendBasicBlockInContext(l.context,function,"error");
         LLVMBuildCondBr(b,condition,okay,failed);
-        LLVMPositionBuilderAtEnd(b,failed); finish(status,line);
+        LLVMPositionBuilderAtEnd(b,failed); finish(status,line,nullptr);
         LLVMPositionBuilderAtEnd(b,okay);
     };
     for(size_t pc=0;pc<f.code.size();++pc) {
@@ -174,7 +243,48 @@ std::shared_ptr<Executable> lower(const Function &f) {
         switch(i.op) {
         case Op::Constant:out=constant(i.immediate);break;
         case Op::Copy:out=a;break;
-        case Op::LocalAddress:out=LLVMBuildPtrToInt(b,slots.at(i.immediate),i64,"local.address");break;
+        case Op::LocalAddress:out=LLVMBuildPtrToInt(b,storage.at(i.immediate),i64,"local.address");break;
+        case Op::LocalZero:
+            LLVMBuildMemSet(b,storage.at(i.immediate),LLVMConstInt(LLVMInt8TypeInContext(l.context),0,false),constant(f.local_storage.at(i.immediate).cells*8),8);break;
+        case Op::Call: {
+            const auto &site=f.calls.at(i.immediate);
+            const auto &callee=m.functions.at(site.function);
+            std::vector<LLVMValueRef> arguments;
+            if(callee.checked) arguments.push_back(ctx);
+            for(size_t n=0;n<site.arguments.size();++n) {
+                auto value=load(site.arguments[n]);
+                if(n<callee.parameters.size()) {
+                    const auto &p=callee.parameters[n];
+                    if(p.borrowed()) value=LLVMBuildIntToPtr(b,value,ptr,"call.pointer");
+                    else if(p.type==Type::F64) value=real(value);
+                }
+                arguments.push_back(value);
+            }
+            if(callee.checked) LLVMBuildStore(b,LLVMBuildLoad2(b,i64,fuel,"remaining.fuel"),fuel_field);
+            auto result=LLVMBuildCall2(b,signatures[site.function],functions[site.function],arguments.data(),arguments.size(),
+                !callee.checked && callee.result==Type::Void?"":"helper");
+            if(!callee.checked) {
+                if(i.dst>=0) out=i.type==Type::F64?LLVMBuildBitCast(b,result,i64,"helper.bits"):result;
+                break;
+            }
+            LLVMBuildStore(b,LLVMBuildLoad2(b,i64,fuel_field,"callee.fuel"),fuel);
+            auto status=LLVMBuildExtractValue(b,result,0,"helper.status");
+            auto okay=LLVMAppendBasicBlockInContext(l.context,function,"helper.ok");
+            auto failed=LLVMAppendBasicBlockInContext(l.context,function,"helper.failed");
+            LLVMBuildCondBr(b,LLVMBuildICmp(b,LLVMIntEQ,status,LLVMConstInt(i32,Success,false),"success"),okay,failed);
+            LLVMPositionBuilderAtEnd(b,failed);
+            if(public_entry) LLVMBuildRet(b,status);
+            else {
+                auto failure=LLVMBuildInsertValue(b,LLVMConstNull(result_type),status,0,"propagate.error");
+                LLVMBuildRet(b,failure);
+            }
+            LLVMPositionBuilderAtEnd(b,okay);
+            if(i.dst>=0) {
+                out=LLVMBuildExtractValue(b,result,1,"helper.value");
+                if(i.type==Type::F64) out=LLVMBuildBitCast(b,out,i64,"helper.bits");
+            }
+            break;
+        }
         case Op::Add:case Op::Sub:case Op::Mul:case Op::Div:
             if(i.type==Type::F64) {
                 auto x=real(a),y=real(c);
@@ -253,13 +363,14 @@ std::shared_ptr<Executable> lower(const Function &f) {
         case Op::Jump:LLVMBuildBr(b,blocks.at(i.immediate));break;
         case Op::JumpFalse:LLVMBuildCondBr(b,boolean(a),blocks[pc+1],blocks.at(i.immediate));break;
         case Op::Return:
-            if(i.type!=Type::Void) LLVMBuildStore(b,a,result_field);
-            finish(Success,0);break;
+            finish(Success,0,i.type!=Type::Void?a:nullptr);break;
         }
-        if(out) LLVMBuildStore(b,out,slots.at(i.dst));
+        if(out) {if(f.slot_types.at(i.dst)==Type::F64) out=real(out); LLVMBuildStore(b,out,slots.at(i.dst));}
         if(!LLVMGetBasicBlockTerminator(LLVMGetInsertBlock(b))) LLVMBuildBr(b,blocks[pc+1]);
     }
-    LLVMPositionBuilderAtEnd(b,blocks.back());finish(RequirementError,0);
+    LLVMPositionBuilderAtEnd(b,blocks.back());finish(RequirementError,0,nullptr);
+    }
+    }
     auto verify=[&] {
         char *message=nullptr;
         if(LLVMVerifyModule(l.module,LLVMReturnStatusAction,&message)) {
@@ -271,19 +382,31 @@ std::shared_ptr<Executable> lower(const Function &f) {
     l.passes=LLVMCreatePassBuilderOptions();
     checked(LLVMRunPasses(l.module,"default<O3>",l.machine,l.passes));
     verify();
+    for(auto function=LLVMGetFirstFunction(l.module);function;function=LLVMGetNextFunction(function))
+        for(auto block=LLVMGetFirstBasicBlock(function);block;block=LLVMGetNextBasicBlock(block))
+            for(auto instruction=LLVMGetFirstInstruction(block);instruction;instruction=LLVMGetNextInstruction(instruction)) ++m.stats.llvm_instructions;
     if(std::getenv("SQGI_KERNEL_DUMP_IR")) {
         char *ir=LLVMPrintModuleToString(l.module);
-        std::fprintf(stderr,"; kernel function: %s\n%s\n",f.name.c_str(),ir);
+        std::fprintf(stderr,"; kernel function: %s\n%s\n",m.filename.c_str(),ir);
         LLVMDisposeMessage(ir);
     }
     auto safe_module=LLVMOrcCreateNewThreadSafeModule(l.module,l.thread_context);
     l.module=nullptr; // ownership transfers to the JIT, including error paths
-    checked(LLVMOrcLLJITAddLLVMIRModule(executable->jit,LLVMOrcLLJITGetMainJITDylib(executable->jit),safe_module));
-    LLVMOrcExecutorAddress address=0;
-    checked(LLVMOrcLLJITLookup(executable->jit,&address,"kernel_entry"));
-    executable->entry=(int(*)(Call*))(uintptr_t)address;
-    return executable;
+    checked(LLVMOrcLLJITAddLLVMIRModule(owner->jit,LLVMOrcLLJITGetMainJITDylib(owner->jit),safe_module));
+    std::vector<std::shared_ptr<Executable>> entries;
+    for(size_t index=0;index<m.functions.size();++index) {
+        LLVMOrcExecutorAddress address=0;
+        checked(LLVMOrcLLJITLookup(owner->jit,&address,("kernel.entry."+std::to_string(index)).c_str()));
+        auto executable=std::make_shared<Executable>();
+        executable->owner=owner;
+        executable->floating=uses_floating_environment(m.functions[index]);
+        executable->entry=(int(*)(Call*))(uintptr_t)address;
+        entries.push_back(std::move(executable));
+    }
+    m.stats.object_bytes=owner->object_bytes;
+    m.native=std::move(entries);
 }
+
 PreparedCall prepare(const Module &m,size_t index) {
     const auto &native=m.native.at(index);
     return {native->entry,native->floating};

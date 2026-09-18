@@ -87,8 +87,9 @@ print(output.get(0).x + "\n"); // 6
 For in-memory source, use `sqgi.kernel.compile(source, optional_filename)`.
 `load(path)` currently resolves paths against the process working directory,
 not against the importing script. Only `export` functions become module functions; class names become constructors.
-Helper functions must be defined before callers and are compiled by bounded
-inlining. Closures and typed buffers retain the compiled module independently of
+Helper functions must be defined before callers. LLVM compiles them together
+as typed native functions and chooses which calls to inline; the NATIVE backend
+uses bounded expansion. Closures and typed buffers retain the compiled module independently of
 the module table's lifetime.
 
 The tested example [geometry.sqk](../../test/kernel/geometry.sqk) also demonstrates
@@ -110,7 +111,7 @@ helper functions and reduction over struct fields.
 - `+`, `-`, `*`, `/`, integer `%` and `%=`, unary minus, comparisons, `!`, and short-circuit `&&/||`.
 - Braced `if/else`, `for`, `while`, `require`, and `return`.
 - Direct helper and method calls with scalars, arrays and class references,
-  including void calls and early returns. Calls are inlined with borrow checks;
+  including void calls and early returns. Calls retain borrow checks;
   helpers/methods must be declared before use and recursion is rejected.
 - Line comments, block comments, decimal integer/float literals and exponents.
 
@@ -181,9 +182,23 @@ an execution error remain visible. There is no rollback or interpreter replay.
 A failed boundary validation performs no kernel writes.
 
 Limits: 1 MiB source; 65,536 tokens; nesting depth 64; 64 functions; 32 parameters;
-64 fields per struct; 384 native temporary slots per function after inlining;
-8,192 IR instructions per function; 1 MiB emitted code per function. Host arrays
-contain at most 1,048,576 elements and 8,388,608 eight-byte cells (64 MiB).
+64 fields per struct; 16,384 scalar/pointer temporary IDs per function; 8,192 IR
+instructions per function and 65,536 per module. Local storage is separate:
+64 KiB per function, at most 256 KiB along a call chain, and call depth at most
+32. These source-storage limits exclude machine spills, saved registers and ABI
+overhead; they are not hard machine-stack bounds. Recursion remains unsupported.
+
+LLVM compiles one source module in one JIT instance, with a 16 MiB emitted-object
+budget (including metadata). NATIVE retains its 384-cell expanded frame,
+8,192 expanded instructions and 1 MiB emitted-code limit per function; exceeding
+that backend's capacity produces an explicit compile error. There is no silent
+interpreter fallback. Host arrays contain at most 1,048,576 elements and
+8,388,608 eight-byte cells (64 MiB).
+
+See the [compiler architecture](compiler-architecture-plan.md) for the migration
+and validation rationale. `SQGI_KERNEL_NOINLINE=1` is an internal LLVM diagnostic
+that keeps helper calls out of line for correctness testing, not a performance
+setting.
 
 Each Squirrel call has a fixed budget of 1,000,000 loop-condition evaluations;
 loop headers decrement it, including the final false condition. There is no

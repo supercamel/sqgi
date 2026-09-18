@@ -71,10 +71,12 @@ compilation, allocation, input conversion and output validation are outside timi
 - Calls cannot strengthen a readonly borrow to a writable borrow. Repeated
   mutable arguments are rejected at compile time inside a module and at the host
   boundary before execution. Readonly arguments may alias.
-- Methods and helpers must be defined before their callers. Calls are expanded
-  into typed IR and then optimized by LLVM, including inside loops. They do not
-  call back into Squirrel. There is no recursion, virtual dispatch or separate
-  native call stack yet; the existing expansion/frame limits still apply.
+- Methods and helpers must be defined before their callers. LLVM preserves calls
+  in typed module IR and applies its inlining cost model. Calls that remain use
+  typed native arguments and never call back into Squirrel. Checked helpers
+  share fuel and propagate errors immediately; non-failing helpers use direct
+  returns. There is no recursion or virtual dispatch. NATIVE still uses bounded
+  expansion as a compatibility adapter.
 - Host objects, buffers and method closures retain their module/code/schema. Arguments
   stay rooted throughout execution. Native code borrows their storage and
   cannot allocate managed objects, resize host storage, trigger GC or retain
@@ -124,9 +126,11 @@ local declarations and separate helper invocations get independent storage.
 
 Local array lengths must be positive literals. Runtime-sized local arrays,
 arrays of classes, bool arrays and scalar struct locals are not supported yet.
-The existing 384-cell native frame limit counts local storage, parameters and
-compiler temporaries together; it is not a 384-element array allowance. Oversized
-frames are rejected at compile time. Bounds, borrowing and execution-budget
+LLVM permits up to 64 KiB of addressable local storage per function, separate
+from scalar temporaries, and 256 KiB along a call chain. NATIVE retains the
+384-cell expanded-frame limit, including storage and temporaries. These limits
+are enforced at compile time; they do not measure final optimized machine stack
+usage. Bounds, borrowing and execution-budget
 checks also apply to local storage. Errors discard the call-local frame while
 preserving any writes already made to borrowed host objects or buffers.
 
@@ -157,15 +161,16 @@ local bounds failures and external writes before failure. The native differentia
 test adds 80 local-state/array cases with varied budgets and indices. Both demos
 and all these tests run under CTest's `kernel` label.
 
-The internal `LocalAddress` operation takes the address of consecutive frame
-cells; it is not a source-language pointer operation. Each local object/array
-has a separately tracked storage region, relocated when a helper is inlined.
+The internal `LocalAddress` operation takes the address of a storage region; it is not a source-language pointer operation. Each local object/array
+has a separately tracked storage region. `LocalZero` resets that region whenever
+execution reaches its declaration. The NATIVE adapter relocates regions during
+bounded expansion; the test interpreter uses a separate region per call frame.
 LLVM allocates these regions separately from scalar temporaries, allowing its
 optimizer to replace local object fields and ordinary temporaries with register
 values. Combining them in one addressable allocation prevents that optimization.
 The NATIVE emitter and test interpreter retain the same logical cell layout.
 
-Set `SQGI_KERNEL_DUMP_IR=1` to print each function's optimized LLVM IR to stderr
+Set `SQGI_KERNEL_DUMP_IR=1` to print the module's optimized LLVM IR to stderr
 at compilation time. This diagnostic is off by default and applies only to the
 LLVM backend. For the oscillator simulation, optimized output retains only its
 four-cell indexed history on the stack; position and velocity become SSA loop
@@ -180,6 +185,6 @@ library calls remain unimplemented. Those require a managed execution ABI with
 explicit rooting, cleanup and error propagation. They must not be added to the
 leaf callback, whose contract forbids VM reentry and managed return values.
 
-A sensible next stage is typed native-to-native function calls (to remove the
-inlining size ceiling), followed by a managed ABI for strings, typed maps and
-allocation. Keep numerical storage unboxed while adding those facilities.
+Typed native-to-native calls are implemented in the LLVM backend. A managed ABI
+for strings, typed maps and allocation remains separate future work; numerical
+storage should remain unboxed if those facilities are added.

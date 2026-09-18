@@ -39,7 +39,7 @@ int main() {
                 uint64_t ref[]={(uint64_t)(uintptr_t)oracle,(uint64_t)(uintptr_t)input.data(),(uint64_t)(uintptr_t)(expected.data()+1),length,length};
                 Call a{args,0,fuel,0},b{ref,0,fuel,0};
                 size_t index=find(*m,"run");
-                auto status=execute(*m,index,a), reference=interpret(m->functions[index],b);
+                auto status=execute(*m,index,a), reference=interpret(*m,index,b);
                 check(status==reference && a.result==b.result && a.fuel==b.fuel && a.error_line==b.error_line,"native/interpreter status mismatch");
                 check(state[0]==oracle[0] && state[1]==oracle[1] && out==expected,"native/interpreter effects mismatch");
                 check(out.front()==0x12345678 && out.back()==0x12345678,"array canary overwritten");
@@ -83,7 +83,7 @@ int main() {
             uint64_t ref[]={(uint64_t)(uintptr_t)&reference[1],n,(uint64_t)index};
             Call a{args,0,fuel,0}, b{ref,0,fuel,0};
             size_t fn=find(*locals,"run");
-            auto status=execute(*locals,fn,a), expected=interpret(locals->functions[fn],b);
+            auto status=execute(*locals,fn,a), expected=interpret(*locals,fn,b);
             check(status==expected && a.result==b.result && a.fuel==b.fuel && a.error_line==b.error_line,"local storage execution mismatch");
             for(size_t i=0;i<3;++i) check(output[i]==reference[i],"local storage external effects mismatch");
             check(output[0]==123 && output[2]==456,"local storage escaped output bounds");

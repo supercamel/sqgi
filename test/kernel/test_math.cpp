@@ -70,7 +70,7 @@ int main() {
                 if(s.predicate)check(actual==uint64_t(s.predicate(x)),name+" predicate");
                 else check(same(real(actual),s.binary?s.binary(x,y):s.unary(x)),name+" libm result");
                 Call native{args.data(),0,10000,0},reference=native;size_t f=find(*m,name);
-                check(execute(*m,f,native)==interpret(m->functions[f],reference),name+" reference status");
+                check(execute(*m,f,native)==interpret(*m,f,reference),name+" reference status");
                 check(s.predicate?native.result==reference.result:same(real(native.result),real(reference.result)),name+" reference value");
                 check(native.fuel==reference.fuel && native.error_line==reference.error_line,name+" reference metadata");
             }

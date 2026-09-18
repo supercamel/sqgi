@@ -154,7 +154,7 @@ int prepared_call(const SQKernelInline *kernel,sqkernel::Call *call) {
 }
 void prepared_error(SQVM *v,const SQKernelInline *kernel,const sqkernel::Call *call,int status) {
     try {
-        const auto &f=kernel->module->functions[kernel->function];
+        const auto &f=kernel->module->functions.at(call->error_function);
         std::string message=kernel->module->filename+":"+std::to_string(call->error_line)+": "+f.name+": "+sqkernel::status_name(sqkernel::Status(status));
         v->Raise_Error("%s",message.c_str());
     }catch(...){v->Raise_Error("kernel: failed to allocate error diagnostic");}
