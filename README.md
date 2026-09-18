@@ -68,20 +68,60 @@ SQGI is useful for:
   the underlying libraries are well-documented, which makes SQGI practical for
   AI-assisted development.
 
-## LLVM JIT and Typed Kernels
+## Performance: LLVM JIT and Typed Kernels
 
-SQGI offers two complementary ways to speed up hot code:
+**Fast scripting, with hot paths that match native C++.**
 
-- **LLVM bytecode JIT** compiles eligible hot ordinary Squirrel code, including
-  numeric loops and object operations. Guards preserve dynamic behavior, with
-  interpreter fallback when an optimization does not apply.
-- **Typed kernels** let you write hot sections in a small, explicitly typed
-  C-like language with functions, structs, typed classes, arrays, and math
-  intrinsics. LLVM compiles them into native code at runtime, and Squirrel calls
-  them through `sqgi.kernel`. Kernels can run independently of the bytecode JIT.
+SQGI's LLVM JIT accelerates ordinary Squirrel code, while typed kernels put
+compute-heavy loops into native code. In the vector benchmark below, the kernel
+runs **13.4× faster than Node.js and matches optimized C++**. Ordinary Squirrel
+also delivers: dynamic member operations run **4.7× faster than Node.js** in this
+benchmark.
 
-Both are experimental and **opt-in**. With the normal build dependencies plus
-LLVM 18 development headers and its matching library installed:
+- **LLVM JIT:** compile hot Squirrel functions and loops automatically, retaining
+  the language's dynamic behavior and GI integration.
+- **Typed kernels:** write hot sections with explicit types, functions, structs,
+  classes, arrays, and math intrinsics. LLVM compiles them at runtime; call them
+  directly from Squirrel through `sqgi.kernel`.
+
+### Selected performance results
+
+**Nanoseconds per loop iteration; lower is better.** Five-round medians on an
+Intel i7-12700, Linux x86-64, with Node.js 26.9.0 and optimized native C++.
+
+| SQGI execution | Workload | SQGI | Node.js | Native C++ |
+|---|---|---:|---:|---:|
+| Ordinary Squirrel JIT | Direct function call | 3.156 | 4.003 | 3.776 |
+| Ordinary Squirrel JIT | Branching function call | 3.223 | 3.022 | 2.703 |
+| Ordinary Squirrel JIT | Dynamic member operations | 6.025 | 28.056 | 26.930 |
+| Typed kernel | Vector recurrence | 8.425 | 112.542 | 8.485 |
+| Typed kernel | Matrix recurrence | 7.025 | 8.615 | 5.670 |
+
+<details>
+<summary>Benchmark methodology and full results</summary>
+
+Measured 2026-09-18 with one pinned CPU, five warmups, and a JIT threshold of one.
+Compilation is excluded; checksums matched across runtimes. No LTO/PGO was used.
+C++ uses GCC 13.3.0 with `-O3 -march=native -fno-fast-math -ffp-contract=off`.
+
+These are warm microbenchmarks. Kernel SQGI/Node timings come from dedicated
+comparisons, with a complete loop per kernel call; C++ timings come from the
+runtime comparison. The vector kernel uses fixed storage while Node uses
+objects. C++ uses typed fields and fixed arrays, with `std::unordered_map` for
+dynamic string keys. Data representation, batching, and compiler specialization
+all affect the results.
+
+[JIT/C++ results and raw samples](docs/benchmark-results/readme-native-comparison-2026-09-18.json)
+· [Vector comparison](docs/benchmark-results/llvm-kernel-vector-2026-09-18.json)
+· [Matrix comparison](docs/benchmark-results/llvm-kernel-matrix-2026-09-18.json)
+· [Full benchmark suite](demo/benchmarks/kernels/README.md)
+
+</details>
+
+### Enable the LLVM runtime
+
+JIT and kernels are currently **experimental and opt-in**. Install the normal
+build dependencies plus LLVM 18 development headers and its matching library:
 
 ```sh
 cmake -S . -B build-llvm -DCMAKE_BUILD_TYPE=RelWithDebInfo \
@@ -92,42 +132,9 @@ cmake --build build-llvm -j"$(nproc)"
 build-llvm/sqgi demo/kernels/geometry.nut
 ```
 
-### Selected performance results
-
-Measured on Linux x86-64, Intel i7-12700, against **Node.js 26.9.0** on
-2026-09-18. Times are **nanoseconds per loop iteration**, medians of five rounds;
-lower is better. Runs use one pinned CPU, five warmups, a JIT threshold of one,
-and no LTO/PGO. Compilation is excluded; checksums matched across runtimes.
-
-| SQGI execution | Workload | SQGI | Node.js | Native C++ |
-|---|---|---:|---:|---:|
-| Ordinary Squirrel JIT | Direct function call | 3.156 | 4.003 | 3.776 |
-| Ordinary Squirrel JIT | Branching function call | 3.223 | 3.022 | 2.703 |
-| Ordinary Squirrel JIT | Dynamic member operations | 6.025 | 28.056 | 26.930 |
-| Typed kernel | Vector recurrence | 8.425 | 112.542 | 8.485 |
-| Typed kernel | Matrix recurrence | 7.025 | 8.615 | 5.670 |
-
-These are selected warm microbenchmarks, not application-wide speed guarantees.
-Kernel SQGI/Node timings come from separate dedicated comparisons, with a
-complete loop per Squirrel-to-kernel call; C++ timings come from the refreshed
-runtime comparison. The vector kernel uses fixed storage, while the Node
-version uses objects; it is not an allocation-free JavaScript comparison.
-Batching work also amortizes call overhead, so a tiny individual kernel call can
-have a different performance profile.
-
-Native C++ uses GCC 13.3.0 with `-O3 -march=native`,
-`-fno-fast-math`, and `-ffp-contract=off`. Its ports use typed fields and fixed arrays, with
-`std::unordered_map` for dynamic string keys. Data representation and compiler
-specialization affect the comparison. The vector kernel roughly matches native
-C++ here; the matrix kernel remains slower.
-
-See the [JIT/C++ results and raw samples](docs/benchmark-results/readme-native-comparison-2026-09-18.json),
-[kernel vector comparison](docs/benchmark-results/llvm-kernel-vector-2026-09-18.json),
-and [kernel matrix comparison](docs/benchmark-results/llvm-kernel-matrix-2026-09-18.json).
-The [kernel guide](docs/kernels/README.md) covers the language, Squirrel API,
-platform support, and deployment requirements; the
-[benchmark suite](demo/benchmarks/kernels/README.md) includes more workloads and
-reproduction commands.
+See the [kernel guide](docs/kernels/README.md) for the language, Squirrel API,
+platform support, and deployment requirements. Kernels also work independently
+of the bytecode JIT.
 
 ## A Tiny Demo
 
