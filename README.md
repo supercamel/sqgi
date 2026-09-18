@@ -4,139 +4,63 @@
   <img src="images/sqgi_logo.png" alt="SQGI logo" width="180">
 </p>
 
-**SQGI is one of the fastest ways to build and deploy small native
-cross-platform GTK/GI apps: write the app, push a tag, get Linux AppImages and
-a Windows installer from CI.**
+<p align="center">
+  <strong>Native applications in Squirrel. Direct GI bindings. Modern async. LLVM acceleration. One-command packaging.</strong>
+</p>
 
-It gives you a compact Squirrel runtime with direct access to real platform
-libraries through GObject Introspection. That means you can write desktop,
-media, network, and system tools using GTK, Gio, GStreamer, libsoup,
-GdkPixbuf, Cairo, and other native libraries without hand-written bindings for
-every API.
+SQGI is a compact native application runtime built around **Squirrel**, **GLib**, and
+**GObject Introspection**.
 
-The result is a practical middle path between heavyweight app platforms and
-low-level native code:
+It lets you write high-level scripts that call real native libraries directly:
+GTK 4, Gio, GStreamer, libsoup, GdkPixbuf, Cairo, and any other library that
+publishes GI metadata. There is no generated binding layer for every API.
 
-- lighter than Electron
-- friendlier than writing everything in C or C++
-- more portable than GJS for Windows-oriented projects
-- easier to extend than a sealed scripting sandbox
-- practical to package as AppImages, Windows directories, or NSIS installers
+When ordinary scripting is not fast enough, SQGI provides an **LLVM JIT** for
+eligible Squirrel code and **typed LLVM kernels** for compute-heavy hot paths.
+When the application is ready to ship, `sqgipkg` can turn it into Linux
+AppImages and Windows installers with the runtime and native dependencies
+bundled alongside it.
 
-SQGI's goal is simple: **keep scripting pleasant, stay close to the native
-platform, and make shipping feel like part of the workflow.**
+The idea is simple:
 
-Read the docs: https://sqgi.readthedocs.io/en/latest/
+> **Keep scripting pleasant, stay close to the native platform, make hot code
+> fast, and treat deployment as part of the development workflow.**
 
-Join the community on Discord: https://discord.gg/krVe8U9wGm
+[Documentation](https://sqgi.readthedocs.io/en/latest/) ·
+[Discord](https://discord.gg/krVe8U9wGm)
 
+---
 
-## What You Can Build
+## Why SQGI?
 
-SQGI is useful for:
+SQGI sits between heavyweight application platforms and writing an entire
+application in C or C++.
 
-- GTK 4 desktop applications
-- Gio filesystem, networking, process, and application utilities
-- GStreamer media tools, overlays, capture utilities, and experiments
-- libsoup HTTP clients, API tools, and local services
-- GdkPixbuf and Cairo image/graphics utilities
-- automation tools that need native OS integration
-- scriptable native apps with a C/C++/Vala core
-- AppImage and Windows desktop utilities distributed outside a package manager
+- **Native APIs without hand-written bindings** — import GI namespaces directly.
+- **Small dynamic language** — Squirrel provides closures, classes, exceptions,
+  modules, tables, arrays, 64-bit integers, and double-precision floats.
+- **Modern async** — native Gio-style async APIs integrate with `async` / `await`.
+- **Native-speed hot paths** — an optional LLVM JIT accelerates eligible Squirrel
+  code, while typed kernels provide a predictable high-performance compute path.
+- **Static analysis** — `sqgicheck` catches definite Squirrel/GI mistakes without
+  executing the application.
+- **Native extensions stay native** — expose C, C++, or Vala code through
+  GObject Introspection and import it like any other library.
+- **Embeddable** — use SQGI as an interpreter or embed it into a native program.
+- **Deployment is built in** — package scripts, typelibs, native libraries,
+  plugins, themes, runtime data, AppImages, and Windows NSIS installers with
+  `sqgipkg`.
 
-## Features
+SQGI is a good fit for desktop tools, media software, engineering applications,
+scientific utilities, hardware front ends, automation, networking tools, and
+scriptable native applications.
 
-- **Squirrel scripting**: closures, classes, exceptions, modules, and compact
-  JavaScript-like syntax, with signed 64-bit integers and double-precision floats.
-- **Modern async**: `async` / `await`, `Task`, `sqgi.sleep`, `sqgi.all`,
-  `sqgi.race`, and `.then()` / `.catch()` chaining.
-- **GObject Introspection**: import introspected libraries directly with
-  `import("Gtk", "4.0")`, `import("Gio")`, `import("Gst")`, and friends.
-- **Native API coverage**: constructors, methods, properties, signals,
-  callbacks, `GError`, `GValue`, `GVariant`, byte arrays, boxed values, and
-  ownership handling.
-- **Native extensions**: call your own C, C++, or Vala GObject libraries through
-  normal shared libraries and `.typelib` files.
-- **Embeddable runtime**: use SQGI as a standalone interpreter or embed it in a
-  native application.
-- **Portable packaging**: `sqgipkg` can bundle scripts, resources, typelibs,
-  plugins, native libraries, private Linux/Windows dependency sysroots,
-  AppImages, Windows app directories, and NSIS installers.
-- **Static analysis**: `sqgicheck` catches syntax errors and definite GI API,
-  arity, property, signal, and local-import mistakes without running the app.
-- **AI-friendly workflow**: the runtime is small, the language is familiar, and
-  the underlying libraries are well-documented, which makes SQGI practical for
-  AI-assisted development.
+---
 
-## Performance: LLVM JIT and Typed Kernels
+## A 60-second example
 
-**Fast scripting, with hot paths that match native C++.**
-
-SQGI's LLVM JIT accelerates ordinary Squirrel code, while typed kernels put
-compute-heavy loops into native code. In the vector benchmark below, the kernel
-runs **13.4× faster than Node.js and matches optimized C++**. Ordinary Squirrel
-also delivers: dynamic member operations run **4.7× faster than Node.js** in this
-benchmark.
-
-- **LLVM JIT:** compile hot Squirrel functions and loops automatically, retaining
-  the language's dynamic behavior and GI integration.
-- **Typed kernels:** write hot sections with explicit types, functions, structs,
-  classes, arrays, and math intrinsics. LLVM compiles them at runtime; call them
-  directly from Squirrel through `sqgi.kernel`.
-
-### Selected performance results
-
-**Nanoseconds per loop iteration; lower is better.** Five-round medians on an
-Intel i7-12700, Linux x86-64, with Node.js 26.9.0 and optimized native C++.
-
-| SQGI execution | Workload | SQGI | Node.js | Native C++ |
-|---|---|---:|---:|---:|
-| Ordinary Squirrel JIT | Direct function call | 3.156 | 4.003 | 3.776 |
-| Ordinary Squirrel JIT | Branching function call | 3.223 | 3.022 | 2.703 |
-| Ordinary Squirrel JIT | Dynamic member operations | 6.025 | 28.056 | 26.930 |
-| Typed kernel | Vector recurrence | 8.425 | 112.542 | 8.485 |
-| Typed kernel | Matrix recurrence | 7.025 | 8.615 | 5.670 |
-
-<details>
-<summary>Benchmark methodology and full results</summary>
-
-Measured 2026-09-18 with one pinned CPU, five warmups, and a JIT threshold of one.
-Compilation is excluded; checksums matched across runtimes. No LTO/PGO was used.
-C++ uses GCC 13.3.0 with `-O3 -march=native -fno-fast-math -ffp-contract=off`.
-
-These are warm microbenchmarks. Kernel SQGI/Node timings come from dedicated
-comparisons, with a complete loop per kernel call; C++ timings come from the
-runtime comparison. The vector kernel uses fixed storage while Node uses
-objects. C++ uses typed fields and fixed arrays, with `std::unordered_map` for
-dynamic string keys. Data representation, batching, and compiler specialization
-all affect the results.
-
-[JIT/C++ results and raw samples](docs/benchmark-results/readme-native-comparison-2026-09-18.json)
-· [Vector comparison](docs/benchmark-results/llvm-kernel-vector-2026-09-18.json)
-· [Matrix comparison](docs/benchmark-results/llvm-kernel-matrix-2026-09-18.json)
-· [Full benchmark suite](demo/benchmarks/kernels/README.md)
-
-</details>
-
-### Enable the LLVM runtime
-
-JIT and kernels are currently **experimental and opt-in**. Install the normal
-build dependencies plus LLVM 18 development headers and its matching library:
-
-```sh
-cmake -S . -B build-llvm -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-  -DSQ_ENABLE_JIT=ON -DSQGI_BYTECODE_JIT_BACKEND=LLVM \
-  -DSQGI_THREADED_DISPATCH=ON \
-  -DSQGI_ENABLE_KERNELS=ON -DSQGI_KERNEL_BACKEND=LLVM
-cmake --build build-llvm -j"$(nproc)"
-build-llvm/sqgi demo/kernels/geometry.nut
-```
-
-See the [kernel guide](docs/kernels/README.md) for the language, Squirrel API,
-platform support, and deployment requirements. Kernels also work independently
-of the bytecode JIT.
-
-## A Tiny Demo
+Save this as `hello.nut`, then run `sqgi hello.nut README.md` from the repository
+root. This is ordinary Squirrel calling a native Gio async API:
 
 ```squirrel
 #!/usr/bin/env sqgi
@@ -145,11 +69,14 @@ local GLib = import("GLib")
 local Gio  = import("Gio")
 
 local loop = GLib.MainLoop.new(null, false)
+local path = vargv.len() > 0 ? vargv[0] : "README.md"
 
 async function main() {
-    local file = Gio.File.new_for_path("/etc/os-release")
+    local file = Gio.File.new_for_path(path)
     local result = await file.load_contents_async(null)
+
     print(result[0])
+
     loop.quit()
 }
 
@@ -161,50 +88,12 @@ main().catch(function(e) {
 loop.run()
 ```
 
-That is ordinary Squirrel calling native Gio async APIs. No generated bindings,
-no per-library glue, and no blocking file read.
+There is no generated Gio wrapper here. SQGI reads GI metadata at runtime,
+marshals the call, and exposes the native async operation as an awaitable method.
 
-## GTK Example
+---
 
-```squirrel
-#!/usr/bin/env sqgi
-
-local Gtk = import("Gtk", "4.0")
-
-local app = Gtk.Application.new("org.example.sqgi.demo", 0)
-
-app.connect("activate", function() {
-    local win = Gtk.ApplicationWindow.new(app)
-    win.title = "SQGI"
-    win.set_default_size(360, 180)
-
-    local button = Gtk.Button.new_with_label("Hello from SQGI")
-    button.connect("clicked", function() {
-        print("clicked\n")
-    })
-
-    win.set_child(button)
-    win.present()
-})
-
-app.run(0, null)
-```
-
-## Quick Start
-
-### Windows with Ooblerg
-
-The easiest way to try SQGI on Windows is through Ooblerg.
-
-1. Go to https://ooblerg.xyz/ and install the Ooblerg app.
-2. Open Ooblerg and install `sqgi`.
-3. Install any native libraries your script needs, such as `gtk4`, `gstreamer`,
-   `libsoup`, or `gdk-pixbuf`.
-4. Open a terminal after Ooblerg has updated your `PATH`.
-5. Write a `.nut` file in any text editor, such as VS Code or Notepad.
-6. Run it with `sqgi`.
-
-For example, save this as `hello.nut`:
+## GTK without a browser runtime
 
 ```squirrel
 #!/usr/bin/env sqgi
@@ -216,9 +105,14 @@ local app = Gtk.Application.new("org.example.sqgi.hello", 0)
 app.connect("activate", function() {
     local win = Gtk.ApplicationWindow.new(app)
     win.title = "Hello SQGI"
-    win.set_default_size(360, 180)
+    win.set_default_size(420, 220)
 
     local button = Gtk.Button.new_with_label("Hello from SQGI")
+
+    button.connect("clicked", function() {
+        print("clicked\n")
+    })
+
     win.set_child(button)
     win.present()
 })
@@ -226,16 +120,337 @@ app.connect("activate", function() {
 app.run(0, null)
 ```
 
-Then run:
+You are using GTK itself, not a reimplementation of GTK and not a browser-based
+UI layer.
+
+---
+
+## Performance
+
+**Fast scripting, with hot paths that match native C++.**
+
+In the benchmarks below, SQGI's vector kernel runs **13.4× faster than Node.js
+and matches optimized C++**. Ordinary Squirrel JIT code delivers **4.7× faster
+dynamic member operations than Node.js**.
+
+SQGI has two complementary high-performance execution paths.
+
+### LLVM JIT for ordinary Squirrel
+
+Eligible hot Squirrel functions and loops can be compiled through LLVM. The JIT
+retains Squirrel's dynamic behavior with guards and interpreter fallback when an
+optimization does not apply.
+
+Numeric loops and repeated object operations run as native code while the rest
+of the application keeps Squirrel’s dynamic APIs and GI integration.
+
+### Typed kernels
+
+For code where explicit types and predictable native execution are desirable,
+SQGI also provides a small typed kernel language with:
+
+- functions
+- structs
+- typed classes
+- fixed-size local arrays and runtime-sized array parameters
+- branches and loops
+- math intrinsics
+- native LLVM code generation
+
+Kernels are called from Squirrel through `sqgi.kernel` and work independently of
+the ordinary bytecode JIT.
+
+### Selected benchmark results
+
+**Nanoseconds per loop iteration; lower is better.**
+
+Five-round medians on an Intel i7-12700 running Linux x86-64, compared with
+Node.js 26.9.0 and optimized native C++.
+
+| SQGI execution | Workload | SQGI | Node.js | Native C++ |
+|---|---|---:|---:|---:|
+| Ordinary Squirrel JIT | Direct function call | 3.156 | 4.003 | 3.776 |
+| Ordinary Squirrel JIT | Branching function call | 3.223 | 3.022 | 2.703 |
+| Ordinary Squirrel JIT | Dynamic member operations | 6.025 | 28.056 | 26.930 |
+| Typed kernel | Vector recurrence | 8.425 | 112.542 | 8.485 |
+| Typed kernel | Matrix recurrence | 7.025 | 8.615 | 5.670 |
+
+<details>
+<summary><strong>Benchmark methodology</strong></summary>
+
+These are warm microbenchmarks; application performance depends on the workload,
+data representation, and batching. Measurements were taken on 2026-09-18 with:
+
+- one pinned CPU
+- five warmups
+- JIT threshold of one
+- compilation excluded from timed regions
+- checksums matched across runtimes
+- no LTO or PGO
+- GCC 13.3.0 for C++
+- `-O3 -march=native -fno-fast-math -ffp-contract=off`
+
+Kernel SQGI/Node timings come from dedicated comparisons with a complete loop
+inside each kernel call. The vector kernel uses fixed storage while the Node.js
+version uses objects. The native C++ comparison uses typed fields and fixed
+arrays, with `std::unordered_map` for dynamic string-key workloads.
+
+Raw data and reproduction material:
+
+- [JIT / native comparison](docs/benchmark-results/readme-native-comparison-2026-09-18.json)
+- [Vector comparison](docs/benchmark-results/llvm-kernel-vector-2026-09-18.json)
+- [Matrix comparison](docs/benchmark-results/llvm-kernel-matrix-2026-09-18.json)
+- [Full kernel benchmark suite](demo/benchmarks/kernels/README.md)
+
+</details>
+
+### Enable LLVM support
+
+The JIT and typed kernels are currently **experimental and opt-in**.
+
+Install the normal build dependencies plus LLVM 18 development headers and the
+matching LLVM library, then build with:
+
+```sh
+cmake -S . -B build-llvm -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+  -DSQ_ENABLE_JIT=ON \
+  -DSQGI_BYTECODE_JIT_BACKEND=LLVM \
+  -DSQGI_THREADED_DISPATCH=ON \
+  -DSQGI_ENABLE_KERNELS=ON \
+  -DSQGI_KERNEL_BACKEND=LLVM
+
+cmake --build build-llvm -j"$(nproc)"
+```
+
+Run a kernel demo:
+
+```sh
+build-llvm/sqgi demo/kernels/geometry.nut
+```
+
+See [docs/kernels/README.md](docs/kernels/README.md) for the kernel language,
+Squirrel API, platform support, deployment requirements, and more examples.
+
+---
+
+## Native libraries, directly
+
+Any installed introspected namespace can be imported at runtime:
+
+```squirrel
+local GLib   = import("GLib")
+local Gio    = import("Gio")
+local Gtk    = import("Gtk", "4.0")
+local Gst    = import("Gst")
+local Soup   = import("Soup")
+local Pixbuf = import("GdkPixbuf")
+```
+
+SQGI handles common GI shapes including:
+
+- functions and methods
+- constructors
+- properties
+- signals
+- callbacks
+- out parameters
+- `GError`
+- `GValue`
+- `GVariant`
+- byte arrays
+- boxed values
+- native ownership conventions
+
+That means a large native API surface becomes available without maintaining a
+separate language binding for every library version.
+
+---
+
+## Async / await
+
+Gio-style `_async` / `_finish` API pairs are exposed as awaitable methods.
+
+```squirrel
+local Gio = import("Gio")
+
+async function read_text(path) {
+    local file = Gio.File.new_for_path(path)
+    local result = await file.load_contents_async(null)
+    return result[0]
+}
+```
+
+Inside an async function, `sqgi.all` waits for several tasks together:
+
+```squirrel
+async function read_project_files() {
+    return await sqgi.all([
+        read_text("README.md"),
+        read_text("LICENSE")
+    ])
+}
+```
+
+Other helpers include `sqgi.sleep`, `sqgi.race`, and `.then()` / `.catch()`
+chaining.
+
+---
+
+## Editor support
+
+Syntax highlighting for `.nut` scripts and `.sqk` kernels is included for
+**VS Code, Vim, and GtkSourceView**.
+
+- **VS Code:** highlighting, bracket matching, document formatting, and
+  format-on-save. The formatter runs inside the extension.
+- **Vim:** a native syntax package covering SQGI Squirrel and typed kernels.
+- **GtkSourceView 4/5:** language definitions plus an async formatting adapter
+  and a runnable GTK editor demo.
+- **`sqgifmt`:** the shared formatter for the command line and CI.
+
+See the [editor setup guide](editors/README.md) for installation, VS Code
+format-on-save settings, Vim setup, and GtkSourceView integration. The VS Code
+extension is currently installed from a locally built VSIX.
+
+---
+
+## Static analysis with `sqgicheck`
+
+`sqgicheck` checks SQGI source **without executing it**.
+
+It compiles the source with SQGI's bundled Squirrel compiler and abstractly
+interprets the resulting bytecode against the same GI metadata used by the
+runtime.
+
+For example:
+
+```text
+main.nut:8:6: error SQGI102: Gio.File has no method 'get_paht'
+  help: did you mean 'get_path'?
+```
+
+Run it directly:
+
+```sh
+sqgicheck main.nut
+sqgicheck --summary main.nut
+sqgicheck --format=json main.nut
+```
+
+Literal local imports such as `import("lib/helpers.nut")` are checked
+recursively by default, and statically known exports can flow into their
+importers.
+
+A clean check exits with status `0`; diagnostics exit with `1`; invalid CLI
+usage exits with `2`, making the same tool suitable for local development and
+CI.
+
+See [docs/sqgicheck.md](docs/sqgicheck.md) for the complete guide.
+
+---
+
+## Packaging: from source tree to distributable app
+
+`sqgipkg` is part of SQGI rather than an unrelated deployment system bolted on
+later.
+
+From a directory containing `main.nut`:
+
+```sh
+sqgipkg
+```
+
+On Linux the default output is an AppImage. On Windows the default is an NSIS
+installer.
+
+Start a manifest when you need more control:
+
+```sh
+sqgipkg --init gtk4
+sqgipkg --doctor
+```
+
+Useful targets include:
+
+```sh
+sqgipkg --target appimage
+sqgipkg --target linux-sysroot
+sqgipkg --target win-dir
+sqgipkg --target win-nsis
+sqgipkg --target win-sysroot
+sqgipkg --target all
+```
+
+A project configured for Linux `x86_64` and `aarch64` plus Windows can use:
+
+```sh
+sqgipkg --target all
+```
+
+to produce a release set along the lines of:
+
+```text
+dist-linux-x86_64/MyApp.AppImage
+dist-linux-aarch64/MyApp.AppImage
+dist-windows-x86_64/MyApp-Setup.exe
+```
+
+### What gets bundled?
+
+Depending on the manifest, `sqgipkg` can stage and resolve:
+
+- Squirrel scripts compiled to `.cnut` bytecode
+- script import paths
+- application resources
+- native `.so` / `.dll` libraries
+- GI typelibs
+- GStreamer plugins
+- GTK themes, icons, settings, and runtime data
+- GSettings schemas
+- GIO modules
+- gdk-pixbuf loaders
+- Debian/Ubuntu packages into private Linux sysroots
+- Windows MSYS2 packages
+- recursive Windows DLL dependency closure
+- generated Linux and Windows launchers
+- AppImages
+- NSIS installers
+
+Linux dependency sysroots can be isolated from the build host, and Windows
+cross-builds can prepare an MSYS2-style dependency tree and recursively gather
+the DLLs the final application needs.
+
+Cross-architecture AppImage smoke tests can use QEMU user-mode/binfmt when the
+matching emulator and target sysroot are available.
+
+See:
+
+- [Packaging tutorials](docs/packaging/)
+- [Simple manifest guide](docs/packaging/10-simple-manifests.md)
+- [Packaging reference](tools/README.md)
+
+---
+
+## Quick start
+
+### Windows: Ooblerg
+
+The easiest way to try SQGI on Windows is through
+[Ooblerg](https://ooblerg.xyz/).
+
+1. Install Ooblerg.
+2. Install `sqgi`.
+3. Install any native libraries your app needs, such as `gtk4`, `gstreamer`,
+   `libsoup`, or `gdk-pixbuf`.
+4. Open a terminal after Ooblerg updates your `PATH`.
+5. Write a `.nut` file.
+6. Run it with `sqgi`.
 
 ```bat
 sqgi hello.nut
 ```
 
-That is it: install SQGI and the libraries you want, edit `.nut` files in a
-normal editor, and run them from a normal Windows command line.
-
-### Build from source on Linux
+### Linux: build from source
 
 On Ubuntu/Debian-style systems:
 
@@ -254,16 +469,19 @@ build/sqgi demo/gio/file_read.nut README.md
 build/sqgicheck demo/gio/file_read.nut
 ```
 
-Install:
+Install system-wide:
 
 ```sh
 sudo cmake --install build --prefix /usr/local
 ```
 
-### Build from source on MSYS2
+### Optional: build from source with MSYS2
 
-On MSYS2, use a MinGW-style shell such as UCRT64 or MINGW64. The helper script
-installs the matching CMake, Ninja, compiler, and GLib/GI dependencies:
+This source-build route uses a MinGW-style shell such as UCRT64 or MINGW64.
+Running SQGI or a packaged Windows application does not require an MSYS2 shell.
+
+The helper script installs the matching compiler, CMake, Ninja, and GLib/GI
+dependencies:
 
 ```sh
 ./tools/install-msys2-prereqs.sh ucrt64
@@ -271,287 +489,91 @@ installs the matching CMake, Ninja, compiler, and GLib/GI dependencies:
 cmake -S . -B build-ucrt64 -G Ninja \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_INSTALL_PREFIX=/ucrt64
+
 cmake --build build-ucrt64
 cmake --install build-ucrt64
 ```
 
-This installs:
+The install includes the interpreter, packaging tool, static checker, embeddable
+library, headers, `pkg-config` metadata, and packaging runtime/templates.
 
-- `sqgi`
-- `sqgipkg`
-- `sqgicheck`
-- `libsqgi.so`
-- public headers under `include/sqgi/`
-- `sqgi.pc` for `pkg-config`
-- `sqgipkg` runtime modules under `share/sqgi/sqgipkg_lib/`
-- `sqgipkg` starter templates under `share/sqgi/sqgipkg_templates/`
+---
 
-## Import Native Libraries
+## Native extensions
 
-Any available introspected namespace can be imported:
+If native code publishes GObject Introspection metadata, SQGI can call it.
 
-```squirrel
-local GLib   = import("GLib")
-local Gio    = import("Gio")
-local Gtk    = import("Gtk", "4.0")
-local Gst    = import("Gst")
-local Soup   = import("Soup")
-local Pixbuf = import("GdkPixbuf")
-```
-
-SQGI uses GI metadata at runtime, so broad native APIs become available without
-binding generation. The runtime handles common GI shapes including methods,
-constructors, properties, signals, callbacks, out parameters, errors, and native
-ownership conventions.
-
-## Check Source Without Running It
-
-`sqgicheck` compiles source with SQGI's bundled Squirrel compiler, then
-abstractly interprets its bytecode against the same GI metadata used by the
-runtime. It does not execute the checked program. For example, it catches a
-misspelled method and suggests the real API:
-
-```text
-main.nut:8:6: error SQGI102: Gio.File has no method 'get_paht'
-  help: did you mean 'get_path'?
-```
-
-```sh
-sqgicheck main.nut
-sqgicheck --format=json main.nut
-sqgicheck --summary main.nut
-sqgicheck --no-recursive main.nut
-```
-
-Literal local imports such as `import("lib/helpers.nut")` are checked
-recursively by default, and statically known exported tables, functions, and
-classes flow into their importers. `--summary` reports checked files and
-operations skipped because a value was unknown. A clean check exits with
-status 0; diagnostics exit with status 1; invalid command-line usage exits
-with status 2, so the same command works as a local check or CI gate. See the
-[complete sqgicheck guide](docs/sqgicheck.md) for installation, diagnostic
-codes, JSON output, project/import behavior, CI integration, troubleshooting,
-and limitations.
-
-## Async / Await
-
-Gio-style `_async` / `_finish` pairs are exposed as awaitable methods:
-
-```squirrel
-local Gio = import("Gio")
-
-async function read_text(path) {
-    local file = Gio.File.new_for_path(path)
-    local result = await file.load_contents_async(null)
-    return result[0]
-}
-```
-
-SQGI also provides task helpers:
-
-```squirrel
-local results = await sqgi.all([
-    read_text("README.md"),
-    read_text("LICENSE")
-])
-```
-
-## Native Extensions
-
-If your native code exposes GObject Introspection metadata, SQGI can call it.
-The usual extension shape is:
+A native extension might produce:
 
 ```text
 native/build/libmyapp-1.0.so
 native/build/MyApp-1.0.typelib
 ```
 
-Then from Squirrel:
+Then Squirrel can import it normally:
 
 ```squirrel
 local MyApp = import("MyApp", "1.0")
+
 local worker = MyApp.Worker.new()
 print(worker.do_native_work("hello") + "\n")
 ```
 
-This works with hand-written C/C++ GObject libraries and with Vala libraries.
-Vala async methods can be awaited directly when exposed through GI.
+This works with hand-written C/C++ GObject libraries and Vala libraries. Vala
+async methods can be awaited directly when exposed through GI.
 
-Working examples live in:
+Working examples:
 
 ```text
 tools/sqgipkg_tests/native_gi_project/
 tools/sqgipkg_tests/native_vala_project/
 ```
 
-## Packaging Apps
+---
 
-`sqgipkg` packages SQGI applications for distribution. Start with the
-[simple manifest guide](docs/packaging/10-simple-manifests.md) for built-in runtime
-and native-library recipes, or run `sqgipkg --help` for the common workflow.
+## Embed SQGI in a native application
 
-From a directory containing `main.nut`:
+SQGI can also run inside an existing native program.
 
-```sh
-sqgipkg
-```
-
-On Linux, this builds an AppImage (on Windows, the default is an NSIS installer):
-
-```text
-dist-linux-<arch>/<project-name>.AppImage
-```
-
-Add a manifest when the defaults are not enough:
-
-```sh
-sqgipkg --init gtk4
-sqgipkg --doctor
-sqgipkg --smoke-test ""
-```
-
-Starter manifests are intentionally small. For portable GTK/GStreamer packages,
-add the runtime packages or enable `linux.deb.download` / `--linux-deb-download`
-so `sqgipkg` can prepare a private Debian/Ubuntu sysroot instead of relying on
-whatever happens to be installed on the host.
-
-Useful targets:
-
-```sh
-sqgipkg --target appimage
-sqgipkg --target linux-sysroot
-sqgipkg --target win-dir
-sqgipkg --target win-nsis
-sqgipkg --target win-sysroot
-sqgipkg --target all
-```
-
-`linux-sysroot` prepares Linux target dependencies and generated CMake/Meson
-cross files without building the app. `all` builds Linux AppImage output and a
-Windows NSIS package; when `linux.arches` is configured it builds each listed
-Linux architecture.
-
-Clean generated package output and build directories with:
-
-```sh
-sqgipkg --clean
-```
-
-`sqgipkg` can stage:
-
-- `.nut` scripts compiled to `.cnut` bytecode
-- compatibility `.nut` paths for script imports
-- resources and exact files
-- native `.so` / `.dll` libraries
-- GObject Introspection typelibs
-- GStreamer plugins
-- GTK themes, icons, settings, and runtime data
-- GSettings schemas
-- GIO modules
-- gdk-pixbuf loaders
-- Debian/Ubuntu packages into isolated Linux sysroots
-- generated Linux CMake/Meson cross files with `pkg-config` isolation
-- Windows MSYS2 packages
-- Windows recursive DLL dependency closure
-- generated AppImage and Windows launchers
-- NSIS installers with icon/license/shortcut options
-
-For AppImages, smoke tests can run the built package immediately, and
-cross-architecture smoke tests use QEMU user-mode/binfmt when the matching
-emulator and target sysroot are available.
-
-For guided packaging tutorials, see [docs/packaging/](docs/packaging/). For the
-broader packaging reference, see [tools/README.md](tools/README.md).
-
-## Windows Packaging
-
-SQGI includes a serious Windows packaging path.
-
-For script apps and native-extension apps, `sqgipkg` can create:
-
-```text
-dist-windows-x86_64/MyApp/
-  MyApp.bat
-  bin/sqgi.exe
-  bin/*.dll
-  share/sqgi/app/main.cnut
-  share/sqgi/app/resources/
-  lib/girepository-1.0/*.typelib
-```
-
-It can also generate an NSIS installer:
-
-```text
-dist-windows-x86_64/MyApp-Setup.exe
-```
-
-On Linux hosts, `sqgipkg` can prepare an MSYS2-style sysroot, download packages,
-resolve dependencies, generate CMake/Meson cross files, isolate `pkg-config`,
-and recursively copy DLL dependencies.
-
-GUI apps do not need to carry a visible Windows console. `sqgipkg` supports a
-Windows manifest option:
-
-```json
-"windows": {
-  "console": false
-}
-```
-
-By default this is inferred for GTK-looking apps. During Windows cross builds,
-the generated CMake toolchain sets `SQGI_WINDOWS_GUI=ON`, so the packaged
-`sqgi.exe` is built with the Windows GUI subsystem. Use `"console": true` or
-`--windows-console` when you want a visible console for debugging.
-
-For current Ubuntu stock MinGW cross-builds, pair the stock
-`x86_64-w64-mingw32-*` toolchain with MSYS2 `mingw64` packages:
-
-```text
-x86_64-w64-mingw32-gcc/g++ -> MSYS2 mingw64 packages
-```
-
-For native MSYS2 UCRT64 builds, use a matching UCRT64 compiler and matching
-UCRT64 packages:
-
-```text
-MSYS2 UCRT64 gcc/clang -> MSYS2 ucrt64 packages
-```
-
-Do not mix compiler CRT families and dependency package families.
-
-## Native Executable Entrypoints
-
-`sqgipkg` can also package native applications that do not launch through the
-SQGI interpreter directly. This is useful for C/C++/Vala apps that embed SQGI or
-ship SQGI scripts as an internal payload.
-
-```json
-{
-  "name": "MyNativeApp",
-  "entry": {
-    "type": "native",
-    "linux": "native/build/myapp",
-    "windows": "native/build-windows-x86_64/myapp.exe"
-  },
-  "script_dirs": ["scripts"]
-}
-```
-
-The native executable becomes the launcher entrypoint, while scripts, resources,
-typelibs, GTK data, and Windows dependencies can still be bundled.
-
-## Embed SQGI
-
-SQGI can be embedded in a native application:
+Compile against the installed library with `pkg-config`:
 
 ```sh
 gcc myapp.c $(pkg-config --cflags --libs sqgi)
 ```
 
-The public C entry point is [src/sqgi_vm.h](src/sqgi_vm.h). Installed headers
-are placed under `include/sqgi/`.
+The public C entry point is
+[`src/sqgi_vm.h`](src/sqgi_vm.h). Installed headers live under
+`include/sqgi/`.
 
-## Examples And Documentation
+`sqgipkg` can package native executable entrypoints too, so a C/C++/Vala
+application can embed SQGI internally while still using the same packaging
+machinery for scripts, resources, typelibs, GTK data, and native dependencies.
+
+---
+
+## What can you build?
+
+A few natural fits:
+
+- GTK 4 desktop applications
+- engineering and scientific tools
+- compute-heavy native utilities with typed kernels
+- media players, capture tools, overlays, and GStreamer experiments
+- HTTP clients, API tools, and local services
+- image and graphics utilities with GdkPixbuf and Cairo
+- filesystem, process, and networking tools with Gio
+- hardware and embedded-system front ends
+- automation that needs native OS integration
+- scriptable applications with a C/C++/Vala core
+- portable utilities distributed as AppImages or Windows installers
+
+SQGI is deliberately not limited to GUI applications. GTK is one useful part of
+the GI ecosystem; Gio, GStreamer, libsoup, Cairo, and custom introspected native
+libraries are equally valid building blocks.
+
+---
+
+## Documentation and examples
 
 | You want to... | Go here |
 |---|---|
@@ -559,16 +581,23 @@ are placed under `include/sqgi/`.
 | Look up SQGI runtime APIs | [docs/api/README.md](docs/api/README.md) |
 | Follow library-specific recipes | [docs/recipes/](docs/recipes/) |
 | Browse runnable examples | [demo/](demo/) |
-| Learn app packaging step by step | [docs/packaging/](docs/packaging/) |
+| Set up highlighting and formatting | [editors/README.md](editors/README.md) |
+| Learn typed kernels and LLVM support | [docs/kernels/README.md](docs/kernels/README.md) |
+| Inspect kernel benchmarks | [demo/benchmarks/kernels/README.md](demo/benchmarks/kernels/README.md) |
+| Learn packaging step by step | [docs/packaging/](docs/packaging/) |
 | Look up packaging fields and targets | [tools/README.md](tools/README.md) |
+| Learn `sqgicheck` | [docs/sqgicheck.md](docs/sqgicheck.md) |
 
 The demos cover GLib, Gio, GTK 4, GStreamer, libsoup, GdkPixbuf, Cairo,
-AppImage packaging, Windows staging, GTK theme packaging, native executable
-entries, and native GI extension projects.
+packaging, native executable entrypoints, native GI extension projects, and LLVM
+kernels.
 
-## Under The Hood
+---
 
-SQGI is built from a small set of C modules:
+## Under the hood
+
+The runtime is intentionally understandable. Core pieces are split across a
+small set of C modules:
 
 ```text
 src/
@@ -585,18 +614,23 @@ src/
   sqgi_json.c        dependency-free JSON codec
 ```
 
-The runtime uses GObject Introspection metadata plus libffi closures, so it can
-call broad native API surfaces without generating bindings for each library.
+GObject Introspection metadata and libffi closures provide broad access to native
+libraries without a generated binding layer for each API.
+
+The optional LLVM execution paths sit alongside the normal interpreter rather
+than replacing the dynamic runtime wholesale.
+
+---
 
 ## Development
 
-Run the main script/runtime tests:
+Run the main runtime/script test suite:
 
 ```sh
 ./test/run_tests.sh
 ```
 
-Run CTest directly:
+Run CTest:
 
 ```sh
 ctest --test-dir build --output-on-failure
@@ -609,29 +643,38 @@ cmake -S . -B build-asan -DSQGI_ENABLE_ASAN=ON
 cmake --build build-asan -j"$(nproc)"
 ```
 
-Run packaging tests:
+Packaging tests:
 
 ```sh
 bash tools/sqgipkg_tests/run_tests.sh build/sqgi
 ```
 
-Run static-analysis tests:
+Static-analysis tests:
 
 ```sh
 ctest --test-dir build -R sqgicheck --output-on-failure
 ```
 
-## Status
+---
 
-SQGI is a working technology preview.
+## Project status
 
-It has broad test coverage across marshalling, async, signals, GObject
-properties, subclassing, GVariant/GValue, JSON, Cairo, and real library demos.
-The project is still young, and unusual GI metadata shapes may expose bugs.
-Small, focused bug reports and reproducible demos are welcome.
+SQGI is a **working technology preview**.
+
+It already has broad test coverage across marshalling, async, signals, GObject
+properties, subclassing, `GVariant` / `GValue`, JSON, Cairo, packaging, static
+analysis, and real native-library demos.
+
+The project is still young. Unusual GI metadata shapes, platform-specific native
+libraries, and the experimental LLVM paths may expose bugs.
+
+Small reproducible bug reports, focused test cases, benchmark contributions, and
+real-world examples are welcome.
+
+---
 
 ## License
 
-SQGI is released under the MIT license. See [LICENSE](LICENSE).
+SQGI is released under the [MIT License](LICENSE).
 
 The Squirrel sources under `Squirrel3/` retain their upstream copyright.

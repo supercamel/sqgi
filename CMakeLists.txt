@@ -1061,6 +1061,21 @@ add_custom_target(check
     COMMENT "Running SQGI test suite"
 )
 
+# Editor tools are optional: no Node.js dependency is added to the runtime.
+find_program(SQGI_VIM_EXECUTABLE NAMES vim)
+if(SQGI_VIM_EXECUTABLE)
+    add_test(NAME sqgi_test_vim
+        COMMAND ${SQGI_VIM_EXECUTABLE} -Nu NONE -i NONE -n -es -S ${CMAKE_SOURCE_DIR}/test/editor/test_vim.vim)
+    set_tests_properties(sqgi_test_vim PROPERTIES LABELS "editor" TIMEOUT 30)
+endif()
+
+find_program(SQGI_NODE_EXECUTABLE NAMES node nodejs)
+if(SQGI_NODE_EXECUTABLE)
+    add_test(NAME sqgi_test_formatter
+        COMMAND ${SQGI_NODE_EXECUTABLE} --test ${CMAKE_SOURCE_DIR}/editors/vscode/test/formatter.test.js)
+    set_tests_properties(sqgi_test_formatter PROPERTIES LABELS "editor" TIMEOUT 30)
+endif()
+
 # ── Install ───────────────────────────────────────────────────────────────────
 # Public C headers consumed by external embedders. The vm header is the
 # canonical entry point; the marshal/async/signal/object headers are exposed
@@ -1136,3 +1151,21 @@ configure_file(
 install(FILES ${CMAKE_CURRENT_BINARY_DIR}/sqgi.pc
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig
 )
+
+# Standalone formatter and GtkSourceView 4/5 language definitions.
+configure_file(tools/sqgifmt.in ${CMAKE_CURRENT_BINARY_DIR}/sqgifmt @ONLY)
+install(PROGRAMS ${CMAKE_CURRENT_BINARY_DIR}/sqgifmt DESTINATION ${CMAKE_INSTALL_BINDIR})
+if(WIN32)
+    install(PROGRAMS ${CMAKE_CURRENT_BINARY_DIR}/sqgifmt DESTINATION ${CMAKE_INSTALL_BINDIR} RENAME sqgifmt.js)
+endif()
+install(FILES editors/vscode/src/formatter.js editors/vscode/src/cli.js
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/sqgi/editor)
+install(FILES editors/gtksourceview/format.nut DESTINATION ${CMAKE_INSTALL_DATADIR}/sqgi/editor)
+foreach(version 4 5)
+    install(FILES editors/gtksourceview/sqgi-squirrel.lang editors/gtksourceview/sqgi-kernel.lang
+        DESTINATION ${CMAKE_INSTALL_DATADIR}/gtksourceview-${version}/language-specs)
+endforeach()
+
+# Native Vim package; custom prefixes may need to be added to 'packpath'.
+install(DIRECTORY editors/vim/
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/vim/vimfiles/pack/sqgi/start/sqgi)

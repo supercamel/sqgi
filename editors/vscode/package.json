@@ -1,0 +1,77 @@
+{
+  "name": "sqgi",
+  "displayName": "SQGI — Squirrel and Kernels",
+  "description": "Syntax highlighting and formatting for SQGI Squirrel scripts and typed kernels.",
+  "version": "0.1.0",
+  "publisher": "supercamel",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Formatters"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/supercamel/sqgi.git",
+    "directory": "editors/vscode"
+  },
+  "main": "./src/extension.js",
+  "activationEvents": [
+    "onLanguage:sqgi-squirrel",
+    "onLanguage:sqgi-kernel"
+  ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": true
+    },
+    "virtualWorkspaces": true
+  },
+  "contributes": {
+    "languages": [
+      {
+        "id": "sqgi-squirrel",
+        "aliases": [
+          "SQGI Squirrel"
+        ],
+        "extensions": [
+          ".nut"
+        ],
+        "configuration": "./language-configuration.json",
+        "firstLine": "^#!.*\\bsqgi\\b"
+      },
+      {
+        "id": "sqgi-kernel",
+        "aliases": [
+          "SQGI Kernel"
+        ],
+        "extensions": [
+          ".sqk"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "sqgi-squirrel",
+        "scopeName": "source.sqgi-squirrel",
+        "path": "./syntaxes/sqgi-squirrel.tmLanguage.json"
+      },
+      {
+        "language": "sqgi-kernel",
+        "scopeName": "source.sqgi-kernel",
+        "path": "./syntaxes/sqgi-kernel.tmLanguage.json"
+      }
+    ]
+  },
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "package": "vsce package --no-dependencies"
+  },
+  "devDependencies": {
+    "@vscode/vsce": "4.0.0",
+    "vscode-oniguruma": "2.0.1",
+    "vscode-textmate": "9.3.2"
+  }
+}

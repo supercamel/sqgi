@@ -1,0 +1,73 @@
+{
+  "name": "SQGI Squirrel",
+  "scopeName": "source.sqgi-squirrel",
+  "patterns": [
+    {
+      "name": "comment.line.double-slash.sqgi-squirrel",
+      "begin": "//|#",
+      "end": "$"
+    },
+    {
+      "name": "comment.block.sqgi-squirrel",
+      "begin": "/\\*",
+      "end": "\\*/"
+    },
+    {
+      "name": "string.quoted.double.verbatim.sqgi-squirrel",
+      "begin": "@\"",
+      "end": "\"(?!\")",
+      "patterns": [
+        {
+          "name": "constant.character.escape.sqgi-squirrel",
+          "match": "\"\""
+        }
+      ]
+    },
+    {
+      "name": "string.quoted.double.sqgi-squirrel",
+      "begin": "\"",
+      "end": "\"|$",
+      "patterns": [
+        {
+          "name": "constant.character.escape.sqgi-squirrel",
+          "match": "\\\\."
+        }
+      ]
+    },
+    {
+      "name": "string.quoted.single.sqgi-squirrel",
+      "begin": "'",
+      "end": "'|$",
+      "patterns": [
+        {
+          "name": "constant.character.escape.sqgi-squirrel",
+          "match": "\\\\."
+        }
+      ]
+    },
+    {
+      "name": "keyword.control.sqgi-squirrel",
+      "match": "\\b(?:while|do|if|else|break|continue|return|function|local|for|foreach|in|typeof|base|delete|try|catch|throw|clone|yield|resume|switch|case|default|this|class|extends|constructor|instanceof|static|enum|const|async|await|rawcall)\\b"
+    },
+    {
+      "name": "constant.language.sqgi-squirrel",
+      "match": "\\b(?:true|false|null|__LINE__|__FILE__)\\b"
+    },
+    {
+      "name": "support.function.sqgi-squirrel",
+      "match": "\\b(?:import|print|format|sqgi|Task)\\b"
+    },
+    {
+      "name": "constant.numeric.sqgi-squirrel",
+      "match": "\\b0[xX][0-9a-fA-F]+\\b|(?<![\\w.])(?:[0-9]+(?:\\.[0-9]*)?|\\.[0-9]+)(?:[eE][+-]?[0-9]+)?(?!\\w)"
+    },
+    {
+      "name": "entity.name.function.sqgi-squirrel",
+      "match": "\\b[A-Za-z_]\\w*(?=\\s*\\()"
+    },
+    {
+      "name": "keyword.operator.sqgi-squirrel",
+      "match": "<=>|>>>|<-|::|[+*/%=!<>?&|^~\\-]"
+    }
+  ]
+}

@@ -1,0 +1,77 @@
+{
+  "name": "SQGI Kernel",
+  "scopeName": "source.sqgi-kernel",
+  "patterns": [
+    {
+      "name": "comment.line.double-slash.sqgi-kernel",
+      "begin": "//|#",
+      "end": "$"
+    },
+    {
+      "name": "comment.block.sqgi-kernel",
+      "begin": "/\\*",
+      "end": "\\*/"
+    },
+    {
+      "name": "string.quoted.double.verbatim.sqgi-kernel",
+      "begin": "@\"",
+      "end": "\"(?!\")",
+      "patterns": [
+        {
+          "name": "constant.character.escape.sqgi-kernel",
+          "match": "\"\""
+        }
+      ]
+    },
+    {
+      "name": "string.quoted.double.sqgi-kernel",
+      "begin": "\"",
+      "end": "\"|$",
+      "patterns": [
+        {
+          "name": "constant.character.escape.sqgi-kernel",
+          "match": "\\\\."
+        }
+      ]
+    },
+    {
+      "name": "string.quoted.single.sqgi-kernel",
+      "begin": "'",
+      "end": "'|$",
+      "patterns": [
+        {
+          "name": "constant.character.escape.sqgi-kernel",
+          "match": "\\\\."
+        }
+      ]
+    },
+    {
+      "name": "keyword.control.sqgi-kernel",
+      "match": "\\b(?:export|struct|class|in|inout|if|else|for|while|return|require)\\b"
+    },
+    {
+      "name": "storage.type.sqgi-kernel",
+      "match": "\\b(?:i64|f64|bool|void)\\b"
+    },
+    {
+      "name": "constant.language.sqgi-kernel",
+      "match": "\\b(?:true|false)\\b"
+    },
+    {
+      "name": "support.function.sqgi-kernel",
+      "match": "\\b(?:abs|acos|acosh|asin|asinh|atan|atan2|atanh|cbrt|ceil|copysign|cos|cosh|erf|erfc|exp|exp2|expm1|fabs|floor|fmax|fmin|fmod|hypot|isfinite|isinf|isnan|lgamma|log|log10|log1p|log2|pow|remainder|round|signbit|sin|sinh|sqrt|tan|tanh|tgamma|trunc)\\b"
+    },
+    {
+      "name": "constant.numeric.sqgi-kernel",
+      "match": "\\b0[xX][0-9a-fA-F]+\\b|(?<![\\w.])(?:[0-9]+(?:\\.[0-9]*)?|\\.[0-9]+)(?:[eE][+-]?[0-9]+)?(?!\\w)"
+    },
+    {
+      "name": "entity.name.function.sqgi-kernel",
+      "match": "\\b[A-Za-z_]\\w*(?=\\s*\\()"
+    },
+    {
+      "name": "keyword.operator.sqgi-kernel",
+      "match": "<=>|>>>|<-|::|[+*/%=!<>?&|^~\\-]"
+    }
+  ]
+}
