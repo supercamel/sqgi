@@ -140,7 +140,8 @@ class SqgiPkgWindowsNsis extends Base.SqgiPkgWindowsStaging {
         local package_name = this.package_basename(opts.name)
         local script = GLib.build_filenamev([opts.output_dir, package_name + ".nsi"])
         local installer = this.nsis_installer_name(opts, package_name)
-        local source_glob = package_name + "/*"
+        // Native Windows NSIS only recognizes backslashes when splitting File patterns.
+        local source_glob = GLib.build_filenamev([package_name, "*"])
         local launcher = this.nsis_shortcut_target(opts, package_name, windir)
         local install_dir = this.nsis_install_dir(opts, package_name)
         local level = this.nsis_validate_execution_level(opts.windows.nsis_request_execution_level)

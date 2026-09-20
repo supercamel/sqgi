@@ -56,6 +56,52 @@ class Ergonomics(unittest.TestCase):
         self.manifest({'schema_version': 2, 'features': 'gtk4'})
         self.assertIn('features must be an array', self.run_pkg('check', ok=False))
 
+    def test_cli_uses_supplied_arguments(self):
+        # The OS command line contains only probe.nut. GApplication.run on
+        # Windows would ignore this supplied argv and accidentally start a build.
+        module = json.dumps((ROOT / 'tools/sqgipkg_lib/main.nut').as_posix())
+        output = self.run_script(f'''
+local Main = import({module})
+local args = ["--explain", "--name", "Supplied arguments", "--target", "win-dir"]
+local pkg = Main.SqgiPkg(args)
+if (pkg.run(args) != 0) throw "explain failed"
+''')
+        self.assertIn('Supplied arguments', output)
+        self.assertIn('win-dir', output)
+        self.assertFalse((self.root / '.sqgipkg').exists())
+        self.assertFalse(any(self.root.glob('dist*')))
+
+    def test_cli_option_forms(self):
+        module = json.dumps((ROOT / 'tools/sqgipkg_lib/main.nut').as_posix())
+        self.run_script(f'''
+local Main = import({module})
+local pkg = Main.SqgiPkg([])
+local parsed = pkg.parse_cli_options([
+    "--doctor", "-nApp with spaces", "-t", "win-dir", "--output=dist space",
+    "--script", "one.nut", "--script=two.nut", "--gtk-theme=",
+    "--smoke-test", "--literal-value", "--", "--platform=windows"
+])
+local o = parsed.options
+if (!o.doctor || o.name != "App with spaces" || o.target != "win-dir") throw "flags or short options"
+if (o.output != "dist space" || o["gtk-theme"] != "") throw "equals values"
+if (o.script.len() != 2 || o.script[0] != "one.nut" || o.script[1] != "two.nut") throw "repeated options"
+if (o["smoke-test"] != "--literal-value") throw "literal option value"
+if (pkg.extract_script_arg(parsed.positional) != "--platform=windows") throw "separator"
+''')
+        for args, error in [
+            (('--unknown-option',), 'unknown option'),
+            (('--name',), 'requires a value'),
+            (('--doctor=true',), 'does not take a value'),
+        ]:
+            with self.subTest(args=args):
+                self.assertIn(error, self.run_pkg(*args, ok=False))
+
+    def test_cli_separator_preserves_alias_like_filename(self):
+        (self.root / '--platform=windows').write_text('print("hello\\n")\n', encoding='utf8')
+        output = self.run_pkg('check', '--target', 'win-dir', '--', '--platform=windows')
+        self.assertIn('--platform=windows', output)
+        self.assertFalse(any(self.root.glob('dist*')))
+
     def test_windows_doctor(self):
         self.manifest({'target': 'win-dir', 'windows': {'native_projects': [{'dir': 'missing', 'build': ['false']}]}})
         output = self.run_pkg('check', ok=False)
@@ -67,6 +113,30 @@ class Ergonomics(unittest.TestCase):
         self.manifest({'target': 'win-nsis', 'windows': {'nsis': 'sqgipkg-nonexistent-makensis'}})
         self.assertIn('requires makensis', self.run_pkg('build', ok=False))
         self.assertFalse(any(self.root.glob('dist*')))
+
+    @unittest.skipUnless(shutil.which('makensis'), 'NSIS required')
+    def test_nsis_compiles_payload_with_spaces(self):
+        output_dir = self.root / 'installer output'
+        payload = output_dir / 'App with spaces'
+        (payload / 'nested directory').mkdir(parents=True)
+        (payload / 'App with spaces.bat').write_text('@echo hello\n')
+        (payload / 'nested directory/data.txt').write_text('packaged data\n')
+        module = json.dumps((ROOT / 'tools/sqgipkg_lib/windows/nsis.nut').as_posix())
+        self.run_script(f'''
+local Nsis = import({module})
+local n = Nsis.SqgiPkgWindowsNsis()
+local opts = n.new_options()
+opts.name = "App with spaces"
+opts.output_dir = "installer output"
+opts.windows.console = true
+n.write_nsis_script(opts, "installer output/App with spaces")
+''')
+        script = output_dir / 'App with spaces.nsi'
+        self.assertIn(f'File /r "App with spaces{os.sep}*"', script.read_text(encoding='utf8'))
+        result = subprocess.run([shutil.which('makensis'), script.name], cwd=output_dir,
+                                text=True, capture_output=True, timeout=90)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue((output_dir / 'App with spaces-Setup.exe').is_file())
 
     def test_duplicate_recipe_names(self):
         self.manifest({"schema_version": 2, "native": [{"dir": "one", "name": "same"}, {"dir": "two", "name": "same"}]})
@@ -412,8 +482,9 @@ local project = b.host_windows() ? opts.windows.native_projects[0] : opts.native
 b.run_native_recipe(opts, project)
 if (project.libraries.len() != 1) throw "expected one built library"
 ''')
-        matches = list((self.root / '.sqgipkg/build').rglob('answer.dll' if os.name == 'nt' else 'libanswer.so'))
-        self.assertEqual(len(matches), 1)
+        # MinGW uses libanswer.dll; MSVC uses answer.dll.
+        matches = list((self.root / '.sqgipkg/build').rglob('*answer.dll' if os.name == 'nt' else 'libanswer.so'))
+        self.assertEqual(len(matches), 1, matches)
         library = ctypes.CDLL(str(matches[0]))
         self.assertEqual(library.answer(), 42)
         # Windows locks loaded DLLs; release before TemporaryDirectory cleanup.

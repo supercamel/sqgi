@@ -41,6 +41,10 @@ if (args.len() > 0) {
 }
 local normalized = []
 for (local i = 0; i < args.len(); i++) {
+    if (args[i] == "--") {
+        for (; i < args.len(); i++) normalized.push(args[i])
+        break
+    }
     if (args[i].find("--platform=") == 0) {
         local value = args[i].slice(11)
         args[i] = "--platform"

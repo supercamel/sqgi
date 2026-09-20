@@ -228,6 +228,7 @@ class SqgiPkgOptions extends Base.SqgiPkgCore {
 
     function option_value(option_dict, name) {
         if (option_dict == null) return null
+        if (typeof(option_dict) == "table") return this.table_get(option_dict, name, null)
         return option_dict.lookup_value(name, null)
     }
 
