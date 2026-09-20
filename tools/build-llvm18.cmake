@@ -32,20 +32,24 @@ if(NOT EXISTS "${source}/.sqgi-extracted")
         "${tree}/llvm/utils/TableGen/*" "${tree}/llvm/utils/extract_symbols.py")
     file(WRITE "${source}/.sqgi-extracted" "${version}\n")
 endif()
-# Backport llvm/llvm-project#101761: GCC 15 no longer supplies <cstdint>
-# transitively, but LLVM 18's SmallVector uses uint32_t and uint64_t directly.
+# Backport llvm/llvm-project#101761 and #123320: GCC 15 no longer supplies
+# <cstdint> transitively to SmallVector or the X86 target descriptions.
 # Apply after extraction on every invocation so cached source trees are fixed
 # too, and the installed SDK carries the correction for downstream consumers.
-set(smallvector_header "${source}/llvm/include/llvm/ADT/SmallVector.h")
-file(READ "${smallvector_header}" smallvector_contents)
-if(NOT smallvector_contents MATCHES "#include <cstdint>")
-    if(NOT smallvector_contents MATCHES "#include <cstddef>")
-        message(FATAL_ERROR "Cannot apply LLVM 18 SmallVector compatibility fix: unexpected header")
+function(sqgi_llvm18_add_cstdint relative_header anchor)
+    set(header "${source}/llvm/${relative_header}")
+    file(READ "${header}" contents)
+    if(NOT contents MATCHES "#include <cstdint>")
+        string(FIND "${contents}" "${anchor}" anchor_position)
+        if(anchor_position EQUAL -1)
+            message(FATAL_ERROR "Cannot apply LLVM 18 compatibility fix: unexpected ${relative_header}")
+        endif()
+        string(REPLACE "${anchor}" "#include <cstdint>\n${anchor}" contents "${contents}")
+        file(WRITE "${header}" "${contents}")
     endif()
-    string(REPLACE "#include <cstddef>" "#include <cstddef>\n#include <cstdint>"
-        smallvector_contents "${smallvector_contents}")
-    file(WRITE "${smallvector_header}" "${smallvector_contents}")
-endif()
+endfunction()
+sqgi_llvm18_add_cstdint("include/llvm/ADT/SmallVector.h" "#include <cstdlib>")
+sqgi_llvm18_add_cstdint("lib/Target/X86/MCTargetDesc/X86MCTargetDesc.h" "#include <memory>")
 execute_process(COMMAND "${CMAKE_COMMAND}" -S "${source}/llvm" -B "${build}" -G Ninja
     -DCMAKE_BUILD_TYPE=Release "-DCMAKE_INSTALL_PREFIX=${LLVM_INSTALL_PREFIX}"
     -DLLVM_TARGETS_TO_BUILD=Native -DLLVM_BUILD_LLVM_DYLIB=ON
