@@ -91,18 +91,45 @@ class SqgiPkgScripts extends Base.SqgiPkgManifest {
         return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
     }
 
-    function import_literal_at(text, pos) {
-        if (pos + 6 > text.len() || text.slice(pos, pos + 6) != "import") return null
-        if (pos > 0 && this.is_identifier_char(text.slice(pos - 1, pos))) return null
+    function skip_script_trivia(text, pos) {
+        while (pos < text.len()) {
+            if (this.is_space_char(text.slice(pos, pos + 1))) { pos++; continue }
+            local pair = pos + 1 < text.len() ? text.slice(pos, pos + 2) : ""
+            if (pair == "//" || text.slice(pos, pos + 1) == "#") {
+                local end = text.find("\n", pos)
+                pos = end == null ? text.len() : end + 1
+            } else if (pair == "/*") {
+                local end = text.find("*/", pos + 2)
+                pos = end == null ? text.len() : end + 2
+            } else break
+        }
+        return pos
+    }
 
-        local j = pos + 6
+    function call_literal_at(text, pos, name) {
+        if (pos >= text.len() || text[pos] != name[0]) return null
+        if (pos > 0 && (this.is_identifier_char(text.slice(pos - 1, pos)) || text.slice(pos - 1, pos) == ".")) return null
+        local j = pos
+        foreach (part in split(name, ".")) {
+            if (j != pos) {
+                j = this.skip_script_trivia(text, j)
+                if (j >= text.len() || text.slice(j, j + 1) != ".") return null
+                j++
+                j = this.skip_script_trivia(text, j)
+            }
+            if (j + part.len() > text.len() || text.slice(j, j + part.len()) != part) return null
+            j += part.len()
+        }
         if (j < text.len() && this.is_identifier_char(text.slice(j, j + 1))) return null
-        while (j < text.len() && this.is_space_char(text.slice(j, j + 1))) j++
+        j = this.skip_script_trivia(text, j)
         if (j >= text.len() || text.slice(j, j + 1) != "(") return null
         j++
-        while (j < text.len() && this.is_space_char(text.slice(j, j + 1))) j++
+        j = this.skip_script_trivia(text, j)
         if (j >= text.len()) return null
 
+        local verbatim = text.slice(j, j + 1) == "@"
+        if (verbatim) j++
+        if (j >= text.len()) return null
         local quote = text.slice(j, j + 1)
         if (quote != "\"" && quote != "'") return null
         j++
@@ -117,13 +144,22 @@ class SqgiPkgScripts extends Base.SqgiPkgManifest {
                 j++
                 continue
             }
-            if (ch == "\\") {
+            if (ch == "\\" && !verbatim) {
                 escaped = true
                 j++
                 continue
             }
-            if (ch == quote)
+            if (ch == quote) {
+                if (verbatim && j + 1 < text.len() && text.slice(j + 1, j + 2) == quote) {
+                    value += quote
+                    j += 2
+                    continue
+                }
+                // Computed kernel paths must be supplied explicitly via files.
+                local end = this.skip_script_trivia(text, j + 1)
+                if (name != "import" && (end >= text.len() || text.slice(end, end + 1) != ")")) return null
                 return { value = value, next = j + 1 }
+            }
             value += ch
             j++
         }
@@ -131,7 +167,19 @@ class SqgiPkgScripts extends Base.SqgiPkgManifest {
         return null
     }
 
+    function import_literal_at(text, pos) {
+        return this.call_literal_at(text, pos, "import")
+    }
+
     function script_import_literals(src_abs) {
+        return this.script_call_literals(src_abs, "import")
+    }
+
+    function script_kernel_literals(src_abs) {
+        return this.script_call_literals(src_abs, "sqgi.kernel.load")
+    }
+
+    function script_call_literals(src_abs, name) {
         local out = []
         if (!this.ends_with(src_abs, ".nut")) return out
 
@@ -139,6 +187,7 @@ class SqgiPkgScripts extends Base.SqgiPkgManifest {
         local i = 0
         local mode = "code"
         local quote = ""
+        local verbatim = false
 
         while (i < text.len()) {
             local ch = text.slice(i, i + 1)
@@ -161,18 +210,21 @@ class SqgiPkgScripts extends Base.SqgiPkgManifest {
             }
 
             if (mode == "string") {
-                if (ch == "\\") {
+                if (ch == "\\" && !verbatim) {
                     i += 2
                     continue
                 }
-                if (ch == quote) mode = "code"
+                if (ch == quote) {
+                    if (verbatim && next == quote) { i += 2; continue }
+                    mode = "code"
+                }
                 i++
                 continue
             }
 
-            if (ch == "/" && next == "/") {
+            if ((ch == "/" && next == "/") || ch == "#") {
                 mode = "line-comment"
-                i += 2
+                i += ch == "#" ? 1 : 2
                 continue
             }
             if (ch == "/" && next == "*") {
@@ -183,11 +235,12 @@ class SqgiPkgScripts extends Base.SqgiPkgManifest {
             if (ch == "\"" || ch == "'") {
                 mode = "string"
                 quote = ch
+                verbatim = i > 0 && text.slice(i - 1, i) == "@"
                 i++
                 continue
             }
 
-            local parsed = this.import_literal_at(text, i)
+            local parsed = this.call_literal_at(text, i, name)
             if (parsed != null) {
                 if (!this.array_contains(out, parsed.value)) out.push(parsed.value)
                 i = parsed.next

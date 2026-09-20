@@ -536,6 +536,23 @@ int main()
     fresh_ctx.trace_stats = false;
     CHECK(fresh_ctx.proto_tick == 0 && fresh_ctx.loop_tick == 0 && !fresh_ctx.ExistingDiagnostics(),
         "new shared state has no stale runtime state");
+    fresh_ctx.enabled = false;
+    CHECK(run(fresh, _SC("function diagnostic_probe(x) { return x; }")), "diagnostic prototype");
+    auto diagnostic_proto = proto(fresh, _SC("diagnostic_probe"));
+    // Simulate a reused prototype address after retirement, including more
+    // entries than the old GUI-startup limit. Historical counters must remain
+    // intact while the lookup index identifies only the current lifetime.
+    for(SQInteger n = 0; n < 300; ++n) {
+        auto entry = sqjit_diag_get_proto(diagnostic_proto);
+        CHECK(entry && entry->enters == 0 && entry->line > 0, "fresh diagnostic lifetime retains source line");
+        if(!entry) break;
+        entry->enters = n + 1;
+        CHECK(sqjit_diag_get_proto(diagnostic_proto) == entry, "indexed diagnostic lookup is stable");
+        sqjit_diag_forget_proto(diagnostic_proto);
+        CHECK(entry->proto == NULL && entry->enters == n + 1, "retired diagnostic counters survive");
+        CHECK(fresh_ctx.Diagnostics().proto_index.empty(), "retired address removed from lookup index");
+    }
+    CHECK(fresh_ctx.Diagnostics().proto_count == 300, "profiling survives more than 256 prototype lifetimes");
     sq_close(fresh);
 
     {

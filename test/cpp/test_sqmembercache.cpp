@@ -21,6 +21,10 @@ int main()
         CHECK(_table(table)->GetCacheSlot(key, index, fetched), "cache field location");
         SQObjectPtr *slot = sq_member_raw_slot(table, key);
         SQUnsignedInteger references = _array(value)->_uiRef;
+        SQInteger raw_hint=-1;
+        CHECK(_table(table)->GetRawSlotHint(key,raw_hint)==slot &&
+            _table(table)->GetRawSlotHint(key,raw_hint)==slot && _array(value)->_uiRef==references,
+            "raw hint borrows without retaining the owner or value");
         CHECK(slot && _array(*slot) == _array(value) && _array(value)->_uiRef == references,
             "raw slot lookup borrows without copying its value");
         _table(table)->Set(key, SQObjectPtr((SQInteger)42));
@@ -31,6 +35,8 @@ int main()
             "existing-slot newslot also preserves the location");
         SQObjectPtr weak(_array(value)->GetWeakRef(OT_ARRAY));
         *sq_member_raw_slot(table, key) = weak;
+        CHECK(sq_type(*_table(table)->GetRawSlotHint(key,raw_hint))==OT_WEAKREF,
+            "raw hint does not dereference weak values");
         CHECK(sq_type(*sq_member_raw_slot(table, key)) == OT_WEAKREF &&
             _table(table)->GetCachedSlot(index, key, fetched) && _array(fetched) == _array(value),
             "raw stores preserve weakref tags while cached reads dereference them");
@@ -106,6 +112,8 @@ int main()
         // deletes and same-hash collisions; compare every read to lookup.
         SQObjectPtr tables[17];
         SQMemberCache hints[32];
+        SQInteger raw_hints[32];
+        for(auto &hint:raw_hints)hint=-1;
         for(int n = 0; n < 17; ++n) tables[n] = SQTable::Create(v->_sharedstate, n * 4);
         SQUnsignedInteger state = 83;
         for(SQInteger n = 0; n < 4096; ++n) {
@@ -120,6 +128,10 @@ int main()
                 bool found = sq_member_cache_hit(&hints[k], table, probe, actual) ||
                     sq_member_cache_fill(&hints[k], table, probe, actual);
                 bool exists = _table(table)->Get(probe, expected);
+                auto raw=_table(table)->GetRawSlotHint(probe,raw_hints[k]);
+                CHECK((raw!=NULL)==exists && (!raw ||
+                    (sq_type(*raw)==sq_type(expected) && _rawval(*raw)==_rawval(expected))),
+                    "borrowed hints agree with lookup across receiver and structural changes");
                 CHECK(found == exists && (!found ||
                     (sq_type(actual) == sq_type(expected) && _rawval(actual) == _rawval(expected))),
                     "checked hints agree with lookup during structural mutation");

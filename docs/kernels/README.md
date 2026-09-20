@@ -11,7 +11,8 @@ there is no compiler subprocess, generated C++ or interpreter fallback.
 
 The original dependency-free x64 emitter remains available explicitly as
 `SQGI_KERNEL_BACKEND=NATIVE`. It is a smaller, slower alternative and a useful
-comparison backend. Kernel support itself remains opt-in. The LLVM backend has
+comparison backend. Kernel support and the LLVM bytecode JIT are enabled by
+default. The LLVM backend has
 been validated on Linux x86_64 and Linux AArch64; Windows x64 tests under Wine cover the NATIVE
 backend, not LLVM. Native Windows/MSVC acceptance remains outstanding.
 
@@ -21,21 +22,20 @@ Install LLVM 18 development headers and its matching shared library (on Ubuntu
 24.04, the `llvm-18-dev` package), then from the repository root:
 
 ```sh
-cmake -S . -B build-kernels -G Ninja \
-  -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-  -DSQGI_ENABLE_KERNELS=ON -DSQGI_KERNEL_BACKEND=LLVM -DSQ_ENABLE_JIT=OFF
-cmake --build build-kernels --target sqgi sqgi-bin sqgi_test_kernel_native -j4
-ctest --test-dir build-kernels -L kernel --output-on-failure
-LD_LIBRARY_PATH="$PWD/build-kernels${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
-  ./build-kernels/sqgi test/test_kernel.nut
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j4
+ctest --test-dir build -L kernel --output-on-failure
+LD_LIBRARY_PATH="$PWD/build${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+  ./build/sqgi test/test_kernel.nut
 ```
 
 For an SDK outside the normal paths, set `LLVM_ROOT`, or set
 `SQGI_LLVM_INCLUDE_DIR` (containing both `llvm-c/` and `llvm/`) and
-`SQGI_LLVM_LIBRARY` explicitly. Headers and runtime must both be LLVM 18. No
-LLVM dependencies are searched for when kernel support is disabled.
+`SQGI_LLVM_LIBRARY` explicitly. Headers and runtime must both be LLVM 18.
+LLVM dependencies are searched for only when an enabled backend uses LLVM.
 
-To build the minimal backend without LLVM, use `-DSQGI_KERNEL_BACKEND=NATIVE`.
+To build the minimal backends without LLVM, use
+`-DSQGI_KERNEL_BACKEND=NATIVE -DSQGI_BYTECODE_JIT_BACKEND=AUTO`.
 The tested Windows cross-build uses this setting; its executable runs directly
 without an MSYS2 shell. LLVM on Windows additionally needs a compatible LLVM 18
 C API library and has not been validated here.
@@ -85,8 +85,11 @@ print(output.get(0).x + "\n"); // 6
 ```
 
 For in-memory source, use `sqgi.kernel.compile(source, optional_filename)`.
-`load(path)` currently resolves paths against the process working directory,
-not against the importing script. Only `export` functions become module functions; class names become constructors.
+`load(path)` resolves paths against the process working directory, then falls
+back to `SQGI_APP_SHARE` for relative paths in packaged applications. Paths are
+not relative to the importing script. `sqgipkg` automatically bundles literal
+`sqgi.kernel.load("path.sqk")` references from staged scripts; computed paths
+require an explicit `files` mapping. Only `export` functions become module functions; class names become constructors.
 Helper functions must be defined before callers. LLVM compiles them together
 as typed native functions and chooses which calls to inline; the NATIVE backend
 uses bounded expansion. Closures and typed buffers retain the compiled module independently of

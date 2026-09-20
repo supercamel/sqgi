@@ -120,6 +120,18 @@ public:
         _HashNode *n = _Get(key, HashObj(key) & (_numofnodes - 1));
         return n ? &n->val : NULL;
     }
+    // Borrowed equivalent of GetCachedSlot. The hint owns no table or slot;
+    // validate its key on every use, including after rehash/deletion or when
+    // the caller switches to another table with a different layout.
+    SQObjectPtr *GetRawSlotHint(const SQObjectPtr &key,SQInteger &hint)
+    {
+        if(sq_type(key)==OT_NULL)return NULL;
+        if(hint>=0 && hint<_numofnodes && sq_type(_nodes[hint].key)==sq_type(key) &&
+           _rawval(_nodes[hint].key)==_rawval(key))return &_nodes[hint].val;
+        _HashNode *n=_Get(key,HashObj(key)&(_numofnodes-1));
+        hint=n ? n-_nodes : -1;
+        return n ? &n->val : NULL;
+    }
     bool GetCacheSlot(const SQObjectPtr &key,SQInteger &index,SQObjectPtr &val);
     // Receiver-independent hint: validate the key, not a table's identity or
     // layout version. Equal, non-identical strings may miss this fast path;

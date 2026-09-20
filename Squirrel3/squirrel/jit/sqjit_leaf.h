@@ -26,6 +26,9 @@ public:
     static bool Eligible(SQFunctionProto *proto, bool scalar_loops = false);
     bool Build(SQFunctionProto *proto, const std::vector<SQJitSlotKind> &arguments, bool scalar_loops = false);
     std::vector<Instruction> instructions;
-    SQJitSlotKind return_kind = SQ_JIT_SLOT_UNKNOWN;
+    SQJitSlotKind return_kind = SQ_JIT_SLOT_UNKNOWN; // Unknown for mixed returns.
+    // LLVM scalar regions can publish the type at each return independently.
+    // Default leaf callers still require a single return type.
+    bool mixed_returns = false;
 };
 #endif

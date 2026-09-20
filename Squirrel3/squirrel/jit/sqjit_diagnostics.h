@@ -2,10 +2,11 @@
 #ifndef _SQJIT_DIAGNOSTICS_H_
 #define _SQJIT_DIAGNOSTICS_H_
 #include "sqjit_backend.h"
+#include <unordered_map>
 
 enum {
     SQ_JIT_DIAG_MAX_REASONS = 96,
-    SQ_JIT_DIAG_MAX_PROTOS = 256,
+    SQ_JIT_DIAG_MAX_PROTOS = 4096,
     SQ_JIT_DIAG_MAX_LOOPS = 256,
     SQ_JIT_DIAG_MAX_REJECT_SITES = 256,
     SQ_JIT_DIAG_NAME_SIZE = 96,
@@ -54,6 +55,7 @@ struct SQJitDiagProtoStats {
     SQFunctionProto *proto;
     SQChar name[SQ_JIT_DIAG_NAME_SIZE];
     SQChar source[SQ_JIT_DIAG_SOURCE_SIZE];
+    SQInteger line;
     SQInteger enters;
     SQInteger hot;
     SQInteger compile_attempts;
@@ -108,6 +110,7 @@ struct SQJitDiagnostics {
     SQJitDiagStats total;
     SQJitDiagProtoStats protos[SQ_JIT_DIAG_MAX_PROTOS];
     SQInteger proto_count;
+    std::unordered_map<SQFunctionProto *, SQInteger> proto_index;
     SQJitDiagLoopStats loops[SQ_JIT_DIAG_MAX_LOOPS];
     SQInteger loop_count;
     SQJitDiagRejectSite sites[SQ_JIT_DIAG_MAX_REJECT_SITES];

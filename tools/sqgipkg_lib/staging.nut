@@ -35,6 +35,7 @@ class SqgiPkgStaging extends Base.SqgiPkgRecipes {
     }
 
     function stage_script_imports(opts, appdir, src_abs, dest_rel, staged, source_root = null, dest_root_rel = null) {
+        this.stage_script_kernels(opts, appdir, src_abs, staged)
         foreach (import_path in this.script_import_literals(src_abs)) {
             if (!this.is_local_script_import(import_path)) continue
 
@@ -52,6 +53,24 @@ class SqgiPkgStaging extends Base.SqgiPkgRecipes {
                 this.fail("imported script not found: " + import_path + " from " + src_abs)
 
             this.stage_script_file(opts, appdir, dep_src, dep_dest, "imported script", staged, source_root, dest_root_rel)
+        }
+    }
+
+    function stage_script_kernels(opts, appdir, src_abs, staged) {
+        // kernel.load paths are relative to the application working directory,
+        // not to the importing module. Packaged runtimes use SQGI_APP_SHARE.
+        local root = opts.manifest_dir != "" ? opts.manifest_dir : GLib.get_current_dir()
+        foreach (path in this.script_kernel_literals(src_abs)) {
+            if (GLib.path_is_absolute(path) || this.is_windows_drive_path(path) || path.find("://") != null) continue
+            local relative = this.relative_dest(path)
+            local src = GLib.build_filenamev([root, relative])
+            if (!this.path_exists(src))
+                this.fail("kernel source not found: " + path + " from " + src_abs)
+            local dest = GLib.build_filenamev([this.app_script_root_rel(opts), relative])
+            if (this.table_get(staged, dest, false)) continue
+            this.copy_into_appdir(src, appdir, dest, "kernel source")
+            staged[dest] <- true
+            this.report_inc(opts, "resources")
         }
     }
 

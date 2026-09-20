@@ -141,6 +141,118 @@ b.finish_inputs(opts, "artifact")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         return result.stdout
 
+    def test_kernel_literal_discovery(self):
+        module = json.dumps((ROOT / 'tools/sqgipkg_lib/scripts.nut').as_posix())
+        fixture = self.root / 'calls.nut'
+        fixture.write_text(r'''// sqgi.kernel.load("comment.sqk")
+/* sqgi.kernel.load("block.sqk") */
+# sqgi.kernel.load("hash.sqk")
+local text = "sqgi.kernel.load(\"string.sqk\")"
+local verbatim = @"""sqgi.kernel.load(""verbatim.sqk"")"""
+sqgi.kernel.load("src/engine/spatial.sqk")
+::sqgi . kernel . load ( @"kernels/other.sqk" )
+sqgi.kernel.load("src/engine/spatial.sqk")
+sqgi.kernel.load("dynamic/" + name)
+sqgi.kernel.load(path)
+sqgi /* callee */ . kernel . /* member */ load /* call */ (
+    /* argument */ "kernels/commented.sqk" /* keep source */ )
+sqgi.kernel.load("kernels/line.sqk" // keep source
+)
+sqgi.kernel.load("kernels/hash.sqk" # keep source
+)
+sqgi.kernel.load("dynamic/" /* still computed */ + name)
+other_sqgi.kernel.load("unrelated.sqk")
+other.sqgi.kernel.load("member.sqk")
+import("module.nut")
+''', encoding='utf8')
+        self.run_script(f'''
+local p = import({module}).SqgiPkgScripts()
+local paths = p.script_kernel_literals({json.dumps(fixture.as_posix())})
+assert(paths.len() == 5)
+assert(paths[0] == "src/engine/spatial.sqk")
+assert(paths[1] == "kernels/other.sqk")
+assert(paths[2] == "kernels/commented.sqk")
+assert(paths[3] == "kernels/line.sqk")
+assert(paths[4] == "kernels/hash.sqk")
+local imports = p.script_import_literals({json.dumps(fixture.as_posix())})
+assert(imports.len() == 1 && imports[0] == "module.nut")
+''')
+
+    def test_packaged_kernel_from_imported_script(self):
+        module = json.dumps((ROOT / 'tools/sqgipkg_lib/build.nut').as_posix())
+        project = self.root / 'project'
+        engine = project / 'src/engine'
+        engine.mkdir(parents=True)
+        (project / 'sqgipkg.json').write_text(json.dumps({'script': 'src/main.nut'}), encoding='utf8')
+        (project / 'src/main.nut').write_text(
+            'if (!sqgi.kernel.available) { print("kernel backend unavailable\\n"); return }\n'
+            'local m = import("engine/spatial.nut")\n'
+            'assert(m.answer() == 42)\nprint("kernel-package=42\\n")\n', encoding='utf8')
+        (engine / 'spatial.nut').write_text(
+            'return sqgi /* callee */ . kernel . load ( /* argument */\n'
+            '    "src/engine/spatial.sqk" /* keep source */ )\n', encoding='utf8')
+        kernel = 'export i64 answer() { return 42; }\n'
+        (engine / 'spatial.sqk').write_text(kernel, encoding='utf8')
+        for target in ('appimage', 'win-dir'):
+            for compile_scripts in (False, True):
+                with self.subTest(target=target, compile_scripts=compile_scripts):
+                    stage = self.root / f'{target}-{compile_scripts}'
+                    self.run_script(f'''
+local p = import({module}).SqgiPkgBuild()
+local opts = p.new_options()
+opts.manifest = {json.dumps((project / 'sqgipkg.json').as_posix())}
+p.apply_manifest(opts)
+opts.target = "{target}"
+opts.compile_scripts = {str(compile_scripts).lower()}
+p.stage_app_scripts(opts, {json.dumps(stage.as_posix())}, {{}})
+''')
+                    app = stage / ('usr/share/sqgi/app' if target == 'appimage' else 'share/sqgi/app')
+                    self.assertEqual((app / 'src/engine/spatial.sqk').read_text(), kernel)
+                    self.assertFalse((app / 'src/engine/spatial.sqk.cnut').exists())
+                    # Neither the current directory nor the original source tree
+                    # can satisfy a load from this relocated payload.
+                    hidden = self.root / 'hidden-source'
+                    project.rename(hidden)
+                    try:
+                        env = dict(os.environ, SQGI_APP_SHARE=str(app))
+                        result = subprocess.run([str(SQGI), str(app / 'main.nut')],
+                                                cwd=self.root, env=env, text=True,
+                                                capture_output=True, timeout=90)
+                        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                        self.assertTrue('kernel-package=42' in result.stdout or
+                                        'kernel backend unavailable' in result.stdout, result.stdout)
+                    finally:
+                        hidden.rename(project)
+
+    def test_kernel_without_manifest_uses_working_directory(self):
+        module = json.dumps((ROOT / 'tools/sqgipkg_lib/build.nut').as_posix())
+        (self.root / 'src').mkdir()
+        (self.root / 'kernels').mkdir()
+        kernel = 'export i64 answer() { return 42; }\n'
+        (self.root / 'kernels/math.sqk').write_text(kernel, encoding='utf8')
+        (self.root / 'src/main.nut').write_text(
+            'sqgi.kernel.load("kernels/math.sqk" // source in project root\n)\n', encoding='utf8')
+        self.run_script(f'''
+local p = import({module}).SqgiPkgBuild()
+local opts = p.new_options()
+opts.script = "src/main.nut"
+opts.target = "appimage"
+p.stage_app_scripts(opts, "stage", {{}})
+''')
+        self.assertEqual((self.root / 'stage/usr/share/sqgi/app/kernels/math.sqk').read_text(), kernel)
+
+    def test_missing_kernel_fails_staging(self):
+        module = json.dumps((ROOT / 'tools/sqgipkg_lib/build.nut').as_posix())
+        (self.root / 'main.nut').write_text('sqgi.kernel.load("missing.sqk")\n', encoding='utf8')
+        self.run_script(f'''
+local p = import({module}).SqgiPkgBuild()
+local opts = p.new_options()
+opts.script = {json.dumps((self.root / 'main.nut').as_posix())}
+local message = ""
+try {{ p.stage_app_scripts(opts, "stage", {{}}) }} catch (e) {{ message = e.tostring() }}
+assert(message.find("kernel source not found: missing.sqk") != null, message)
+''')
+
     def test_process_and_files_do_not_require_a_shell(self):
         module = json.dumps((ROOT / 'tools/sqgipkg_lib/core.nut').as_posix())
         # Child arguments contain shell syntax intentionally. It must remain data.

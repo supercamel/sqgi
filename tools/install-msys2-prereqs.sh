@@ -5,7 +5,7 @@ usage() {
   cat <<'EOF'
 Usage: tools/install-msys2-prereqs.sh [ucrt64|mingw64|clang64|clangarm64|mingw32]
 
-Installs the MSYS2 packages needed to build and install SQGI natively.
+Installs MSYS2 build dependencies and builds the pinned LLVM 18 SDK for SQGI.
 
 Examples:
   tools/install-msys2-prereqs.sh          # use current MSYSTEM when possible
@@ -64,10 +64,17 @@ case "$target" in
     ;;
 esac
 
+case "$target" in
+  clang*) compiler=clang; cxx_compiler=clang++ ;;
+  *) compiler=gcc; cxx_compiler=g++ ;;
+esac
+
 packages=(
   git
   "${package_prefix}-cmake"
-  "${package_prefix}-gcc"
+  "${package_prefix}-ninja"
+  "${package_prefix}-python"
+  "${package_prefix}-${compiler}"
   "${package_prefix}-pkgconf"
   "${package_prefix}-glib2"
   "${package_prefix}-gobject-introspection"
@@ -77,6 +84,14 @@ packages=(
 
 echo "Installing SQGI MSYS2 prerequisites for $shell_name..."
 pacman -S --needed "${packages[@]}"
+
+# Use the selected MinGW environment even when invoked from another MSYS shell.
+export PATH="${install_prefix}/bin:$PATH"
+export CC="$compiler" CXX="$cxx_compiler"
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+cmake "-DLLVM_INSTALL_PREFIX=$(cygpath -m "$install_prefix")" \
+  "-DLLVM_BOOTSTRAP_DIR=$(cygpath -m "$script_dir/../build-llvm18-${target}")" \
+  -P "$(cygpath -m "$script_dir/build-llvm18.cmake")"
 
 cat <<EOF
 

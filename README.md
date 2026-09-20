@@ -40,7 +40,7 @@ application in C or C++.
 - **Small dynamic language** — Squirrel provides closures, classes, exceptions,
   modules, tables, arrays, 64-bit integers, and double-precision floats.
 - **Modern async** — native Gio-style async APIs integrate with `async` / `await`.
-- **Native-speed hot paths** — an optional LLVM JIT accelerates eligible Squirrel
+- **Native-speed hot paths** — the LLVM JIT accelerates eligible Squirrel
   code, while typed kernels provide a predictable high-performance compute path.
 - **Static analysis** — `sqgicheck` catches definite Squirrel/GI mistakes without
   executing the application.
@@ -204,28 +204,25 @@ Raw data and reproduction material:
 
 </details>
 
-### Enable LLVM support
+### Build with LLVM
 
-The JIT and typed kernels are currently **experimental and opt-in**.
+The LLVM JIT and typed kernel compiler are included in the default build.
+JIT execution is enabled without environment settings. Applications can use
+ordinary Squirrel, typed kernels, or both.
 
 Install the normal build dependencies plus LLVM 18 development headers and the
 matching LLVM library, then build with:
 
 ```sh
-cmake -S . -B build-llvm -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-  -DSQ_ENABLE_JIT=ON \
-  -DSQGI_BYTECODE_JIT_BACKEND=LLVM \
-  -DSQGI_THREADED_DISPATCH=ON \
-  -DSQGI_ENABLE_KERNELS=ON \
-  -DSQGI_KERNEL_BACKEND=LLVM
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 
-cmake --build build-llvm -j"$(nproc)"
+cmake --build build -j"$(nproc)"
 ```
 
 Run a kernel demo:
 
 ```sh
-build-llvm/sqgi demo/kernels/geometry.nut
+build/sqgi demo/kernels/geometry.nut
 ```
 
 See [docs/kernels/README.md](docs/kernels/README.md) for the kernel language,
@@ -459,7 +456,7 @@ git clone https://github.com/supercamel/sqgi.git
 cd sqgi
 
 sudo apt install cmake build-essential pkg-config \
-  libglib2.0-dev libgirepository1.0-dev libffi-dev libcairo2-dev
+  libglib2.0-dev libgirepository1.0-dev libffi-dev libcairo2-dev llvm-18-dev
 
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j"$(nproc)"
@@ -468,6 +465,11 @@ build/sqgi --version
 build/sqgi demo/gio/file_read.nut README.md
 build/sqgicheck demo/gio/file_read.nut
 ```
+
+Default CMake builds include the LLVM JIT and typed kernels, using LLVM 18
+headers and its matching library. JIT execution is enabled without environment
+settings. Set `SQGI_JIT=0` when running a script to use the interpreter for
+ordinary Squirrel; typed kernels remain available.
 
 Install system-wide:
 
@@ -481,7 +483,10 @@ This source-build route uses a MinGW-style shell such as UCRT64 or MINGW64.
 Running SQGI or a packaged Windows application does not require an MSYS2 shell.
 
 The helper script installs the matching compiler, CMake, Ninja, and GLib/GI
-dependencies:
+dependencies, then builds and installs LLVM 18.1.8 for that toolchain. The first
+run downloads LLVM's pinned source archive and compiles its native backend;
+subsequent runs reuse the `build-llvm18-<target>` build directory. Set
+`CMAKE_BUILD_PARALLEL_LEVEL` to limit build concurrency on machines with less RAM.
 
 ```sh
 ./tools/install-msys2-prereqs.sh ucrt64
@@ -617,8 +622,8 @@ src/
 GObject Introspection metadata and libffi closures provide broad access to native
 libraries without a generated binding layer for each API.
 
-The optional LLVM execution paths sit alongside the normal interpreter rather
-than replacing the dynamic runtime wholesale.
+LLVM accelerates eligible Squirrel code and compiles typed kernels. The
+interpreter handles the remaining dynamic Squirrel code.
 
 ---
 

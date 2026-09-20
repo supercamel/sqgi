@@ -157,6 +157,12 @@ int main()
         CHECK(plan.Build(prototype(v, _SC("choose")), {SQ_JIT_SLOT_UNKNOWN,SQ_JIT_SLOT_INT,SQ_JIT_SLOT_INT,SQ_JIT_SLOT_BOOL}) &&
             plan.return_kind == SQ_JIT_SLOT_INT, "analysis merges scalar branch definitions");
         CHECK(!plan.Build(prototype(v, _SC("mixed")), {SQ_JIT_SLOT_UNKNOWN,SQ_JIT_SLOT_BOOL,SQ_JIT_SLOT_INT}), "mixed return tags rejected");
+        CHECK(plan.Build(prototype(v, _SC("mixed")), {SQ_JIT_SLOT_UNKNOWN,SQ_JIT_SLOT_BOOL,SQ_JIT_SLOT_INT}, true) &&
+            plan.mixed_returns, "LLVM region tracks independent scalar return tags");
+        CHECK(plan.Build(prototype(v, _SC("less")), {SQ_JIT_SLOT_UNKNOWN,SQ_JIT_SLOT_FLOAT,SQ_JIT_SLOT_INT}, true) &&
+            !plan.mixed_returns, "LLVM region accepts mixed numeric comparisons and resets return state");
+        CHECK(!plan.Build(prototype(v, _SC("less")), {SQ_JIT_SLOT_UNKNOWN,SQ_JIT_SLOT_FLOAT,SQ_JIT_SLOT_INT}),
+            "default leaf plans retain integer comparison restriction");
         CHECK(!plan.Build(prototype(v, _SC("mixed_join")), {SQ_JIT_SLOT_UNKNOWN,SQ_JIT_SLOT_BOOL}), "mixed live join tags rejected");
         CHECK(!plan.Build(prototype(v, _SC("bump")), {SQ_JIT_SLOT_UNKNOWN,SQ_JIT_SLOT_BOOL}), "boolean arithmetic rejected");
         for(const SQChar *name : {_SC("impure"),_SC("receiver"),_SC("recursive"),_SC("default_arg"),

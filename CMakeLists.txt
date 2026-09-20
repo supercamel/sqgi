@@ -62,16 +62,16 @@ if(SQGICHECK_ENABLE_COVERAGE AND NOT CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     message(FATAL_ERROR "SQGICHECK_ENABLE_COVERAGE requires GCC/g++")
 endif()
 
-# ── Optional Squirrel bytecode JIT ────────────────────────────────────────────
+# ── Squirrel bytecode JIT and typed kernels ───────────────────────────────────
 #
-# The JIT is experimental and defaults off. When disabled, no JIT sources are
-# compiled and the interpreter remains the only execution engine.
-option(SQ_ENABLE_JIT "Build experimental Squirrel bytecode JIT support" OFF)
+# LLVM powers the default JIT and typed kernel compiler. Explicitly disabling
+# the bytecode JIT leaves ordinary Squirrel execution to the interpreter.
+option(SQ_ENABLE_JIT "Build experimental Squirrel bytecode JIT support" ON)
 option(SQGI_THREADED_DISPATCH "Use experimental GCC/Clang threaded interpreter dispatch" OFF)
-option(SQGI_ENABLE_KERNELS "Build experimental typed kernel compiler" OFF)
+option(SQGI_ENABLE_KERNELS "Build experimental typed kernel compiler" ON)
 set(SQGI_KERNEL_BACKEND "LLVM" CACHE STRING "Kernel compiler backend: LLVM or NATIVE")
 set_property(CACHE SQGI_KERNEL_BACKEND PROPERTY STRINGS LLVM NATIVE)
-set(SQGI_BYTECODE_JIT_BACKEND "AUTO" CACHE STRING "Bytecode compiler: AUTO or LLVM")
+set(SQGI_BYTECODE_JIT_BACKEND "LLVM" CACHE STRING "Bytecode compiler: AUTO or LLVM")
 set_property(CACHE SQGI_BYTECODE_JIT_BACKEND PROPERTY STRINGS AUTO LLVM)
 if(NOT SQGI_BYTECODE_JIT_BACKEND MATCHES "^(AUTO|LLVM)$")
     message(FATAL_ERROR "SQGI_BYTECODE_JIT_BACKEND must be AUTO or LLVM")
@@ -285,7 +285,8 @@ if(SQ_ENABLE_JIT)
             Squirrel3/squirrel/jit/sqjit_numeric.cpp
             Squirrel3/squirrel/jit/sqjit_dynamic_array.cpp
             Squirrel3/squirrel/jit/sqjit_object_inline.cpp
-            Squirrel3/squirrel/jit/sqjit_llvm_objects.cpp)
+            Squirrel3/squirrel/jit/sqjit_llvm_objects.cpp
+            Squirrel3/squirrel/jit/sqjit_llvm_table_predicate.cpp)
     elseif(SQGI_JIT_BACKEND STREQUAL "x64")
         list(APPEND SQUIRREL3_SRC
             Squirrel3/squirrel/jit/sqjit_backend_x64.cpp
@@ -819,6 +820,11 @@ find_package(Python3 COMPONENTS Interpreter QUIET)
 if(Python3_Interpreter_FOUND)
     add_test(NAME sqgi_test_sqgipkg_ergonomics
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/sqgipkg_tests/test_ergonomics.py $<TARGET_FILE:sqgi-bin>)
+    if(SQGI_HAS_NATIVE_JIT)
+        add_test(NAME sqgi_test_jit_defaults
+            COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/test/test_jit_defaults.py $<TARGET_FILE:sqgi-bin>)
+        set_tests_properties(sqgi_test_jit_defaults PROPERTIES LABELS "jit" TIMEOUT 60)
+    endif()
 endif()
 
 add_test(
@@ -828,7 +834,8 @@ add_test(
 set_tests_properties(sqgi_test_sqgipkg PROPERTIES
     ENVIRONMENT "${SQGI_TEST_ENV}"
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
-    TIMEOUT 300
+    # The fixtures repeatedly bundle LLVM and build a fresh runtime recipe.
+    TIMEOUT 900
 )
 
 # sqgicheck has deterministic engine/unit coverage plus an end-to-end CLI

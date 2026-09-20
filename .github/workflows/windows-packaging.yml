@@ -8,6 +8,9 @@ permissions:
 jobs:
   windows:
     runs-on: windows-latest
+    env:
+      CC: gcc
+      CXX: g++
     defaults:
       run:
         shell: pwsh
@@ -34,6 +37,10 @@ jobs:
           choco install nsis --yes --no-progress
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           'C:\Program Files (x86)\NSIS' | Out-File -FilePath $env:GITHUB_PATH -Append
+      - name: Build and install LLVM 18 for the native toolchain
+        run: |
+          cmake "-DLLVM_INSTALL_PREFIX=$env:SQGI_TEST_MSYS_ROOT/ucrt64" "-DLLVM_BOOTSTRAP_DIR=$env:RUNNER_TEMP/sqgi-llvm18" -P tools/build-llvm18.cmake
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
       - name: Build and install into a path containing spaces
         run: |
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release '-DCMAKE_INSTALL_PREFIX=C:/sqgipkg test'
@@ -44,6 +51,8 @@ jobs:
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
       - name: CLI, process, file, schema and native recipe regressions
         run: |
+          python test/test_jit_defaults.py build/sqgi.exe
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
           python tools/sqgipkg_tests/test_ergonomics.py build/sqgi.exe
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
       - name: Package and run from PowerShell and CMD

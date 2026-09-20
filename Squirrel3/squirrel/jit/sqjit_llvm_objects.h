@@ -4,4 +4,5 @@
 bool sqjit_llvm_object_region(SQFunctionProto *, SQInteger, SQInteger *, SQInteger *, SQInteger *);
 SQJitCompileResult sqjit_llvm_object_compile(SQFunctionProto *, SQInteger, SQInteger,
     SQInteger, SQJitCode *, bool);
+bool sqjit_llvm_table_predicate_compile(SQFunctionProto *, SQJitNative *);
 #endif

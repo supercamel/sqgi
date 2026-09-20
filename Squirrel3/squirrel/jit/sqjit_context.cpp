@@ -5,13 +5,13 @@
 #include <stdlib.h>
 #include <string.h>
 
-static bool truthy(const char *value)
+static bool truthy(const char *value, bool default_value = false)
 {
-    return value && value[0] && value[0] != '0';
+    return value ? value[0] && value[0] != '0' : default_value;
 }
 
 SQJitContext::SQJitContext()
-    : enabled(truthy(getenv("SQGI_JIT"))), precise_exits(truthy(getenv("SQGI_JIT_PRECISE_EXITS"))),
+    : enabled(truthy(getenv("SQGI_JIT"), true)), precise_exits(truthy(getenv("SQGI_JIT_PRECISE_EXITS"))),
       trace(false), trace_stats(false),
       collect_stats(false), threshold(1000), proto_tick(0), loop_tick(0), active_vm(NULL), active_logs(NULL),
       diagnostics(NULL)

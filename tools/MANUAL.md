@@ -131,6 +131,13 @@ local Window = import("ui/window.nut")
 local Config = import("lib/config.nut")
 ```
 
+Literal `sqgi.kernel.load("src/engine/spatial.sqk")` calls also bundle kernel
+source at the same path under the app script root, on Linux and Windows.
+Kernel paths are relative to the manifest's directory, or the packaging working
+directory when no manifest is used. For computed paths
+or aliased loader calls, add an explicit `files` mapping. The packaged runtime
+must have kernel support enabled.
+
 For scripts loaded dynamically, keep `script_dirs`:
 
 ```json

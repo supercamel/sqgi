@@ -318,7 +318,26 @@ bool lower(SQFunctionProto *p, SQObjectPtr *stack, SQClosure *closure, SQJitNati
         std::memcpy(&bits, &p->_literals[index]._unVal, sizeof(bits));
         return integer(bits);
     };
-    auto cmp = [&](unsigned op, LLVMValueRef left, LLVMValueRef right) {
+    auto cmp = [&](unsigned op, SQInteger left_slot, SQInteger right_slot, SQInteger ip) {
+        auto left = load(left_slot), right = load(right_slot);
+        const auto &types = plan.instructions[ip].incoming;
+        auto left_kind = types[left_slot].kind, right_kind = types[right_slot].kind;
+        if(left_kind == SQ_JIT_SLOT_FLOAT || right_kind == SQ_JIT_SLOT_FLOAT) {
+            auto a = left_kind == SQ_JIT_SLOT_FLOAT ? LLVMBuildBitCast(b, left, real, "float_left") : LLVMBuildSIToFP(b, left, real, "convert_left");
+            auto z = right_kind == SQ_JIT_SLOT_FLOAT ? LLVMBuildBitCast(b, right, real, "float_right") : LLVMBuildSIToFP(b, right, real, "convert_right");
+            // ObjCmp first compares raw bits for equal tags; otherwise it
+            // returns -1 for ordered less-than and +1 for everything else.
+            // Thus opposite signed zeros and NaN payloads must not be lowered
+            // as ordinary IEEE <=/>=. Mixed numeric tags use numeric equality.
+            auto equal = left_kind == right_kind ? LLVMBuildICmp(b, LLVMIntEQ, left, right, "same_bits") :
+                LLVMBuildFCmp(b, LLVMRealOEQ, a, z, "numeric_equal");
+            auto less = LLVMBuildAnd(b, LLVMBuildNot(b, equal, "different"),
+                LLVMBuildFCmp(b, LLVMRealOLT, a, z, "ordered_less"), "less");
+            if(op == CMP_L) return less;
+            if(op == CMP_LE) return LLVMBuildOr(b, equal, less, "less_equal");
+            if(op == CMP_GE) return LLVMBuildNot(b, less, "greater_equal");
+            return LLVMBuildNot(b, LLVMBuildOr(b, equal, less, "less_equal"), "greater");
+        }
         LLVMIntPredicate predicate = op == CMP_G ? LLVMIntSGT : op == CMP_GE ? LLVMIntSGE : op == CMP_L ? LLVMIntSLT : LLVMIntSLE;
         return LLVMBuildICmp(b, predicate, left, right, "compare");
     };
@@ -417,9 +436,9 @@ bool lower(SQFunctionProto *p, SQObjectPtr *stack, SQClosure *closure, SQJitNati
             store(i._arg0, LLVMBuildZExt(b, value, word, "boolean")); break;
         }
         case _OP_CMP:
-            store(i._arg0, LLVMBuildZExt(b, cmp(i._arg3, load(i._arg2), load(i._arg1)), word, "boolean")); break;
+            store(i._arg0, LLVMBuildZExt(b, cmp(i._arg3, i._arg2, i._arg1, ip), word, "boolean")); break;
         case _OP_JCMP: case _OP_JZ: {
-            auto condition = i.op == _OP_JCMP ? cmp(i._arg3, load(i._arg2), load(i._arg0)) :
+            auto condition = i.op == _OP_JCMP ? cmp(i._arg3, i._arg2, i._arg0, ip) :
                 LLVMBuildICmp(b, LLVMIntNE, load(i._arg0), integer(0), "truth");
             LLVMBuildCondBr(b, condition, blocks[ip + 1], blocks[ip + 1 + i._arg1]);
             terminal = true; break;
@@ -430,7 +449,7 @@ bool lower(SQFunctionProto *p, SQObjectPtr *stack, SQClosure *closure, SQJitNati
             LLVMTypeRef types[] = {pointer, word, word, pointer, word};
             auto type = LLVMFunctionType(word, types, 5, false);
             auto target = LLVMConstIntToPtr(integer((uintptr_t)&publish), pointer);
-            LLVMValueRef args[] = {LLVMGetParam(fn, 1), load(i._arg1), integer(plan.return_kind),
+            LLVMValueRef args[] = {LLVMGetParam(fn, 1), load(i._arg1), integer(plan.instructions[ip].incoming[i._arg1].kind),
                 LLVMConstIntToPtr(integer((uintptr_t)&sqjit_context(p->_sharedstate)), pointer),
                 LLVMBuildLoad2(b, word, touched, "temporary_was_touched")};
             LLVMBuildRet(b, LLVMBuildCall2(b, type, target, args, 5, "publish"));
@@ -478,6 +497,8 @@ SQJitCompileResult sqjit_backend_compile_proto(SQFunctionProto *p, SQObjectPtr *
     SQJitCompileAttempt attempt(p, SQ_JIT_BACKEND_LLVM);
     try {
         if(lower(p,stack,closure,native,attempt))return attempt.Finish(true);
+        if(native && !native->_scalarized && sqjit_llvm_table_predicate_compile(p,native))
+            return SQJitCompileResult::Success(SQ_JIT_BACKEND_LLVM);
         if(allow_side_exits && !native->_scalarized && sqjit_context(p->_sharedstate).precise_exits) {
             auto result=sqjit_llvm_object_compile(p,0,p->_ninstructions-1,0,&native->_code,false);
             if(result){native->_requires_vm_frame=true;native->_stack_live_slots=p->_stacksize;native->_stack_storage_slots=p->_stacksize;return result;}

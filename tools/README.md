@@ -429,6 +429,16 @@ local T = import("lib/telemetry.nut")
 Use `script_dirs` for scripts that are loaded dynamically or are not reachable
 through literal local imports.
 
+Literal `sqgi.kernel.load("src/engine/spatial.sqk")` calls in staged scripts
+also stage the kernel source, preserving its path relative to the manifest's
+directory (or the packaging working directory when no manifest is used) under
+the packaged app script root. Kernels remain source files;
+the target runtime compiles them with its enabled kernel backend. This works
+for Linux and Windows, with or without Squirrel bytecode compilation.
+Computed paths and calls through aliases require an explicit `files` mapping
+to `usr/share/sqgi/app/<path>` on Linux or `share/sqgi/app/<path>` on Windows.
+Absolute paths are not automatically bundled.
+
 ### `script_dirs`
 
 Recursively stage `.nut` scripts from directories. Paths are relative to the

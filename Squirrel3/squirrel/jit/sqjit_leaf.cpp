@@ -60,7 +60,7 @@ bool SQJitLeafPlan::Eligible(SQFunctionProto *p, bool scalar_loops)
 
 bool SQJitLeafPlan::Build(SQFunctionProto *p, const std::vector<SQJitSlotKind> &arguments, bool scalar_loops)
 {
-    instructions.clear(); return_kind = SQ_JIT_SLOT_UNKNOWN;
+    instructions.clear(); return_kind = SQ_JIT_SLOT_UNKNOWN; mixed_returns = false;
     if(!Eligible(p, scalar_loops) || arguments.size() != (size_t)p->_nparameters) return false;
     SQBytecodeAnalysis analysis;
     if(!analysis.Build(p->_instructions, p->_ninstructions, p->_stacksize)) return false;
@@ -152,7 +152,8 @@ bool SQJitLeafPlan::Build(SQFunctionProto *p, const std::vector<SQJitSlotKind> &
         }
         case _OP_CMP: case _OP_JCMP: {
             SQInteger right = i.op == _OP_CMP ? i._arg1 : i._arg0;
-            if(state[right].kind != SQ_JIT_SLOT_INT || state[i._arg2].kind != SQ_JIT_SLOT_INT ||
+            if((scalar_loops ? (!numeric(state[right].kind) || !numeric(state[i._arg2].kind)) :
+                (state[right].kind != SQ_JIT_SLOT_INT || state[i._arg2].kind != SQ_JIT_SLOT_INT)) ||
                 (i._arg3 != CMP_G && i._arg3 != CMP_GE && i._arg3 != CMP_L && i._arg3 != CMP_LE)) return false;
             if(i.op == _OP_CMP) set(i._arg0, SQJitLeafValue(SQ_JIT_SLOT_BOOL));
             break;
@@ -162,7 +163,10 @@ bool SQJitLeafPlan::Build(SQFunctionProto *p, const std::vector<SQJitSlotKind> &
             break;
         case _OP_RETURN:
             if(i._arg0 == 0xff || !scalar(state[i._arg1].kind)) return false;
-            if(return_kind != SQ_JIT_SLOT_UNKNOWN && return_kind != state[i._arg1].kind) return false;
+            if(return_kind != SQ_JIT_SLOT_UNKNOWN && return_kind != state[i._arg1].kind) {
+                if(!scalar_loops) return false;
+                mixed_returns = true;
+            }
             return_kind = state[i._arg1].kind; break;
         case _OP_LINE: case _OP_JMP: break;
         default: return false;
@@ -170,5 +174,7 @@ bool SQJitLeafPlan::Build(SQFunctionProto *p, const std::vector<SQJitSlotKind> &
         if(facts.fallthrough && !merge(ip + 1, state)) return false;
         if(facts.target >= 0 && !merge(facts.target, state)) return false;
     }
-    return return_kind != SQ_JIT_SLOT_UNKNOWN;
+    bool has_return = return_kind != SQ_JIT_SLOT_UNKNOWN;
+    if(mixed_returns) return_kind = SQ_JIT_SLOT_UNKNOWN;
+    return has_return;
 }

@@ -10,6 +10,8 @@
 #include "jit/sqjit_local_graph.h"
 #include "jit/sqjit_write_log.h"
 #include <cstdint>
+#include <cstring>
+#include <limits>
 #include "jit/sqjit_context.h"
 #include "jit/sqjit_observe.h"
 #include "jit/sqjit_backend.h"
@@ -66,6 +68,166 @@ int main() {
         auto &ctx = sqjit_context(v->_sharedstate);
         ctx.enabled = pass != 0; ctx.threshold = 1;
         ctx.trace = ctx.trace_stats = false; sqjit_observe_enable(v);
+        CHECK(run(v, _SC(R"NUT(
+function table_alive(entity) { return entity != null && entity.alive && entity.hp > 0.0; }
+function table_ready(entity) { return entity == null || entity.ready; }
+function table_hp(entity) { if(entity.hp <= 0.0) return 0; return entity.hp; }
+function table_pair(entity, limit) { return entity.hp > limit && entity.hp < 100.0; }
+function table_not(entity) { return !entity.alive; }
+function table_receiver() { return this.alive && this.hp > 0.0; }
+local predicate_receiver={alive=true,hp=1,check=table_receiver};
+for(local n=0;n<40;n++) {
+    if(!table_alive({alive=true,hp=20.0}) || table_alive({alive=true,hp=0.0}) ||
+       table_alive(null) || table_alive({alive=false})) throw "table predicate";
+    if(!table_ready(null) || table_ready({ready=false}) || table_ready({ready=0})!=0 ||
+       table_ready({ready=7})!=7) throw "short circuit values";
+    if(table_hp({hp=1.5})!=1.5 || table_hp({hp=-2})!=0 ||
+       !table_pair({hp=7},3.0) || table_pair({hp=2.0},3)) throw "numeric fields";
+    if(!table_not({alive=0}) || !table_not({alive=-0.0}) || table_not({alive=5})) throw "field truth";
+    if(!predicate_receiver.check()) throw "receiver fields";
+}
+// Structural changes, missing fields and non-scalar values must never reuse
+// stale addresses or suppress the interpreter's fallback behavior.
+local t={alive=true,hp=10.0};
+for(local n=0;n<100;n++)t["extra"+n]<-n;
+if(!table_alive(t))throw "table rehash";
+delete t.hp;
+local threw=false;try{table_alive(t);}catch(e){threw=true;}
+if(!threw)throw "missing-field error";
+t.hp<-0.0;if(table_alive(t))throw "replacement field";
+local gets=0;
+local delegated={alive=true}.setdelegate({_get=function(key){gets++;return 3.0;}});
+if(!table_alive(delegated) || gets!=1)throw "delegated fallback exactly once";
+local order=[];
+local compared={}.setdelegate({_cmp=function(other){order.append("cmp");return -1;}});
+if(table_pair({hp=compared},{}) || order.len()!=1)throw "comparison fallback";
+local alive_owner={};
+if(!table_alive({alive=alive_owner,hp=1.0}))throw "reference-valued field fallback";
+if(table_ready({ready=alive_owner})!=alive_owner)throw "reference return fallback";
+local weak=alive_owner.weakref();
+if(!table_alive({alive=weak,hp=1.0}))throw "weak field fallback";
+)NUT")));
+        if(ctx.enabled) for(auto name : {_SC("table_alive"),_SC("table_ready"),_SC("table_hp"),_SC("table_pair"),_SC("table_not"),_SC("table_receiver")}) {
+            auto o=observation(v,name);
+            if(!o.compilation.compiled || o.direct.successes+o.frame.successes==0)
+                scprintf(_SC("table predicate coverage: %s (%s)\n"),name,o.compilation.reason?o.compilation.reason:"none");
+            CHECK(o.compilation.compiled && o.compilation.backend==SQ_JIT_BACKEND_LLVM);
+            CHECK(o.direct.successes+o.frame.successes>0);
+        }
+        if(ctx.enabled) {
+            SQObjectPtr callable;
+            CHECK(_table(v->_roottable)->Get(SQObjectPtr(SQString::Create(v->_sharedstate,_SC("table_alive"))),callable));
+            auto closure=_closure(callable);
+            SQObjectPtr entity(SQTable::Create(v->_sharedstate,0));
+            _table(entity)->NewSlot(SQObjectPtr(SQString::Create(v->_sharedstate,_SC("alive"))),SQObjectPtr(true));
+            SQObjectPtr hp(SQString::Create(v->_sharedstate,_SC("hp")));
+            _table(entity)->NewSlot(hp,SQObjectPtr((SQFloat)0.0));
+            SQObjectPtr args[]={v->_roottable,entity},out((SQInteger)71);
+            ReleaseProbe probe{entity,hp,0,-1};
+            auto payload=static_cast<ReleaseProbe **>(sq_newuserdata(v,sizeof(ReleaseProbe *)));
+            *payload=&probe;sq_setreleasehook(v,-1,release_probe);
+            v->temp_reg=v->GetUp(-1);sq_pop(v,1);
+            auto entry=(SQJitNativeObjectFn)closure->_function->_jit->_entry->_code.Entry();
+            SQInteger status;
+            {SQJitExecutionScope scope(ctx,v);status=entry(args,&out,closure);}
+            CHECK(status==SQ_JIT_NATIVE_GUARD_FAILED && sq_type(out)==OT_INTEGER && _integer(out)==71);
+            CHECK(probe.calls==0 && sq_type(v->temp_reg)==OT_USERDATA);
+            // A program owner makes the temporary release non-final; native
+            // success may drop it, without invoking the hook during the read.
+            SQObjectPtr owner=v->temp_reg;
+            {SQJitExecutionScope scope(ctx,v);status=entry(args,&out,closure);}
+            CHECK(status==SQ_JIT_NATIVE_RETURNED && sq_type(out)==OT_BOOL && !_integer(out));
+            CHECK(probe.calls==0 && sq_type(v->temp_reg)==OT_NULL);
+            owner.Null();CHECK(probe.calls==1);
+            // A missing second field must leave the VM temporary and output
+            // unchanged even after the first field lookup succeeded.
+            _table(entity)->Remove(hp);v->temp_reg=(SQInteger)39;out=(SQInteger)71;
+            {SQJitExecutionScope scope(ctx,v);status=entry(args,&out,closure);}
+            CHECK(status==SQ_JIT_NATIVE_GUARD_FAILED && _integer(out)==71 && _integer(v->temp_reg)==39);
+            v->temp_reg.Null();
+        }
+        {
+            // Compare interpreter and native results without spelling IEEE
+            // expectations: Squirrel ObjCmp deliberately has different NaN
+            // and signed-zero semantics. Exercise CMP and fused JCMP, with
+            // each numeric argument signature compiled separately.
+            const bool enabled = ctx.enabled;
+            auto invoke = [&](const SQChar *name, const SQObjectPtr &a, const SQObjectPtr &b) {
+                SQInteger top = sq_gettop(v);
+                sq_pushroottable(v); sq_pushstring(v, name, -1);
+                CHECK(SQ_SUCCEEDED(sq_get(v, -2)));
+                sq_pushroottable(v); sq_pushobject(v, a); sq_pushobject(v, b);
+                CHECK(SQ_SUCCEEDED(sq_call(v, 3, SQTrue, SQTrue)));
+                SQObjectPtr result = v->GetUp(-1);
+                sq_settop(v, top);
+                return result;
+            };
+            const uint64_t nan_bits[] = {UINT64_C(0x7ff8000000000001), UINT64_C(0x7ff8000000000002)};
+            SQFloat nan1, nan2;
+            std::memcpy(&nan1, &nan_bits[0], sizeof(nan1));
+            std::memcpy(&nan2, &nan_bits[1], sizeof(nan2));
+            std::vector<SQObjectPtr> floats, integers;
+            for(SQFloat x : {-std::numeric_limits<SQFloat>::infinity(), -1.5, -0.0, 0.0, 1.5,
+                            9007199254740992.0, std::numeric_limits<SQFloat>::infinity(), nan1, nan2})
+                floats.emplace_back(x);
+            for(SQInteger x : {INT64_MIN, INT64_C(-1), INT64_C(0), INT64_C(1),
+                              INT64_C(9007199254740993), INT64_MAX}) integers.emplace_back(x);
+            const char *operators[] = {"<", "<=", ">", ">="};
+            for(int signature = 0; signature < 3; ++signature) {
+                const auto &left = signature == 1 ? integers : floats;
+                const auto &right = signature == 2 ? integers : floats;
+                for(int op = 0; op < 4; ++op) for(int branch = 0; branch < 2; ++branch) for(int field=0;field<2;++field) {
+                    char name[64], source[192];
+                    std::snprintf(name, sizeof(name), "float_cmp_%d_%d_%d_%d", signature, op, branch, field);
+                    std::snprintf(source, sizeof(source), branch ?
+                        "function %s(x,y) { if(%s%s y) return 7; return -9; }" :
+                        "function %s(x,y) { return %s%s y; }", name, field?"x.value":"x", operators[op]);
+                    CHECK(run(v, source));
+                    for(const auto &a : left) for(const auto &b : right) {
+                        SQObjectPtr input=a;
+                        if(field) {
+                            input=SQTable::Create(v->_sharedstate,0);
+                            _table(input)->NewSlot(SQObjectPtr(SQString::Create(v->_sharedstate,_SC("value"))),a);
+                        }
+                        ctx.enabled = false;
+                        SQObjectPtr expected = invoke(name, input, b);
+                        ctx.enabled = enabled;
+                        SQObjectPtr actual = invoke(name, input, b);
+                        CHECK(sq_type(actual) == sq_type(expected) && _rawval(actual) == _rawval(expected));
+                    }
+                    if(enabled) {
+                        auto o = observation(v, name);
+                        CHECK(o.compilation.compiled && o.compilation.backend == SQ_JIT_BACKEND_LLVM);
+                        CHECK(o.frame.successes + o.direct.successes > 0);
+                    }
+                }
+            }
+            CHECK(run(v, _SC(R"NUT(
+function float_clamp(value, low, high) {
+    if(value < low) return low;
+    if(value > high) return high;
+    return value;
+}
+function float_clamp_mixed(value, low, high) {
+    if(value < low) return low;
+    if(value > high) return high;
+    return value;
+}
+for(local n=0;n<30;n++) {
+    if(float_clamp(-1.0,0.0,1.0)!=0.0 || float_clamp(0.5,0.0,1.0)!=0.5 ||
+       float_clamp(2.0,0.0,1.0)!=1.0) throw "float clamp";
+    local lo=float_clamp_mixed(-1.0,0,1.0), mid=float_clamp_mixed(0.5,0,1.0), hi=float_clamp_mixed(2.0,0,1.0);
+    if(lo!=0 || typeof lo!="integer" || mid!=0.5 || typeof mid!="float" || hi!=1.0 || typeof hi!="float")
+        throw "mixed clamp return types";
+}
+// Different argument tags must still take the existing guarded fallback.
+if(float_clamp(2,0,1)!=1 || typeof float_clamp(2,0,1)!="integer") throw "clamp fallback";
+)NUT")));
+            if(enabled) for(auto name : {_SC("float_clamp"), _SC("float_clamp_mixed")}) {
+                auto o = observation(v, name);
+                CHECK(o.compilation.compiled && o.direct.successes + o.frame.successes > 0);
+            }
+        }
         {
             // DMOVE is sequential: its second source can be the first
             // destination. Symbolic keys must not lose their provenance.

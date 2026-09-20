@@ -343,6 +343,15 @@ SQInteger load_source(HSQUIRRELVM v) {
         std::string filename=string_arg(v,2);
         if(filename.find('\0')!=std::string::npos) throw std::runtime_error("kernel: invalid filename");
         std::unique_ptr<FILE,CloseFile> file(g_fopen(filename.c_str(),"rb"));
+        if(!file && !g_path_is_absolute(filename.c_str())) {
+            const char *app_share=g_getenv("SQGI_APP_SHARE");
+            if(app_share && *app_share) {
+                std::unique_ptr<gchar,decltype(&g_free)> packaged(
+                    g_build_filename(app_share,filename.c_str(),nullptr),g_free);
+                file.reset(g_fopen(packaged.get(),"rb"));
+                if(file) filename=packaged.get();
+            }
+        }
         if(!file) throw std::runtime_error("kernel: cannot open " + filename);
         std::string source; char block[4096];
         size_t count;

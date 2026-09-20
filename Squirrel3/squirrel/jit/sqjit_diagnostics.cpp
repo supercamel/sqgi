@@ -86,21 +86,21 @@ SQJitDiagProtoStats *sqjit_diag_get_proto(SQFunctionProto *proto)
         return NULL;
     }
     SQJitContext &ctx = sqjit_context(proto->_sharedstate);
-    for(SQInteger n = 0; n < ctx.Diagnostics().proto_count; n++) {
-        if(ctx.Diagnostics().protos[n].proto == proto) {
-            return &ctx.Diagnostics().protos[n];
-        }
-    }
+    auto &diag = ctx.Diagnostics();
+    auto found = diag.proto_index.find(proto);
+    if(found != diag.proto_index.end()) return &diag.protos[found->second];
     if(ctx.Diagnostics().proto_count >= SQ_JIT_DIAG_MAX_PROTOS) {
         return NULL;
     }
 
-    SQJitDiagProtoStats *entry = &ctx.Diagnostics().protos[ctx.Diagnostics().proto_count++];
+    diag.proto_index.emplace(proto, diag.proto_count);
+    SQJitDiagProtoStats *entry = &diag.protos[diag.proto_count++];
     memset(entry, 0, sizeof(*entry));
     entry->proto = proto;
     entry->last_reject_ip = -1;
     sqjit_diag_copy_name(entry->name, proto);
     sqjit_diag_copy_source(entry->source, proto);
+    entry->line = sqjit_diag_proto_line(proto, 0);
     return entry;
 }
 
@@ -201,6 +201,10 @@ void sqjit_diag_dump_stats(SQJitContext &ctx)
         (SQInt32)ctx.Diagnostics().total.proto_backoff_skips,
         (SQInt32)ctx.Diagnostics().total.loop_backoffs,
         (SQInt32)ctx.Diagnostics().total.loop_backoff_skips);
+    scprintf(_SC("[sqjit:stats] coverage protos=%d/%d loops=%d/%d sites=%d/%d (rankings may be incomplete at capacity)\n"),
+        (SQInt32)ctx.Diagnostics().proto_count, SQ_JIT_DIAG_MAX_PROTOS,
+        (SQInt32)ctx.Diagnostics().loop_count, SQ_JIT_DIAG_MAX_LOOPS,
+        (SQInt32)ctx.Diagnostics().site_count, SQ_JIT_DIAG_MAX_REJECT_SITES);
     for(SQInteger n = 0; n < SQ_JIT_REJECT_COUNT; n++) {
         if(ctx.Diagnostics().total.reject_categories[n] <= 0) {
             continue;
@@ -216,6 +220,30 @@ void sqjit_diag_dump_stats(SQJitContext &ctx)
     }
 
     bool printed_protos[SQ_JIT_DIAG_MAX_PROTOS];
+    memset(printed_protos, 0, sizeof(printed_protos));
+    // Rejections alone count compilation attempts, not the cost of leaving a
+    // hot function interpreted. Retain source lines for anonymous closures and
+    // print entry counts even after their prototypes have been released.
+    for(SQInteger rank = 0; rank < 24; rank++) {
+        SQInteger best = -1, best_score = 0;
+        for(SQInteger n = 0; n < ctx.Diagnostics().proto_count; n++) {
+            const auto &entry = ctx.Diagnostics().protos[n];
+            SQInteger score = entry.enters + entry.direct_successes;
+            if(!printed_protos[n] && score > best_score) {
+                best = n;
+                best_score = score;
+            }
+        }
+        if(best < 0) break;
+        printed_protos[best] = true;
+        const auto &entry = ctx.Diagnostics().protos[best];
+        scprintf(_SC("[sqjit:stats] proto_hot rank=%lld name=%s source=%s line=%lld enters=%lld exec_ok=%lld direct_ok=%lld side_exits=%lld compile_ok=%lld reason=%s\n"),
+            (long long)(rank + 1), entry.name, entry.source, (long long)entry.line,
+            (long long)entry.enters, (long long)entry.exec_successes,
+            (long long)entry.direct_successes, (long long)entry.exec_side_exits,
+            (long long)entry.compile_successes,
+            entry.last_reject_reason ? entry.last_reject_reason : "none");
+    }
     memset(printed_protos, 0, sizeof(printed_protos));
     for(SQInteger rank = 0; rank < 12; rank++) {
         SQInteger best = -1;
@@ -340,8 +368,11 @@ void sqjit_diag_forget_proto(SQFunctionProto *proto)
     SQJitContext *ctx = proto->_sharedstate->_jit_context;
     SQJitDiagnostics *diag = ctx ? ctx->ExistingDiagnostics() : NULL;
     if(!diag) return;
-    for(SQInteger n = 0; n < diag->proto_count; ++n)
-        if(diag->protos[n].proto == proto) diag->protos[n].proto = NULL;
+    auto found = diag->proto_index.find(proto);
+    if(found != diag->proto_index.end()) {
+        diag->protos[found->second].proto = NULL;
+        diag->proto_index.erase(found);
+    }
     for(SQInteger n = 0; n < diag->loop_count; ++n)
         if(diag->loops[n].proto == proto) diag->loops[n].proto = NULL;
     for(SQInteger n = 0; n < diag->site_count; ++n)
