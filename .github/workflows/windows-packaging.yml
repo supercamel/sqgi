@@ -55,6 +55,8 @@ jobs:
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           python tools/sqgipkg_tests/test_ergonomics.py build/sqgi.exe
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python tools/sqgipkg_tests/test_kernel_packaging.py build/sqgi.exe
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
       - name: Package and run from PowerShell and CMD
         run: |
           python tools/sqgipkg_tests/test_windows_native.py 'C:/sqgipkg test/bin/sqgipkg.exe' $env:SQGI_TEST_MSYS_ROOT ucrt64

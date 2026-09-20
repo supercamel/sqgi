@@ -31,6 +31,25 @@ SQGIPKG_KEEP_TEST_WORK=1 CMAKE_BUILD_PARALLEL_LEVEL=4 \
 The test prints its temporary output directory. It packages the actual demo
 manifests, including the GTK/GStreamer overlay, and checks their outputs.
 
+Run the focused kernel packaging tests without downloading dependencies or
+building AppImages:
+
+```sh
+python3 tools/sqgipkg_tests/test_kernel_packaging.py build/sqgi -v
+# Or, after configuring CMake with kernels enabled:
+ctest --test-dir build -R '^sqgi_test_kernel_packaging$' --output-on-failure
+```
+
+These require a kernel-enabled runtime and execute both copied and compiled
+Squirrel payloads. Linux hosts test both directory layouts; Windows hosts test
+the Windows layout without requiring a POSIX shell. Coverage includes
+explicit mappings for computed/aliased kernel paths, dynamic `script_dirs`,
+shared kernel deduplication, missing transitive sources, relocation, and missing
+packaged kernels. On Linux they also execute a generated AppRun using the host
+runtime; they do not test bundling the runtime's shared-library dependencies.
+The native Windows acceptance test packages and runs a kernel with the developer
+PATH removed, then verifies failure when that kernel is removed from the package.
+
 ## Validation on 2026-09-15
 
 | Demo | Linux AppImage smoke test | Windows directory under Wine |

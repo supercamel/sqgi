@@ -193,7 +193,8 @@ assert(imports.len() == 1 && imports[0] == "module.nut")
             '    "src/engine/spatial.sqk" /* keep source */ )\n', encoding='utf8')
         kernel = 'export i64 answer() { return 42; }\n'
         (engine / 'spatial.sqk').write_text(kernel, encoding='utf8')
-        for target in ('appimage', 'win-dir'):
+        targets = ('win-dir',) if os.name == 'nt' else ('appimage', 'win-dir')
+        for target in targets:
             for compile_scripts in (False, True):
                 with self.subTest(target=target, compile_scripts=compile_scripts):
                     stage = self.root / f'{target}-{compile_scripts}'
@@ -226,6 +227,7 @@ p.stage_app_scripts(opts, {json.dumps(stage.as_posix())}, {{}})
 
     def test_kernel_without_manifest_uses_working_directory(self):
         module = json.dumps((ROOT / 'tools/sqgipkg_lib/build.nut').as_posix())
+        target = 'win-dir' if os.name == 'nt' else 'appimage'
         (self.root / 'src').mkdir()
         (self.root / 'kernels').mkdir()
         kernel = 'export i64 answer() { return 42; }\n'
@@ -236,10 +238,11 @@ p.stage_app_scripts(opts, {json.dumps(stage.as_posix())}, {{}})
 local p = import({module}).SqgiPkgBuild()
 local opts = p.new_options()
 opts.script = "src/main.nut"
-opts.target = "appimage"
+opts.target = "{target}"
 p.stage_app_scripts(opts, "stage", {{}})
 ''')
-        self.assertEqual((self.root / 'stage/usr/share/sqgi/app/kernels/math.sqk').read_text(), kernel)
+        app = 'share/sqgi/app' if target == 'win-dir' else 'usr/share/sqgi/app'
+        self.assertEqual((self.root / 'stage' / app / 'kernels/math.sqk').read_text(), kernel)
 
     def test_missing_kernel_fails_staging(self):
         module = json.dumps((ROOT / 'tools/sqgipkg_lib/build.nut').as_posix())
@@ -248,6 +251,7 @@ p.stage_app_scripts(opts, "stage", {{}})
 local p = import({module}).SqgiPkgBuild()
 local opts = p.new_options()
 opts.script = {json.dumps((self.root / 'main.nut').as_posix())}
+opts.target = "{'win-dir' if os.name == 'nt' else 'appimage'}"
 local message = ""
 try {{ p.stage_app_scripts(opts, "stage", {{}}) }} catch (e) {{ message = e.tostring() }}
 assert(message.find("kernel source not found: missing.sqk") != null, message)

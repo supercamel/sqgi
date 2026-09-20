@@ -820,6 +820,11 @@ find_package(Python3 COMPONENTS Interpreter QUIET)
 if(Python3_Interpreter_FOUND)
     add_test(NAME sqgi_test_sqgipkg_ergonomics
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/sqgipkg_tests/test_ergonomics.py $<TARGET_FILE:sqgi-bin>)
+    if(SQGI_ENABLE_KERNELS)
+        add_test(NAME sqgi_test_kernel_packaging
+            COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/sqgipkg_tests/test_kernel_packaging.py $<TARGET_FILE:sqgi-bin>)
+        set_tests_properties(sqgi_test_kernel_packaging PROPERTIES LABELS "kernels;packaging" TIMEOUT 180)
+    endif()
     if(SQGI_HAS_NATIVE_JIT)
         add_test(NAME sqgi_test_jit_defaults
             COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/test/test_jit_defaults.py $<TARGET_FILE:sqgi-bin>)

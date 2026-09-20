@@ -32,6 +32,20 @@ if(NOT EXISTS "${source}/.sqgi-extracted")
         "${tree}/llvm/utils/TableGen/*" "${tree}/llvm/utils/extract_symbols.py")
     file(WRITE "${source}/.sqgi-extracted" "${version}\n")
 endif()
+# Backport llvm/llvm-project#101761: GCC 15 no longer supplies <cstdint>
+# transitively, but LLVM 18's SmallVector uses uint32_t and uint64_t directly.
+# Apply after extraction on every invocation so cached source trees are fixed
+# too, and the installed SDK carries the correction for downstream consumers.
+set(smallvector_header "${source}/llvm/include/llvm/ADT/SmallVector.h")
+file(READ "${smallvector_header}" smallvector_contents)
+if(NOT smallvector_contents MATCHES "#include <cstdint>")
+    if(NOT smallvector_contents MATCHES "#include <cstddef>")
+        message(FATAL_ERROR "Cannot apply LLVM 18 SmallVector compatibility fix: unexpected header")
+    endif()
+    string(REPLACE "#include <cstddef>" "#include <cstddef>\n#include <cstdint>"
+        smallvector_contents "${smallvector_contents}")
+    file(WRITE "${smallvector_header}" "${smallvector_contents}")
+endif()
 execute_process(COMMAND "${CMAKE_COMMAND}" -S "${source}/llvm" -B "${build}" -G Ninja
     -DCMAKE_BUILD_TYPE=Release "-DCMAKE_INSTALL_PREFIX=${LLVM_INSTALL_PREFIX}"
     -DLLVM_TARGETS_TO_BUILD=Native -DLLVM_BUILD_LLVM_DYLIB=ON
