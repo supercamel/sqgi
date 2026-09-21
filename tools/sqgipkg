@@ -4,28 +4,24 @@ local Main = import("sqgipkg_lib/main.nut")
 local args = []
 foreach (arg in vargv) args.push(arg)
 if (args.len() > 0 && (args[0] == "--help" || args[0] == "-h" || args[0] == "help")) {
-    print(@"Usage: sqgipkg [build|check|init|explain|clean] [options]
-
-  build                 Build the project's default package (also the default command)
-  check                 Validate the manifest and selected target without building
-  init [template]       Create a starter manifest (default: simple)
-  explain               Show the resolved configuration without fetching or building
-  clean                 Remove project build/output directories
-
-Common options:
-  --manifest FILE       Use another manifest (default: sqgipkg.json)
-  --platform OS         linux or windows
-  --arch ARCH           Linux architecture, e.g. x86_64 or aarch64
-  --target FORMAT       appimage, win-dir, win-nsis, all
-  --output DIR          Output directory
-  --help-all            Full reference, including sysroot and installer options
-
-Examples:
-  sqgipkg init gtk4
-  sqgipkg check
-  sqgipkg build --platform windows
-  sqgipkg explain
-")
+    print("Usage: sqgipkg [build|check|init|explain|clean] [options]\n\n" +
+          "  build                 Build the project's default package (also the default command)\n" +
+          "  check                 Validate the manifest and selected target without building\n" +
+          "  init [template]       Create a starter manifest (default: simple)\n" +
+          "  explain               Show the resolved configuration without fetching or building\n" +
+          "  clean                 Remove project build/output directories\n\n" +
+          "Common options:\n" +
+          "  --manifest FILE       Use another manifest (default: sqgipkg.json)\n" +
+          "  --platform OS         linux or windows\n" +
+          "  --arch ARCH           Linux architecture, e.g. x86_64 or aarch64\n" +
+          "  --target FORMAT       appimage, win-dir, win-nsis, all\n" +
+          "  --output DIR          Output directory\n" +
+          "  --help-all            Full reference, including sysroot and installer options\n\n" +
+          "Examples:\n" +
+          "  sqgipkg init gtk4\n" +
+          "  sqgipkg check\n" +
+          "  sqgipkg build --platform windows\n" +
+          "  sqgipkg explain\n")
     return 0
 }
 if (args.len() > 0) {
