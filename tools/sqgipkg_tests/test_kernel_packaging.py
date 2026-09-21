@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Offline kernel payload/launcher tests; requires a kernel-enabled SQGI build."""
+from itertools import product
 import json
 import os
 from pathlib import Path
@@ -91,27 +92,31 @@ print("kernel-resources=" + opts.report.resources + "\\n")
             hidden.rename(self.project)
 
     def test_computed_and_aliased_loads_with_explicit_files(self):
-        self.write(self.project / 'kernel sources/math.sqk', KERNEL)
+        source = self.project / 'kernel sources/math.sqk'
+        source.parent.mkdir(parents=True)
         self.write(self.project / 'src/main.nut', '''
 local filename = "kernel dir/" + "math.sqk"
 local loader = sqgi.kernel.load
 assert(loader(filename).answer() == 42)
 print("mapped-kernel=42\\n")
 ''')
-        for target in TARGETS:
-            for compiled in (False, True):
-                with self.subTest(target=target, compiled=compiled):
-                    dest = ('share' if target == 'win-dir' else 'usr/share') + '/sqgi/app/kernel dir/math.sqk'
-                    files = {'files': ['kernel sources/math.sqk=' + dest]}
-                    manifest = {'windows': files} if target == 'win-dir' else files
-                    stage, _ = self.stage(target, compiled, manifest=manifest)
-                    packaged = self.app_root(stage, target) / 'kernel dir/math.sqk'
-                    self.assertEqual(packaged.read_bytes(), KERNEL.encode())
-                    self.assertIn('mapped-kernel=42', self.run_payload(stage, target, compiled))
-                    packaged.unlink()
-                    output = self.run_payload(stage, target, compiled, succeeds=False)
-                    self.assertIn('kernel: cannot open kernel dir/math.sqk', output)
-                    self.assertNotIn('mapped-kernel=42', output)
+        for target, compiled, newline in product(TARGETS, (False, True), ('\n', '\r\n')):
+            with self.subTest(target=target, compiled=compiled, newline=newline):
+                # Bypass text-mode newline translation and verify both formats
+                # are preserved byte-for-byte on every host platform.
+                kernel_bytes = KERNEL.replace('\n', newline).encode('utf8')
+                source.write_bytes(kernel_bytes)
+                dest = ('share' if target == 'win-dir' else 'usr/share') + '/sqgi/app/kernel dir/math.sqk'
+                files = {'files': ['kernel sources/math.sqk=' + dest]}
+                manifest = {'windows': files} if target == 'win-dir' else files
+                stage, _ = self.stage(target, compiled, manifest=manifest)
+                packaged = self.app_root(stage, target) / 'kernel dir/math.sqk'
+                self.assertEqual(packaged.read_bytes(), kernel_bytes)
+                self.assertIn('mapped-kernel=42', self.run_payload(stage, target, compiled))
+                packaged.unlink()
+                output = self.run_payload(stage, target, compiled, succeeds=False)
+                self.assertIn('kernel: cannot open kernel dir/math.sqk', output)
+                self.assertNotIn('mapped-kernel=42', output)
 
     def test_dynamic_scripts_discover_and_deduplicate_kernels(self):
         self.write(self.project / 'kernels/math.sqk', KERNEL)

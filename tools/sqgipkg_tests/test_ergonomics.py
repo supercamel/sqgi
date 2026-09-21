@@ -46,6 +46,24 @@ class Ergonomics(unittest.TestCase):
         self.assertIn('--msys2-package-cache', reference)
         self.assertNotIn('all, appdir, tarball', reference)
 
+    def test_help_with_lf_and_crlf_sources(self):
+        module = json.dumps((ROOT / 'tools/sqgipkg_lib/main.nut').as_posix())
+        source = TOOL.read_text(encoding='utf8').replace(
+            'import("sqgipkg_lib/main.nut")', f'import({module})')
+        launcher = self.root / 'sqgipkg.nut'
+        for option in ('--help', '-h', 'help', '--help-all'):
+            expected = self.run_pkg(option)
+            for newline in ('\n', '\r\n'):
+                with self.subTest(option=option, newline=newline):
+                    launcher.write_bytes(source.replace('\n', newline).encode('utf8'))
+                    result = subprocess.run([str(SQGI), str(launcher), option],
+                                            cwd=self.root, capture_output=True, timeout=90)
+                    output = result.stdout + result.stderr
+                    self.assertEqual(result.returncode, 0, output)
+                    # Expect exactly one host newline per logical line, without
+                    # text-mode decoding hiding CRLF or CRCRLF regressions.
+                    self.assertEqual(output, expected.replace('\n', os.linesep).encode('utf8'))
+
     def test_unknown_keys_and_types(self):
         self.manifest({'schema_version': 2, 'resoruces': ['assets']})
         self.assertIn('manifest.resoruces', self.run_pkg('check', ok=False))
