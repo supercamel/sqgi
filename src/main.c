@@ -6,6 +6,7 @@
 #include <stdlib.h>
 
 #ifdef _WIN32
+#include <glib.h>
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
@@ -61,59 +62,52 @@ static char *sqgi_win_join(const char *base, const char *rel)
 
 static int sqgi_win_dir_exists(const char *path)
 {
-    DWORD attrs = GetFileAttributesA(path);
-    return attrs != INVALID_FILE_ATTRIBUTES && (attrs & FILE_ATTRIBUTE_DIRECTORY);
+    return g_file_test(path, G_FILE_TEST_IS_DIR);
 }
 
 static int sqgi_win_file_exists(const char *path)
 {
-    DWORD attrs = GetFileAttributesA(path);
-    return attrs != INVALID_FILE_ATTRIBUTES && !(attrs & FILE_ATTRIBUTE_DIRECTORY);
+    return g_file_test(path, G_FILE_TEST_IS_REGULAR);
 }
 
 static void sqgi_win_set_env(const char *name, const char *value)
 {
-    if (value) SetEnvironmentVariableA(name, value);
+    if (value) g_setenv(name, value, TRUE);
 }
 
 static void sqgi_win_prepend_env(const char *name, const char *value)
 {
     if (!value || !*value) return;
 
-    DWORD old_len = GetEnvironmentVariableA(name, NULL, 0);
-    if (old_len == 0) {
-        SetEnvironmentVariableA(name, value);
+    const char *old_value = g_getenv(name);
+    if (!old_value || !*old_value) {
+        g_setenv(name, value, TRUE);
         return;
     }
-
-    char *old_value = (char *)malloc(old_len);
-    if (!old_value) return;
-    GetEnvironmentVariableA(name, old_value, old_len);
 
     size_t value_len = strlen(value);
     size_t old_value_len = strlen(old_value);
     char *combined = (char *)malloc(value_len + 1 + old_value_len + 1);
-    if (!combined) {
-        free(old_value);
-        return;
-    }
+    if (!combined) return;
 
     memcpy(combined, value, value_len);
     combined[value_len] = ';';
     memcpy(combined + value_len + 1, old_value, old_value_len + 1);
-    SetEnvironmentVariableA(name, combined);
+    g_setenv(name, combined, TRUE);
 
     free(combined);
-    free(old_value);
 }
 
 static void sqgi_win_configure_packaged_env(void)
 {
-    char module_path[32768];
-    DWORD len = GetModuleFileNameA(NULL, module_path, (DWORD)sizeof(module_path));
-    if (len == 0 || len >= sizeof(module_path)) return;
+    wchar_t wide_path[32768];
+    DWORD len = GetModuleFileNameW(NULL, wide_path, G_N_ELEMENTS(wide_path));
+    if (len == 0 || len >= G_N_ELEMENTS(wide_path)) return;
+    char *module_path = g_utf16_to_utf8((gunichar2 *)wide_path, len, NULL, NULL, NULL);
+    if (!module_path) return;
 
     char *exe_dir = sqgi_win_dirname_dup(module_path);
+    g_free(module_path);
     if (!exe_dir) return;
 
     char *appdir = NULL;
@@ -182,7 +176,7 @@ static void sqgi_win_configure_packaged_env(void)
 
 static char *sqgi_win_default_packaged_script(void)
 {
-    const char *app_share = getenv("SQGI_APP_SHARE");
+    const char *app_share = g_getenv("SQGI_APP_SHARE");
     if (!app_share || !*app_share) return NULL;
 
     char *script = sqgi_win_join(app_share, "main.cnut");
@@ -263,7 +257,7 @@ static void run_repl(HSQUIRRELVM v)
 
 /* ── Entry Point ─────────────────────────────────────────────────────────── */
 
-int main(int argc, char *argv[])
+static int sqgi_main(int argc, char *argv[])
 {
 #ifdef _WIN32
     sqgi_win_configure_packaged_env();
@@ -348,6 +342,7 @@ int main(int argc, char *argv[])
     sq_pushroottable(v);
     SQRESULT res = sqstd_loadfile(v, filename, SQTrue);
     if (SQ_FAILED(res)) {
+        fprintf(stderr, "sqgi: failed to load script: %s\n", filename);
         sq_pop(v, 1); /* pop root table */
         sqgi_vm_free(v);
 #ifdef _WIN32
@@ -392,4 +387,20 @@ int main(int argc, char *argv[])
     free(default_packaged_script);
 #endif
     return exitcode;
+}
+
+int main(int argc, char *argv[])
+{
+#ifdef _WIN32
+    char **utf8_argv = g_win32_get_command_line();
+    if (!utf8_argv) {
+        fprintf(stderr, "sqgi: failed to read command line\n");
+        return 1;
+    }
+    int status = sqgi_main((int)g_strv_length(utf8_argv), utf8_argv);
+    g_strfreev(utf8_argv);
+    return status;
+#else
+    return sqgi_main(argc, argv);
+#endif
 }

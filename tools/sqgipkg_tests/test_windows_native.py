@@ -31,7 +31,11 @@ with tempfile.TemporaryDirectory(prefix='sqgipkg é spaces-') as temp:
     def run(argv):
         result = subprocess.run(list(map(str, argv)), cwd=project, text=True, capture_output=True, timeout=300)
         if result.returncode:
-            raise AssertionError(f'{argv}\n{result.stdout}\n{result.stderr}')
+            raise AssertionError(
+                f'{argv}\nexit code: {result.returncode} (0x{result.returncode & 0xffffffff:08X})'
+                f'\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}')
+        print(result.stdout, end='', flush=True)
+        print(result.stderr, end='', file=sys.stderr, flush=True)
         return result.stdout
     run([exe, '--help'])
     run([exe, 'check'])
@@ -51,8 +55,12 @@ with tempfile.TemporaryDirectory(prefix='sqgipkg é spaces-') as temp:
     try:
         result = subprocess.run(['cmd.exe', '/d', '/c', 'NativeAcceptance.bat'], cwd=app,
                                 env=environment, text=True, capture_output=True, timeout=60)
-        assert result.returncode == 0, result.stdout + result.stderr
-        assert 'Windows packaged kernel=42' in result.stdout
+        assert result.returncode == 0, (
+            f'{result.args}\ncwd: {app}\n'
+            f'exit code: {result.returncode} (0x{result.returncode & 0xffffffff:08X})\n'
+            f'stdout:\n{result.stdout}\nstderr:\n{result.stderr}')
+        assert 'Windows packaged kernel=42' in result.stdout, (
+            f'{result.args}\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}')
         packaged_kernel.unlink()
         result = subprocess.run(['cmd.exe', '/d', '/c', 'NativeAcceptance.bat'], cwd=app,
                                 env=environment, text=True, capture_output=True, timeout=60)

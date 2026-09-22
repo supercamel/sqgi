@@ -375,6 +375,31 @@ try {{ c.relative_dest("..\\\\escape"); throw "accepted traversal" }} catch(e) {
 ''')
         self.assertEqual(json.loads(output), argv[2:])
 
+    def test_unicode_script_path_import_and_argument(self):
+        directory = self.root / 'unicode \u00e9 \u4e2d spaces'
+        directory.mkdir()
+        message = 'argument \u00e9 \u4e2d'
+        (directory / 'helper.nut').write_text(
+            f'return {{ message = "{message}" }}\n', encoding='utf8')
+        script = directory / 'main.nut'
+        script.write_text(
+            'local helper = import("helper.nut")\n'
+            'if (vargv[0] != helper.message) throw "argument encoding mismatch"\n'
+            'print("Unicode script and import ran\\n")\n', encoding='utf8')
+        result = subprocess.run([str(SQGI), str(script), message], cwd=self.root,
+                                text=True, capture_output=True, timeout=90)
+        self.assertEqual(result.returncode, 0,
+                         f'exit code: {result.returncode}\n{result.stdout}{result.stderr}')
+        self.assertIn('Unicode script and import ran', result.stdout)
+
+    def test_missing_script_reports_load_failure(self):
+        script = self.root / 'missing.nut'
+        result = subprocess.run([str(SQGI), str(script)], cwd=self.root,
+                                text=True, capture_output=True, timeout=90)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('sqgi: failed to load script:', result.stderr)
+        self.assertIn('missing.nut', result.stderr)
+
     def test_pe_imports_and_malformed_offsets(self):
         data = bytearray(1024)
         data[:2] = b'MZ'
