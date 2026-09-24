@@ -51,6 +51,8 @@ jobs:
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
       - name: CLI, process, file, schema and native recipe regressions
         run: |
+          ctest --test-dir build -R '^sqgi_test_(cairo|cairo_runtime|cairo_pixels|c_cairo|callback_async_lifetime|cpp_sqgicheck)$' --output-on-failure
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
           python test/test_jit_defaults.py build/sqgi.exe
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           python tools/sqgipkg_tests/test_ergonomics.py build/sqgi.exe

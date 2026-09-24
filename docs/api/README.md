@@ -41,6 +41,7 @@ Conventions in this document:
   - [`await` expression](#await-expression)
   - [Cancellation marker](#cancellation-marker)
 - [Auto-async GIO wrappers](#auto-async-gio-wrappers)
+- [Native Cairo wrappers](cairo.md)
 
 ---
 

@@ -50,6 +50,7 @@ TESTS=(
   "test_async.nut"
   "test_async_jsstyle.nut"
   "test_async_reentrancy.nut"
+  "test_callback_async_lifetime.nut"
   "test_async_stack_balance.nut"
   "test_application.nut"
   "test_application_command_line.nut"
@@ -58,6 +59,8 @@ TESTS=(
   "test_gio_recipes.nut"
   "test_gstreamer_recipes.nut"
   "test_gdkpixbuf_recipes.nut"
+  "test_cairo.nut"
+  "test_cairo_pixels.nut"
   "test_boxed_record_constructor.nut"
   "test_gtk_textbuffer.nut"
   "test_math_extended.nut"
@@ -78,6 +81,13 @@ for test_file in "${TESTS[@]}"; do
   fi
   echo
 done
+
+echo "==> Running native Cairo ownership and GTK callback tests"
+if ctest --test-dir "${BUILD_DIR}" -R '^sqgi_test_(c_cairo|cairo_gtk|cairo_runtime)$' --output-on-failure; then
+  PASS_COUNT=$((PASS_COUNT + 1))
+else
+  FAIL_COUNT=$((FAIL_COUNT + 1))
+fi
 
 echo "==> Running test_shebang.sh"
 if bash "${ROOT_DIR}/test/test_shebang.sh" "${SQGI_BIN}"; then

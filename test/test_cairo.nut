@@ -1,4 +1,4 @@
-/* test/test_cairo.nut — native cairo binding sanity test.
+/* test/test_cairo.nut — native Cairo binding regression tests.
  *
  * Exercises:
  *   - import("cairo") returns an overlaid namespace (Context/Surface/Pattern
@@ -9,6 +9,8 @@
  *   - GC of the wrappers does not crash
  *   - cairo.Pattern.create_linear + add_color_stop_rgba + set_source
  *   - cairo.Context dash setters/getters
+ *   - wrong native types, argument counts, enum types/ranges and size overflow
+ *   - current-source identity, extension modes and wrapper lifetime
  *
  * No GTK / display required.
  */
@@ -80,13 +82,108 @@ cr.rectangle(8, H - 16, W - 16, 8)
 cr.fill()
 assert(cr.status() == 0)
 
+// Type errors must be catchable, including wrappers with a different payload.
+function rejects(fn) {
+    local caught = false
+    try { fn() } catch (e) { caught = true }
+    assert(caught, "invalid Cairo call must throw")
+}
+local Gio = import("Gio")
+local foreign = Gio.Cancellable.new()
+foreach (bad in [surf, cr, foreign, cairo.Pattern(), null, 1, {}, [], "pattern"])
+    rejects(function() { cr.set_source(bad) })
+foreach (bad in [pat, cr, foreign, cairo.Surface(), null, 1, {}]) {
+    rejects(function() { cairo.Context.create(bad) })
+    rejects(function() { cr.set_source_surface(bad, 0, 0) })
+}
+foreach (bad in [surf, pat, foreign, cairo.Context(), null, {}, 1])
+    rejects(function() { cairo.Context.paint.call(bad) })
+foreach (bad in [cr, pat, foreign, cairo.Surface(), null, {}, 1])
+    rejects(function() { cairo.Surface.status.call(bad) })
+foreach (bad in [cr, surf, foreign, cairo.Pattern(), null, {}, 1]) {
+    rejects(function() { cairo.Pattern.status.call(bad) })
+    rejects(function() { cairo.Pattern.set_extend.call(bad, cairo.Extend.pad) })
+}
+assert(cr.status() == 0 && surf.status() == 0 && pat.status() == 0)
+
+// Check every extension enum on constructed and context-derived patterns.
+local source = cr.get_source()
+assert(source instanceof cairo.Pattern)
+foreach (p in [pat, source, cairo.Pattern.create_radial(0, 0, 1, 0, 0, 2),
+               cairo.Pattern.create_rgb(1, 0, 0), cairo.Pattern.create_rgba(1, 0, 0, 0.5)]) {
+    foreach (mode in [cairo.Extend.none, cairo.Extend.repeat, cairo.Extend.reflect, cairo.Extend.pad]) {
+        assert(p.set_extend(mode) == null)
+        assert(p.get_extend() == mode && p.status() == 0)
+    }
+    foreach (bad in [-1, 4, 4294967299, -4294967296, 3.0, 3.9, true, false, null, "3", [], {}]) {
+        rejects(function() { p.set_extend(bad) })
+        assert(p.get_extend() == cairo.Extend.pad && p.status() == 0)
+    }
+}
+source.set_extend(cairo.Extend.repeat)
+assert(pat.get_extend() == cairo.Extend.repeat)
+assert(cr.get_source().get_extend() == cairo.Extend.repeat)
+foreach (fn in [function() { cr.get_source(1) },
+                function() { source.get_extend(1) },
+                function() { source.set_extend() },
+                function() { source.set_extend(3, 0) },
+                function() { cr.paint(1) },
+                function() { cr.set_source() },
+                function() { cr.set_source_rgb() },
+                function() { cr.set_dash() },
+                function() { cr.set_dash([], 0, 1) },
+                function() { cairo.Context.create() },
+                function() { cairo.Pattern.create_rgb(1, 0) },
+                function() { cairo.image_surface_create(0, 4) }]) rejects(fn)
+foreach (bad in [0.9, false, 4294967296, -4294967296])
+    rejects(function() { cairo.image_surface_create(bad, 4, 4) })
+foreach (bad in [-1, 4.5, true, 4294967300]) {
+    rejects(function() { cairo.image_surface_create(0, bad, 4) })
+    rejects(function() { cairo.image_surface_create(0, 4, bad) })
+}
+cr.set_dash([2, 1]) // Optional offset remains supported.
+assert(cr.get_dash().offset == 0)
+
+// Source wrappers retain the real native pattern across context replacement,
+// save/restore and collection in either order.
+function retained_source() {
+    local s = cairo.image_surface_create(0, 4, 4)
+    local c = cairo.Context.create(s)
+    c.set_source_rgb(1, 0, 0)
+    local p = c.get_source()
+    c.save()
+    c.set_source_rgb(0, 0, 1)
+    p.set_extend(cairo.Extend.reflect)
+    c.restore()
+    assert(c.get_source().get_extend() == cairo.Extend.reflect)
+    c.set_source_rgb(0, 1, 0)
+    return p
+}
+local held = retained_source()
+collectgarbage()
+assert(held.status() == 0 && held.get_extend() == cairo.Extend.reflect)
+cr.set_source(held)
+held = null
+collectgarbage()
+for (local i = 0; i < 1000; i++) {
+    local p = cr.get_source()
+    p.set_extend(i % 4)
+    if (i % 100 == 0) collectgarbage()
+}
+cr.paint()
+assert(cr.status() == 0)
+
 // ── PNG round-trip ───────────────────────────────────────────────────────────
-local path = "/tmp/sqgi_test_cairo.png"
+local GLib = import("GLib")
+local tmp = GLib.dir_make_tmp("sqgi-cairo-XXXXXX")
+local path = tmp + "/result.png"
 surf.write_to_png(path)
 local f = ::file(path, "rb")
 local size = f.len()
 f.close()
 assert(size > 0, "PNG should be non-empty (got " + size + " bytes)")
+Gio.File.new_for_path(path).delete(null)
+Gio.File.new_for_path(tmp).delete(null)
 
 // ── GC: drop references and force a collection ───────────────────────────────
 cr = null

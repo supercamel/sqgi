@@ -1,0 +1,6 @@
+# GTK/Pango starts Fontconfig initialization on a worker thread. Its parsed
+# font configuration survives process shutdown (all observed allocations have
+# FcInit in their stack). Scope this suppression to the GTK integration test;
+# native Cairo ownership and pixel tests run with leak detection unfiltered.
+# Do not suppress SQGI callback, Cairo pattern, or surface allocations.
+leak:FcInit

@@ -683,6 +683,17 @@ SQRESULT sqgi_get_gi_argument(HSQUIRRELVM v, SQInteger idx,
             arg->v_pointer = obj;
         } else {
             SQUserPointer p = NULL;
+            const char *ns = g_base_info_get_namespace(iface);
+            const char *name = g_base_info_get_name(iface);
+            char full_key[256];
+            snprintf(full_key, sizeof(full_key), "%s.%s", ns, name);
+            int cairo_result = sqgi_cairo_try_get_foreign(v, idx, full_key, &p);
+            if (cairo_result != 0) {
+                g_base_info_unref(iface);
+                if (cairo_result < 0) return SQ_ERROR;
+                arg->v_pointer = p;
+                break;
+            }
             if (SQ_SUCCEEDED(sq_getinstanceup(v, idx, &p, NULL, SQFalse)) && p) {
                 arg->v_pointer = p;
             } else {

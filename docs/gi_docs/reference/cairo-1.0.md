@@ -2,6 +2,9 @@
 
 SQGI import: `import("cairo", "1.0")`
 
+SQGI overlays native Context, Surface and Pattern methods on this generated
+GI reference. See the [native Cairo API](../../api/cairo.md) for those methods.
+
 Packages: `cairo-gobject`
 Includes: `GObject-2.0`
 Libraries: `libcairo-gobject.so.2`
@@ -483,4 +486,3 @@ GType: `CairoSurface` ?? C type: `cairo_surface_t`
 | Name | Signature | C symbol | Since | Notes |
 | --- | --- | --- | --- | --- |
 | image_surface_create | `image_surface_create() -> none` | cairo_image_surface_create |  |  |
-

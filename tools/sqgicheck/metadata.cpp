@@ -54,6 +54,39 @@ bool Value::operator==(const Value &other) const
 
 namespace {
 
+struct CairoMember {
+    const char *owner, *name;
+    int minimum, maximum;
+    const char *result;
+};
+
+const CairoMember cairo_members[] = {
+#define CAIRO_API(owner, name, fn, minimum, maximum, result) \
+    {owner, name, minimum, maximum, result},
+#include "../../src/sqgi_cairo_api.def"
+#undef CAIRO_API
+};
+
+const CairoMember *find_cairo_member(const std::string &owner,
+                                    const std::string &name)
+{
+    for (const auto &member : cairo_members)
+        if (owner == member.owner && name == member.name) return &member;
+    return nullptr;
+}
+
+Value cairo_callable(const CairoMember &member)
+{
+    Value value;
+    value.kind = ValueKind::Callable;
+    value.namespace_name = "cairo";
+    value.type_name = member.owner;
+    value.member_name = member.name;
+    value.minimum_args = member.minimum;
+    value.maximum_args = member.maximum;
+    return value;
+}
+
 using InfoPtr = std::unique_ptr<GIBaseInfo, void (*)(GIBaseInfo *)>;
 
 InfoPtr info_ptr(GIBaseInfo *info)
@@ -334,6 +367,18 @@ public:
         }
         if (callable.kind != ValueKind::Callable)
             return Value::unknown();
+        if (callable.namespace_name == "cairo") {
+            const auto *member = find_cairo_member(callable.type_name,
+                                                    callable.member_name);
+            if (member) {
+                if (!member->result[0]) return Value::unknown();
+                Value result;
+                result.kind = ValueKind::Instance;
+                result.namespace_name = "cairo";
+                result.type_name = member->result;
+                return result;
+            }
+        }
         if (callable.namespace_name == "__sqgi") {
             if (callable.member_name == "new_object" && !arguments.empty() &&
                 arguments[0].kind == ValueKind::Type) {
@@ -511,16 +556,17 @@ private:
     LookupResult lookup_namespace(const Value &base, const std::string &name)
     {
         if (base.namespace_name == "cairo") {
+            if (const auto *member = find_cairo_member("", name))
+                return found(cairo_callable(*member));
             static const char *overlays[] = {
-                "Context", "Surface", "Pattern", "image_surface_create"
+                "Context", "Surface", "Pattern"
             };
             if (std::find(std::begin(overlays), std::end(overlays), name) !=
                 std::end(overlays)) {
                 Value overlay;
                 overlay.namespace_name = "cairo";
                 overlay.type_name = name;
-                overlay.kind = name == "image_surface_create" ?
-                    ValueKind::Callable : ValueKind::Type;
+                overlay.kind = ValueKind::Type;
                 return found(overlay);
             }
         }
@@ -698,22 +744,18 @@ private:
     {
         if (instance && base.text == "dynamic-subtype")
             return LookupResult();
-        if (!instance && base.namespace_name == "cairo") {
-            static const std::unordered_map<std::string, std::vector<std::string>>
-                overlay_members = {
-                    {"Context", {"create"}},
-                    {"Pattern", {"create_linear", "create_radial",
-                                 "create_rgb", "create_rgba"}},
-                };
-            auto type = overlay_members.find(base.type_name);
-            if (type != overlay_members.end() &&
-                std::find(type->second.begin(), type->second.end(), name) !=
-                    type->second.end()) {
-                Value value = builtin_callable(name, -1, -1);
-                value.namespace_name = base.namespace_name;
-                value.type_name = base.type_name;
-                return found(value);
-            }
+        if (base.namespace_name == "cairo" &&
+            (base.type_name == "Context" || base.type_name == "Surface" ||
+             base.type_name == "Pattern")) {
+            if (const auto *member = find_cairo_member(base.type_name, name))
+                return found(cairo_callable(*member));
+            LookupResult result;
+            result.definite_missing = true;
+            for (const auto &member : cairo_members)
+                if (base.type_name == member.owner)
+                    result.candidates.emplace_back(member.name);
+            sort_unique(&result.candidates);
+            return result;
         }
         InfoPtr type = find_type(base.namespace_name, base.type_name);
         if (!type) return LookupResult();

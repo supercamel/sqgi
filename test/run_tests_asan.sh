@@ -33,11 +33,14 @@ TESTS=(
   test_async.nut
   test_async_jsstyle.nut
   test_async_reentrancy.nut
+  test_callback_async_lifetime.nut
   test_application.nut
   test_application_command_line.nut
   test_gio_recipes.nut
   test_gstreamer_recipes.nut
   test_gdkpixbuf_recipes.nut
+  test_cairo.nut
+  test_cairo_pixels.nut
   test_application_run_crash_regression.nut
 )
 
@@ -55,6 +58,13 @@ for t in "${TESTS[@]}"; do
     FAIL=$((FAIL+1))
   fi
 done
+
+echo "==> Running native Cairo ownership and GTK callback tests"
+if ctest --test-dir "${BUILD_DIR}" -R '^sqgi_test_(c_cairo|cairo_gtk|cairo_runtime)$' --output-on-failure; then
+  PASS=$((PASS+1))
+else
+  FAIL=$((FAIL+1))
+fi
 
 echo
 echo "ASan summary: ${PASS} clean, ${FAIL} with findings"

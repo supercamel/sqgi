@@ -1428,6 +1428,63 @@ void test_deterministic_metadata()
 #endif
 }
 
+void test_cairo_metadata()
+{
+    auto metadata = make_gi_metadata_provider();
+    auto cairo = metadata->load_namespace("cairo", "1.0");
+    if (!cairo.found) {
+        std::cout << "SKIP: cairo typelib unavailable\n";
+        return;
+    }
+    const Value context = typed(ValueKind::Instance, "cairo", "Context");
+    const Value pattern = typed(ValueKind::Instance, "cairo", "Pattern");
+    auto getter = metadata->lookup_member(context, "get_source", true);
+    CHECK(getter.found && getter.value.minimum_args == 0 &&
+          getter.value.maximum_args == 0, "Cairo source getter arity");
+    CHECK(metadata->call_result(getter.value, {}) == pattern,
+          "Cairo source getter preserves Pattern type");
+    auto setter = metadata->lookup_member(pattern, "set_extend", true);
+    CHECK(setter.found && setter.value.minimum_args == 1 &&
+          setter.value.maximum_args == 1, "Cairo extension setter arity");
+    CHECK(metadata->lookup_member(pattern, "set_extned", true).definite_missing,
+          "Cairo missing instance member is definite");
+    CHECK(metadata->lookup_member(context, "connect", true).definite_missing,
+          "Cairo wrappers do not acquire GObject helper methods");
+
+    Analyzer analyzer(*metadata);
+    const std::string setup =
+        "local C = import(\"cairo\");"
+        "local s = C.image_surface_create(C.Format.argb32, 4, 4);"
+        "local c = C.Context.create(s);";
+    CHECK(analyzer.analyze("cairo-valid.nut", setup +
+        "c.get_source().set_extend(C.Extend.pad);"
+        "local p = c.get_source(); p.get_extend(); p.status();"
+        "c.get_target().get_width(); c.get_target().flush();"
+        "c.set_dash([1, 2]); c.set_dash([1, 2], 0); c.set_dashes([], 0);"
+        "C.Pattern.create_rgb(1, 0, 0).set_extend(0);"
+        "C.Pattern.create_rgba(1, 0, 0, 1).get_extend();"
+        "C.Pattern.create_linear(0, 0, 1, 1).add_color_stop_rgb(0, 1, 0, 0);"
+        "C.Pattern.create_radial(0, 0, 1, 1, 1, 2).status();"
+        "c.set_source_surface(s, 0, 0); c.paint();").diagnostics.empty(),
+        "Cairo constructors, instance methods and chaining are accepted");
+    for (const std::string &bad : {
+            "c.definitely_missing();", "c.get_source().set_extned(3);",
+            "C.Pattern.create_rgb(1, 0, 0).definitely_missing();",
+            "c.get_target().definitely_missing();", "s.definitely_missing();"}) {
+        CHECK(has_code(analyzer.analyze("cairo-member.nut", setup + bad).diagnostics,
+                       "SQGI102"), "Cairo instance typos must be diagnosed");
+    }
+    for (const std::string &bad : {
+            "C.Context.create();", "C.image_surface_create(0, 4);",
+            "c.get_source(1);", "c.get_source().set_extend();",
+            "c.get_source().set_extend(3, 0);", "c.get_source().get_extend(0);",
+            "c.set_dash();", "c.set_dash([], 0, 1);",
+            "C.Pattern.create_rgb(1, 0);", "c.paint(1);"}) {
+        CHECK(has_code(analyzer.analyze("cairo-arity.nut", setup + bad).diagnostics,
+                       "SQGI103"), "Cairo wrong argument count must be diagnosed");
+    }
+}
+
 void test_real_metadata()
 {
     std::unique_ptr<MetadataProvider> metadata = make_gi_metadata_provider();
@@ -1532,6 +1589,7 @@ int main()
     test_real_file_system();
     test_deterministic_metadata();
     test_real_metadata();
+    test_cairo_metadata();
     test_generated_robustness();
 
     if (failures != 0) {

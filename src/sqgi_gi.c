@@ -1119,7 +1119,18 @@ static SQInteger gi_function_call(HSQUIRRELVM v)
         }
         if (b->destroy_index >= 0 && b->destroy_index < n_args) {
             gint pos = arg_to_in[b->destroy_index];
-            if (pos >= 0) in_args[pos].v_pointer = (gpointer)sqgi_callback_destroy_notify;
+            if (pos >= 0) {
+                in_args[pos].v_pointer = (gpointer)sqgi_callback_destroy_notify;
+                /* Legacy calls can explicitly supply the hidden destroy
+                 * callback. Our notifier replaces it, so its FFI wrapper is
+                 * never handed to the callee and must be freed after this
+                 * call instead of waiting for an async notification. */
+                for (guint other = 0; other < callback_bindings->len; ++other) {
+                    SqgiCallbackBinding *unused = g_ptr_array_index(callback_bindings, other);
+                    if (unused->arg_index == b->destroy_index)
+                        unused->scope = GI_SCOPE_TYPE_CALL;
+                }
+            }
         }
     }
 

@@ -35,6 +35,12 @@ void sqgi_cairo_register(HSQUIRRELVM v);
 int  sqgi_cairo_try_push_foreign(HSQUIRRELVM v, const char *full_key,
                                  void *ptr, int transfer_full);
 
+/* Validate outgoing foreign arguments before passing them to GI. Returns 1
+ * on success, -1 with a Squirrel error for an invalid Cairo wrapper, or 0
+ * for a type this binding does not handle. */
+int sqgi_cairo_try_get_foreign(HSQUIRRELVM v, SQInteger idx,
+                               const char *full_key, void **ptr);
+
 /* Called from sqgi_gi.c's namespace loader after building the cairo
  * namespace table (top of stack). Overlays our native classes + helpers. */
 void sqgi_cairo_overlay_namespace(HSQUIRRELVM v);

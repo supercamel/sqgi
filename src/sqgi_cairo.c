@@ -5,10 +5,14 @@
 #include "sqgi_stack.h"
 
 #include <limits.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #define SQGI_CAIRO_REG_SLOT "sqgi_cairo_classes"
+
+/* Distinct addresses identify native payloads, including inherited classes. */
+static char context_tag, surface_tag, pattern_tag;
 
 /* ── stack helpers ───────────────────────────────────────────────────────── */
 
@@ -34,7 +38,8 @@ static int sqc_tofloat(HSQUIRRELVM v, SQInteger idx, SQFloat *out)
 
 #define ARG_I(idx, name)                                                       \
     SQInteger name;                                                            \
-    if (SQ_FAILED(sq_getinteger(v, (idx), &name)))                             \
+    if (sq_gettype(v, (idx)) != OT_INTEGER ||                                  \
+        SQ_FAILED(sq_getinteger(v, (idx), &name)))                             \
         return sq_throwerror(v, "cairo: expected integer argument #" #idx)
 
 #define ARG_S(idx, name)                                                       \
@@ -47,7 +52,7 @@ static int sqc_tofloat(HSQUIRRELVM v, SQInteger idx, SQFloat *out)
 static cairo_t *get_cr(HSQUIRRELVM v, SQInteger idx)
 {
     SQUserPointer p = NULL;
-    if (SQ_FAILED(sq_getinstanceup(v, idx, &p, NULL, SQFalse)) || !p) {
+    if (SQ_FAILED(sq_getinstanceup(v, idx, &p, &context_tag, SQFalse)) || !p) {
         sq_throwerror(v, "cairo: 'this' is not a cairo.Context");
         return NULL;
     }
@@ -57,7 +62,7 @@ static cairo_t *get_cr(HSQUIRRELVM v, SQInteger idx)
 static cairo_surface_t *get_surface(HSQUIRRELVM v, SQInteger idx)
 {
     SQUserPointer p = NULL;
-    if (SQ_FAILED(sq_getinstanceup(v, idx, &p, NULL, SQFalse)) || !p) {
+    if (SQ_FAILED(sq_getinstanceup(v, idx, &p, &surface_tag, SQFalse)) || !p) {
         sq_throwerror(v, "cairo: expected cairo.Surface");
         return NULL;
     }
@@ -67,7 +72,7 @@ static cairo_surface_t *get_surface(HSQUIRRELVM v, SQInteger idx)
 static cairo_pattern_t *get_pattern(HSQUIRRELVM v, SQInteger idx)
 {
     SQUserPointer p = NULL;
-    if (SQ_FAILED(sq_getinstanceup(v, idx, &p, NULL, SQFalse)) || !p) {
+    if (SQ_FAILED(sq_getinstanceup(v, idx, &p, &pattern_tag, SQFalse)) || !p) {
         sq_throwerror(v, "cairo: expected cairo.Pattern");
         return NULL;
     }
@@ -188,6 +193,17 @@ int sqgi_cairo_try_push_foreign(HSQUIRRELVM v, const char *full_key,
     return 0;
 }
 
+int sqgi_cairo_try_get_foreign(HSQUIRRELVM v, SQInteger idx,
+                               const char *full_key, void **ptr)
+{
+    if (!full_key) return 0;
+    if (strcmp(full_key, "cairo.Context") == 0) *ptr = get_cr(v, idx);
+    else if (strcmp(full_key, "cairo.Surface") == 0) *ptr = get_surface(v, idx);
+    else if (strcmp(full_key, "cairo.Pattern") == 0) *ptr = get_pattern(v, idx);
+    else return 0;
+    return *ptr ? 1 : -1;
+}
+
 /* ── Context methods ─────────────────────────────────────────────────────── */
 
 #define CTX_FN(name, body)                                                     \
@@ -230,6 +246,12 @@ CTX_FN(set_source, {
     return 0;
 })
 
+CTX_FN(get_source, {
+    /* cairo_get_source borrows the actual pattern; the wrapper owns a ref. */
+    sqgi_cairo_push_pattern(v, cairo_get_source(cr), /*adopt=*/0);
+    return 1;
+})
+
 CTX_FN(set_source_surface, {
     cairo_surface_t *s = get_surface(v, 2);
     if (!s) return SQ_ERROR;
@@ -244,6 +266,8 @@ CTX_FN(set_line_cap,    { ARG_I(2, c); cairo_set_line_cap(cr, (cairo_line_cap_t)
 CTX_FN(set_line_join,   { ARG_I(2, j); cairo_set_line_join(cr, (cairo_line_join_t)j); return 0; })
 
 CTX_FN(set_dash, {
+    if (sq_gettop(v) > 3)
+        return sq_throwerror(v, "cairo.set_dash: expected one or two arguments");
     if (sq_gettype(v, 2) != OT_ARRAY)
         return sq_throwerror(v, "cairo.set_dash: expected array argument #2");
 
@@ -473,6 +497,25 @@ static SQInteger patt_status(HSQUIRRELVM v)
     return 1;
 }
 
+static SQInteger patt_set_extend(HSQUIRRELVM v)
+{
+    cairo_pattern_t *p = get_pattern(v, 1); if (!p) return SQ_ERROR;
+    ARG_I(2, mode);
+    /* Validate before narrowing SQInteger to the native enum. */
+    if (mode != CAIRO_EXTEND_NONE && mode != CAIRO_EXTEND_REPEAT &&
+        mode != CAIRO_EXTEND_REFLECT && mode != CAIRO_EXTEND_PAD)
+        return sq_throwerror(v, "cairo.Pattern.set_extend: invalid extension mode");
+    cairo_pattern_set_extend(p, (cairo_extend_t)mode);
+    return 0;
+}
+
+static SQInteger patt_get_extend(HSQUIRRELVM v)
+{
+    cairo_pattern_t *p = get_pattern(v, 1); if (!p) return SQ_ERROR;
+    sq_pushinteger(v, (SQInteger)cairo_pattern_get_extend(p));
+    return 1;
+}
+
 /* Top-level cairo.Pattern.create_linear / create_radial */
 static SQInteger patt_create_linear(HSQUIRRELVM v)
 {
@@ -513,6 +556,9 @@ static SQInteger patt_create_rgba(HSQUIRRELVM v)
 static SQInteger fn_image_surface_create(HSQUIRRELVM v)
 {
     ARG_I(2, fmt); ARG_I(3, w); ARG_I(4, h);
+    if (fmt < INT_MIN || fmt > INT_MAX || w < 0 || w > INT_MAX ||
+        h < 0 || h > INT_MAX)
+        return sq_throwerror(v, "cairo.image_surface_create: argument out of range");
     cairo_surface_t *s = cairo_image_surface_create((cairo_format_t)fmt,
                                                     (int)w, (int)h);
     if (!s || cairo_surface_status(s) != CAIRO_STATUS_SUCCESS) {
@@ -527,11 +573,32 @@ static SQInteger fn_image_surface_create(HSQUIRRELVM v)
 
 /* ── class registration ──────────────────────────────────────────────────── */
 
-static void add_method(HSQUIRRELVM v, const char *name, SQFUNCTION fn)
+typedef struct {
+    const char *owner, *name;
+    SQFUNCTION fn;
+    SQInteger minimum, maximum;
+} CairoMethod;
+
+static const CairoMethod cairo_api[] = {
+#define CAIRO_API(owner, name, fn, minimum, maximum, result) \
+    {owner, name, fn, minimum, maximum},
+#include "sqgi_cairo_api.def"
+#undef CAIRO_API
+};
+
+static void push_method(HSQUIRRELVM v, const CairoMethod *method)
 {
-    sq_pushstring(v, name, -1);
-    sq_newclosure(v, fn, 0);
-    sq_setnativeclosurename(v, -1, name);
+    sq_newclosure(v, method->fn, 0);
+    sq_setnativeclosurename(v, -1, method->name);
+    /* Optional-argument methods enforce their upper bound in the body. */
+    sq_setparamscheck(v, method->minimum == method->maximum ?
+        method->minimum + 1 : -(method->minimum + 1), NULL);
+}
+
+static void add_method(HSQUIRRELVM v, const CairoMethod *method)
+{
+    sq_pushstring(v, method->name, -1);
+    push_method(v, method);
     sq_newslot(v, -3, SQFalse);
 }
 
@@ -564,79 +631,24 @@ void sqgi_cairo_register(HSQUIRRELVM v)
 {
     SQGI_STACK_CHECK_BEGIN(v);
 
-    /* ── cairo.Context ───────────────────────────────────────────────────── */
-    sq_newclass(v, SQFalse);
-    add_method(v, "save",             ctx_save);
-    add_method(v, "restore",          ctx_restore);
-    add_method(v, "new_path",         ctx_new_path);
-    add_method(v, "new_sub_path",     ctx_new_sub_path);
-    add_method(v, "close_path",       ctx_close_path);
-    add_method(v, "fill",             ctx_fill);
-    add_method(v, "fill_preserve",    ctx_fill_preserve);
-    add_method(v, "stroke",           ctx_stroke);
-    add_method(v, "stroke_preserve",  ctx_stroke_preserve);
-    add_method(v, "paint",            ctx_paint);
-    add_method(v, "paint_with_alpha", ctx_paint_with_alpha);
-    add_method(v, "clip",             ctx_clip);
-    add_method(v, "clip_preserve",    ctx_clip_preserve);
-    add_method(v, "reset_clip",       ctx_reset_clip);
-    add_method(v, "identity_matrix",  ctx_identity_matrix);
-    add_method(v, "set_source_rgb",   ctx_set_source_rgb);
-    add_method(v, "set_source_rgba",  ctx_set_source_rgba);
-    add_method(v, "set_source",       ctx_set_source);
-    add_method(v, "set_source_surface", ctx_set_source_surface);
-    add_method(v, "set_line_width",   ctx_set_line_width);
-    add_method(v, "get_line_width",   ctx_get_line_width);
-    add_method(v, "set_line_cap",     ctx_set_line_cap);
-    add_method(v, "set_line_join",    ctx_set_line_join);
-    add_method(v, "set_dash",         ctx_set_dash);
-    add_method(v, "set_dashes",       ctx_set_dash);
-    add_method(v, "get_dash_count",   ctx_get_dash_count);
-    add_method(v, "get_dash",         ctx_get_dash);
-    add_method(v, "set_fill_rule",    ctx_set_fill_rule);
-    add_method(v, "set_operator",     ctx_set_operator);
-    add_method(v, "move_to",          ctx_move_to);
-    add_method(v, "line_to",          ctx_line_to);
-    add_method(v, "rel_move_to",      ctx_rel_move_to);
-    add_method(v, "rel_line_to",      ctx_rel_line_to);
-    add_method(v, "arc",              ctx_arc);
-    add_method(v, "arc_negative",     ctx_arc_negative);
-    add_method(v, "curve_to",         ctx_curve_to);
-    add_method(v, "rectangle",        ctx_rectangle);
-    add_method(v, "translate",        ctx_translate);
-    add_method(v, "scale",            ctx_scale);
-    add_method(v, "rotate",           ctx_rotate);
-    add_method(v, "select_font_face", ctx_select_font_face);
-    add_method(v, "set_font_size",    ctx_set_font_size);
-    add_method(v, "show_text",        ctx_show_text);
-    add_method(v, "text_extents",     ctx_text_extents);
-    add_method(v, "status",           ctx_status);
-    add_method(v, "get_target",       ctx_get_target);
-    add_method(v, "create",           ctx_create_static); /* static-style factory */
-    register_class_under(v, "cairo.Context");
-    sq_poptop(v);   /* drop class */
-
-    /* ── cairo.Surface ───────────────────────────────────────────────────── */
-    sq_newclass(v, SQFalse);
-    add_method(v, "write_to_png", surf_write_to_png);
-    add_method(v, "get_width",    surf_get_width);
-    add_method(v, "get_height",   surf_get_height);
-    add_method(v, "flush",        surf_flush);
-    add_method(v, "status",       surf_status);
-    register_class_under(v, "cairo.Surface");
-    sq_poptop(v);
-
-    /* ── cairo.Pattern ───────────────────────────────────────────────────── */
-    sq_newclass(v, SQFalse);
-    add_method(v, "add_color_stop_rgb",  patt_add_color_stop_rgb);
-    add_method(v, "add_color_stop_rgba", patt_add_color_stop_rgba);
-    add_method(v, "status",              patt_status);
-    add_method(v, "create_linear",       patt_create_linear);
-    add_method(v, "create_radial",       patt_create_radial);
-    add_method(v, "create_rgb",          patt_create_rgb);
-    add_method(v, "create_rgba",         patt_create_rgba);
-    register_class_under(v, "cairo.Pattern");
-    sq_poptop(v);
+    static const struct {
+        const char *name;
+        SQUserPointer tag;
+    } classes[] = {
+        {"Context", &context_tag}, {"Surface", &surface_tag}, {"Pattern", &pattern_tag}
+    };
+    for (size_t i = 0; i < sizeof(classes) / sizeof(classes[0]); ++i) {
+        sq_newclass(v, SQFalse);
+        sq_settypetag(v, -1, classes[i].tag);
+        for (size_t j = 0; j < sizeof(cairo_api) / sizeof(cairo_api[0]); ++j) {
+            if (strcmp(cairo_api[j].owner, classes[i].name) == 0)
+                add_method(v, &cairo_api[j]);
+        }
+        char key[32];
+        snprintf(key, sizeof(key), "cairo.%s", classes[i].name);
+        register_class_under(v, key);
+        sq_poptop(v);
+    }
 
     SQGI_STACK_CHECK_END(v, 0);
 }
@@ -655,19 +667,16 @@ static void overlay_class(HSQUIRRELVM v, const char *name, const char *full_key)
     sq_poptop(v);     /* drop class */
 }
 
-static void overlay_fn(HSQUIRRELVM v, const char *name, SQFUNCTION fn)
-{
-    sq_pushstring(v, name, -1);
-    sq_newclosure(v, fn, 0);
-    sq_setnativeclosurename(v, -1, name);
-    sq_rawset(v, -3);
-}
-
 void sqgi_cairo_overlay_namespace(HSQUIRRELVM v)
 {
     /* Top of stack is the cairo namespace table. */
     overlay_class(v, "Context", "cairo.Context");
     overlay_class(v, "Surface", "cairo.Surface");
     overlay_class(v, "Pattern", "cairo.Pattern");
-    overlay_fn(v, "image_surface_create", fn_image_surface_create);
+    for (size_t i = 0; i < sizeof(cairo_api) / sizeof(cairo_api[0]); ++i) {
+        if (cairo_api[i].owner[0]) continue;
+        sq_pushstring(v, cairo_api[i].name, -1);
+        push_method(v, &cairo_api[i]);
+        sq_rawset(v, -3);
+    }
 }

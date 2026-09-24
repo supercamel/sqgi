@@ -700,6 +700,23 @@ add_sqgi_nut_test(sqgi_test_subclass_vfuncs             test_subclass_vfuncs.nut
 add_sqgi_nut_test(sqgi_test_gi_multi_out                test_gi_multi_out.nut)
 add_sqgi_nut_test(sqgi_test_bytes_converters            test_bytes_converters.nut)
 add_sqgi_nut_test(sqgi_test_cairo                       test_cairo.nut)
+set_tests_properties(sqgi_test_cairo PROPERTIES
+    ENVIRONMENT "${SQGI_TEST_ENV};SQGI_JIT=0")
+add_sqgi_nut_test(sqgi_test_cairo_runtime               test_cairo.nut)
+set_tests_properties(sqgi_test_cairo_runtime PROPERTIES
+    ENVIRONMENT "${SQGI_TEST_ENV};SQGI_JIT=1;SQGI_JIT_THRESHOLD=1")
+add_sqgi_nut_test(sqgi_test_cairo_pixels                test_cairo_pixels.nut)
+find_program(SQGI_XVFB_RUN NAMES xvfb-run)
+if(SQGI_XVFB_RUN)
+    add_test(NAME sqgi_test_cairo_gtk
+        COMMAND ${SQGI_XVFB_RUN} -a $<TARGET_FILE:sqgi-bin>
+                ${CMAKE_SOURCE_DIR}/test/test_cairo_gtk.nut)
+    set_tests_properties(sqgi_test_cairo_gtk PROPERTIES
+        ENVIRONMENT "${SQGI_TEST_ENV};GSK_RENDERER=cairo;LSAN_OPTIONS=suppressions=${CMAKE_SOURCE_DIR}/test/cairo_gtk_lsan.supp:print_suppressions=0" TIMEOUT 15
+        FAIL_REGULAR_EXPRESSION "AN ERROR HAS OCCURRED")
+endif()
+set_tests_properties(sqgi_test_cairo sqgi_test_cairo_runtime sqgi_test_cairo_pixels PROPERTIES
+    TIMEOUT 30 FAIL_REGULAR_EXPRESSION "AN ERROR HAS OCCURRED")
 add_sqgi_nut_test(sqgi_test_boxed_record_constructor    test_boxed_record_constructor.nut)
 add_sqgi_nut_test(sqgi_test_math_extended               test_math_extended.nut)
 add_sqgi_nut_test(sqgi_test_system_module               test_system_module.nut)
@@ -958,6 +975,9 @@ add_sqgi_c_test(sqgi_test_c_signal_crossthread test/c/test_signal_crossthread.c)
 add_sqgi_c_test(sqgi_test_c_signal_crossthread_sync test/c/test_signal_crossthread_sync.c)
 add_sqgi_c_test(sqgi_test_c_signal_vm_closing test/c/test_signal_vm_closing.c)
 add_sqgi_c_test(sqgi_test_c_gvalue_branches test/c/test_gvalue_branches.c)
+pkg_check_modules(CAIRO_GOBJECT REQUIRED IMPORTED_TARGET cairo-gobject)
+add_sqgi_c_test(sqgi_test_c_cairo test/c/test_cairo.c)
+target_link_libraries(sqgi_test_c_cairo PRIVATE PkgConfig::CAIRO_GOBJECT)
 add_sqgi_c_test(sqgi_test_c_gi_call_plan test/c/test_gi_call_plan.c)
 add_sqgi_c_test(sqgi_test_c_list_ownership test/c/test_list_ownership.c)
 add_sqgi_c_test(sqgi_test_c_squirrel_core_hardening test/c/test_squirrel_core_hardening.c)
