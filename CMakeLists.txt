@@ -740,6 +740,16 @@ add_sqgi_nut_test(sqgi_test_jit_fastpath_runtime        test_jit_fastpath.nut)
 add_sqgi_nut_test(sqgi_test_jit_correctness             test_jit_correctness.nut)
 add_sqgi_nut_test(sqgi_test_jit_correctness_runtime     test_jit_correctness.nut)
 add_sqgi_nut_test(sqgi_test_integer_edges test_integer_edges.nut)
+add_sqgi_nut_test(sqgi_test_table_member_cache test_table_member_cache.nut)
+set_tests_properties(sqgi_test_table_member_cache PROPERTIES
+    ENVIRONMENT "${SQGI_TEST_ENV};SQGI_JIT=0")
+add_sqgi_nut_test(sqgi_test_table_member_cache_runtime test_table_member_cache.nut)
+set_tests_properties(sqgi_test_table_member_cache_runtime PROPERTIES
+    ENVIRONMENT "${SQGI_TEST_ENV};SQGI_JIT=1;SQGI_JIT_THRESHOLD=1")
+set_tests_properties(sqgi_test_table_member_cache sqgi_test_table_member_cache_runtime PROPERTIES
+    PASS_REGULAR_EXPRESSION "table member cache tests passed"
+    FAIL_REGULAR_EXPRESSION "AN ERROR HAS OCCURRED"
+    TIMEOUT 30)
 add_sqgi_nut_test(sqgi_test_interpreter_dispatch test_interpreter_dispatch.nut)
 set_tests_properties(sqgi_test_interpreter_dispatch PROPERTIES
     ENVIRONMENT "${SQGI_TEST_ENV};SQGI_JIT=0"

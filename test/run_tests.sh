@@ -64,6 +64,7 @@ TESTS=(
   "test_boxed_record_constructor.nut"
   "test_gtk_textbuffer.nut"
   "test_math_extended.nut"
+  "test_table_member_cache.nut"
   "test_application_run_crash_regression.nut"
 )
 
