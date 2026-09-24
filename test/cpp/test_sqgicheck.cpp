@@ -1133,9 +1133,12 @@ void test_real_file_system()
     std::string empty_path_error;
     CHECK(!files->read_file("", &contents, &empty_path_error),
           "real filesystem handles an empty path failure");
-    CHECK(files->canonicalize("../sqgi/CMakeLists.txt", "/tmp").find(
-              "/sqgi/CMakeLists.txt") != std::string::npos,
+    gchar *cwd = g_get_current_dir();
+    gchar *expected = g_build_filename(cwd, "CMakeLists.txt", nullptr);
+    CHECK(files->canonicalize("test/../CMakeLists.txt", cwd) == expected,
           "real filesystem canonicalizes relative path");
+    g_free(expected);
+    g_free(cwd);
     CHECK(files->dirname("/one/two.nut") == "/one",
           "real filesystem dirname");
 }

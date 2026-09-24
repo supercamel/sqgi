@@ -866,6 +866,18 @@ set(SQGICHECK_TEST_TYPELIB_DIR
     ${CMAKE_CURRENT_BINARY_DIR}/sqgicheck-test-typelib)
 set(SQGICHECK_TEST_TYPELIB
     ${SQGICHECK_TEST_TYPELIB_DIR}/SqgicheckTest-1.0.typelib)
+# GI uses the native search-path separator. Escape semicolons so CTest keeps
+# the entire Windows path list in one ENVIRONMENT entry.
+set(SQGICHECK_TEST_TYPELIB_PATH "${SQGICHECK_TEST_TYPELIB_DIR}")
+if(NOT "$ENV{GI_TYPELIB_PATH}" STREQUAL "")
+    if(WIN32)
+        string(APPEND SQGICHECK_TEST_TYPELIB_PATH ";$ENV{GI_TYPELIB_PATH}")
+    else()
+        string(APPEND SQGICHECK_TEST_TYPELIB_PATH ":$ENV{GI_TYPELIB_PATH}")
+    endif()
+endif()
+string(REPLACE ";" "\\;" SQGICHECK_TEST_TYPELIB_PATH
+    "${SQGICHECK_TEST_TYPELIB_PATH}")
 if(G_IR_COMPILER_EXECUTABLE)
     add_custom_command(
         OUTPUT ${SQGICHECK_TEST_TYPELIB}
@@ -901,7 +913,7 @@ if(SQGICHECK_ENABLE_COVERAGE)
 endif()
 add_test(NAME sqgi_test_cpp_sqgicheck COMMAND sqgi_test_cpp_sqgicheck)
 set_tests_properties(sqgi_test_cpp_sqgicheck PROPERTIES
-    ENVIRONMENT "${SQGI_TEST_ENV};GI_TYPELIB_PATH=${SQGICHECK_TEST_TYPELIB_DIR}:$ENV{GI_TYPELIB_PATH};LSAN_OPTIONS=suppressions=${CMAKE_SOURCE_DIR}/tools/sqgicheck_tests/lsan.supp:print_suppressions=0"
+    ENVIRONMENT "${SQGI_TEST_ENV};GI_TYPELIB_PATH=${SQGICHECK_TEST_TYPELIB_PATH};LSAN_OPTIONS=suppressions=${CMAKE_SOURCE_DIR}/tools/sqgicheck_tests/lsan.supp:print_suppressions=0"
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
     TIMEOUT 30
 )
@@ -912,7 +924,7 @@ add_test(
             ${CMAKE_BINARY_DIR}/sqgicheck
 )
 set_tests_properties(sqgi_test_sqgicheck_cli PROPERTIES
-    ENVIRONMENT "${SQGI_TEST_ENV};GI_TYPELIB_PATH=${SQGICHECK_TEST_TYPELIB_DIR}:$ENV{GI_TYPELIB_PATH};LSAN_OPTIONS=suppressions=${CMAKE_SOURCE_DIR}/tools/sqgicheck_tests/lsan.supp:print_suppressions=0"
+    ENVIRONMENT "${SQGI_TEST_ENV};GI_TYPELIB_PATH=${SQGICHECK_TEST_TYPELIB_PATH};LSAN_OPTIONS=suppressions=${CMAKE_SOURCE_DIR}/tools/sqgicheck_tests/lsan.supp:print_suppressions=0"
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
     TIMEOUT 60
 )
