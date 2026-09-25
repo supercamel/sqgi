@@ -1,6 +1,6 @@
 # Windows LLVM JIT and kernel validation
 
-## Results: 2026-09-25
+## Initial results: 2026-09-25
 
 The Windows x86-64 runtime was cross-compiled with both LLVM backends enabled
 and executed under Wine 9.0. This was actual LLVM execution: the default-JIT
@@ -69,6 +69,44 @@ LLVM implementation references:
 - [LLVM 18 COFF relocations and cached image base](https://github.com/llvm/llvm-project/blob/llvmorg-18.1.8/llvm/lib/ExecutionEngine/RuntimeDyld/Targets/RuntimeDyldCOFFX86_64.h)
 - [LLVM 18 default LLJIT object-layer configuration](https://github.com/llvm/llvm-project/blob/llvmorg-18.1.8/llvm/lib/ExecutionEngine/Orc/LLJIT.cpp)
 - [LLVM 18 memory-manager C callbacks](https://github.com/llvm/llvm-project/blob/llvmorg-18.1.8/llvm/include/llvm-c/OrcEE.h)
+
+## Native Windows CI follow-up
+
+The first [native Windows run for v0.2.0-alpha](https://github.com/supercamel/sqgi/actions/runs/36085977190)
+passed 54/60 tests. The saved logs identified two missing compiler helpers:
+
+| Missing symbol | Failing tests |
+| --- | --- |
+| `sincos` | Kernel math, both math demos, bytecode LLVM native-execution assertions |
+| `___chkstk_ms` | Kernel calls, with and without inlining |
+
+The original Wine run used an MSVC-targeting LLVM DLL, while CI builds LLVM
+with MinGW. These targets emit different helper calls. Selecting
+`x86_64-w64-windows-gnu` with the original Wine DLL reproduced all six failures,
+including the same missing symbols and bytecode native-execution assertions.
+
+The shared JIT setup now binds `sincos` to an explicit double-precision wrapper
+and both Win64 stack-probe spellings to the linked compiler's actual probe
+routine. It does not depend on those helpers being DLL exports or make arbitrary
+process symbols available. The stack probe is bound directly because it uses a
+special register/stack ABI that a C++ forwarding function would break.
+
+MinGW builds also select their own code-generation ABI explicitly, even when
+using an MSVC-built LLVM C DLL. Wine validation therefore exercises the same
+helper selection as native MinGW CI. The memory regression now executes a
+`sincos` call with normal, signed-zero and domain-error inputs, and a 64 KiB
+stack frame that requires a real Win64 stack probe.
+
+With those bindings, all 60 JIT/kernel tests pass under Wine using the MinGW
+code-generation target, including the six reproduced failures and expanded
+memory regression. The equivalent 60 tests also pass on Linux. The original
+release tag's failed CI result is historical; the fix is a
+subsequent commit, and native Windows confirmation requires its new CI run.
+Local follow-up logs are in `/tmp/sqgi-windows-ci`.
+
+The stack-probe ABI is described in
+[LLVM 18's x86 frame lowering](https://github.com/llvm/llvm-project/blob/llvmorg-18.1.8/llvm/lib/Target/X86/X86FrameLowering.cpp)
+and [GCC's MinGW probe implementation](https://github.com/gcc-mirror/gcc/blob/releases/gcc-13/libgcc/config/i386/cygwin.S).
 
 ## Repeating the tests
 

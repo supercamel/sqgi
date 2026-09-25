@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <limits>
 #include <vector>
 
 static void check(bool ok, const char *message) {
@@ -23,6 +24,10 @@ static int64_t twice(int64_t n) { return n * 2; }
 static LLVMOrcLLJITRef compile_and_run() {
     LLVMOrcLLJITRef jit = nullptr;
     checked(sqgi_llvm::create_jit(&jit));
+#if defined(_WIN32) && defined(__MINGW32__) && defined(__x86_64__)
+    check(std::strstr(LLVMOrcLLJITGetTripleString(jit), "windows-gnu") != nullptr,
+          "MinGW must use its runtime ABI even with an MSVC-built LLVM DLL");
+#endif
     LLVMOrcCSymbolMapPair symbol{};
     symbol.Name = LLVMOrcLLJITMangleAndIntern(jit, "host_twice");
     symbol.Sym.Address = reinterpret_cast<uintptr_t>(&twice);
@@ -34,6 +39,27 @@ static LLVMOrcLLJITRef compile_and_run() {
 @counter = global i64 40
 @increment = constant i64 3
 declare i64 @host_twice(i64)
+declare void @sincos(double, ptr, ptr)
+define void @entry_sincos(double %x, ptr %out) uwtable {
+  %cosine = getelementptr double, ptr %out, i64 1
+  call void @sincos(double %x, ptr %out, ptr %cosine)
+  ret void
+}
+define i64 @entry_stack(i64 %n) uwtable {
+  %storage = alloca [65536 x i8], align 16
+  %last = getelementptr [65536 x i8], ptr %storage, i64 0, i64 65535
+  store volatile i8 90, ptr %last
+  %index = and i64 %n, 32767
+  %slot = getelementptr [65536 x i8], ptr %storage, i64 0, i64 %index
+  %value = trunc i64 %n to i8
+  store volatile i8 %value, ptr %slot
+  %actual = load volatile i8, ptr %slot
+  %sentinel = load volatile i8, ptr %last
+  %wide = zext i8 %actual to i64
+  %tail = zext i8 %sentinel to i64
+  %result = add i64 %wide, %tail
+  ret i64 %result
+}
 define i64 @entry(i64 %n) uwtable {
   %old = load volatile i64, ptr @counter
   %inc = load volatile i64, ptr @increment
@@ -72,6 +98,22 @@ define double @entry_float(double %n) uwtable {
     checked(LLVMOrcLLJITLookup(jit, &float_entry, "entry_float"));
     auto float_call = reinterpret_cast<double (*)(double)>(static_cast<uintptr_t>(float_entry));
     check(float_call(2.5) == 3.625, "JIT floating constant mismatch");
+    LLVMOrcExecutorAddress sincos_entry, stack_entry;
+    checked(LLVMOrcLLJITLookup(jit, &sincos_entry, "entry_sincos"));
+    checked(LLVMOrcLLJITLookup(jit, &stack_entry, "entry_stack"));
+    auto sincos_call = reinterpret_cast<void (*)(double, double *)>(static_cast<uintptr_t>(sincos_entry));
+    double results[2] = {-123.0, -456.0};
+    sincos_call(0.5, results);
+    check(std::fabs(results[0] - std::sin(0.5)) < 1e-14 &&
+          std::fabs(results[1] - std::cos(0.5)) < 1e-14, "JIT sincos helper ABI/result mismatch");
+    sincos_call(-0.0, results);
+    check(results[0] == 0.0 && std::signbit(results[0]) && results[1] == 1.0, "JIT sincos signed zero mismatch");
+    sincos_call(std::numeric_limits<double>::infinity(), results);
+    check(std::isnan(results[0]) && std::isnan(results[1]), "JIT sincos domain mismatch");
+    // This must execute a real 64 KiB frame and the compiler-selected Win64
+    // stack probe. Calling a probe directly with the C ABI would not test it.
+    auto stack_call = reinterpret_cast<int64_t (*)(int64_t)>(static_cast<uintptr_t>(stack_entry));
+    check(stack_call(7) == 97 && stack_call(32766) == 344, "JIT large stack frame/probe mismatch");
     check(*reinterpret_cast<int64_t *>(static_cast<uintptr_t>(counter)) == 64, "JIT mutable data mismatch");
 #if defined(_WIN32) && (defined(__x86_64__) || defined(_M_X64))
     MEMORY_BASIC_INFORMATION code_info{}, data_info{}, constant_info{};
@@ -106,5 +148,5 @@ int main() {
         }
     }
     for(auto jit : live) if(jit) checked(LLVMOrcDisposeLLJIT(jit));
-    std::puts("LLVM JIT section memory and teardown tests passed");
+    std::puts("LLVM JIT section memory, compiler helpers and teardown tests passed");
 }
