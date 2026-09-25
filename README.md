@@ -93,7 +93,7 @@ marshals the call, and exposes the native async operation as an awaitable method
 
 ---
 
-## GTK without a browser runtime
+## Native GTK applications
 
 ```squirrel
 #!/usr/bin/env sqgi
@@ -120,8 +120,8 @@ app.connect("activate", function() {
 app.run(0, null)
 ```
 
-You are using GTK itself, not a reimplementation of GTK and not a browser-based
-UI layer.
+This creates a native GTK window directly from Squirrel through GObject
+Introspection.
 
 ---
 

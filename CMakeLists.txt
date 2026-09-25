@@ -1,5 +1,6 @@
 cmake_minimum_required(VERSION 3.16)
-project(sqgi VERSION 0.1.0 LANGUAGES C CXX)
+project(sqgi VERSION 0.1.7 LANGUAGES C CXX)
+set(SQGI_VERSION "${PROJECT_VERSION}-alpha")
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -327,7 +328,7 @@ target_include_directories(sqgi-core
         ${CMAKE_CURRENT_SOURCE_DIR}/Squirrel3/squirrel
 )
 target_compile_definitions(sqgi-core PRIVATE
-    SQGI_VERSION="${PROJECT_VERSION}"
+    SQGI_VERSION="${SQGI_VERSION}"
     SQGI_TARGET_ARCH="${CMAKE_SYSTEM_PROCESSOR}"
 )
 target_link_libraries(sqgi-core PUBLIC ${SQGI_DEPS})
@@ -423,7 +424,7 @@ if(SQGICHECK_ENABLE_MUTATION_TESTS)
         $<TARGET_OBJECTS:sqgi-core>
     )
     target_compile_definitions(sqgicheck-mutant-exit PRIVATE
-        SQGI_VERSION="${PROJECT_VERSION}"
+        SQGI_VERSION="${SQGI_VERSION}"
         SQGICHECK_MUTATE_EXIT_STATUS)
     target_link_libraries(sqgicheck-mutant-exit PRIVATE sqgicheck-core)
 
@@ -454,7 +455,7 @@ set_target_properties(sqgicheck-bin PROPERTIES
 )
 target_link_libraries(sqgicheck-bin PRIVATE sqgicheck-core)
 target_compile_definitions(sqgicheck-bin PRIVATE
-    SQGI_VERSION="${PROJECT_VERSION}"
+    SQGI_VERSION="${SQGI_VERSION}"
 )
 if(SQGICHECK_ENABLE_COVERAGE)
     target_compile_options(sqgicheck-bin PRIVATE
@@ -486,7 +487,7 @@ if(SQGI_MINGW_RUNTIME_LINK_OPTIONS)
     target_link_options(sqgi-bin PRIVATE ${SQGI_MINGW_RUNTIME_LINK_OPTIONS})
 endif()
 target_compile_definitions(sqgi-bin PRIVATE
-    SQGI_VERSION="${PROJECT_VERSION}"
+    SQGI_VERSION="${SQGI_VERSION}"
 )
 
 if(WIN32)
