@@ -49,6 +49,28 @@ jobs:
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           cmake --install build
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: LLVM JIT and typed kernel regressions
+        run: |
+          # Verify the defaults too: do not let a backend being disabled make
+          # its tests disappear while CI remains green.
+          $cache = Get-Content build/CMakeCache.txt
+          foreach ($setting in @('SQ_ENABLE_JIT:BOOL=ON', 'SQGI_BYTECODE_JIT_BACKEND:STRING=LLVM', 'SQGI_ENABLE_KERNELS:BOOL=ON', 'SQGI_KERNEL_BACKEND:STRING=LLVM')) {
+            if ($cache -notcontains $setting) { throw "Required default build setting missing: $setting" }
+          }
+          # The packaging contract is exercised separately below.
+          ctest --test-dir build -L 'jit|kernel' -E kernel_packaging --output-on-failure --timeout 30 --no-tests=error --output-log build/llvm-tests.log
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          # The COFF allocation failure was intermittent across fresh processes.
+          ctest --test-dir build -R '^(sqgi_test_jit_perf_correctness_runtime|sqgi_demo_kernel_matrix_recurrence)$' --repeat until-fail:30 --output-on-failure --timeout 30 --no-tests=error --output-log build/llvm-repeat-tests.log
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: Save LLVM test diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-llvm-test-logs
+          path: |
+            build/llvm-*.log
+            build/CMakeCache.txt
       - name: CLI, process, file, schema and native recipe regressions
         run: |
           ctest --test-dir build -R '^sqgi_test_(cairo|cairo_runtime|cairo_pixels|c_cairo|callback_async_lifetime|cpp_sqgicheck)$' --output-on-failure

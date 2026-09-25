@@ -651,6 +651,9 @@ Run CTest:
 ctest --test-dir build --output-on-failure
 ```
 
+For Windows LLVM execution tests from Linux, see the
+[Wine validation guide](docs/windows-llvm-wine.md).
+
 AddressSanitizer build:
 
 ```sh

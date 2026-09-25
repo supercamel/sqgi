@@ -4,7 +4,7 @@
 #include <llvm-c/Analysis.h>
 #include <llvm-c/Core.h>
 #include <llvm-c/Error.h>
-#include <llvm-c/LLJIT.h>
+#include "llvm_jit.h"
 #include <llvm-c/Target.h>
 #include <llvm-c/TargetMachine.h>
 #include <llvm-c/Transforms/PassBuilder.h>
@@ -82,7 +82,7 @@ void lower(Module &m) {
     static_assert(offsetof(Call,result)==8 && offsetof(Call,fuel)==16 && offsetof(Call,error_line)==24 && offsetof(Call,error_function)==28 && sizeof(Call)==32,"kernel ABI requires 64-bit pointers");
     initialize();
     auto owner=std::make_shared<JitOwner>();
-    checked(LLVMOrcCreateLLJIT(&owner->jit,nullptr));
+    checked(sqgi_llvm::create_jit(&owner->jit));
     LLVMOrcObjectTransformLayerSetTransform(LLVMOrcLLJITGetObjTransformLayer(owner->jit),
         [](void *context,LLVMMemoryBufferRef *object)->LLVMErrorRef {
             auto &owner=*static_cast<JitOwner*>(context);
@@ -392,7 +392,7 @@ void lower(Module &m) {
     }
     auto safe_module=LLVMOrcCreateNewThreadSafeModule(l.module,l.thread_context);
     l.module=nullptr; // ownership transfers to the JIT, including error paths
-    checked(LLVMOrcLLJITAddLLVMIRModule(owner->jit,LLVMOrcLLJITGetMainJITDylib(owner->jit),safe_module));
+    checked(sqgi_llvm::add_module(owner->jit, safe_module));
     std::vector<std::shared_ptr<Executable>> entries;
     for(size_t index=0;index<m.functions.size();++index) {
         LLVMOrcExecutorAddress address=0;

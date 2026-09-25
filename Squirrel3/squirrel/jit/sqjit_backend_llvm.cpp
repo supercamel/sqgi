@@ -23,7 +23,7 @@
 #include <llvm-c/Analysis.h>
 #include <llvm-c/Core.h>
 #include <llvm-c/Error.h>
-#include <llvm-c/LLJIT.h>
+#include "llvm_jit.h"
 #include <llvm-c/Target.h>
 #include <llvm-c/Transforms/PassBuilder.h>
 #include <cstddef>
@@ -212,7 +212,7 @@ bool lower(SQFunctionProto *p, SQObjectPtr *stack, SQClosure *closure, SQJitNati
     artifact->bindings = std::move(inlining.bindings);
     artifact->numeric_bindings=std::move(numeric.bindings);
     artifact->class_bindings=std::move(objects.bindings);
-    checked(LLVMOrcCreateLLJIT(&artifact->jit, nullptr));
+    checked(sqgi_llvm::create_jit(&artifact->jit));
     // Bind only audited math entries that LLVM intrinsics may call. Do not
     // expose arbitrary process symbols to ordinary Squirrel source.
     const char *math_names[]={nullptr,"sqrt","sin","cos","asin","acos","log","log10","tan","atan","floor","ceil","exp","fabs","atan2","pow"};
@@ -483,7 +483,7 @@ bool lower(SQFunctionProto *p, SQObjectPtr *stack, SQClosure *closure, SQJitNati
     auto passError = LLVMRunPasses(ir.module, "default<O2>", nullptr, options);
     LLVMDisposePassBuilderOptions(options); checked(passError);
     auto module = LLVMOrcCreateNewThreadSafeModule(ir.module, ir.thread); ir.module = nullptr;
-    checked(LLVMOrcLLJITAddLLVMIRModule(artifact->jit, LLVMOrcLLJITGetMainJITDylib(artifact->jit), module));
+    checked(sqgi_llvm::add_module(artifact->jit, module));
     LLVMOrcExecutorAddress code = 0;
     checked(LLVMOrcLLJITLookup(artifact->jit, &code, "squirrel_entry"));
     native->_code.SetExternal((void *)(uintptr_t)code, artifact.release(), Artifact::release);

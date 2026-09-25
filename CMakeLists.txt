@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(sqgi VERSION 0.1.7 LANGUAGES C CXX)
+project(sqgi VERSION 0.2.0 LANGUAGES C CXX)
 set(SQGI_VERSION "${PROJECT_VERSION}-alpha")
 
 set(CMAKE_C_STANDARD 11)
@@ -351,6 +351,10 @@ target_include_directories(sqgi
 target_link_libraries(sqgi PUBLIC ${SQGI_DEPS})
 if(SQGI_MINGW_RUNTIME_LINK_OPTIONS)
     target_link_options(sqgi PRIVATE ${SQGI_MINGW_RUNTIME_LINK_OPTIONS})
+    # The statically linked GCC unwinder belongs to this DLL. Auto-exporting
+    # _Unwind_Resume makes C++ clients import it while also linking their own
+    # libgcc_eh, producing a duplicate definition (including the JIT tests).
+    target_link_options(sqgi PRIVATE "LINKER:--exclude-libs,libgcc_eh.a")
 endif()
 
 # ── sqgicheck static-analysis engine and executable ─────────────────────────
@@ -568,7 +572,7 @@ endif()
 function(add_sqgi_nut_test test_name test_file)
     add_test(
         NAME ${test_name}
-        COMMAND ${CMAKE_BINARY_DIR}/sqgi ${CMAKE_SOURCE_DIR}/test/${test_file}
+        COMMAND sqgi-bin ${CMAKE_SOURCE_DIR}/test/${test_file}
     )
     set_tests_properties(${test_name} PROPERTIES
         ENVIRONMENT "${SQGI_TEST_ENV}"
@@ -577,6 +581,14 @@ function(add_sqgi_nut_test test_name test_file)
 endfunction()
 
 add_sqgi_nut_test(sqgi_test_glib                        test_glib.nut)
+if(TARGET sqgi-llvm-backend)
+    add_executable(sqgi_test_llvm_jit_memory test/cpp/test_llvm_jit_memory.cpp)
+    target_include_directories(sqgi_test_llvm_jit_memory PRIVATE src)
+    target_link_libraries(sqgi_test_llvm_jit_memory PRIVATE sqgi-llvm-backend)
+    add_test(NAME sqgi_test_llvm_jit_memory COMMAND sqgi_test_llvm_jit_memory)
+    set_tests_properties(sqgi_test_llvm_jit_memory PROPERTIES
+        LABELS "jit;kernel;llvm" TIMEOUT 30)
+endif()
 if(SQGI_ENABLE_KERNELS)
     # Keep the compiler's native tests independent of GI and the Squirrel VM.
     add_executable(sqgi_test_kernel_native test/kernel/test_kernel.cpp
@@ -895,7 +907,8 @@ if(Python3_Interpreter_FOUND)
     endif()
     if(SQGI_HAS_NATIVE_JIT)
         add_test(NAME sqgi_test_jit_defaults
-            COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/test/test_jit_defaults.py $<TARGET_FILE:sqgi-bin>)
+            COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/test/test_jit_defaults.py
+                ${CMAKE_CROSSCOMPILING_EMULATOR} $<TARGET_FILE:sqgi-bin>)
         set_tests_properties(sqgi_test_jit_defaults PROPERTIES LABELS "jit" TIMEOUT 60)
     endif()
 endif()

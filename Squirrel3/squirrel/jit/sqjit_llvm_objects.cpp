@@ -16,7 +16,7 @@
 #include <llvm-c/Analysis.h>
 #include <llvm-c/Core.h>
 #include <llvm-c/Error.h>
-#include <llvm-c/LLJIT.h>
+#include "llvm_jit.h"
 #include <llvm-c/Target.h>
 #include <llvm-c/Transforms/PassBuilder.h>
 #include <limits>
@@ -422,7 +422,7 @@ bool compile(SQFunctionProto *p,SQInteger first,SQInteger last,SQInteger entry_i
     if(!output || !eligible(p,first,last,loop,analysis) || entry_ip<first || entry_ip>last)return false;
     static std::once_flag initialized;
     std::call_once(initialized,[]{if(LLVMInitializeNativeTarget() || LLVMInitializeNativeAsmPrinter())throw std::runtime_error("LLVM unavailable");});
-    std::unique_ptr<Artifact> artifact(new Artifact);checked(LLVMOrcCreateLLJIT(&artifact->jit,nullptr));
+    std::unique_ptr<Artifact> artifact(new Artifact);checked(sqgi_llvm::create_jit(&artifact->jit));
     IR ir;auto c=ir.c;auto b=ir.b;auto word=LLVMInt64TypeInContext(c);auto byte=LLVMInt8TypeInContext(c);auto ptr=LLVMPointerTypeInContext(c,0);
     auto tagtype=LLVMIntTypeInContext(c,sizeof(SQObjectType)*8);
     LLVMSetTarget(ir.module,LLVMOrcLLJITGetTripleString(artifact->jit));
@@ -610,7 +610,7 @@ bool compile(SQFunctionProto *p,SQInteger first,SQInteger last,SQInteger entry_i
     char *error=nullptr;bool invalid=LLVMVerifyModule(ir.module,LLVMReturnStatusAction,&error);LLVMDisposeMessage(error);if(invalid)return false;
     auto options=LLVMCreatePassBuilderOptions();auto e=LLVMRunPasses(ir.module,"default<O2>",nullptr,options);LLVMDisposePassBuilderOptions(options);checked(e);
     auto module=LLVMOrcCreateNewThreadSafeModule(ir.module,ir.thread);ir.module=nullptr;
-    checked(LLVMOrcLLJITAddLLVMIRModule(artifact->jit,LLVMOrcLLJITGetMainJITDylib(artifact->jit),module));
+    checked(sqgi_llvm::add_module(artifact->jit, module));
     LLVMOrcExecutorAddress address;checked(LLVMOrcLLJITLookup(artifact->jit,&address,"object_entry"));
     output->SetExternal((void*)(uintptr_t)address,artifact.release(),Artifact::release);return true;
 }

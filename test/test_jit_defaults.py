@@ -20,7 +20,7 @@ for setting in (None, "0", "1"):
     env["SQGI_JIT_TRACE"] = "1"
     if setting is not None:
         env["SQGI_JIT"] = setting
-    result = subprocess.run([sys.argv[1], "-e", script], env=env,
+    result = subprocess.run([*sys.argv[1:], "-e", script], env=env,
                             capture_output=True, text=True, timeout=15)
     output = result.stdout + result.stderr
     assert result.returncode == 0, output

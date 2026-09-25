@@ -14,7 +14,7 @@
 #include <llvm-c/Analysis.h>
 #include <llvm-c/Core.h>
 #include <llvm-c/Error.h>
-#include <llvm-c/LLJIT.h>
+#include "llvm_jit.h"
 #include <llvm-c/Target.h>
 #include <llvm-c/Transforms/PassBuilder.h>
 #include <memory>
@@ -165,7 +165,7 @@ bool sqjit_llvm_table_predicate_compile(SQFunctionProto *p,SQJitNative *native) 
     static_assert(sizeof(SQFloat)==8 && sizeof(SQInteger)==8,"64-bit LLVM ABI required");
     static std::once_flag initialized;
     std::call_once(initialized,[]{if(LLVMInitializeNativeTarget() || LLVMInitializeNativeAsmPrinter())throw std::runtime_error("LLVM unavailable");});
-    std::unique_ptr<Artifact> artifact(new Artifact);checked(LLVMOrcCreateLLJIT(&artifact->jit,nullptr));
+    std::unique_ptr<Artifact> artifact(new Artifact);checked(sqgi_llvm::create_jit(&artifact->jit));
     artifact->hints.assign(p->_ninstructions,-1);
     IR ir;auto c=ir.c;auto b=ir.b;auto word=LLVMInt64TypeInContext(c),byte=LLVMInt8TypeInContext(c);
     auto tagtype=LLVMIntTypeInContext(c,sizeof(SQObjectType)*8),ptr=LLVMPointerTypeInContext(c,0);
@@ -259,7 +259,7 @@ bool sqjit_llvm_table_predicate_compile(SQFunctionProto *p,SQJitNative *native) 
     LLVMDisposeMessage(message);
     auto options=LLVMCreatePassBuilderOptions();auto error=LLVMRunPasses(ir.module,"default<O2>",nullptr,options);LLVMDisposePassBuilderOptions(options);checked(error);
     auto module=LLVMOrcCreateNewThreadSafeModule(ir.module,ir.thread);ir.module=nullptr;
-    checked(LLVMOrcLLJITAddLLVMIRModule(artifact->jit,LLVMOrcLLJITGetMainJITDylib(artifact->jit),module));
+    checked(sqgi_llvm::add_module(artifact->jit, module));
     LLVMOrcExecutorAddress code=0;checked(LLVMOrcLLJITLookup(artifact->jit,&code,"table_predicate"));
     native->_code.SetExternal((void *)(uintptr_t)code,artifact.release(),Artifact::release);
     native->_stack_live_slots=p->_nparameters;native->_stack_storage_slots=p->_nparameters;

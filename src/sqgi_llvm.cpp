@@ -9,7 +9,7 @@
 #include <llvm-c/Analysis.h>
 #include <llvm-c/Core.h>
 #include <llvm-c/Error.h>
-#include <llvm-c/LLJIT.h>
+#include "llvm_jit.h"
 #include <llvm-c/Target.h>
 #include <llvm-c/Transforms/PassBuilder.h>
 #include <cstdint>
@@ -535,7 +535,7 @@ std::unique_ptr<Code> lower(SQFunctionProto *p,const std::vector<Observation> *o
     static std::once_flag once;
     std::call_once(once,[]{if(LLVMInitializeNativeTarget()||LLVMInitializeNativeAsmPrinter())throw std::runtime_error("LLVM native target unavailable");});
     std::unique_ptr<Code> code(new Code);
-    checked(LLVMOrcCreateLLJIT(&code->jit,nullptr));
+    checked(sqgi_llvm::create_jit(&code->jit));
     if(observed)code->observed=*observed;
     IR ir;auto ctx=ir.ctx;auto b=ir.builder;
     LLVMSetTarget(ir.module,LLVMOrcLLJITGetTripleString(code->jit));
@@ -619,7 +619,7 @@ std::unique_ptr<Code> lower(SQFunctionProto *p,const std::vector<Observation> *o
     LLVMDisposePassBuilderOptions(options);checked(optimized);
     if(std::getenv("SQGI_SQUIRREL_DUMP_IR"))LLVMDumpModule(ir.module);
     auto module=LLVMOrcCreateNewThreadSafeModule(ir.module,ir.ts);ir.module=nullptr;
-    checked(LLVMOrcLLJITAddLLVMIRModule(code->jit,LLVMOrcLLJITGetMainJITDylib(code->jit),module));
+    checked(sqgi_llvm::add_module(code->jit, module));
     LLVMOrcExecutorAddress address;checked(LLVMOrcLLJITLookup(code->jit,&address,"boxed_entry"));
     code->entry=reinterpret_cast<int(*)(SQVM*,int,SQObjectPtr**,SQInteger,Invocation*)>(uintptr_t(address));return code;
 }
