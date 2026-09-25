@@ -504,6 +504,27 @@ configure_file(
 )
 endif()
 
+# Manifest authoring tool. GTK is loaded only when the GUI starts.
+option(SQGI_BUILD_PACKAGER_GUI "Install the SQGI manifest authoring tool" ON)
+if(SQGI_BUILD_PACKAGER_GUI)
+    add_executable(sqgipkg-gui-bin tools/sqgipkg_gui/launcher.c)
+    set_target_properties(sqgipkg-gui-bin PROPERTIES OUTPUT_NAME sqgipkg-gui)
+    if(WIN32)
+        set_target_properties(sqgipkg-gui-bin PROPERTIES WIN32_EXECUTABLE ON)
+    endif()
+    target_link_libraries(sqgipkg-gui-bin PRIVATE ${SQGI_DEPS})
+    file(RELATIVE_PATH SQGI_GUI_SHARE_RELATIVE "${CMAKE_INSTALL_FULL_BINDIR}" "${CMAKE_INSTALL_FULL_DATADIR}/sqgi")
+    target_compile_definitions(sqgipkg-gui-bin PRIVATE SQGI_TOOL_SHARE_RELATIVE="${SQGI_GUI_SHARE_RELATIVE}")
+    install(TARGETS sqgipkg-gui-bin RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+    install(FILES tools/sqgipkg_gui/main.nut tools/sqgipkg_gui/catalog.json
+        DESTINATION ${CMAKE_INSTALL_DATADIR}/sqgi/sqgipkg_gui)
+    install(DIRECTORY tools/sqgipkg_gui/src DESTINATION ${CMAKE_INSTALL_DATADIR}/sqgi/sqgipkg_gui)
+    if(NOT WIN32)
+        install(FILES tools/sqgipkg_gui/assets/org.sqgi.ManifestStudio.desktop DESTINATION ${CMAKE_INSTALL_DATADIR}/applications)
+        install(FILES tools/sqgipkg_gui/assets/org.sqgi.ManifestStudio.svg DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/scalable/apps)
+    endif()
+endif()
+
 # ── Optional sanitizers ──────────────────────────────────────────────────────
 # (Now declared above so flags reach all targets — kept here as a no-op
 # anchor to preserve the prior file layout for diff readability.)
@@ -846,6 +867,25 @@ set_tests_properties(sqgi_test_shebang PROPERTIES
 
 find_package(Python3 COMPONENTS Interpreter QUIET)
 if(Python3_Interpreter_FOUND)
+    if(SQGI_BUILD_PACKAGER_GUI)
+        add_test(NAME sqgi_test_manifest_contracts
+            COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/sqgipkg_gui/tests/test_contracts.py $<TARGET_FILE:sqgi-bin>)
+        add_test(NAME sqgi_test_manifest_delivery
+            COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/sqgipkg_gui/tests/test_delivery.py $<TARGET_FILE:sqgi-bin>)
+        set_tests_properties(sqgi_test_manifest_contracts sqgi_test_manifest_delivery PROPERTIES
+            LABELS "packaging;manifest" TIMEOUT 90 ENVIRONMENT "${SQGI_TEST_ENV}")
+        # Installation writes CMake's install manifest; serialize with other install tests.
+        set_tests_properties(sqgi_test_manifest_delivery PROPERTIES RUN_SERIAL TRUE)
+        if(NOT WIN32)
+            find_program(SQGI_XVFB_RUN xvfb-run)
+            if(SQGI_XVFB_RUN)
+                add_test(NAME sqgi_test_manifest_gtk
+                    COMMAND ${SQGI_XVFB_RUN} -a ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/sqgipkg_gui/tests/test_gtk.py $<TARGET_FILE:sqgi-bin>)
+                set_tests_properties(sqgi_test_manifest_gtk PROPERTIES
+                    LABELS "packaging;manifest;gtk" TIMEOUT 45 ENVIRONMENT "${SQGI_TEST_ENV}")
+            endif()
+        endif()
+    endif()
     add_test(NAME sqgi_test_sqgipkg_ergonomics
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/sqgipkg_tests/test_ergonomics.py $<TARGET_FILE:sqgi-bin>)
     if(SQGI_ENABLE_KERNELS)

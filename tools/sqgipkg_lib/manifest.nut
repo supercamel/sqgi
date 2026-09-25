@@ -73,12 +73,24 @@ class SqgiPkgManifest extends Base.SqgiPkgSchema {
     function apply_manifest(opts) {
         if (opts.manifest == "") return
 
+        if (opts.manifest == "-") {
+            if (authored_manifest == null || authored_base_dir == null)
+                this.fail("stdin manifests require inspection mode and --base-dir")
+            this.apply_manifest_data(opts, authored_manifest, authored_base_dir)
+            return
+        }
+
         local manifest_path = this.abs_path(opts.manifest)
         if (!this.path_exists(manifest_path)) this.fail("manifest not found: " + opts.manifest)
 
         local manifest = sqgi.json.parse(this.read_file(manifest_path))
+        this.apply_manifest_data(opts, manifest, this.dirname(manifest_path))
+    }
+
+    function apply_manifest_data(opts, manifest, base_dir) {
+        authored_manifest = manifest
+        authored_base_dir = base_dir
         this.validate_manifest_schema(manifest)
-        local base_dir = this.dirname(manifest_path)
         opts.manifest_dir = base_dir
         this.apply_recipe_manifest(opts, manifest, base_dir)
 

@@ -1,0 +1,13 @@
+#!/bin/sh
+# Source-tree launcher; SQGI_GUI_RUNTIME selects a particular runtime.
+set -eu
+sqgi_tool_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+if [ -z "${SQGI_GUI_RUNTIME:-}" ]; then
+    if [ -x "$sqgi_tool_dir/../build/sqgi" ]; then
+        SQGI_GUI_RUNTIME="$sqgi_tool_dir/../build/sqgi"
+    else
+        SQGI_GUI_RUNTIME=$(command -v sqgi)
+    fi
+fi
+export SQGI_GUI_RUNTIME
+exec "$SQGI_GUI_RUNTIME" "$sqgi_tool_dir/sqgipkg_gui/main.nut" "$@"

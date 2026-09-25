@@ -145,7 +145,10 @@ class SqgiPkgRecipes extends Base.SqgiPkgScripts {
     }
 
     function runtime_project(opts) {
-        local options = { SQ_ENABLE_JIT = opts.runtime_jit ? "ON" : "OFF" }
+        // C-PKG-03: configure the standard runtime even in a stale build cache.
+        local options = { SQ_ENABLE_JIT = opts.runtime_jit ? "ON" : "OFF",
+            SQGI_ENABLE_KERNELS = "ON", SQGI_BYTECODE_JIT_BACKEND = "LLVM",
+            SQGI_KERNEL_BACKEND = "LLVM" }
         if (this.starts_with(opts.target, "win-")) options.SQGI_WINDOWS_GUI <- this.windows_gui_cmake_value(opts)
         return { name = "sqgi", build_system = "cmake", options = options, targets = ["sqgi-bin", "sqgi"] }
     }
@@ -161,27 +164,50 @@ class SqgiPkgRecipes extends Base.SqgiPkgScripts {
         else opts.build_dir = dir
     }
 
-    function explain_one(opts) {
+    function resolved_plan(opts) {
         this.scan_project_imports(opts)
-        if (this.starts_with(opts.target, "win-")) this.apply_windows_package_defaults(opts)
+        local windows = this.starts_with(opts.target, "win-")
+        if (windows) this.apply_windows_package_defaults(opts)
         else this.apply_linux_package_defaults(opts)
-        print("sqgipkg plan (no fetch/build)\n")
-        print("  app: " + opts.name + "\n  target: " + opts.target + "\n  output: " + this.abs_path(opts.output_dir) + "\n")
+        local runtime = { recipe = opts.runtime_recipe, revision = opts.sqgi_source.ref,
+            build_dir = windows ? opts.windows.build_dir : opts.build_dir, commands = [],
+            requested = opts.runtime_recipe ? { jit = opts.runtime_jit, kernels = true, backend = "LLVM" } : null,
+            verified_binary = null }
         if (opts.runtime_recipe) {
-            print("  runtime: SQGI " + opts.sqgi_source.ref + " (CMake recipe)\n")
             local source = opts.sqgi_source.dir != "" ? opts.sqgi_source.dir : this.sqgi_source_checkout_dir(opts)
-            foreach (argv in this.recipe_commands(opts, this.runtime_project(opts), source))
-                print("    " + sqgi.json.stringify(argv) + "\n")
-        } else print("  runtime: existing build or installed runtime\n")
-        local projects = this.starts_with(opts.target, "win-") ? opts.windows.native_projects : opts.native_projects
-        foreach (project in projects) {
-            print("  native: " + project.name + " (" + (project.build_system == "" ? "custom" : project.build_system) + ")\n")
-            if (project.build_system != "") foreach (argv in this.recipe_commands(opts, project, project.dir))
-                print("    " + sqgi.json.stringify(argv) + "\n")
-            foreach (command in project.build) print("    " + sqgi.json.stringify(command) + "\n")
+            runtime.commands = this.recipe_commands(opts, this.runtime_project(opts), source)
         }
-        if (!this.starts_with(opts.target, "win-")) print("  Linux package suite: " + opts.linux.deb.suite + "\n")
-        print("  runtime packages: " + sqgi.json.stringify(this.starts_with(opts.target, "win-") ? opts.windows.packages : opts.linux.deb.packages) + "\n")
+        local native = []
+        foreach (project in (windows ? opts.windows.native_projects : opts.native_projects)) {
+            local commands = project.build_system == "" ? [] : this.recipe_commands(opts, project, project.dir)
+            foreach (command in project.build) commands.push(command)
+            native.push({ name = project.name, build_system = project.build_system,
+                dir = project.dir, commands = commands })
+        }
+        return { target = opts.target, architecture = windows ? "x86_64" : opts.appimage_arch,
+            name = opts.name, entry = opts.entry_type == "sqgi" ? opts.script : (windows ? opts.entry_windows : opts.entry_linux),
+            output = this.abs_path(opts.output_dir), runtime = runtime, native = native,
+            packages = windows ? opts.windows.packages : opts.linux.deb.packages,
+            linux_suite = opts.linux.deb.suite, files = opts.files, scripts = opts.scripts,
+            script_dirs = opts.script_dirs, resources = opts.resources, features = opts.features,
+            discovery = opts.report, generated_outputs = "Native outputs are resolved after their build recipes run" }
     }
+
+    function explain_one(opts) {
+        local plan = this.resolved_plan(opts)
+        print("sqgipkg plan (no fetch/build)\n")
+        print("  app: " + plan.name + "\n  target: " + plan.target + "\n  output: " + plan.output + "\n")
+        if (plan.runtime.recipe) {
+            print("  runtime: SQGI " + plan.runtime.revision + " (CMake recipe)\n")
+            foreach (argv in plan.runtime.commands) print("    " + sqgi.json.stringify(argv) + "\n")
+        } else print("  runtime: existing build or installed runtime\n")
+        foreach (project in plan.native) {
+            print("  native: " + project.name + " (" + (project.build_system == "" ? "custom" : project.build_system) + ")\n")
+            foreach (command in project.commands) print("    " + sqgi.json.stringify(command) + "\n")
+        }
+        if (!this.starts_with(plan.target, "win-")) print("  Linux package suite: " + plan.linux_suite + "\n")
+        print("  runtime packages: " + sqgi.json.stringify(plan.packages) + "\n")
+    }
+
 }
 return { SqgiPkgRecipes = SqgiPkgRecipes }

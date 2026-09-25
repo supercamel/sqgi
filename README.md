@@ -348,6 +348,16 @@ See [docs/sqgicheck.md](docs/sqgicheck.md) for the complete guide.
 
 ## Packaging: from source tree to distributable app
 
+To create or edit the manifest with guided forms, launch **SQGI Manifest Studio**:
+
+```bash
+tools/sqgipkg-gui                 # source checkout; uses build/sqgi
+sqgipkg-gui path/to/sqgipkg.json   # after installation
+```
+
+The GTK 4 editor saves ordinary manifests and calls `sqgipkg` for Check/Explain.
+Run `sqgipkg` to produce packages. See the [editor guide and requirements](tools/sqgipkg_gui/README.md).
+
 `sqgipkg` is part of SQGI rather than an unrelated deployment system bolted on
 later.
 

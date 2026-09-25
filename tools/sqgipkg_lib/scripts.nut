@@ -289,14 +289,17 @@ class SqgiPkgScripts extends Base.SqgiPkgManifest {
 
     function scan_script_imports(opts, src_abs) {
         if (!this.ends_with(src_abs, ".nut")) return
-        if (this.file_contains(src_abs, "import(\"Gtk") || this.file_contains(src_abs, "import('Gtk"))
-            opts.report.used_gtk = true
-        if (this.file_contains(src_abs, "import(\"Gst") || this.file_contains(src_abs, "import('Gst"))
-            opts.report.used_gst = true
-        if (this.file_contains(src_abs, "import(\"GdkPixbuf") || this.file_contains(src_abs, "import('GdkPixbuf"))
-            opts.report.used_gdk_pixbuf = true
-        if (this.file_contains(src_abs, "import(\"Soup") || this.file_contains(src_abs, "import('Soup"))
-            opts.report.used_soup = true
+        if (!("import_evidence" in opts.report)) opts.report.import_evidence <- []
+        foreach (feature in [["Gtk", "used_gtk"], ["Gst", "used_gst"], ["GdkPixbuf", "used_gdk_pixbuf"], ["Soup", "used_soup"]]) {
+            if (this.file_contains(src_abs, "import(\"" + feature[0]) || this.file_contains(src_abs, "import('" + feature[0])) {
+                opts.report[feature[1]] = true
+                local evidence = { file = src_abs, namespace = feature[0], method = "literal import scan" }
+                local duplicate = false
+                foreach (existing in opts.report.import_evidence)
+                    if (existing.file == src_abs && existing.namespace == feature[0]) duplicate = true
+                if (!duplicate) opts.report.import_evidence.push(evidence)
+            }
+        }
     }
 
     function scan_script_import_tree(opts, src, visited, source_root = null) {

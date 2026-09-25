@@ -28,6 +28,7 @@ if (args.len() > 0) {
     local command = args[0]
     if (command == "build") args.remove(0)
     else if (command == "check") args[0] = "--doctor"
+    else if (command == "describe") args[0] = "--describe"
     else if (command == "explain") args[0] = "--explain"
     else if (command == "clean") args[0] = "--clean"
     else if (command == "init") {
@@ -36,6 +37,7 @@ if (args.len() > 0) {
     }
 }
 local normalized = []
+try {
 for (local i = 0; i < args.len(); i++) {
     if (args[i] == "--") {
         for (; i < args.len(); i++) normalized.push(args[i])
@@ -54,6 +56,12 @@ for (local i = 0; i < args.len(); i++) {
     } else if (args[i] == "--arch") normalized.push("--appimage-arch")
     else if (args[i].find("--arch=") == 0) normalized.push("--appimage-arch=" + args[i].slice(7))
     else normalized.push(args[i])
+}
+} catch (e) {
+    if (args.find("--json") == null) throw e
+    print(sqgi.json.stringify({ protocol_version = 1, ok = false, configurations = [],
+        diagnostics = [{ severity = "error", code = "arguments", path = [], message = e.tostring() }] }) + "\n")
+    return 1
 }
 local pkg = Main.SqgiPkg(normalized)
 return pkg.run(normalized)

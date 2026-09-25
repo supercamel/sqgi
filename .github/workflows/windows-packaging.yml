@@ -59,6 +59,14 @@ jobs:
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           python tools/sqgipkg_tests/test_kernel_packaging.py build/sqgi.exe
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: Manifest authoring contracts
+        run: |
+          python tools/sqgipkg_gui/tests/test_contracts.py build/sqgi.exe
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python tools/sqgipkg_gui/tests/test_delivery.py build/sqgi.exe
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $gui = Start-Process 'C:/sqgipkg test/bin/sqgipkg-gui.exe' -ArgumentList '--help' -Wait -PassThru
+          if ($gui.ExitCode) { exit $gui.ExitCode }
       - name: Package and run from PowerShell and CMD
         run: |
           python tools/sqgipkg_tests/test_windows_native.py 'C:/sqgipkg test/bin/sqgipkg.exe' $env:SQGI_TEST_MSYS_ROOT ucrt64

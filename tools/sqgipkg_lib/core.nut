@@ -4,13 +4,67 @@ local Gio = import("Gio")
 local Host = import("provenance.nut")
 
 class SqgiPkgCore extends Host.SqgiPkgProvenance {
+    // C-PKG-01: structured diagnostics are produced before text rendering.
+    machine_output = false
+    diagnostics = null
+    diagnostic_target = null
+    authored_manifest = null
+    authored_base_dir = null
+    current_error_path = null
+
+    function source_path(filename, data = null, path = null) {
+        if (path == null) { path = []; data = authored_manifest }
+        if (data == null || authored_base_dir == null) return []
+        if (typeof(data) == "string") {
+            local field = null
+            for (local i = path.len() - 1; i >= 0; i--) if (typeof(path[i]) == "string") { field = path[i]; break }
+            local input_fields = ["entry", "script", "path", "src", "from", "dir", "files", "scripts", "script_dirs",
+                "includes", "resources", "libraries", "typelibs", "gstreamer_plugins", "gsettings_schemas", "gtk_data",
+                "gio_modules", "gdk_pixbuf_loaders", "desktop_icon", "icon", "license", "header_image", "welcome_image"]
+            if (input_fields.find(field) == null) return []
+            local source = this.split_once(data, "=")[0]
+            if (source != "" && GLib.canonicalize_filename(source, authored_base_dir) == filename) return path
+        } else if (typeof(data) == "table" || typeof(data) == "array") {
+            foreach (key, value in data) {
+                local child = clone path; child.push(key)
+                local found = this.source_path(filename, value, child)
+                if (found.len()) return found
+            }
+        }
+        return []
+    }
+
+    function schema_json_path(label) {
+        local parts = [], token = ""
+        for (local i = 0; i <= label.len(); i++) {
+            local c = i == label.len() ? '.' : label[i]
+            if (c == '.' || c == '[' || c == ']') {
+                if (token != "" && token != "manifest") {
+                    local numeric = token[0] >= '0' && token[0] <= '9'
+                    parts.push(numeric ? token.tointeger() : token)
+                }
+                token = ""
+            } else token += format("%c", c)
+        }
+        return parts
+    }
+
+    function diagnostic(severity, message, path = null, code = "packaging", file = null) {
+        local item = { severity = severity, code = code, path = path == null ? [] : path,
+            message = message }
+        if (file != null) item.file <- file
+        if (diagnostic_target != null) item.target <- diagnostic_target
+        if (diagnostics != null) diagnostics.push(item)
+        if (!machine_output) print((severity == "error" ? "ERROR: " : severity == "warning" ? "WARN: " : "OK: ") + message + "\n")
+        return item
+    }
+
     function fail(message) {
         throw "sqgipkg: " + message
     }
 
     function info(message) {
-        print("sqgipkg: " + message + "\n")
-        stdout.flush()
+        if (!machine_output) { print("sqgipkg: " + message + "\n"); stdout.flush() }
     }
 
     function path_exists(path) {

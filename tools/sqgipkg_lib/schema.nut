@@ -73,7 +73,9 @@ class SqgiPkgSchema extends Base.SqgiPkgOptions {
         }
     }
 
-    function validate_manifest_schema(value, kind = "manifest", path = "manifest", strict = false) {
+    function validate_manifest_schema(value, kind = "manifest", path = "manifest", strict = false, key_path = null) {
+        if (key_path == null) key_path = this.schema_json_path(path)
+        current_error_path = clone key_path
         if (typeof(value) != "table") this.fail(path + " must be an object")
         local fields = this.schema_fields()
         if (kind == "manifest") {
@@ -83,9 +85,11 @@ class SqgiPkgSchema extends Base.SqgiPkgOptions {
         }
         foreach (key, item in value) {
             local label = path + "." + key
+            local field_path = clone key_path; field_path.push(key)
+            current_error_path = field_path
             if (!this.array_contains(fields[kind], key)) {
                 if (strict) this.fail("unknown field: " + label)
-                print("WARN: unknown field: " + label + " (ignored)\n")
+                this.diagnostic("warning", "unknown field: " + label + " (ignored)", current_error_path, "unknown_field")
                 continue
             }
             if (item == null) continue
@@ -135,10 +139,12 @@ class SqgiPkgSchema extends Base.SqgiPkgOptions {
                     local entries = typeof(item) == "array" ? item : [item]
                     foreach (i, entry in entries) {
                         if ((child == "arches" || child == "files" || child == "fonts") && typeof(entry) == "string") continue
-                        this.validate_manifest_schema(entry, child, label + "[" + i + "]", strict)
+                        local child_path = clone field_path; child_path.push(i)
+                        this.validate_manifest_schema(entry, child, label + "[" + i + "]", strict, child_path)
                     }
-                } else this.validate_manifest_schema(item, child, label, strict)
+                } else this.validate_manifest_schema(item, child, label, strict, field_path)
             }
+            current_error_path = field_path
             if (this.array_contains(["compile_scripts", "keep_appdir", "desktop_terminal", "download", "update",
                     "shallow", "submodules", "stage", "console", "auto_packages", "download_packages",
                     "refresh_packages", "copy_dependencies", "inherit_native_projects", "jit"], key) && typeof(item) != "bool")
@@ -147,6 +153,7 @@ class SqgiPkgSchema extends Base.SqgiPkgOptions {
                     "ref", "branch", "suite", "msys2_prefix", "build_system", "baseline", "format"], key) && typeof(item) != "string")
                 this.fail(label + " must be a string")
         }
+        current_error_path = null
     }
 }
 return { SqgiPkgSchema = SqgiPkgSchema }

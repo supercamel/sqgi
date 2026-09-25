@@ -1,7 +1,7 @@
 local GLib = import("GLib")
-local Base = import("build.nut")
+local Base = import("protocol.nut")
 
-class SqgiPkg extends Base.SqgiPkgBuild {
+class SqgiPkg extends Base.SqgiPkgProtocol {
     option_entries = null
     long_options = null
     short_options = null
@@ -11,6 +11,9 @@ class SqgiPkg extends Base.SqgiPkgBuild {
         this.long_options = {}
         this.short_options = {}
 
+        this.add_option("json", 0, GLib.OptionArg.none, "Versioned JSON inspection output", null)
+        this.add_option("describe", 0, GLib.OptionArg.none, "Describe packaging capabilities and editor schema", null)
+        this.add_option("base-dir", 0, GLib.OptionArg.string, "Project directory for stdin inspection", "DIR")
         this.add_option("name", 'n', GLib.OptionArg.string,
             "Application name shown to users", "NAME")
         this.add_option("manifest", 'm', GLib.OptionArg.string,
@@ -205,7 +208,10 @@ class SqgiPkg extends Base.SqgiPkgBuild {
     }
 
     function execute_options(args, option_dict) {
+        if (this.option_present(option_dict, "json") || this.option_present(option_dict, "describe"))
+            return this.execute_json(args, option_dict)
         try {
+            if (this.option_value(option_dict, "manifest") == "-") this.fail("stdin manifests require --json check or explain")
             local opts = this.parse_args(args, option_dict)
 
             if (opts.init_template != "") {
@@ -327,7 +333,11 @@ class SqgiPkg extends Base.SqgiPkgBuild {
             if (parsed == null) return 0
             return this.execute_options(parsed.positional, parsed.options)
         } catch (e) {
-            print(e + "\n")
+            if (args.find("--json") != null) {
+                machine_output = true; diagnostics = []
+                this.diagnostic("error", e.tostring(), [], "arguments")
+                print(sqgi.json.stringify({ protocol_version = 1, ok = false, diagnostics = diagnostics, configurations = [] }) + "\n")
+            } else print(e + "\n")
             return 1
         }
     }

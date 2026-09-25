@@ -5,10 +5,10 @@ local Base = import("templates.nut")
 class SqgiPkgDoctor extends Base.SqgiPkgTemplates {
     function doctor_path(errors, label, path) {
         if (this.path_exists(path)) {
-            print("OK: " + label + ": " + path + "\n")
+            this.diagnostic("info", label + ": " + path, this.source_path(path), "path_exists", path)
             return errors
         }
-        print("ERROR: missing " + label + ": " + path + "\n")
+        this.diagnostic("error", "missing " + label + ": " + path, this.source_path(path), "missing_path", path)
         return errors + 1
     }
 
@@ -17,7 +17,7 @@ class SqgiPkgDoctor extends Base.SqgiPkgTemplates {
             this.relative_dest(dest)
             return errors
         } catch (e) {
-            print("ERROR: invalid " + label + " destination: " + dest + "\n")
+            this.diagnostic("error", "invalid " + label + " destination: " + dest, null, "invalid_destination")
             return errors + 1
         }
     }
@@ -34,7 +34,7 @@ class SqgiPkgDoctor extends Base.SqgiPkgTemplates {
                 if (outputs_may_be_missing && missing_output) {
                     warnings.push(label + " rule outputs not found yet: " + spec.from)
                 } else {
-                    print("ERROR: " + message + "\n")
+                    this.diagnostic("error", message, null, "file_rule")
                     errors++
                 }
             }
@@ -43,14 +43,14 @@ class SqgiPkgDoctor extends Base.SqgiPkgTemplates {
 
         local parts = this.split_once(spec, "=")
         if (outputs_may_be_missing) {
-            if (this.path_exists(parts[0])) print("OK: " + label + " output: " + parts[0] + "\n")
+            if (this.path_exists(parts[0])) this.diagnostic("info", label + " output: " + parts[0], this.source_path(parts[0]), "generated_output", parts[0])
             else warnings.push(label + " output not found yet: " + parts[0])
         } else {
             errors = this.doctor_path(errors, label, parts[0])
         }
 
         if (parts[1] == null) {
-            print("ERROR: " + label + " entry requires PATH=DEST\n")
+            this.diagnostic("error", label + " entry requires PATH=DEST", null, "file_destination")
             errors++
         } else {
             errors = this.doctor_dest(errors, label, parts[1])
@@ -67,12 +67,12 @@ class SqgiPkgDoctor extends Base.SqgiPkgTemplates {
         try {
             local closure = loadfile(src_abs, true)
             if (closure == null) {
-                print("ERROR: failed to compile " + label + ": " + src_abs + "\n")
+                this.diagnostic("error", "failed to compile " + label + ": " + src_abs, this.source_path(src_abs), "script_syntax", src_abs)
                 return errors + 1
             }
-            print("OK: compiles " + label + "\n")
+            this.diagnostic("info", "compiles " + label, this.source_path(src_abs), "script_syntax", src_abs)
         } catch (e) {
-            print("ERROR: failed to compile " + label + ": " + e + "\n")
+            this.diagnostic("error", "failed to compile " + label + ": " + e, this.source_path(src_abs), "script_syntax", src_abs)
             return errors + 1
         }
 
@@ -96,7 +96,7 @@ class SqgiPkgDoctor extends Base.SqgiPkgTemplates {
         foreach (config in opts.linux.arches) {
             local arch = this.normalize_appimage_arch(this.table_get(config, "arch", opts.appimage_arch))
             if (this.table_get(seen_arches, arch, false)) {
-                print("ERROR: duplicate linux.arches target: " + arch + "\n")
+                this.diagnostic("error", "duplicate linux.arches target: " + arch, ["linux", "arches"], "duplicate_architecture")
                 errors++
             }
             seen_arches[arch] <- true
@@ -136,16 +136,16 @@ class SqgiPkgDoctor extends Base.SqgiPkgTemplates {
         local windows_target = this.starts_with(opts.target, "win-")
         local script_abs = opts.script == "" ? "" : this.abs_path(opts.script)
 
-        print("sqgipkg doctor\n")
+        if (!machine_output) print("sqgipkg doctor\n")
         if (opts.entry_type == "sqgi") {
             errors = this.doctor_script(errors, opts, "entry script", script_abs)
         } else {
             if (opts.entry_linux != "") {
-                if (this.path_exists(opts.entry_linux)) print("OK: native Linux entry: " + opts.entry_linux + "\n")
+                if (this.path_exists(opts.entry_linux)) this.diagnostic("info", "native Linux entry: " + opts.entry_linux, this.source_path(opts.entry_linux), "entry_exists", opts.entry_linux)
                 else warnings.push("native Linux entry output not found yet: " + opts.entry_linux)
             }
             if (opts.entry_windows != "") {
-                if (this.path_exists(opts.entry_windows)) print("OK: native Windows entry: " + opts.entry_windows + "\n")
+                if (this.path_exists(opts.entry_windows)) this.diagnostic("info", "native Windows entry: " + opts.entry_windows, this.source_path(opts.entry_windows), "entry_exists", opts.entry_windows)
                 else warnings.push("native Windows entry output not found yet: " + opts.entry_windows)
             }
         }
@@ -212,7 +212,7 @@ class SqgiPkgDoctor extends Base.SqgiPkgTemplates {
             local registry_name = this.table_get(font, "registry_name", "")
             errors = this.doctor_path(errors, "Windows font", path)
             if (registry_name == "") {
-                print("ERROR: Windows font requires registry_name: " + path + "\n")
+                this.diagnostic("error", "Windows font requires registry_name: " + path, this.source_path(path), "font_registry")
                 errors = errors + 1
             }
         }
@@ -249,18 +249,18 @@ class SqgiPkgDoctor extends Base.SqgiPkgTemplates {
                 this.executable_path("sqgi.exe") == null && opts.windows.build.len() == 0)
             warnings.push("Windows runtime not found; configure runtime.sqgi or windows.build_dir")
         if (opts.target == "win-nsis" && !opts.nsis_script_only && this.executable_path(opts.windows.nsis) == null) {
-            print("ERROR: Windows installer requires makensis (NSIS)\n")
+            this.diagnostic("error", "Windows installer requires makensis (NSIS)", ["windows", "nsis"], "missing_tool")
             errors++
         }
         foreach (warning in warnings)
-            print("WARN: " + warning + "\n")
+            this.diagnostic("warning", warning, null, "preflight")
 
         if (errors == 0) {
-            print("Doctor: OK with " + warnings.len() + " warning(s)\n")
+            if (!machine_output) print("Doctor: OK with " + warnings.len() + " warning(s)\n")
             return 0
         }
 
-        print("Doctor: FAILED with " + errors + " error(s) and " + warnings.len() + " warning(s)\n")
+        if (!machine_output) print("Doctor: FAILED with " + errors + " error(s) and " + warnings.len() + " warning(s)\n")
         return 1
     }
 
