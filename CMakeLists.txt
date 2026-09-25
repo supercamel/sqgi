@@ -1061,6 +1061,7 @@ if(SQGI_ENABLE_KERNELS AND SQGI_KERNEL_BACKEND STREQUAL "LLVM" AND NOT SQ_ENABLE
 endif()
 add_sqgi_c_test(sqgi_test_cpp_sqnativeleaf test/cpp/test_sqnativeleaf.cpp)
 set_tests_properties(sqgi_test_cpp_sqnativeleaf PROPERTIES LABELS "kernel;runtime")
+add_sqgi_c_test(sqgi_test_c_import_cache test/c/test_import_cache.c)
 add_sqgi_c_test(sqgi_test_c_vm_lifecycle test/c/test_vm_lifecycle.c recreate)
 add_test(NAME sqgi_test_c_vm_lifecycle_pending COMMAND sqgi_test_c_vm_lifecycle pending)
 set_tests_properties(sqgi_test_c_vm_lifecycle_pending PROPERTIES

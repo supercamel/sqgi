@@ -36,6 +36,27 @@ print(system.os.name + " on " + system.cpu.arch + "\n")
 print(system.env.get("HOME") + "\n")
 ```
 
+### Squirrel file modules
+
+`import("lib/helpers.nut")` executes a Squirrel file once per VM and returns
+its exported value. Later imports of the same canonical file return that exact
+value, including `null`. Mutable exports and class identities are shared by
+callers and by coroutines in the same VM. Independent VMs have separate caches;
+closing a VM releases its cache.
+
+Path lookup still tries the working directory, the currently executing import's
+directory, then `SQGI_APP_SHARE`. Absolute paths, dot components, and filesystem
+aliases such as symlinks identify the same cached module. Execution retains the
+first resolved path for source metadata and relative imports. Files with the
+same basename in different directories remain separate modules.
+
+An import cycle raises `import: circular module import: <path>`. Failed loads
+are removed from the cache and can be retried; dependencies that loaded
+successfully remain cached. Editing a successfully loaded file does not reload
+it in that VM. Use the existing `dofile(explicitPath)` when you intentionally
+want to execute a file again; it does not replace its cached import export.
+This changes the previous behavior in which every `.nut` import executed again.
+
 ## 7.3 Calling functions
 
 Module-level functions live directly on the namespace table:
