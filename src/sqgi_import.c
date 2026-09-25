@@ -8,6 +8,16 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <glib/gstdio.h>
+#ifdef G_OS_WIN32
+#include <windows.h>
+#endif
+
+/* The registry belongs to the VM shared state (including its coroutines).
+ * A null entry marks a load in progress; a native closure holds a successful
+ * export in its free variable. Unlike table/array slots, closure captures keep
+ * weakref exports intact instead of dereferencing them on retrieval. GC can
+ * trace the captures and VM teardown releases them. */
+#define SQGI_MODULE_CACHE "sqgi_module_cache"
 
 /* ── import() native function ────────────────────────────────────────────── */
 
@@ -17,7 +27,7 @@
  *   import(name)
  *   import(name, version)
  *
- * If `name` ends in ".nut", loads and executes the file.
+ * If `name` ends in ".nut", executes it once per VM and caches its export.
  * Otherwise treats `name` as a GI namespace name (and `version` as optional
  * version string) and loads it via GObject-Introspection.
  *
@@ -168,6 +178,114 @@ static char *sqgi_resolve_nut_import_path(HSQUIRRELVM v, const char *name)
     return sqgi_strdup(name);
 }
 
+static char *sqgi_module_key(const char *path)
+{
+    /* Resolve filesystem aliases, including symlinks, before caching. Keep
+     * the original resolved path for execution and relative imports. */
+#ifdef G_OS_WIN32
+    gunichar2 *wide = g_utf8_to_utf16(path, -1, NULL, NULL, NULL);
+    HANDLE file = wide ? CreateFileW((LPCWSTR)wide, 0,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL,
+        OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, NULL) : INVALID_HANDLE_VALUE;
+    g_free(wide);
+    if (file != INVALID_HANDLE_VALUE) {
+        DWORD count = GetFinalPathNameByHandleW(file, NULL, 0, FILE_NAME_NORMALIZED);
+        char *key = NULL;
+        if (count) {
+            WCHAR *buffer = g_new(WCHAR, (gsize)count + 1);
+            DWORD written = GetFinalPathNameByHandleW(file, buffer, count + 1,
+                                                     FILE_NAME_NORMALIZED);
+            if (written && written <= count)
+                key = g_utf16_to_utf8((const gunichar2 *)buffer, -1, NULL, NULL, NULL);
+            g_free(buffer);
+        }
+        CloseHandle(file);
+        if (key) return key;
+    }
+#else
+    char *physical = realpath(path, NULL);
+    if (physical) {
+        char *key = g_strdup(physical);
+        free(physical);
+        return key;
+    }
+#endif
+    /* Missing/unreadable files still go through the normal loader error path. */
+    return g_canonicalize_filename(path, NULL);
+}
+
+/* Native closure free variables are appended to the call stack. */
+static SQInteger sqgi_module_export(HSQUIRRELVM v)
+{
+    sq_push(v, -1);
+    return 1;
+}
+
+static SQInteger sqgi_import_nut(HSQUIRRELVM v, const char *name)
+{
+    SQInteger top = sq_gettop(v);
+    char *resolved = sqgi_resolve_nut_import_path(v, name);
+    if (!resolved) return sq_throwerror(v, "import: out of memory");
+    char *key = sqgi_module_key(resolved);
+
+    sq_pushregistrytable(v);
+    sq_pushstring(v, SQGI_MODULE_CACHE, -1);
+    sq_rawget(v, -2);
+    sq_remove(v, -2);
+    SQInteger cache = sq_gettop(v);
+
+    sq_pushstring(v, key, -1);
+    if (SQ_SUCCEEDED(sq_rawget(v, cache))) {
+        if (sq_gettype(v, -1) == OT_NULL) {
+            char *message = g_strdup_printf("import: circular module import: %s", key);
+            sq_settop(v, top);
+            SQInteger result = sq_throwerror(v, message);
+            g_free(message);
+            g_free(key);
+            free(resolved);
+            return result;
+        }
+        sq_getfreevariable(v, -1, 0);
+        sq_remove(v, -2); /* entry */
+        sq_remove(v, -2); /* cache */
+        g_free(key);
+        free(resolved);
+        return 1;
+    }
+
+    if (!sqgi_import_push_file(v, resolved)) {
+        sq_settop(v, top);
+        g_free(key);
+        free(resolved);
+        return sq_throwerror(v, "import: out of memory");
+    }
+    sq_pushstring(v, key, -1);
+    sq_pushnull(v);
+    sq_rawset(v, cache);
+
+    sq_pushroottable(v);
+    SQRESULT result = sqstd_dofile(v, resolved, SQTrue, SQTrue);
+    sqgi_import_pop_file(v);
+    free(resolved);
+    if (SQ_FAILED(result)) {
+        /* Roll back the loading marker without replacing the loader's error. */
+        sq_settop(v, cache);
+        sq_pushstring(v, key, -1);
+        sq_rawdeleteslot(v, cache, SQFalse);
+        sq_settop(v, top);
+        g_free(key);
+        return result;
+    }
+    sq_pushstring(v, key, -1);
+    sq_push(v, -2); /* export */
+    sq_newclosure(v, sqgi_module_export, 1);
+    sq_rawset(v, cache);
+    sq_remove(v, -2); /* root environment */
+    sq_remove(v, cache);
+    g_free(key);
+    return 1;
+}
+
 static SQInteger sqgi_import(HSQUIRRELVM v)
 {
     SQInteger nargs = sq_gettop(v); /* includes 'this' at index 1 */
@@ -187,20 +305,7 @@ static SQInteger sqgi_import(HSQUIRRELVM v)
     /* Check if it's a .nut file */
     size_t len = strlen(name);
     if (len >= 4 && strcmp(name + len - 4, ".nut") == 0) {
-        char *resolved = sqgi_resolve_nut_import_path(v, name);
-        if (!resolved) return sq_throwerror(v, "import: out of memory");
-
-        if (!sqgi_import_push_file(v, resolved)) {
-            free(resolved);
-            return sq_throwerror(v, "import: out of memory");
-        }
-
-        sq_pushroottable(v);
-        SQRESULT res = sqstd_dofile(v, resolved, SQTrue, SQTrue);
-        sqgi_import_pop_file(v);
-        free(resolved);
-        if (SQ_FAILED(res)) return res;
-        return 1; /* return value of the script */
+        return sqgi_import_nut(v, name);
     }
 
     /* GI namespace */
@@ -218,6 +323,12 @@ static SQInteger sqgi_import(HSQUIRRELVM v)
 
 void sqgi_import_register(HSQUIRRELVM v)
 {
+    sq_pushregistrytable(v);
+    sq_pushstring(v, SQGI_MODULE_CACHE, -1);
+    sq_newtable(v);
+    sq_rawset(v, -3);
+    sq_pop(v, 1);
+
     sq_pushroottable(v);
     sq_pushstring(v, "import", -1);
     sq_newclosure(v, sqgi_import, 0);
