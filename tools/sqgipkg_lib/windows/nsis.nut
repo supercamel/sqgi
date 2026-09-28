@@ -153,8 +153,12 @@ class SqgiPkgWindowsNsis extends Base.SqgiPkgWindowsStaging {
         local welcome_image_abs = this.nsis_compile_asset_path(opts.windows.nsis_welcome_image, "NSIS welcome image")
         local has_license = license_abs != ""
 
-        local text = "Target amd64-unicode\nUnicode true\n" +
-            "!include MUI2.nsh\n" +
+        // Stable Windows NSIS distributions may contain only x86 stubs. A
+        // 32-bit installer can deploy our x86_64 payload on 64-bit Windows.
+        // Prefer a native bootstrap where available, but do not require one.
+        local text = "!if /FileExists \"${NSISDIR}/Stubs/zlib-amd64-unicode\"\n" +
+            "Target amd64-unicode\n!else\nTarget x86-unicode\n!endif\nUnicode true\n" +
+            "!include MUI2.nsh\n!include x64.nsh\n" +
             "Name \"" + this.nsis_escape(opts.name) + "\"\n" +
             "OutFile \"" + this.nsis_escape(installer) + "\"\n" +
             "InstallDir \"" + this.nsis_escape_keep_vars(install_dir) + "\"\n" +
@@ -180,6 +184,16 @@ class SqgiPkgWindowsNsis extends Base.SqgiPkgWindowsStaging {
             "!insertmacro MUI_UNPAGE_CONFIRM\n" +
             "!insertmacro MUI_UNPAGE_INSTFILES\n" +
             "!insertmacro MUI_LANGUAGE \"English\"\n\n"
+
+        foreach (init in [".onInit", "un.onInit"]) {
+            text += "Function " + init + "\n" +
+                "  ${IfNot} ${RunningX64}\n" +
+                "    MessageBox MB_OK|MB_ICONSTOP \"This application requires 64-bit Windows.\"\n" +
+                "    Abort\n" +
+                "  ${EndIf}\n" +
+                "  SetRegView 64\n" +
+                "FunctionEnd\n\n"
+        }
 
         text += "Section \"Install\"\n" +
             "  SetOutPath \"$INSTDIR\"\n" +

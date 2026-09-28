@@ -40,7 +40,7 @@ class Ergonomics(unittest.TestCase):
     def manifest(self, data):
         (self.root / 'sqgipkg.json').write_text(json.dumps(data), encoding='utf8')
 
-    @unittest.skipUnless(shutil.which('cc') and shutil.which('readelf'), 'ELF compiler required')
+    @unittest.skipUnless(sys.platform.startswith('linux') and shutil.which('cc') and shutil.which('readelf'), 'Linux ELF compiler required')
     def test_native_sysroot_indirect_library_link(self):
         module = json.dumps((ROOT / 'tools/sqgipkg_lib/build.nut').as_posix())
         triplet = subprocess.check_output(['cc', '-dumpmachine'], text=True).strip()
@@ -104,7 +104,7 @@ print(p.linux_native_sysroot_ldflags(opts))
         self.manifest(value)
         plan = json.loads(self.run_pkg('explain', '--json'))['configurations'][-1]
         configure = plan['runtime']['commands'][0]
-        self.assertTrue(any('_ooblerg-x86_64/mingw64/lib/LLVM-C.lib' in a for a in configure))
+        self.assertTrue(any('_ooblerg-x86_64/mingw64/lib/LLVM-C.lib' in a.replace('\\', '/') for a in configure))
         self.assertIn('llvm18', plan['packages'])
         value['windows']['package_source'] = 'msys2'
         self.manifest(value)
@@ -166,7 +166,7 @@ if (p.linux_package_dest_for_staging(opts, "/usr/lib/aarch64-linux-gnu/libserial
         self.assertEqual(json.loads(self.run_pkg('explain', '--json'))['configurations'][0]['linux_suite'], 'jammy')
 
     @unittest.skipUnless(shutil.which('makensis'), 'NSIS required')
-    def test_nsis_bootstrap_matches_x86_64_payload(self):
+    def test_nsis_bootstrap_supports_x86_64_payload(self):
         module = json.dumps((ROOT / 'tools/sqgipkg_lib/build.nut').as_posix())
         self.run_script(f'''
 local Core = import({module})
@@ -176,11 +176,26 @@ p.mkdir_p("dist/Installer Probe")
 p.write_file("dist/Installer Probe/Installer Probe.bat", "@echo off\\r\\n")
 p.write_nsis_script(opts, "dist/Installer Probe")
 ''')
-        subprocess.run(['makensis', 'Installer Probe.nsi'], cwd=self.root / 'dist', check=True, capture_output=True)
+        compiled = subprocess.run(['makensis', 'Installer Probe.nsi'], cwd=self.root / 'dist', text=True, capture_output=True)
+        self.assertEqual(compiled.returncode, 0, compiled.stdout + compiled.stderr)
         data = (self.root / 'dist/Installer Probe-Setup.exe').read_bytes()
         offset = struct.unpack_from('<I', data, 0x3c)[0]
         self.assertEqual(data[offset:offset+4], b'PE\0\0')
-        self.assertEqual(struct.unpack_from('<H', data, offset+4)[0], 0x8664)
+        self.assertIn(struct.unpack_from('<H', data, offset+4)[0], (0x8664, 0x14c))
+        script = (self.root / 'dist/Installer Probe.nsi').read_text()
+        self.assertIn('${IfNot} ${RunningX64}', script)
+        self.assertIn('SetRegView 64', script)
+        # Exercise the stock-Windows-NSIS fallback even on Linux installations
+        # which also ship amd64 stubs. Verify the generated PE, not just text.
+        fallback = script.replace('!if /FileExists "${NSISDIR}/Stubs/zlib-amd64-unicode"', '!if 0', 1)
+        self.assertNotEqual(fallback, script)
+        (self.root / 'dist/Installer Probe.nsi').write_text(fallback)
+        compiled = subprocess.run(['makensis', 'Installer Probe.nsi'], cwd=self.root / 'dist', text=True, capture_output=True)
+        self.assertEqual(compiled.returncode, 0, compiled.stdout + compiled.stderr)
+        data = (self.root / 'dist/Installer Probe-Setup.exe').read_bytes()
+        offset = struct.unpack_from('<I', data, 0x3c)[0]
+        self.assertEqual(struct.unpack_from('<H', data, offset+4)[0], 0x14c)
+
 
     def test_windows_package_runtime_dll_selection(self):
         module = json.dumps((ROOT / 'tools/sqgipkg_lib/build.nut').as_posix())
@@ -419,7 +434,12 @@ b.finish_inputs(opts, "artifact")
         self.assertFalse(any(self.root.glob('dist*')))
 
     def test_local_runtime_source_without_revision(self):
-        relative_source = os.path.relpath(ROOT, self.root)
+        # Keep the source fixture on the same volume as the manifest. Windows
+        # CI checks out on D: while TemporaryDirectory commonly lives on C:.
+        source = self.root / 'local runtime source'
+        source.mkdir()
+        shutil.copyfile(ROOT / 'CMakeLists.txt', source / 'CMakeLists.txt')
+        relative_source = os.path.relpath(source, self.root)
         self.manifest({'schema_version': 2, 'runtime': {'source': relative_source},
                        'target': 'win-dir' if os.name == 'nt' else 'appimage'})
         plan = json.loads(self.run_pkg('explain', '--json'))
@@ -427,7 +447,7 @@ b.finish_inputs(opts, "artifact")
         runtime = plan['configurations'][0]['runtime']
         self.assertTrue(runtime['recipe'])
         configure = runtime['commands'][0]
-        self.assertEqual(Path(configure[configure.index('-S') + 1]).resolve(), ROOT)
+        self.assertEqual(Path(configure[configure.index('-S') + 1]).resolve(), source)
         self.assertIn('-DSQGI_ENABLE_KERNELS=ON', configure)
         self.assertIn('-DSQ_ENABLE_JIT=ON', configure)
         self.run_pkg('check')
@@ -571,7 +591,7 @@ foreach (arch in ["x86_64", "aarch64"]) {{
     def test_source_runtime_llvm_and_base_gi_dependencies(self):
         module = json.dumps((ROOT / 'tools/sqgipkg_lib/build.nut').as_posix())
         self.run_script(f'''
-local R = import({module})
+local R = import({module}), GLib = import("GLib")
 class Fixture extends R.SqgiPkgBuild {{
     function linux_deb_package_available(opts, name) {{ return true }}
 }}
@@ -587,8 +607,8 @@ foreach (arch in ["x86_64", "aarch64"]) {{
         local expected = "llvm-18-dev:" + (arch == "aarch64" ? "arm64" : "amd64")
         if (seeds.find(expected) == null) throw "target LLVM seed missing"
         local project = pkg.runtime_project(opts), options = project.options
-        if (options.SQGI_LLVM_INCLUDE_DIR != opts.linux.sysroot + "/usr/lib/llvm-18/include") throw "host LLVM headers selected"
-        if (options.SQGI_LLVM_LIBRARY != opts.linux.sysroot + "/usr/lib/" + pkg.linux_current_triplet(opts) + "/libLLVM-18.so") throw "host LLVM library selected"
+        if (options.SQGI_LLVM_INCLUDE_DIR != GLib.build_filenamev([opts.linux.sysroot, "usr", "lib", "llvm-18", "include"])) throw "host LLVM headers selected"
+        if (options.SQGI_LLVM_LIBRARY != GLib.build_filenamev([opts.linux.sysroot, "usr", "lib", pkg.linux_current_triplet(opts), "libLLVM-18.so"])) throw "host LLVM library selected"
         if (options.SQGI_ENABLE_KERNELS != "ON") throw "kernels disabled"
         local command = pkg.recipe_commands(opts, project, "source")[0]
         if (command.find("-DSQGI_LLVM_INCLUDE_DIR=" + options.SQGI_LLVM_INCLUDE_DIR) == null) throw "cache override missing"
