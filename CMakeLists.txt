@@ -883,6 +883,9 @@ set_tests_properties(sqgi_test_shebang PROPERTIES
 
 find_package(Python3 COMPONENTS Interpreter QUIET)
 if(Python3_Interpreter_FOUND)
+    add_test(NAME sqgi_test_windows_ci_guard
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/test/test_windows_ci_guard.py)
+    set_tests_properties(sqgi_test_windows_ci_guard PROPERTIES LABELS "packaging" TIMEOUT 30)
     if(SQGI_BUILD_PACKAGER_GUI)
         add_test(NAME sqgi_test_manifest_artifacts
             COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/sqgipkg_gui/tests/test_artifacts.py $<TARGET_FILE:sqgi-bin>)
@@ -938,6 +941,8 @@ if(Python3_Interpreter_FOUND)
     set_tests_properties(sqgi_test_native_sdk PROPERTIES LABELS "packaging" TIMEOUT 60)
     add_test(NAME sqgi_test_sqgipkg_ergonomics
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/sqgipkg_tests/test_ergonomics.py $<TARGET_FILE:sqgi-bin>)
+    set_tests_properties(sqgi_test_sqgipkg_ergonomics PROPERTIES
+        LABELS "packaging" TIMEOUT 180 ENVIRONMENT "${SQGI_TEST_ENV}")
     if(SQGI_ENABLE_KERNELS)
         add_test(NAME sqgi_test_kernel_packaging
             COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/sqgipkg_tests/test_kernel_packaging.py $<TARGET_FILE:sqgi-bin>)

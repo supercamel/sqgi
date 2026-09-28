@@ -21,6 +21,28 @@ tests. Native Windows CI runs supported Windows tests. Verification records
 exact commands/results and build configuration. Native Windows execution is
 never claimed from cross-compilation or mocks. Existing packaging tests remain the packaging engine acceptance suite.
 
+C-DEL-04 Windows path regressions compare existing runtime source directories
+using filesystem identity (`samefile`), with an explicit 8.3 alias case when
+the volume supports aliases and a distinct-directory negative control. Manifest
+test roots are canonicalized before comparing paths to outputs not yet built.
+The ergonomics suite carries CTest's `packaging` label and a bounded timeout.
+Native CI first builds an interpreter-only preflight for CLI/document checks;
+this does not replace the default LLVM/JIT/kernel build or its tests. Each
+post-build suite runs independently when that build succeeded, even if another
+suite failed; any failed step still fails the job. CTest logs and JUnit results
+are uploaded on failure as well as success. The same CTest selections are
+documented for local reproduction. A candidate commit must pass the native
+Windows workflow before it is merged/pushed to master.
+`tools/check_windows_ci.py` and the opt-in `.githooks/pre-push` enforce this
+locally: query the destination repository's Windows workflow, require the latest
+run for the proposed commit to be completed/successful, and fail closed on
+missing results or API errors. Feature-branch pushes remain available to run CI.
+C-DEL-03 test inventory entries reference checked-in test sources or explicitly
+manual acceptance instructions, never files under the local GUI `reports/`
+directory. Validating a manual instruction's existence does not assert that its
+acceptance was executed. The fast native preflight also runs delivery/traceability
+checks so missing source references fail before LLVM bootstrap.
+
 The [end-to-end field study](../reports/packaging-field-study-2026-09-25/plan.md)
 extends C-DEL-04 evidence for the fixtures specified by R-DEL-05. Its execution
 record has the following obligations:

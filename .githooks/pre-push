@@ -1,0 +1,7 @@
+#!/bin/sh
+root=$(git rev-parse --show-toplevel) || exit 1
+if command -v python3 >/dev/null 2>&1; then
+    exec python3 "$root/tools/check_windows_ci.py" --pre-push "$@"
+else
+    exec python "$root/tools/check_windows_ci.py" --pre-push "$@"
+fi

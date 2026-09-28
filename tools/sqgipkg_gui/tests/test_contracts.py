@@ -16,7 +16,8 @@ CLI = ROOT / 'tools/sqgipkg'
 class Contracts(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(prefix='sqgi manifest café-')
-        self.directory = Path(self.tmp.name)
+        # Windows TEMP may use RUNNER~1 while GLib returns the long spelling.
+        self.directory = Path(self.tmp.name).resolve()
         (self.directory / 'main.nut').write_text('local Gtk = import("Gtk", "4.0")\n', encoding='utf8')
         self.value = {'schema_version': 2, 'name': 'Café λ', 'entry': 'main.nut', 'runtime': {'sqgi': 'v0.1.7-alpha'}, 'native': [], 'target': 'win-dir' if os.name == 'nt' else 'appimage'}
         self.manifest = self.directory / 'sqgipkg.json'
@@ -161,7 +162,7 @@ class Contracts(unittest.TestCase):
             self.assertIn('-DSQGI_ENABLE_KERNELS=ON', runtime['commands'][0])
             if 'source' in value['runtime']:
                 command = runtime['commands'][0]
-                self.assertEqual(command[command.index('-S') + 1], str(ROOT))
+                self.assertTrue(Path(command[command.index('-S') + 1]).samefile(ROOT))
             else:
                 self.assertEqual(runtime['revision'], value['runtime']['sqgi'])
 

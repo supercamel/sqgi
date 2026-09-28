@@ -11,6 +11,7 @@ jobs:
     env:
       CC: gcc
       CXX: g++
+      PYTHONUTF8: '1'
     defaults:
       run:
         shell: pwsh
@@ -37,11 +38,32 @@ jobs:
           choco install nsis --yes --no-progress
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           'C:\Program Files (x86)\NSIS' | Out-File -FilePath $env:GITHUB_PATH -Append
+      - name: Build fast packaging preflight
+        run: |
+          # Catch path/schema/fixture failures before spending ~40 minutes on
+          # LLVM. This interpreter build does not replace default-build tests.
+          cmake -S . -B build-preflight -G Ninja -DCMAKE_BUILD_TYPE=Release -DSQ_ENABLE_JIT=OFF -DSQGI_ENABLE_KERNELS=OFF
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          cmake --build build-preflight --target sqgi-bin
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: Fast CLI and manifest preflight
+        run: |
+          # Only runtime-independent cases belong here. The complete suites
+          # (including assertions about enabled JIT/kernels) run below.
+          $failed = $false
+          python tools/sqgipkg_tests/test_ergonomics.py build-preflight/sqgi.exe -v Ergonomics.test_local_runtime_source_without_revision Ergonomics.test_local_runtime_source_alias Ergonomics.test_nsis_bootstrap_supports_x86_64_payload Ergonomics.test_nsis_compiles_payload_with_spaces Ergonomics.test_ooblerg_target_resolution_and_inspection Ergonomics.test_source_runtime_llvm_and_base_gi_dependencies Ergonomics.test_unicode_script_path_import_and_argument 2>&1 | Tee-Object -FilePath build-preflight/path-tests.log
+          if ($LASTEXITCODE) { $failed = $true }
+          python tools/sqgipkg_gui/tests/test_contracts.py build-preflight/sqgi.exe -v Contracts.test_document_contracts Contracts.test_protocol_and_equivalence Contracts.test_runtime_choice Contracts.test_native_application_entry_resolution 2>&1 | Tee-Object -FilePath build-preflight/manifest-tests.log
+          if ($LASTEXITCODE) { $failed = $true }
+          python tools/sqgipkg_gui/tests/test_delivery.py build-preflight/sqgi.exe -v Delivery.test_launch_from_unrelated_directory Delivery.test_traceability 2>&1 | Tee-Object -FilePath build-preflight/delivery-tests.log
+          if ($LASTEXITCODE) { $failed = $true }
+          if ($failed) { exit 1 }
       - name: Build and install LLVM 18 for the native toolchain
         run: |
           cmake "-DLLVM_INSTALL_PREFIX=$env:SQGI_TEST_MSYS_ROOT/ucrt64" "-DLLVM_BOOTSTRAP_DIR=$env:RUNNER_TEMP/sqgi-llvm18" -P tools/build-llvm18.cmake
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
       - name: Build and install into a path containing spaces
+        id: build
         run: |
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release '-DCMAKE_INSTALL_PREFIX=C:/sqgipkg test'
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
@@ -50,6 +72,7 @@ jobs:
           cmake --install build
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
       - name: LLVM JIT and typed kernel regressions
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: |
           # Verify the defaults too: do not let a backend being disabled make
           # its tests disappear while CI remains green.
@@ -58,38 +81,51 @@ jobs:
             if ($cache -notcontains $setting) { throw "Required default build setting missing: $setting" }
           }
           # The packaging contract is exercised separately below.
-          ctest --test-dir build -L 'jit|kernel' -E kernel_packaging --output-on-failure --timeout 30 --no-tests=error --output-log build/llvm-tests.log
+          ctest --test-dir build -L 'jit|kernel' -E kernel_packaging --output-on-failure --timeout 30 --no-tests=error --output-log build/llvm-tests.log --output-junit "$env:GITHUB_WORKSPACE/build/llvm-tests.xml"
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: Repeated LLVM process lifecycle regressions
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: |
           # The COFF allocation failure was intermittent across fresh processes.
           ctest --test-dir build -R '^(sqgi_test_jit_perf_correctness_runtime|sqgi_demo_kernel_matrix_recurrence)$' --repeat until-fail:30 --output-on-failure --timeout 30 --no-tests=error --output-log build/llvm-repeat-tests.log
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
-      - name: Save LLVM test diagnostics
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: windows-llvm-test-logs
-          path: |
-            build/llvm-*.log
-            build/CMakeCache.txt
-      - name: CLI, process, file, schema and native recipe regressions
+      - name: Cairo, callback and checker regressions
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: |
-          ctest --test-dir build -R '^sqgi_test_(cairo|cairo_runtime|cairo_pixels|c_cairo|callback_async_lifetime|cpp_sqgicheck)$' --output-on-failure
+          ctest --test-dir build -R '^sqgi_test_(cairo|cairo_runtime|cairo_pixels|c_cairo|callback_async_lifetime|cpp_sqgicheck)$' --output-on-failure --no-tests=error --output-log build/runtime-tests.log --output-junit "$env:GITHUB_WORKSPACE/build/runtime-tests.xml"
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          python test/test_jit_defaults.py build/sqgi.exe
-          if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          python tools/sqgipkg_tests/test_ergonomics.py build/sqgi.exe
-          if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          python tools/sqgipkg_tests/test_kernel_packaging.py build/sqgi.exe
+      - name: CLI, process, file, schema and native recipe regressions
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: |
+          # CTest runs every selected suite even when an earlier suite fails.
+          ctest --test-dir build -R '^sqgi_test_(sqgipkg_ergonomics|kernel_packaging|windows_ci_guard)$' --output-on-failure --no-tests=error --output-log build/packaging-tests.log --output-junit "$env:GITHUB_WORKSPACE/build/packaging-tests.xml"
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
       - name: Manifest authoring contracts
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: |
-          python tools/sqgipkg_gui/tests/test_contracts.py build/sqgi.exe
+          ctest --test-dir build -R '^sqgi_test_manifest_(contracts|delivery)$' --output-on-failure --no-tests=error --output-log build/manifest-tests.log --output-junit "$env:GITHUB_WORKSPACE/build/manifest-tests.xml"
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          python tools/sqgipkg_gui/tests/test_delivery.py build/sqgi.exe
-          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: Installed GUI launcher
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: |
           $gui = Start-Process 'C:/sqgipkg test/bin/sqgipkg-gui.exe' -ArgumentList '--help' -Wait -PassThru
           if ($gui.ExitCode) { exit $gui.ExitCode }
       - name: Package and run from PowerShell and CMD
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: |
-          python tools/sqgipkg_tests/test_windows_native.py 'C:/sqgipkg test/bin/sqgipkg.exe' $env:SQGI_TEST_MSYS_ROOT ucrt64
+          python tools/sqgipkg_tests/test_windows_native.py 'C:/sqgipkg test/bin/sqgipkg.exe' $env:SQGI_TEST_MSYS_ROOT ucrt64 2>&1 | Tee-Object -FilePath build/native-packaging-tests.log
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: Save all test diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-test-logs
+          path: |
+            build/*tests.log
+            build/*tests.xml
+            build/CMakeCache.txt
+            build/Testing/Temporary/
+            build-preflight/*tests.log
+            build-preflight/*tests.xml
+            build-preflight/CMakeCache.txt
+            build-preflight/Testing/Temporary/
