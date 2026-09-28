@@ -15,6 +15,18 @@ Parent: [product requirements](README.md). Derived contract: [delivery](../contr
 Automated GUI smoke tests run on a virtual display on Linux. Native Windows
 validation is a separate acceptance obligation, not inferred from Linux tests.
 
+Windows acceptance must tolerate equivalent long and 8.3 filesystem names,
+spaces, Unicode, and source/temporary directories on different drives. Tests
+compare existing files by identity and keep rejection of genuinely wrong paths.
+Portable CLI and manifest regressions run before the expensive LLVM bootstrap;
+the normal LLVM-enabled build must still pass its complete acceptance checks.
+After a successful build, an independent suite failure must not hide other
+suites. CI retains per-suite diagnostics and reports failures without turning
+them into successful or skipped acceptance. Packaging changes are validated on
+a candidate branch with native Windows CI before promotion to master.
+A local push guard rejects master updates without a successful native Windows
+run for the exact proposed commit, including missing, pending or failed runs.
+
 ## End-to-end packaging study
 
 The [field-study plan](../reports/packaging-field-study-2026-09-25/plan.md)

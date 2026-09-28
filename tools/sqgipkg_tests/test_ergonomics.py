@@ -22,7 +22,7 @@ TOOL = ROOT / 'tools/sqgipkg'
 class Ergonomics(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(prefix='sqgipkg spaces-')
-        self.root = Path(self.tmp.name)
+        self.root = Path(self.tmp.name).resolve()
         (self.root / 'main.nut').write_text('print("hello\\n")\n', encoding='utf8')
 
     def tearDown(self):
@@ -439,18 +439,55 @@ b.finish_inputs(opts, "artifact")
         source = self.root / 'local runtime source'
         source.mkdir()
         shutil.copyfile(ROOT / 'CMakeLists.txt', source / 'CMakeLists.txt')
-        relative_source = os.path.relpath(source, self.root)
-        self.manifest({'schema_version': 2, 'runtime': {'source': relative_source},
+        self.check_local_runtime_source(os.path.relpath(source, self.root), source)
+
+    def check_local_runtime_source(self, declared_source, source):
+        self.manifest({'schema_version': 2, 'runtime': {'source': declared_source},
                        'target': 'win-dir' if os.name == 'nt' else 'appimage'})
         plan = json.loads(self.run_pkg('explain', '--json'))
         self.assertTrue(plan['ok'])
         runtime = plan['configurations'][0]['runtime']
         self.assertTrue(runtime['recipe'])
         configure = runtime['commands'][0]
-        self.assertEqual(Path(configure[configure.index('-S') + 1]).resolve(), source)
+        # Windows TEMP can contain RUNNER~1 while Python/GLib return the long
+        # spelling. Compare identity, not one normalized and one raw string.
+        actual = Path(configure[configure.index('-S') + 1])
+        self.assertTrue(actual.samefile(source), f'{actual} does not identify {source}')
         self.assertIn('-DSQGI_ENABLE_KERNELS=ON', configure)
         self.assertIn('-DSQ_ENABLE_JIT=ON', configure)
         self.run_pkg('check')
+
+    def test_local_runtime_source_alias(self):
+        source = self.root / 'runtime source with a long name'
+        source.mkdir()
+        shutil.copyfile(ROOT / 'CMakeLists.txt', source / 'CMakeLists.txt')
+        if os.name == 'nt':
+            from ctypes import wintypes
+            short_path = ctypes.WinDLL('kernel32', use_last_error=True).GetShortPathNameW
+            short_path.argtypes = [wintypes.LPCWSTR, wintypes.LPWSTR, wintypes.DWORD]
+            short_path.restype = wintypes.DWORD
+            size = short_path(str(source), None, 0)
+            if not size:
+                raise ctypes.WinError(ctypes.get_last_error())
+            buffer = ctypes.create_unicode_buffer(size)
+            length = short_path(str(source), buffer, size)
+            if not length or length >= size:
+                raise ctypes.WinError(ctypes.get_last_error())
+            alias = Path(buffer.value)
+            if alias == source:
+                self.skipTest('This Windows volume does not create 8.3 aliases')
+        else:
+            alias = self.root / 'source alias'
+            alias.symlink_to(source, target_is_directory=True)
+        self.assertNotEqual(str(alias), str(source))
+        self.assertTrue(alias.samefile(source))
+        self.check_local_runtime_source(str(alias), source)
+        # A different directory must not be accepted simply because its leaf
+        # name matches. Exercise the identity assertion's negative case too.
+        other = self.root / 'other' / source.name
+        other.mkdir(parents=True)
+        with self.assertRaises(AssertionError):
+            self.check_local_runtime_source(str(alias), other)
         self.assertFalse((self.root / '.sqgipkg').exists())
 
     def test_runtime_requires_a_usable_source_selection(self):
