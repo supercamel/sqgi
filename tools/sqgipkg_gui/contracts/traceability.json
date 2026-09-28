@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 4,
   "requirements": {
     "R-DEL-01": {
       "status": "active",
@@ -52,11 +52,18 @@
       "modules": [
         "CMakeLists.txt",
         "tools/sqgipkg_gui/launcher.c",
-        "tools/sqgipkg_gui/tests/test_delivery.py"
+        "tools/sqgipkg_gui/tests/test_delivery.py",
+        "tools/sqgipkg_gui/tests/study/runner_support.py",
+        "tools/sqgipkg_gui/tests/study/wine_probe.py",
+        "tools/sqgipkg_gui/tests/test_study_runner.py"
       ],
       "tests": [
         "DEL-platform-evidence",
-        "EDIT-actions"
+        "EDIT-actions",
+        "DEL-runner-shutdown",
+        "DEL-process-exit",
+        "DEL-hidden-child-crash",
+        "DEL-actual-scene-display"
       ]
     },
     "R-DEL-05": {
@@ -71,7 +78,10 @@
       ],
       "tests": [
         "DEL-platform-evidence",
-        "EDIT-actions"
+        "EDIT-actions",
+        "DEL-runner-unicode",
+        "DEL-runner-network",
+        "DEL-runner-scene"
       ]
     },
     "R-DEL-06": {
@@ -82,11 +92,17 @@
       "modules": [
         "CMakeLists.txt",
         "tools/sqgipkg_gui/launcher.c",
-        "tools/sqgipkg_gui/tests/test_delivery.py"
+        "tools/sqgipkg_gui/tests/test_delivery.py",
+        "tools/sqgipkg_gui/tests/study/runner_support.py",
+        "tools/sqgipkg_gui/tests/study/wine_probe.py",
+        "tools/sqgipkg_gui/tests/test_study_runner.py"
       ],
       "tests": [
         "DEL-platform-evidence",
-        "EDIT-actions"
+        "EDIT-actions",
+        "DEL-runner-shutdown",
+        "DEL-process-exit",
+        "DEL-hidden-child-crash"
       ]
     },
     "R-DEL-07": {
@@ -97,10 +113,16 @@
       "modules": [
         "CMakeLists.txt",
         "tools/sqgipkg_gui/launcher.c",
-        "tools/sqgipkg_gui/tests/test_delivery.py"
+        "tools/sqgipkg_gui/tests/test_delivery.py",
+        "tools/sqgipkg_gui/tests/study/runner_support.py",
+        "tools/sqgipkg_gui/tests/study/wine_probe.py",
+        "tools/sqgipkg_gui/tests/test_study_runner.py"
       ],
       "tests": [
-        "DEL-traceability"
+        "DEL-traceability",
+        "DEL-runner-shutdown",
+        "DEL-process-exit",
+        "DEL-hidden-child-crash"
       ]
     },
     "R-DOC-01": {
@@ -215,11 +237,27 @@
       "modules": [
         "tools/sqgipkg_gui/src/backend.nut",
         "tools/sqgipkg_lib/protocol.nut",
-        "tools/sqgipkg_lib/recipes.nut"
+        "tools/sqgipkg_lib/recipes.nut",
+        "tools/sqgipkg_lib/windows/ooblerg.py",
+        "tools/sqgipkg_lib/windows/ooblerg.nut",
+        "tools/sqgipkg_lib/native_sdk.py",
+        "tools/sqgipkg_lib/windows/typelib_compat.py",
+        "tools/sqgipkg_lib/linux_ooblerg.nut"
       ],
       "tests": [
         "PKG-equivalence",
-        "PKG-protocol"
+        "PKG-protocol",
+        "PKG-native-entry",
+        "PKG-native-entry-build",
+        "PKG-sysroot-staging",
+        "PKG-ooblerg-provider",
+        "PKG-ooblerg-resolution",
+        "PKG-native-sdk-export",
+        "PKG-typelib-compat",
+        "PKG-linux-ooblerg-transport",
+        "PKG-linux-ooblerg-source",
+        "PKG-linux-ooblerg-sdk",
+        "PKG-linux-ooblerg-runtime"
       ]
     },
     "R-PKG-02": {
@@ -263,7 +301,9 @@
       ],
       "tests": [
         "PKG-equivalence",
-        "PKG-protocol"
+        "PKG-protocol",
+        "PKG-native-entry",
+        "PKG-native-entry-build"
       ]
     },
     "R-PKG-05": {
@@ -274,10 +314,17 @@
       "modules": [
         "tools/sqgipkg_gui/src/backend.nut",
         "tools/sqgipkg_lib/protocol.nut",
-        "tools/sqgipkg_lib/recipes.nut"
+        "tools/sqgipkg_lib/recipes.nut",
+        "tools/sqgipkg_lib/build.nut",
+        "tools/sqgipkg_lib/main.nut",
+        "tools/sqgipkg_lib/manifest.nut",
+        "tools/sqgipkg",
+        "tools/sqgipkg_gui/src/outputs.nut"
       ],
       "tests": [
-        "PKG-operations"
+        "PKG-operations",
+        "PKG-matrix-build",
+        "EDIT-output-matrix"
       ]
     },
     "R-PKG-06": {
@@ -288,10 +335,18 @@
       "modules": [
         "tools/sqgipkg_gui/src/backend.nut",
         "tools/sqgipkg_lib/protocol.nut",
-        "tools/sqgipkg_lib/recipes.nut"
+        "tools/sqgipkg_lib/recipes.nut",
+        "tools/sqgipkg_lib/schema.nut",
+        "tools/sqgipkg_lib/linux_deps.nut",
+        "tools/sqgipkg_lib/manifest.nut"
       ],
       "tests": [
-        "PKG-runtime-defaults"
+        "PKG-runtime-defaults",
+        "PKG-local-runtime-source",
+        "PKG-sysroot-preparation",
+        "PKG-runtime-dependencies",
+        "PKG-native-indirect-link",
+        "PKG-native-entry-gi"
       ]
     },
     "R-PKG-07": {
@@ -302,10 +357,24 @@
       "modules": [
         "tools/sqgipkg_gui/src/backend.nut",
         "tools/sqgipkg_lib/protocol.nut",
-        "tools/sqgipkg_lib/recipes.nut"
+        "tools/sqgipkg_lib/recipes.nut",
+        "tools/sqgipkg_lib/schema.nut",
+        "tools/sqgipkg_lib/linux_deps.nut",
+        "tools/sqgipkg_lib/appimage.nut",
+        "tools/sqgipkg_lib/windows/ooblerg.py",
+        "tools/sqgipkg_lib/linux_ooblerg.nut"
       ],
       "tests": [
-        "PKG-runtime-defaults"
+        "PKG-runtime-defaults",
+        "PKG-local-runtime-source",
+        "PKG-runtime-dependencies",
+        "PKG-sysroot-staging",
+        "PKG-mime-cache",
+        "PKG-ooblerg-provider",
+        "PKG-linux-ooblerg-transport",
+        "PKG-linux-ooblerg-source",
+        "PKG-linux-ooblerg-sdk",
+        "PKG-linux-ooblerg-runtime"
       ]
     },
     "R-PKG-08": {
@@ -316,10 +385,15 @@
       "modules": [
         "tools/sqgipkg_gui/src/backend.nut",
         "tools/sqgipkg_lib/protocol.nut",
-        "tools/sqgipkg_lib/recipes.nut"
+        "tools/sqgipkg_lib/recipes.nut",
+        "tools/sqgipkg_lib/linux_deps.nut",
+        "tools/sqgipkg_lib/schema.nut",
+        "tools/sqgipkg_lib/manifest.nut"
       ],
       "tests": [
-        "PKG-operations"
+        "PKG-operations",
+        "PKG-index-refresh",
+        "PKG-sysroot-preparation"
       ]
     },
     "R-PKG-09": {
@@ -353,16 +427,26 @@
     "R-EDIT-01": {
       "status": "active",
       "contracts": [
-        "C-EDIT-02"
+        "C-EDIT-02",
+        "C-EDIT-06"
       ],
       "modules": [
         "tools/sqgipkg_gui/catalog.json",
         "tools/sqgipkg_gui/src/application.nut",
         "tools/sqgipkg_gui/src/catalog.nut",
-        "tools/sqgipkg_gui/src/fields.nut"
+        "tools/sqgipkg_gui/src/fields.nut",
+        "tools/sqgipkg_gui/src/common.nut",
+        "tools/sqgipkg_gui/src/guidance.nut",
+        "tools/sqgipkg_gui/src/widgets.nut",
+        "tools/sqgipkg_gui/src/native_application.nut",
+        "tools/sqgipkg_lib/templates.nut"
       ],
       "tests": [
-        "EDIT-guidance"
+        "EDIT-guidance",
+        "EDIT-common-tasks",
+        "EDIT-native-application",
+        "EDIT-script-folders",
+        "PKG-template-script-scope"
       ]
     },
     "R-EDIT-02": {
@@ -374,7 +458,10 @@
         "tools/sqgipkg_gui/catalog.json",
         "tools/sqgipkg_gui/src/application.nut",
         "tools/sqgipkg_gui/src/catalog.nut",
-        "tools/sqgipkg_gui/src/fields.nut"
+        "tools/sqgipkg_gui/src/fields.nut",
+        "tools/sqgipkg_gui/src/common.nut",
+        "tools/sqgipkg_gui/src/guidance.nut",
+        "tools/sqgipkg_gui/src/widgets.nut"
       ],
       "tests": [
         "EDIT-navigation"
@@ -383,16 +470,26 @@
     "R-EDIT-03": {
       "status": "active",
       "contracts": [
-        "C-EDIT-03"
+        "C-EDIT-03",
+        "C-EDIT-06"
       ],
       "modules": [
         "tools/sqgipkg_gui/catalog.json",
         "tools/sqgipkg_gui/src/application.nut",
         "tools/sqgipkg_gui/src/catalog.nut",
-        "tools/sqgipkg_gui/src/fields.nut"
+        "tools/sqgipkg_gui/src/fields.nut",
+        "tools/sqgipkg_gui/src/common.nut",
+        "tools/sqgipkg_gui/src/guidance.nut",
+        "tools/sqgipkg_gui/src/widgets.nut",
+        "tools/sqgipkg_gui/src/runtime_choice.nut",
+        "tools/sqgipkg_gui/src/native_library.nut"
       ],
       "tests": [
-        "EDIT-navigation"
+        "EDIT-navigation",
+        "EDIT-common-tasks",
+        "EDIT-runtime-choice",
+        "EDIT-native-library",
+        "EDIT-native-library-preservation"
       ]
     },
     "R-EDIT-04": {
@@ -404,7 +501,10 @@
         "tools/sqgipkg_gui/catalog.json",
         "tools/sqgipkg_gui/src/application.nut",
         "tools/sqgipkg_gui/src/catalog.nut",
-        "tools/sqgipkg_gui/src/fields.nut"
+        "tools/sqgipkg_gui/src/fields.nut",
+        "tools/sqgipkg_gui/src/common.nut",
+        "tools/sqgipkg_gui/src/guidance.nut",
+        "tools/sqgipkg_gui/src/widgets.nut"
       ],
       "tests": [
         "EDIT-coverage",
@@ -420,7 +520,10 @@
         "tools/sqgipkg_gui/catalog.json",
         "tools/sqgipkg_gui/src/application.nut",
         "tools/sqgipkg_gui/src/catalog.nut",
-        "tools/sqgipkg_gui/src/fields.nut"
+        "tools/sqgipkg_gui/src/fields.nut",
+        "tools/sqgipkg_gui/src/common.nut",
+        "tools/sqgipkg_gui/src/guidance.nut",
+        "tools/sqgipkg_gui/src/widgets.nut"
       ],
       "tests": [
         "EDIT-coverage",
@@ -436,7 +539,10 @@
         "tools/sqgipkg_gui/catalog.json",
         "tools/sqgipkg_gui/src/application.nut",
         "tools/sqgipkg_gui/src/catalog.nut",
-        "tools/sqgipkg_gui/src/fields.nut"
+        "tools/sqgipkg_gui/src/fields.nut",
+        "tools/sqgipkg_gui/src/common.nut",
+        "tools/sqgipkg_gui/src/guidance.nut",
+        "tools/sqgipkg_gui/src/widgets.nut"
       ],
       "tests": [
         "EDIT-coverage",
@@ -452,10 +558,16 @@
         "tools/sqgipkg_gui/catalog.json",
         "tools/sqgipkg_gui/src/application.nut",
         "tools/sqgipkg_gui/src/catalog.nut",
-        "tools/sqgipkg_gui/src/fields.nut"
+        "tools/sqgipkg_gui/src/fields.nut",
+        "tools/sqgipkg_gui/src/common.nut",
+        "tools/sqgipkg_gui/src/guidance.nut",
+        "tools/sqgipkg_gui/src/widgets.nut",
+        "tools/sqgipkg_lib/templates.nut"
       ],
       "tests": [
-        "EDIT-feedback"
+        "EDIT-feedback",
+        "EDIT-script-folders",
+        "PKG-template-script-scope"
       ]
     },
     "R-EDIT-08": {
@@ -467,7 +579,10 @@
         "tools/sqgipkg_gui/catalog.json",
         "tools/sqgipkg_gui/src/application.nut",
         "tools/sqgipkg_gui/src/catalog.nut",
-        "tools/sqgipkg_gui/src/fields.nut"
+        "tools/sqgipkg_gui/src/fields.nut",
+        "tools/sqgipkg_gui/src/common.nut",
+        "tools/sqgipkg_gui/src/guidance.nut",
+        "tools/sqgipkg_gui/src/widgets.nut"
       ],
       "tests": [
         "EDIT-feedback"
@@ -482,7 +597,10 @@
         "tools/sqgipkg_gui/catalog.json",
         "tools/sqgipkg_gui/src/application.nut",
         "tools/sqgipkg_gui/src/catalog.nut",
-        "tools/sqgipkg_gui/src/fields.nut"
+        "tools/sqgipkg_gui/src/fields.nut",
+        "tools/sqgipkg_gui/src/common.nut",
+        "tools/sqgipkg_gui/src/guidance.nut",
+        "tools/sqgipkg_gui/src/widgets.nut"
       ],
       "tests": [
         "EDIT-actions"
@@ -498,7 +616,10 @@
         "tools/sqgipkg_gui/catalog.json",
         "tools/sqgipkg_gui/src/application.nut",
         "tools/sqgipkg_gui/src/catalog.nut",
-        "tools/sqgipkg_gui/src/fields.nut"
+        "tools/sqgipkg_gui/src/fields.nut",
+        "tools/sqgipkg_gui/src/common.nut",
+        "tools/sqgipkg_gui/src/guidance.nut",
+        "tools/sqgipkg_gui/src/widgets.nut"
       ],
       "tests": [
         "EDIT-feedback",
@@ -517,7 +638,10 @@
         "tools/sqgipkg_gui/src/catalog.nut",
         "tools/sqgipkg_gui/src/document.nut",
         "tools/sqgipkg_gui/src/fields.nut",
-        "tools/sqgipkg_gui/src/relocation.nut"
+        "tools/sqgipkg_gui/src/relocation.nut",
+        "tools/sqgipkg_gui/src/common.nut",
+        "tools/sqgipkg_gui/src/guidance.nut",
+        "tools/sqgipkg_gui/src/widgets.nut"
       ],
       "tests": [
         "DOC-atomic-save",
@@ -534,7 +658,10 @@
         "tools/sqgipkg_gui/catalog.json",
         "tools/sqgipkg_gui/src/application.nut",
         "tools/sqgipkg_gui/src/catalog.nut",
-        "tools/sqgipkg_gui/src/fields.nut"
+        "tools/sqgipkg_gui/src/fields.nut",
+        "tools/sqgipkg_gui/src/common.nut",
+        "tools/sqgipkg_gui/src/guidance.nut",
+        "tools/sqgipkg_gui/src/widgets.nut"
       ],
       "tests": [
         "EDIT-guidance",
@@ -545,7 +672,8 @@
       "status": "active",
       "contracts": [
         "C-EDIT-01",
-        "C-PKG-04"
+        "C-PKG-04",
+        "C-EDIT-06"
       ],
       "modules": [
         "tools/sqgipkg_gui/catalog.json",
@@ -554,12 +682,16 @@
         "tools/sqgipkg_gui/src/catalog.nut",
         "tools/sqgipkg_gui/src/fields.nut",
         "tools/sqgipkg_lib/protocol.nut",
-        "tools/sqgipkg_lib/recipes.nut"
+        "tools/sqgipkg_lib/recipes.nut",
+        "tools/sqgipkg_gui/src/common.nut",
+        "tools/sqgipkg_gui/src/guidance.nut",
+        "tools/sqgipkg_gui/src/widgets.nut"
       ],
       "tests": [
         "EDIT-coverage",
         "EDIT-structured-values",
-        "PKG-operations"
+        "PKG-operations",
+        "EDIT-common-tasks"
       ]
     },
     "R-SCOPE-04": {
@@ -614,40 +746,280 @@
       ]
     },
     "R-JOB-01": {
-      "status": "deferred",
-      "reason": "Package execution and supervision are deferred under the manifest-authoring scope."
+      "status": "in-progress",
+      "contracts": [
+        "C-JOB-01"
+      ],
+      "modules": [
+        "tools/sqgipkg_gui/runner.c",
+        "tools/sqgipkg_gui/src/jobs.nut",
+        "tools/sqgipkg_gui/src/application.nut"
+      ],
+      "tests": [
+        "JOB-linux-supervision",
+        "JOB-gui-failure-cancel",
+        "JOB-real-package"
+      ],
+      "limits": "Linux build tested with actual Windows NSIS output and emulated folder runtime. Structured events, verified artifact UI, Windows-host supervision and full-matrix GUI build remain outstanding."
     },
     "R-JOB-02": {
-      "status": "deferred",
-      "reason": "Package execution and supervision are deferred under the manifest-authoring scope."
+      "status": "in-progress",
+      "contracts": [
+        "C-JOB-01",
+        "C-JOB-03"
+      ],
+      "modules": [
+        "tools/sqgipkg_gui/runner.c",
+        "tools/sqgipkg_gui/src/jobs.nut",
+        "tools/sqgipkg_gui/src/application.nut"
+      ],
+      "tests": [
+        "JOB-linux-supervision",
+        "JOB-gui-failure-cancel",
+        "JOB-real-package"
+      ],
+      "limits": "Linux build tested with actual Windows NSIS output and emulated folder runtime. Structured events, verified artifact UI, Windows-host supervision and full-matrix GUI build remain outstanding."
     },
     "R-JOB-03": {
-      "status": "deferred",
-      "reason": "Package execution and supervision are deferred under the manifest-authoring scope."
+      "status": "in-progress",
+      "modules": [
+        "tools/sqgipkg_gui/src/artifacts.nut",
+        "tools/sqgipkg_gui/src/jobs.nut",
+        "tools/sqgipkg_lib/build.nut",
+        "tools/sqgipkg_lib/main.nut"
+      ],
+      "tests": [
+        "JOB-artifact-results",
+        "JOB-gui-artifacts",
+        "JOB-quiet-progress"
+      ],
+      "limits": "Structured final outputs and file presence/type/size are checked. Structured live phases, target runtime certification and Windows-host supervision remain outstanding.",
+      "contracts": [
+        "C-JOB-03"
+      ]
     },
     "R-JOB-04": {
-      "status": "deferred",
-      "reason": "Package execution and supervision are deferred under the manifest-authoring scope."
+      "status": "in-progress",
+      "contracts": [
+        "C-JOB-02",
+        "C-JOB-04"
+      ],
+      "modules": [
+        "tools/sqgipkg_gui/runner.c",
+        "tools/sqgipkg_gui/src/jobs.nut",
+        "tools/sqgipkg_gui/src/application.nut"
+      ],
+      "tests": [
+        "JOB-linux-supervision",
+        "JOB-gui-failure-cancel",
+        "JOB-real-package",
+        "JOB-idle-close"
+      ],
+      "limits": "Linux build tested with actual Windows NSIS output and emulated folder runtime. Structured events, verified artifact UI, Windows-host supervision and full-matrix GUI build remain outstanding."
     },
     "R-JOB-05": {
-      "status": "deferred",
-      "reason": "Package execution and supervision are deferred under the manifest-authoring scope."
+      "status": "in-progress",
+      "contracts": [
+        "C-JOB-04"
+      ],
+      "modules": [
+        "tools/sqgipkg_gui/runner.c",
+        "tools/sqgipkg_gui/src/jobs.nut",
+        "tools/sqgipkg_gui/src/application.nut"
+      ],
+      "tests": [
+        "JOB-linux-supervision",
+        "JOB-gui-failure-cancel",
+        "JOB-real-package"
+      ],
+      "limits": "Linux build tested with actual Windows NSIS output and emulated folder runtime. Structured events, verified artifact UI, Windows-host supervision and full-matrix GUI build remain outstanding."
     },
     "R-JOB-06": {
-      "status": "deferred",
-      "reason": "Package execution and supervision are deferred under the manifest-authoring scope."
+      "status": "in-progress",
+      "contracts": [
+        "C-JOB-03"
+      ],
+      "modules": [
+        "tools/sqgipkg_gui/runner.c",
+        "tools/sqgipkg_gui/src/jobs.nut",
+        "tools/sqgipkg_gui/src/application.nut",
+        "tools/sqgipkg_gui/src/artifacts.nut",
+        "tools/sqgipkg_lib/build.nut",
+        "tools/sqgipkg_lib/main.nut"
+      ],
+      "tests": [
+        "JOB-linux-supervision",
+        "JOB-gui-failure-cancel",
+        "JOB-real-package",
+        "JOB-artifact-results",
+        "JOB-gui-artifacts"
+      ],
+      "limits": "Structured final outputs and file presence/type/size are checked. Structured live phases, target runtime certification and Windows-host supervision remain outstanding."
     },
     "R-JOB-07": {
-      "status": "deferred",
-      "reason": "Package execution and supervision are deferred under the manifest-authoring scope."
+      "status": "in-progress",
+      "contracts": [
+        "C-JOB-05"
+      ],
+      "modules": [
+        "tools/sqgipkg_gui/runner.c",
+        "tools/sqgipkg_gui/src/jobs.nut",
+        "tools/sqgipkg_gui/src/application.nut",
+        "tools/sqgipkg_gui/src/artifacts.nut",
+        "tools/sqgipkg_lib/build.nut",
+        "tools/sqgipkg_lib/main.nut"
+      ],
+      "tests": [
+        "JOB-linux-supervision",
+        "JOB-gui-failure-cancel",
+        "JOB-real-package",
+        "JOB-artifact-results",
+        "JOB-gui-artifacts"
+      ],
+      "limits": "Structured final outputs and file presence/type/size are checked. Structured live phases, target runtime certification and Windows-host supervision remain outstanding."
     },
     "R-JOB-08": {
       "status": "deferred",
-      "reason": "Package execution and supervision are deferred under the manifest-authoring scope."
+      "reason": "Outstanding follow-up: structured events, per-run controls and Clean are not implemented in the initial GUI Build integration."
     },
     "R-JOB-09": {
       "status": "deferred",
-      "reason": "Package execution and supervision are deferred under the manifest-authoring scope."
+      "reason": "Outstanding follow-up: structured events, per-run controls and Clean are not implemented in the initial GUI Build integration."
+    },
+    "R-EDIT-11": {
+      "status": "active",
+      "contracts": [
+        "C-EDIT-06"
+      ],
+      "modules": [
+        "tools/sqgipkg_gui/src/application.nut",
+        "tools/sqgipkg_gui/src/guidance.nut",
+        "tools/sqgipkg_gui/src/common.nut",
+        "tools/sqgipkg_gui/src/fields.nut",
+        "tools/sqgipkg_gui/catalog.json",
+        "tools/sqgipkg_gui/src/widgets.nut",
+        "tools/sqgipkg_gui/src/runtime_choice.nut",
+        "tools/sqgipkg_gui/src/native_application.nut",
+        "tools/sqgipkg_gui/src/native_library.nut",
+        "tools/sqgipkg_lib/templates.nut",
+        "tools/sqgipkg_gui/src/package_picker.nut"
+      ],
+      "tests": [
+        "EDIT-common-tasks",
+        "EDIT-runtime-choice",
+        "EDIT-native-application",
+        "EDIT-native-library",
+        "EDIT-native-library-preservation",
+        "EDIT-script-folders",
+        "PKG-template-script-scope",
+        "EDIT-package-search",
+        "EDIT-windows-provider",
+        "EDIT-package-search-retry",
+        "EDIT-package-search-cancel-fetch",
+        "EDIT-linux-ooblerg"
+      ]
+    },
+    "R-EDIT-12": {
+      "status": "active",
+      "contracts": [
+        "C-EDIT-06"
+      ],
+      "modules": [
+        "tools/sqgipkg_gui/src/application.nut",
+        "tools/sqgipkg_gui/src/guidance.nut",
+        "tools/sqgipkg_gui/src/common.nut",
+        "tools/sqgipkg_gui/src/fields.nut",
+        "tools/sqgipkg_gui/catalog.json",
+        "tools/sqgipkg_gui/src/widgets.nut",
+        "tools/sqgipkg_gui/src/runtime_choice.nut",
+        "tools/sqgipkg_gui/src/native_library.nut"
+      ],
+      "tests": [
+        "EDIT-common-tasks",
+        "EDIT-runtime-choice",
+        "EDIT-native-library",
+        "EDIT-native-library-preservation"
+      ]
+    },
+    "R-EDIT-13": {
+      "status": "active",
+      "contracts": [
+        "C-EDIT-06"
+      ],
+      "modules": [
+        "tools/sqgipkg_gui/src/application.nut",
+        "tools/sqgipkg_gui/src/guidance.nut",
+        "tools/sqgipkg_gui/src/common.nut",
+        "tools/sqgipkg_gui/src/fields.nut",
+        "tools/sqgipkg_gui/catalog.json",
+        "tools/sqgipkg_gui/src/widgets.nut",
+        "tools/sqgipkg_gui/src/outputs.nut"
+      ],
+      "tests": [
+        "EDIT-common-tasks",
+        "EDIT-architecture",
+        "EDIT-output-matrix"
+      ]
+    },
+    "R-EDIT-14": {
+      "status": "active",
+      "contracts": [
+        "C-EDIT-07"
+      ],
+      "modules": [
+        "tools/sqgipkg_gui/src/application.nut",
+        "tools/sqgipkg_gui/src/guidance.nut",
+        "tools/sqgipkg_gui/src/common.nut",
+        "tools/sqgipkg_gui/src/fields.nut",
+        "tools/sqgipkg_gui/catalog.json",
+        "tools/sqgipkg_gui/src/widgets.nut"
+      ],
+      "tests": [
+        "EDIT-review-states"
+      ]
+    },
+    "R-EDIT-15": {
+      "status": "active",
+      "contracts": [
+        "C-EDIT-07"
+      ],
+      "modules": [
+        "tools/sqgipkg_gui/src/application.nut",
+        "tools/sqgipkg_gui/src/guidance.nut",
+        "tools/sqgipkg_gui/src/common.nut",
+        "tools/sqgipkg_gui/src/fields.nut",
+        "tools/sqgipkg_gui/catalog.json",
+        "tools/sqgipkg_gui/src/widgets.nut"
+      ],
+      "tests": [
+        "EDIT-review-states"
+      ]
+    },
+    "R-EDIT-16": {
+      "status": "active",
+      "contracts": [
+        "C-EDIT-08"
+      ],
+      "modules": [
+        "tools/sqgipkg_gui/src/appearance.nut",
+        "tools/sqgipkg_gui/src/common.nut"
+      ],
+      "tests": [
+        "EDIT-appearance-languages"
+      ]
+    },
+    "R-EDIT-17": {
+      "status": "active",
+      "contracts": [
+        "C-EDIT-09"
+      ],
+      "modules": [
+        "tools/sqgipkg_gui/src/desktop_metadata.nut",
+        "tools/sqgipkg_lib/appimage.nut"
+      ],
+      "tests": [
+        "EDIT-desktop-metadata"
+      ]
     }
   },
   "contracts": {
@@ -707,7 +1079,10 @@
         "tools/sqgipkg_gui/src/catalog.nut",
         "tools/sqgipkg_gui/src/fields.nut",
         "tools/sqgipkg_gui/src/application.nut",
-        "tools/sqgipkg_gui/catalog.json"
+        "tools/sqgipkg_gui/catalog.json",
+        "tools/sqgipkg_gui/src/common.nut",
+        "tools/sqgipkg_gui/src/guidance.nut",
+        "tools/sqgipkg_gui/src/widgets.nut"
       ],
       "tests": [
         "EDIT-coverage",
@@ -720,10 +1095,15 @@
         "tools/sqgipkg_gui/src/catalog.nut",
         "tools/sqgipkg_gui/src/fields.nut",
         "tools/sqgipkg_gui/src/application.nut",
-        "tools/sqgipkg_gui/catalog.json"
+        "tools/sqgipkg_gui/catalog.json",
+        "tools/sqgipkg_gui/src/common.nut",
+        "tools/sqgipkg_gui/src/guidance.nut",
+        "tools/sqgipkg_gui/src/widgets.nut",
+        "tools/sqgipkg_gui/src/native_application.nut"
       ],
       "tests": [
-        "EDIT-guidance"
+        "EDIT-guidance",
+        "EDIT-native-application"
       ]
     },
     "C-EDIT-03": {
@@ -732,7 +1112,10 @@
         "tools/sqgipkg_gui/src/catalog.nut",
         "tools/sqgipkg_gui/src/fields.nut",
         "tools/sqgipkg_gui/src/application.nut",
-        "tools/sqgipkg_gui/catalog.json"
+        "tools/sqgipkg_gui/catalog.json",
+        "tools/sqgipkg_gui/src/common.nut",
+        "tools/sqgipkg_gui/src/guidance.nut",
+        "tools/sqgipkg_gui/src/widgets.nut"
       ],
       "tests": [
         "EDIT-navigation"
@@ -744,7 +1127,10 @@
         "tools/sqgipkg_gui/src/catalog.nut",
         "tools/sqgipkg_gui/src/fields.nut",
         "tools/sqgipkg_gui/src/application.nut",
-        "tools/sqgipkg_gui/catalog.json"
+        "tools/sqgipkg_gui/catalog.json",
+        "tools/sqgipkg_gui/src/common.nut",
+        "tools/sqgipkg_gui/src/guidance.nut",
+        "tools/sqgipkg_gui/src/widgets.nut"
       ],
       "tests": [
         "EDIT-actions"
@@ -756,7 +1142,10 @@
         "tools/sqgipkg_gui/src/catalog.nut",
         "tools/sqgipkg_gui/src/fields.nut",
         "tools/sqgipkg_gui/src/application.nut",
-        "tools/sqgipkg_gui/catalog.json"
+        "tools/sqgipkg_gui/catalog.json",
+        "tools/sqgipkg_gui/src/common.nut",
+        "tools/sqgipkg_gui/src/guidance.nut",
+        "tools/sqgipkg_gui/src/widgets.nut"
       ],
       "tests": [
         "EDIT-feedback"
@@ -771,7 +1160,9 @@
       ],
       "tests": [
         "PKG-equivalence",
-        "PKG-protocol"
+        "PKG-protocol",
+        "PKG-native-entry",
+        "PKG-native-entry-build"
       ]
     },
     "C-PKG-02": {
@@ -790,10 +1181,17 @@
       "modules": [
         "tools/sqgipkg_lib/protocol.nut",
         "tools/sqgipkg_lib/recipes.nut",
-        "tools/sqgipkg_gui/src/backend.nut"
+        "tools/sqgipkg_gui/src/backend.nut",
+        "tools/sqgipkg_lib/schema.nut",
+        "tools/sqgipkg_lib/linux_deps.nut",
+        "tools/sqgipkg_lib/manifest.nut"
       ],
       "tests": [
-        "PKG-runtime-defaults"
+        "PKG-runtime-defaults",
+        "PKG-local-runtime-source",
+        "PKG-sysroot-preparation",
+        "PKG-runtime-dependencies",
+        "PKG-native-entry-gi"
       ]
     },
     "C-PKG-04": {
@@ -801,10 +1199,31 @@
       "modules": [
         "tools/sqgipkg_lib/protocol.nut",
         "tools/sqgipkg_lib/recipes.nut",
-        "tools/sqgipkg_gui/src/backend.nut"
+        "tools/sqgipkg_gui/src/backend.nut",
+        "tools/sqgipkg_lib/build.nut",
+        "tools/sqgipkg_lib/main.nut",
+        "tools/sqgipkg_lib/manifest.nut",
+        "tools/sqgipkg",
+        "tools/sqgipkg_gui/src/outputs.nut",
+        "tools/sqgipkg_lib/linux_deps.nut",
+        "tools/sqgipkg_lib/schema.nut",
+        "tools/sqgipkg_lib/appimage.nut",
+        "tools/sqgipkg_lib/linux_ooblerg.nut"
       ],
       "tests": [
-        "PKG-operations"
+        "PKG-operations",
+        "PKG-matrix-build",
+        "EDIT-output-matrix",
+        "PKG-index-refresh",
+        "PKG-sysroot-preparation",
+        "PKG-sysroot-staging",
+        "PKG-mime-cache",
+        "PKG-ooblerg-provider",
+        "PKG-ooblerg-resolution",
+        "PKG-linux-ooblerg-transport",
+        "PKG-linux-ooblerg-source",
+        "PKG-linux-ooblerg-sdk",
+        "PKG-linux-ooblerg-runtime"
       ]
     },
     "C-PKG-05": {
@@ -878,32 +1297,171 @@
       "modules": [
         "CMakeLists.txt",
         "tools/sqgipkg_gui/launcher.c",
-        "tools/sqgipkg_gui/tests/test_delivery.py"
+        "tools/sqgipkg_gui/tests/test_delivery.py",
+        "tools/sqgipkg_gui/tests/study/runner_support.py",
+        "tools/sqgipkg_gui/tests/study/wine_probe.py",
+        "tools/sqgipkg_gui/tests/test_study_runner.py"
       ],
       "tests": [
         "DEL-platform-evidence",
-        "EDIT-actions"
+        "EDIT-actions",
+        "DEL-runner-shutdown",
+        "DEL-process-exit",
+        "DEL-runner-unicode",
+        "DEL-runner-network",
+        "DEL-hidden-child-crash",
+        "DEL-runner-scene"
       ]
     },
     "C-JOB-01": {
-      "status": "deferred",
-      "reason": "Optional future Build action must invoke sqgipkg; package execution is outside the current delivery."
+      "status": "in-progress",
+      "modules": [
+        "tools/sqgipkg_gui/runner.c",
+        "tools/sqgipkg_gui/src/jobs.nut",
+        "tools/sqgipkg_gui/src/application.nut"
+      ],
+      "tests": [
+        "JOB-linux-supervision",
+        "JOB-gui-failure-cancel",
+        "JOB-real-package"
+      ],
+      "limits": "Linux build tested with actual Windows NSIS output and emulated folder runtime. Structured events, verified artifact UI, Windows-host supervision and full-matrix GUI build remain outstanding."
     },
     "C-JOB-02": {
-      "status": "deferred",
-      "reason": "Optional future Build action must invoke sqgipkg; package execution is outside the current delivery."
+      "status": "in-progress",
+      "modules": [
+        "tools/sqgipkg_gui/runner.c",
+        "tools/sqgipkg_gui/src/jobs.nut",
+        "tools/sqgipkg_gui/src/application.nut"
+      ],
+      "tests": [
+        "JOB-linux-supervision",
+        "JOB-gui-failure-cancel",
+        "JOB-real-package"
+      ],
+      "limits": "Linux build tested with actual Windows NSIS output and emulated folder runtime. Structured events, verified artifact UI, Windows-host supervision and full-matrix GUI build remain outstanding."
     },
     "C-JOB-03": {
-      "status": "deferred",
-      "reason": "Optional future Build action must invoke sqgipkg; package execution is outside the current delivery."
+      "status": "in-progress",
+      "modules": [
+        "tools/sqgipkg_gui/runner.c",
+        "tools/sqgipkg_gui/src/jobs.nut",
+        "tools/sqgipkg_gui/src/application.nut",
+        "tools/sqgipkg_gui/src/artifacts.nut",
+        "tools/sqgipkg_lib/build.nut",
+        "tools/sqgipkg_lib/main.nut"
+      ],
+      "tests": [
+        "JOB-linux-supervision",
+        "JOB-gui-failure-cancel",
+        "JOB-real-package",
+        "JOB-artifact-results",
+        "JOB-gui-artifacts",
+        "JOB-quiet-progress"
+      ],
+      "limits": "Structured final outputs and file presence/type/size are checked. Structured live phases, target runtime certification and Windows-host supervision remain outstanding."
     },
     "C-JOB-04": {
-      "status": "deferred",
-      "reason": "Optional future Build action must invoke sqgipkg; package execution is outside the current delivery."
+      "status": "in-progress",
+      "modules": [
+        "tools/sqgipkg_gui/runner.c",
+        "tools/sqgipkg_gui/src/jobs.nut",
+        "tools/sqgipkg_gui/src/application.nut"
+      ],
+      "tests": [
+        "JOB-linux-supervision",
+        "JOB-gui-failure-cancel",
+        "JOB-real-package",
+        "JOB-idle-close"
+      ],
+      "limits": "Linux build tested with actual Windows NSIS output and emulated folder runtime. Structured events, verified artifact UI, Windows-host supervision and full-matrix GUI build remain outstanding."
     },
     "C-JOB-05": {
-      "status": "deferred",
-      "reason": "Optional future Build action must invoke sqgipkg; package execution is outside the current delivery."
+      "status": "in-progress",
+      "modules": [
+        "tools/sqgipkg_gui/runner.c",
+        "tools/sqgipkg_gui/src/jobs.nut",
+        "tools/sqgipkg_gui/src/application.nut",
+        "tools/sqgipkg_gui/src/artifacts.nut",
+        "tools/sqgipkg_lib/build.nut",
+        "tools/sqgipkg_lib/main.nut"
+      ],
+      "tests": [
+        "JOB-linux-supervision",
+        "JOB-gui-failure-cancel",
+        "JOB-real-package",
+        "JOB-artifact-results",
+        "JOB-gui-artifacts"
+      ],
+      "limits": "Structured final outputs and file presence/type/size are checked. Structured live phases, target runtime certification and Windows-host supervision remain outstanding."
+    },
+    "C-EDIT-06": {
+      "status": "active",
+      "modules": [
+        "tools/sqgipkg_gui/src/application.nut",
+        "tools/sqgipkg_gui/src/guidance.nut",
+        "tools/sqgipkg_gui/src/common.nut",
+        "tools/sqgipkg_gui/src/fields.nut",
+        "tools/sqgipkg_gui/catalog.json",
+        "tools/sqgipkg_gui/src/widgets.nut",
+        "tools/sqgipkg_gui/src/outputs.nut",
+        "tools/sqgipkg_gui/src/runtime_choice.nut",
+        "tools/sqgipkg_gui/src/document.nut",
+        "tools/sqgipkg_gui/src/native_application.nut",
+        "tools/sqgipkg_gui/src/native_library.nut",
+        "tools/sqgipkg_lib/templates.nut"
+      ],
+      "tests": [
+        "EDIT-common-tasks",
+        "EDIT-architecture",
+        "EDIT-output-matrix",
+        "EDIT-runtime-choice",
+        "EDIT-native-application",
+        "EDIT-native-library",
+        "EDIT-native-library-preservation",
+        "EDIT-script-folders",
+        "PKG-template-script-scope",
+        "EDIT-package-search",
+        "EDIT-windows-provider",
+        "EDIT-package-search-retry",
+        "EDIT-package-search-cancel-fetch",
+        "EDIT-linux-ooblerg"
+      ]
+    },
+    "C-EDIT-07": {
+      "status": "active",
+      "modules": [
+        "tools/sqgipkg_gui/src/application.nut",
+        "tools/sqgipkg_gui/src/guidance.nut",
+        "tools/sqgipkg_gui/src/common.nut",
+        "tools/sqgipkg_gui/src/fields.nut",
+        "tools/sqgipkg_gui/catalog.json",
+        "tools/sqgipkg_gui/src/widgets.nut"
+      ],
+      "tests": [
+        "EDIT-review-states"
+      ]
+    },
+    "C-EDIT-08": {
+      "status": "active",
+      "modules": [
+        "tools/sqgipkg_gui/src/appearance.nut",
+        "tools/sqgipkg_gui/src/common.nut",
+        "tools/sqgipkg_gui/src/application.nut"
+      ],
+      "tests": [
+        "EDIT-appearance-languages"
+      ]
+    },
+    "C-EDIT-09": {
+      "status": "active",
+      "modules": [
+        "tools/sqgipkg_gui/src/desktop_metadata.nut",
+        "tools/sqgipkg_lib/appimage.nut"
+      ],
+      "tests": [
+        "EDIT-desktop-metadata"
+      ]
     }
   },
   "tests": {
@@ -998,6 +1556,206 @@
     "DEL-platform-evidence": {
       "file": ".github/workflows/windows-packaging.yml",
       "anchor": "Manifest authoring contracts"
+    },
+    "EDIT-common-tasks": {
+      "file": "tools/sqgipkg_gui/tests/gtk.nut",
+      "anchor": "PASS EDIT-common-tasks"
+    },
+    "EDIT-review-states": {
+      "file": "tools/sqgipkg_gui/tests/gtk.nut",
+      "anchor": "PASS EDIT-review-states"
+    },
+    "EDIT-architecture": {
+      "file": "tools/sqgipkg_gui/tests/test_contracts.py",
+      "anchor": "def test_appimage_architecture_selection"
+    },
+    "EDIT-output-matrix": {
+      "file": "tools/sqgipkg_gui/tests/test_contracts.py",
+      "anchor": "def test_output_matrix"
+    },
+    "PKG-matrix-build": {
+      "file": "tools/sqgipkg_gui/tests/matrix_build.nut",
+      "anchor": "PASS PKG-matrix-build"
+    },
+    "PKG-local-runtime-source": {
+      "file": "tools/sqgipkg_tests/test_ergonomics.py",
+      "anchor": "def test_local_runtime_source_without_revision"
+    },
+    "PKG-index-refresh": {
+      "file": "tools/sqgipkg_tests/test_ergonomics.py",
+      "anchor": "def test_repository_refresh_downloads_each_index_once"
+    },
+    "EDIT-runtime-choice": {
+      "file": "tools/sqgipkg_gui/tests/gtk.nut",
+      "anchor": "PASS EDIT-runtime-choice"
+    },
+    "PKG-sysroot-preparation": {
+      "file": "tools/sqgipkg_tests/test_ergonomics.py",
+      "anchor": "def test_refreshed_sysroot_packages_are_installed"
+    },
+    "PKG-runtime-dependencies": {
+      "file": "tools/sqgipkg_tests/test_ergonomics.py",
+      "anchor": "def test_source_runtime_llvm_and_base_gi_dependencies"
+    },
+    "EDIT-native-application": {
+      "file": "tools/sqgipkg_gui/tests/gtk.nut",
+      "anchor": "PASS EDIT-native-application"
+    },
+    "PKG-native-entry": {
+      "file": "tools/sqgipkg_gui/tests/test_contracts.py",
+      "anchor": "def test_native_application_entry_resolution"
+    },
+    "PKG-native-entry-build": {
+      "file": "tools/sqgipkg_tests/test_ergonomics.py",
+      "anchor": "def test_native_recipe_builds_and_stages_entry"
+    },
+    "PKG-sysroot-staging": {
+      "file": "tools/sqgipkg_tests/test_ergonomics.py",
+      "anchor": "def test_package_staging_uses_selected_sysroot_without_shell_probes"
+    },
+    "EDIT-native-library": {
+      "file": "tools/sqgipkg_gui/tests/gtk.nut",
+      "anchor": "PASS EDIT-native-library"
+    },
+    "EDIT-native-library-preservation": {
+      "file": "tools/sqgipkg_gui/tests/test_contracts.py",
+      "anchor": "def test_native_library_preservation"
+    },
+    "PKG-mime-cache": {
+      "file": "tools/sqgipkg_tests/test_ergonomics.py",
+      "anchor": "def test_packaged_mime_database_generation"
+    },
+    "DEL-runner-shutdown": {
+      "file": "tools/sqgipkg_gui/tests/test_study_runner.py",
+      "anchor": "def test_private_runner_pthread_shutdown"
+    },
+    "DEL-process-exit": {
+      "file": "tools/sqgipkg_gui/tests/test_study_runner.py",
+      "anchor": "def test_success_marker_requires_clean_exit"
+    },
+    "EDIT-script-folders": {
+      "file": "tools/sqgipkg_gui/tests/gtk.nut",
+      "anchor": "PASS EDIT-script-folders"
+    },
+    "PKG-template-script-scope": {
+      "file": "tools/sqgipkg_tests/test_ergonomics.py",
+      "anchor": "def test_templates_follow_imports_without_unrelated_scripts"
+    },
+    "PKG-ooblerg-provider": {
+      "file": "tools/sqgipkg_tests/test_ooblerg.py",
+      "anchor": "test_dependency_closure_cache_and_lock"
+    },
+    "PKG-ooblerg-resolution": {
+      "file": "tools/sqgipkg_tests/test_ergonomics.py",
+      "anchor": "test_ooblerg_target_resolution_and_inspection"
+    },
+    "EDIT-windows-provider": {
+      "file": "tools/sqgipkg_gui/tests/gtk.nut",
+      "anchor": "PASS EDIT-windows-provider"
+    },
+    "EDIT-package-search": {
+      "file": "tools/sqgipkg_gui/tests/gtk.nut",
+      "anchor": "PASS EDIT-package-search"
+    },
+    "EDIT-package-search-retry": {
+      "file": "tools/sqgipkg_gui/tests/package_picker.nut",
+      "anchor": "PASS EDIT-package-search-retry"
+    },
+    "EDIT-package-search-cancel-fetch": {
+      "file": "tools/sqgipkg_gui/tests/package_picker.nut",
+      "anchor": "PASS EDIT-package-search-cancel-fetch"
+    },
+    "DEL-runner-unicode": {
+      "file": "tools/sqgipkg_gui/tests/test_study_runner.py",
+      "anchor": "test_private_runner_unicode_filename_conversion"
+    },
+    "DEL-runner-network": {
+      "file": "tools/sqgipkg_gui/tests/test_study_runner.py",
+      "anchor": "test_network_peer_checks_actual_bytes"
+    },
+    "DEL-hidden-child-crash": {
+      "file": "tools/sqgipkg_gui/tests/test_study_runner.py",
+      "anchor": "def test_shell_zero_exit_cannot_hide_qemu_crash"
+    },
+    "DEL-runner-scene": {
+      "file": "tools/sqgipkg_gui/tests/test_study_runner.py",
+      "anchor": "def test_scene_peer_requires_images_and_terrain"
+    },
+    "PKG-native-sdk-export": {
+      "file": "tools/sqgipkg_tests/test_native_sdk.py",
+      "anchor": "def test_meson_export_builds_consumer_and_reset_removes_exports"
+    },
+    "PKG-native-indirect-link": {
+      "file": "tools/sqgipkg_tests/test_ergonomics.py",
+      "anchor": "def test_native_sysroot_indirect_library_link"
+    },
+    "PKG-typelib-compat": {
+      "file": "tools/sqgipkg_tests/test_ooblerg.py",
+      "anchor": "def test_gi_roundtrip_preserves_metadata"
+    },
+    "DEL-actual-scene-display": {
+      "file": "tools/sqgipkg_gui/tests/test_study_runner.py",
+      "anchor": "def test_actual_scene_rejects_unverified_display_before_execution"
+    },
+    "JOB-linux-supervision": {
+      "file": "tools/sqgipkg_gui/tests/test_runner.py",
+      "anchor": "class RunnerTests"
+    },
+    "JOB-gui-failure-cancel": {
+      "file": "tools/sqgipkg_gui/tests/gtk.nut",
+      "anchor": "PASS JOB-gui-failure-cancel"
+    },
+    "JOB-real-package": {
+      "file": "tools/sqgipkg_gui/reports/packaging-field-study-2026-09-25/findings.md",
+      "anchor": "FS-34 real GUI-triggered build acceptance"
+    },
+    "JOB-artifact-results": {
+      "file": "tools/sqgipkg_gui/tests/test_artifacts.py",
+      "anchor": "class Artifacts"
+    },
+    "JOB-gui-artifacts": {
+      "file": "tools/sqgipkg_gui/tests/gtk.nut",
+      "anchor": "PASS JOB-gui-artifacts"
+    },
+    "JOB-idle-close": {
+      "file": "tools/sqgipkg_gui/tests/close.nut",
+      "anchor": "PASS JOB-idle-close"
+    },
+    "EDIT-appearance-languages": {
+      "file": "tools/sqgipkg_gui/tests/appearance.nut",
+      "anchor": "PASS EDIT-appearance-languages"
+    },
+    "JOB-quiet-progress": {
+      "file": "tools/sqgipkg_gui/tests/jobs_progress.nut",
+      "anchor": "PASS JOB-quiet-progress"
+    },
+    "EDIT-desktop-metadata": {
+      "file": "tools/sqgipkg_gui/tests/desktop_metadata.nut",
+      "anchor": "PASS EDIT-desktop-metadata"
+    },
+    "PKG-native-entry-gi": {
+      "file": "tools/sqgipkg_tests/test_ergonomics.py",
+      "anchor": "def test_native_entry_gi_development_dependencies"
+    },
+    "PKG-linux-ooblerg-transport": {
+      "file": "tools/sqgipkg_tests/test_ooblerg.py",
+      "anchor": "test_linux_soname_links_are_materialized_and_unsafe_links_fail"
+    },
+    "PKG-linux-ooblerg-source": {
+      "file": "tools/sqgipkg_tests/test_ergonomics.py",
+      "anchor": "test_linux_ooblerg_preserves_source_and_windows"
+    },
+    "PKG-linux-ooblerg-sdk": {
+      "file": "tools/sqgipkg_tests/test_native_sdk.py",
+      "anchor": "test_ooblerg_relative_include_relocation_records_original"
+    },
+    "EDIT-linux-ooblerg": {
+      "file": "tools/sqgipkg_gui/tests/gtk.nut",
+      "anchor": "PASS EDIT-linux-package-search"
+    },
+    "PKG-linux-ooblerg-runtime": {
+      "file": "tools/sqgipkg_tests/test_ergonomics.py",
+      "anchor": "test_linux_ooblerg_development_seeds_do_not_become_runtime_packages"
     }
   }
 }

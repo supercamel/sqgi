@@ -190,7 +190,8 @@ preparing a cache for CI.
 
 ### `all`
 
-Builds Linux AppImage output, then `win-nsis`. To keep platform artifacts from
+Builds the selected Linux AppImages, then the declared Windows format (`win-nsis`
+by default, or `win-dir` when `platforms.windows.format` is `directory`). To keep platform artifacts from
 overwriting or confusing each other, `all` writes Linux output to
 `<output>-linux-<arch>` and Windows output to `<output>-windows-x86_64` by
 default. With the default output base, that means `dist-linux-x86_64` and
@@ -202,6 +203,32 @@ sets its own `output`.
 
 ```sh
 sqgipkg --target all
+```
+
+For both common Linux CPUs plus a Windows installer, use:
+
+```json
+{
+  "schema_version": 2,
+  "target": "all",
+  "platforms": {
+    "linux": { "architectures": ["x86_64", "aarch64"] },
+    "windows": { "format": "installer" }
+  }
+}
+```
+
+The GUI selects this output set by default for new projects on Linux.
+
+### `appimage-all`
+
+Builds every configured Linux architecture without a Windows output. It uses the
+same architecture matrix and output folders as `all`, including per-architecture
+overrides. With no configured matrix it builds the usual host-default AppImage.
+Check and Explain select the same outputs as Build.
+
+```sh
+sqgipkg --target appimage-all
 ```
 
 ### Cleaning outputs
@@ -231,7 +258,15 @@ sqgipkg --init gtk4
 sqgipkg --init gtk4-gstreamer
 sqgipkg --init native-gobject
 sqgipkg --init native-vala
+sqgipkg --init native-application
 ```
+
+`native-application` starts an existing Meson application directly. Set
+`entry.executable` to its executable name (for example `verminal`) and keep
+`entry.project` matched to the `native` recipe name. Each output uses its own
+build directory; Windows adds `.exe`. Change `native[0].build_system` to `cmake`
+for a CMake project. The GUI exposes these choices in setup and Application.
+The GObject/Vala library templates remain Squirrel applications with a library.
 
 Templates live in the source tree under `tools/sqgipkg_templates/` and are
 installed under `${datadir}/sqgi/sqgipkg_templates/` for reference.
@@ -244,12 +279,16 @@ tools/sqgipkg_templates/
 
 ```json
 {
-  "script_dirs": ["."]
+  "schema_version": 2
 }
 ```
 
 If `script` is omitted and `main.nut` exists beside the manifest, `main.nut` is
 used automatically.
+Literal imports are followed automatically. New templates do not recursively
+include the whole project. Use `script_dirs` for dynamically chosen scripts;
+the GUI's Files page offers Add script folder. A dot includes the project root,
+including unrelated examples/tests in native-library checkouts.
 
 ## Manifest reference
 
@@ -321,6 +360,7 @@ Implemented values:
 
 ```text
 appimage
+appimage-all
 linux-sysroot
 win-dir
 win-nsis
@@ -2479,3 +2519,66 @@ the runner checks exact final double values against an interpreter reference.
 Exclude `test/bench_float_workloads.nut` from PGO training. The
 [floating-call report](https://github.com/supercamel/sqgi/blob/7de5513c2feb807d4587fcece54ba8f88477fe28/devdocs/internals/float-call-optimization-2026-09-08.md)
 records the register-cache changes and before/after measurements.
+
+### Ooblerg Windows packages
+
+`sqgipkg packages --json` browses Ooblerg's Windows x86_64 catalog. It downloads
+metadata only; `--refresh-packages` refreshes the catalog. GUI Runtime/native code
+includes a searchable picker with package descriptions and dependencies.
+
+Set `windows.package_source` to `"ooblerg"` to prepare verified Ooblerg archives in
+a private sysroot. Existing manifests keep MSYS2 by default. With Ooblerg,
+`windows.runtime: "package"` selects prebuilt SQGI for Windows, preserving the
+Linux runtime choice. `windows.packages` adds runtime dependencies such as
+`gserial` and `gworldscene`; `windows.build_packages` supplies development-only
+seeds. A source recipe's `windows_package` names an Ooblerg alternative for
+Windows while preserving the independent Linux source/prebuilt choice. Custom recipes without that
+field still cross-compile. Source-built SQGI uses Ooblerg's LLVM 18 SDK.
+
+Preparation requires Python 3 and uses repository SHA-256 digests, complete
+dependency closures, separate provider sysroots and build directories, and the
+existing package lock/provenance controls. Check/Explain do not fetch packages.
+`windows.download_packages: false` permits only cached verified inputs; a
+compatible repository mirror can be set with `windows.repo_url`. The GUI picker
+currently browses the official Ooblerg catalog. Do not mix MSYS2 package names or
+explicit MSYS2 root/prefix settings with Ooblerg.
+
+
+### Optional Ooblerg Linux bundles
+
+Ubuntu remains the normal Linux package source. To add precompiled Git-source
+libraries, use `linux.ooblerg_packages: ["gserial", "gworldscene"]`. Linux bundles
+are built on Ubuntu 24.04 (`noble`), version-aligned with the Windows stack.
+Selecting them sets an otherwise unspecified suite to `noble`; an explicit
+incompatible suite is rejected. `linux.packages` still names Ubuntu packages.
+
+Browse either CPU without installing anything:
+
+```sh
+sqgipkg packages --package-target x86_64-linux-gnu --json
+sqgipkg packages --package-target aarch64-linux-gnu --json
+```
+
+In the GUI, open **Runtime/native code → Linux packages**, choose the catalog
+CPU and search. Selections apply to the selected Linux outputs; build resolves
+and verifies each CPU separately. Missing packages fail with a diagnostic.
+The picker identifies its CPU and Ubuntu baseline; browsing or cancelling does
+not change the manifest.
+
+For an existing native library, set `native[].linux_package: "gserial"` to
+explicitly replace its Linux source build. Its local directory or pinned Git
+recipe is preserved. Clear the field to build from source again. Windows uses
+its independent `windows_package` setting. A package is never an implicit
+replacement or a silent fallback for a failed source build. Application entry
+recipes cannot be replaced this way.
+
+Preparation verifies archive SHA-256 and ELF architecture, records target-specific
+provenance, and adds headers, pkg-config, Vala and GI files to a private Ubuntu
+SDK copy. Only runtime files enter the AppDir. Conflicting files are rejected;
+existing SDKs are not overwritten. Ubuntu development dependencies identified
+from pkg-config are prepared automatically; additional dependencies can be
+specified in `linux.packages`. Unresolved runtime libraries fail the build.
+Check and Explain perform no repository fetches. `linux.download_packages:
+false` disables network preparation; cached inputs and a suitable private SDK
+must already exist. `linux.ooblerg_repository` overrides the origin; the target
+triplet and `/v1` are appended. The GUI searches the official catalog.

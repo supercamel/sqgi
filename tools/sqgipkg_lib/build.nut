@@ -3,12 +3,63 @@ local Gio = import("Gio")
 local Base = import("doctor.nut")
 
 class SqgiPkgBuild extends Base.SqgiPkgDoctor {
+    build_result_path = null
+    build_result = null
+    build_output_before = null
+    function begin_build_result(opts, path) {
+        local file = Gio.File.new_for_path(this.abs_path(path))
+        // Exclusive creation prevents stale reports and accidental manifest overwrite.
+        local stream = file.create(Gio.FileCreateFlags.private, null)
+        stream.close(null)
+        build_result_path = file.get_path()
+        build_output_before = {}
+        build_result = { protocol_version = 1, status = "running",
+            manifest_sha256 = opts.manifest == "" ? null : this.file_sha256(opts.manifest),
+            expected_outputs = this.selected_configurations(opts).len(), artifacts = [] }
+        this.finish_build_result("running")
+    }
+    function finish_build_result(status) {
+        if (build_result == null) return
+        build_result.status = status
+        Gio.File.new_for_path(build_result_path).replace_contents(sqgi.json.stringify(build_result), null, false, Gio.FileCreateFlags.private, null)
+    }
+    function report_build_progress(opts, phase) {
+        if (build_result == null) return
+        build_result.progress <- { target = opts.target,
+            architecture = this.starts_with(opts.target, "win-") ? "x86_64" : opts.appimage_arch,
+            phase = phase, completed = build_result.artifacts.len() }
+        this.finish_build_result("running")
+    }
+    function output_identity(path) {
+        local file = Gio.File.new_for_path(this.abs_path(path))
+        if (!file.query_exists(null)) return null
+        local info = file.query_info("etag::value,id::file", Gio.FileQueryInfoFlags.nofollow_symlinks, null)
+        return info.get_attribute_as_string("etag::value") + "|" + info.get_attribute_as_string("id::file")
+    }
+    function begin_build_output(path) {
+        if (build_result != null) build_output_before[this.abs_path(path)] <- this.output_identity(path)
+    }
+    function report_build_artifact(opts, path, kind) {
+        if (build_result == null) return
+        local file = Gio.File.new_for_path(this.abs_path(path))
+        local info = file.query_info("standard::type,standard::size", Gio.FileQueryInfoFlags.nofollow_symlinks, null)
+        local directory = kind == "windows-directory"
+        if (file.get_path() in build_output_before && build_output_before[file.get_path()] != null &&
+            build_output_before[file.get_path()] == this.output_identity(path))
+            this.fail("Build tool did not replace the previous output: " + file.get_path())
+        if (info.get_file_type() != (directory ? Gio.FileType.directory : Gio.FileType.regular) || (!directory && info.get_size() <= 0))
+            this.fail("Build did not produce the expected output: " + file.get_path())
+        build_result.artifacts.push({ target = opts.target, architecture = this.starts_with(opts.target, "win-") ? "x86_64" : opts.appimage_arch,
+            kind = kind, path = file.get_path(), size = directory ? null : info.get_size() })
+        this.report_build_progress(opts, "complete")
+    }
+
     function selected_configurations(opts) {
-        if (this.starts_with(opts.target, "win-")) return [opts]
-        local out = []
+        if (this.starts_with(opts.target, "win-")) { this.resolve_native_recipe_entry(opts); return [opts] }
+        local out = [], matrix = opts.target == "all" || opts.target == "appimage-all"
         foreach (config in this.effective_linux_arches(opts)) {
-            if (opts.target == "all" || config.arch == opts.appimage_arch) {
-                local output = opts.target == "all" ? (config.output != "" ? config.output : opts.output_dir + "-linux-" + this.linux_arch_display_suffix(config.arch)) : opts.output_dir
+            if (matrix || config.arch == opts.appimage_arch) {
+                local output = matrix ? (config.output != "" ? config.output : opts.output_dir + "-linux-" + this.linux_arch_display_suffix(config.arch)) : opts.output_dir
                 local selected = this.clone_opts_for_linux_arch(opts, config, output)
                 if (opts.target == "linux-sysroot") selected.target = opts.target
                 out.push(selected)
@@ -16,7 +67,7 @@ class SqgiPkgBuild extends Base.SqgiPkgDoctor {
         }
         if (out.len() == 0) {
             local linux = clone opts
-            if (opts.target == "all") { linux.target = "appimage"; linux.output_dir += "-linux-" + opts.appimage_arch }
+            if (matrix) { linux.target = "appimage"; linux.output_dir += "-linux-" + opts.appimage_arch }
             out.push(linux)
         }
         if (opts.target == "all") {
@@ -26,6 +77,7 @@ class SqgiPkgBuild extends Base.SqgiPkgDoctor {
             windows.report = this.new_report()
             out.push(windows)
         }
+        foreach (selected in out) this.resolve_native_recipe_entry(selected)
         return out
     }
 
@@ -59,8 +111,10 @@ class SqgiPkgBuild extends Base.SqgiPkgDoctor {
         this.stage_native_projects(opts, appdir)
         if (opts.entry_type == "native")
             entry_rel = this.copy_linux_native_entry(opts, appdir)
+        this.report_build_progress(opts, "collecting")
         this.stage_extra_files(opts, appdir, staged_scripts)
         this.stage_linux_packages(opts, appdir)
+        this.stage_linux_ooblerg(opts, appdir)
         this.copy_linux_elf_dependencies(opts, appdir)
         this.postprocess_extra_files(appdir)
         this.write_linux_gtk_settings(opts, appdir)
@@ -89,14 +143,21 @@ class SqgiPkgBuild extends Base.SqgiPkgDoctor {
     }
 
     function build_appimage(opts) {
+        this.report_build_progress(opts, "preparing")
+        this.resolve_native_recipe_entry(opts)
         this.begin_inputs(opts)
         this.mkdir_p(opts.output_dir)
 
         this.scan_project_imports(opts)
+        this.apply_linux_ooblerg_defaults(opts)
         this.apply_linux_package_defaults(opts)
+        this.prepare_linux_ooblerg(opts)
         this.ensure_linux_deb_sysroot_packages(opts)
+        this.prepare_native_sdk(opts)
+        this.compose_linux_ooblerg(opts)
         this.prepare_linux_build_environment(opts)
         this.validate_linux_build_dir_state(opts)
+        this.report_build_progress(opts, "building")
         this.run_linux_build_commands(opts)
         this.build_runtime_recipe(opts)
 
@@ -106,10 +167,13 @@ class SqgiPkgBuild extends Base.SqgiPkgDoctor {
 
         local appimagetool = this.resolve_appimagetool(opts)
 
+        this.report_build_progress(opts, "packaging")
+        this.begin_build_output(appimage)
         this.info("building AppImage for " + opts.appimage_arch)
         local status = system("ARCH=" + this.shell_quote(opts.appimage_arch) + " " +
             this.shell_quote(appimagetool) + " " + this.shell_quote(appdir) + " " + this.shell_quote(appimage))
         if (status != 0) this.fail("building AppImage failed")
+        this.report_build_progress(opts, "verifying")
         this.require_elf_appimage_arch(appimage, opts.appimage_arch, "AppImage")
 
         this.print_report(opts, appdir, appimage)
@@ -122,6 +186,7 @@ class SqgiPkgBuild extends Base.SqgiPkgDoctor {
         }
 
         this.finish_inputs(opts, appimage)
+        this.report_build_artifact(opts, appimage, "appimage")
         this.info("wrote " + appimage)
     }
 
@@ -146,8 +211,12 @@ class SqgiPkgBuild extends Base.SqgiPkgDoctor {
         this.mkdir_p(opts.output_dir)
 
         this.scan_project_imports(opts)
+        this.apply_linux_ooblerg_defaults(opts)
         this.apply_linux_package_defaults(opts)
+        this.prepare_linux_ooblerg(opts)
         this.ensure_linux_deb_sysroot_packages(opts)
+        this.prepare_native_sdk(opts)
+        this.compose_linux_ooblerg(opts)
         this.prepare_linux_build_environment(opts)
         if (this.linux_has_cross_build_work(opts))
             this.validate_linux_build_dir_state(opts)
@@ -225,28 +294,35 @@ class SqgiPkgBuild extends Base.SqgiPkgDoctor {
     }
 
     function build_windows_dir(opts) {
+        this.report_build_progress(opts, "preparing")
         this.mkdir_p(opts.output_dir)
         local windir = this.stage_windows_dir(opts)
         this.print_report(opts, windir, null)
         this.finish_inputs(opts, windir)
+        this.report_build_artifact(opts, windir, "windows-directory")
         this.info("wrote Windows dist directory " + windir)
     }
 
     function build_windows_nsis(opts) {
+        this.report_build_progress(opts, "preparing")
         local nsis = this.executable_path(opts.windows.nsis)
         if (nsis == null && !opts.nsis_script_only) this.fail("Windows installer requires makensis; install NSIS or select --target win-dir")
         this.mkdir_p(opts.output_dir)
         local windir = this.stage_windows_dir(opts)
+        this.report_build_progress(opts, "packaging")
         local script = this.write_nsis_script(opts, windir)
 
         this.print_report(opts, windir, null)
 
-        if (opts.nsis_script_only) { this.info("wrote NSIS script: " + script); return }
+        if (opts.nsis_script_only) { this.report_build_artifact(opts, script, "nsis-script"); this.info("wrote NSIS script: " + script); return }
+        this.begin_build_output(GLib.build_filenamev([opts.output_dir, this.nsis_installer_name(opts, this.package_basename(opts.name))]))
         this.info("building NSIS installer")
         this.run_process([nsis, this.basename(script)], "building NSIS installer", this.abs_path(opts.output_dir))
+        this.report_build_progress(opts, "verifying")
         if (!this.path_exists(GLib.build_filenamev([opts.output_dir, this.nsis_installer_name(opts, this.package_basename(opts.name))])))
             this.fail("NSIS completed without producing the requested installer")
         this.finish_inputs(opts, GLib.build_filenamev([opts.output_dir, this.nsis_installer_name(opts, this.package_basename(opts.name))]))
+        this.report_build_artifact(opts, GLib.build_filenamev([opts.output_dir, this.nsis_installer_name(opts, this.package_basename(opts.name))]), "nsis-installer")
         this.info("wrote " + GLib.build_filenamev([opts.output_dir, this.nsis_installer_name(opts, this.package_basename(opts.name))]))
     }
 
@@ -412,33 +488,15 @@ class SqgiPkgBuild extends Base.SqgiPkgDoctor {
     }
 
     function build_all(opts) {
-        this.info("building all distribution targets")
-
-        local base_output = opts.output_dir
-        local linux_arches = this.effective_linux_arches(opts)
-
-        if (linux_arches.len() == 0) {
-            opts.target = "appimage"
-            opts.output_dir = base_output + "-linux-" + this.linux_arch_display_suffix(opts.appimage_arch)
-            opts.report = this.new_report()
-            this.build_selected_appimage(opts)
-        } else {
-            foreach (config in linux_arches) {
-                local output_dir = config.output != ""
-                    ? config.output
-                    : (base_output + "-linux-" + this.linux_arch_display_suffix(config.arch))
-                local linux_opts = this.clone_opts_for_linux_arch(opts, config, output_dir)
-                this.build_appimage(linux_opts)
-            }
+        this.info(opts.target == "appimage-all" ? "building selected Linux AppImages" : "building all distribution targets")
+        // Check, Explain and Build share exactly the same matrix selection.
+        foreach (config in this.selected_configurations(opts)) {
+            config.report = this.new_report()
+            if (config.target == "appimage") this.build_appimage(config)
+            else if (config.target == "win-dir") this.build_windows_dir(config)
+            else if (config.target == "win-nsis") this.build_windows_nsis(config)
+            else this.fail("unsupported matrix output: " + config.target)
         }
-
-        opts.target = opts.windows_format == "directory" ? "win-dir" : "win-nsis"
-        opts.output_dir = base_output + "-windows-x86_64"
-        opts.report = this.new_report()
-        if (opts.target == "win-dir") this.build_windows_dir(opts)
-        else this.build_windows_nsis(opts)
-
-        opts.output_dir = base_output
     }
 
 }

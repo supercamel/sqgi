@@ -17,7 +17,7 @@ class FieldEditor {
         document = doc; parent = window; base_dir = directory; on_change = changed
         dialogs = []; controls = {}
     }
-    function edit(path, spec = null) {
+    function edit(path, spec = null, on_close = null) {
         if (!document.valid) throw "Fix JSON syntax before editing fields"
         if (spec == null) spec = C.path_schema(path)
         local self = this
@@ -37,7 +37,7 @@ class FieldEditor {
         local body = W.padded(W.box()), error = W.label("")
         dialog.get_content_area().append(W.scroll(body)); dialog.get_content_area().append(error)
         dialogs.push(dialog)
-        local redraw = null
+        local redraw = null, show_all = false
         local mutate = function(action) {
             try { action(); self.on_change(); error.set_text(""); redraw() } catch (e) { error.set_text("Error: " + e) }
         }
@@ -45,6 +45,10 @@ class FieldEditor {
             W.clear(body)
             local present = self.document.has(path), value = self.document.get(path)
             body.append(W.label(D.path_label(path) + (present ? " — configured" : " — unset (sqgipkg default)")))
+            local parent_spec = clone path; if (parent_spec.len()) parent_spec.pop()
+            local parent_def = C.value_definition(C.path_schema(parent_spec), self.document.get(parent_spec))
+            if (path.len() && typeof(path.top()) == "string") body.append(W.label(C.info(parent_def == null ? "" : parent_def, path.top()).help))
+            body.append(W.label("Advanced editor. Unset removes this override; resolve the plan to see the resulting value. Changes apply immediately and can be undone in the main window."))
             local variants = C.variants(spec), typebar = W.box(false)
             foreach (variant in variants) {
                 local part = variant
@@ -63,20 +67,27 @@ class FieldEditor {
                 foreach (key, _ in properties) keys.push(key)
                 foreach (key, _ in value) if (!(key in properties)) keys.push(key)
                 keys.sort()
-                local def = C.definition(spec)
+                local def = C.value_definition(spec, value)
+                local more = Gtk.CheckButton.new_with_label("Show all nested settings, including unset advanced fields")
+                more.set_active(show_all); more.connect("toggled", function() { show_all = more.get_active(); redraw() }); body.append(more)
+                self.controls[D.path_label(path) + ".advanced"] <- more
+                local visible = 0
                 // Limit rendered rows while keeping every field/item reachable.
                 foreach (key in keys) {
                     local field = key, child = clone path; child.push(field)
                     local child_spec = field in properties ? properties[field] : ("additionalProperties" in selected && typeof(selected.additionalProperties) == "table" ? selected.additionalProperties : {})
                     local meta = C.info(def == null ? "" : def, field)
+                    if (!show_all && !meta.common && !(field in value)) continue
+                    visible++
                     local row = W.box(false), title = W.label(meta.label + "  [" + field + "]" + (field in value ? " • configured" : " • default"))
                     title.set_hexpand(true); title.set_tooltip_text(meta.help); row.append(title)
-                    local edit_button = W.button(field in value ? "Edit" : "Set…", function() { self.edit(child, child_spec) })
-                    controls[D.path_label(child)] <- edit_button
+                    local edit_button = W.button(field in value ? "Edit" : "Set…", function() { self.edit(child, child_spec, redraw) })
+                    self.controls[D.path_label(child)] <- edit_button
                     row.append(edit_button)
                     row.append(W.button("Reset", function() { mutate(function() { self.document.unset(child) }) }))
                     body.append(row)
                 }
+                if (!visible) body.append(W.label("No settings are configured here. Show all nested settings to add an override."))
                 if (!("additionalProperties" in selected) || selected.additionalProperties != false) {
                     local row = W.box(false), keyentry = W.entry(); keyentry.set_placeholder_text("New map key")
                     row.append(keyentry)
@@ -87,7 +98,7 @@ class FieldEditor {
                         if (self.document.has(child)) { error.set_text("That key already exists"); return }
                         local child_spec = "additionalProperties" in selected && typeof(selected.additionalProperties) == "table" ? selected.additionalProperties : { type = "string" }
                         mutate(function() { self.document.set(child, C.initial(child_spec)) })
-                        self.edit(child, child_spec)
+                        self.edit(child, child_spec, redraw)
                     }))
                     body.append(row)
                 }
@@ -107,7 +118,7 @@ class FieldEditor {
                         local row = W.box(false), preview = D.pretty(value[index])
                         if (GLib.utf8_strlen(preview, -1) > 100) preview = GLib.utf8_substring(preview, 0, 100) + "…"
                         local title = W.label(index + ": " + preview); title.set_hexpand(true); row.append(title)
-                        row.append(W.button("Edit", function() { self.edit(child, item_spec) }))
+                        row.append(W.button("Edit", function() { self.edit(child, item_spec, redraw) }))
                         row.append(W.button("↑", function() { if (index > 0) mutate(function() { local items = self.document.get(path); local item = items.remove(index); items.insert(index - 1, item); self.document.set(path, items) }) }))
                         row.append(W.button("↓", function() { mutate(function() { local items = self.document.get(path); if (index + 1 < items.len()) { local item = items.remove(index); items.insert(index + 1, item); self.document.set(path, items) } }) }))
                         row.append(W.button("Remove", function() { mutate(function() { self.document.unset(child) }) }))
@@ -118,12 +129,12 @@ class FieldEditor {
                 local add = W.button("Add item", function() {
                     local child = clone path; child.push(self.document.get(path).len())
                     mutate(function() { self.document.set(child, C.initial(item_spec)) })
-                    self.edit(child, item_spec)
-                }); body.append(add); controls[D.path_label(path) + ".add"] <- add
+                    self.edit(child, item_spec, redraw)
+                }); body.append(add); self.controls[D.path_label(path) + ".add"] <- add
             } else {
                 local input = kind == "boolean" ? W.dropdown(["False", "True"]) : W.entry(value.tostring())
                 if (kind == "boolean") input.set_selected(value ? 1 : 0)
-                controls[D.path_label(path) + ".value"] <- input
+                self.controls[D.path_label(path) + ".value"] <- input
                 local title = W.label("Value (" + kind + ")"); title.set_mnemonic_widget(input); body.append(title); body.append(input)
                 local apply = W.button("Apply value", function() {
                     mutate(function() {
@@ -135,10 +146,10 @@ class FieldEditor {
                         }
                         self.document.set(path, setting)
                     })
-                }); body.append(apply); controls[D.path_label(path) + ".apply"] <- apply
-                if (kind == "string") {
+                }); body.append(apply); self.controls[D.path_label(path) + ".apply"] <- apply
+                if (kind == "string" && C.is_input_path(path)) {
                     local browse = W.box(false)
-                    foreach (directory in [false, true]) {
+                    foreach (directory in C.is_plugin_path(path) ? [false] : [false, true]) {
                         local is_dir = directory
                         browse.append(W.button(is_dir ? "Choose folder…" : "Choose file…", function() {
                             W.choose(dialog, is_dir ? Gtk.FileChooserAction.select_folder : Gtk.FileChooserAction.open, path_base, function(filename) {
@@ -152,7 +163,10 @@ class FieldEditor {
                 }
             }
         }
-        dialog.connect("response", function(_) { dialog.destroy(); self.on_change() })
+        dialog.connect("response", function(_) {
+            dialog.destroy(); self.on_change()
+            if (on_close != null) on_close()
+        })
         redraw(); dialog.present()
         return dialog
     }

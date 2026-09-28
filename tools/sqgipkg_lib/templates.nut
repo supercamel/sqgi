@@ -4,13 +4,16 @@ local Base = import("windows/nsis.nut")
 
 class SqgiPkgTemplates extends Base.SqgiPkgWindowsNsis {
     function template_manifest(name) {
-        local manifest = { schema_version = 2, script_dirs = ["."] }
+        local manifest = { schema_version = 2 }
         if (name == "simple") {}
         else if (name == "gtk4" || name == "gtk4-gstreamer") {
             manifest.features <- name == "gtk4" ? ["gtk4"] : ["gtk4", "gstreamer"]
         } else if (name == "native-gobject" || name == "native-vala") {
             manifest.native <- [{ dir = "native", build_system = "meson" }]
-        } else this.fail("unknown template '" + name + "'; use simple, gtk4, gtk4-gstreamer, native-gobject, or native-vala")
+        } else if (name == "native-application") {
+            manifest.entry <- { type = "native", project = "app", executable = "my-app" }
+            manifest.native <- [{ name = "app", dir = ".", build_system = "meson" }]
+        } else this.fail("unknown template '" + name + "'; use simple, gtk4, gtk4-gstreamer, native-gobject, native-vala, or native-application")
         return sqgi.json.stringify(manifest) + "\n"
     }
 

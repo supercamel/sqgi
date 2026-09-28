@@ -7,6 +7,7 @@ runtime = GLib.find_program_in_path(runtime == null ? "sqgi" : runtime)
 local cli = GLib.build_filenamev([root, "sqgipkg"])
 if (!Gio.File.new_for_path(cli).query_exists(null)) cli = GLib.build_filenamev([root, "sqgipkg.nut"])
 function command(action, path) { return ["sqgipkg", action, "--manifest", path] }
+function build_command(path) { return [runtime, cli, "build", "--manifest", path] }
 function printable(argv) {
     local windows = import("system").os.name.tolower().find("windows") != null
     local out = windows ? "&" : ""
@@ -25,14 +26,16 @@ class Inspection {
     child = null
     cancelled = false
     busy = false
-    async function run(action, text, base_dir) {
+    async function run(action, text, base_dir, refresh = false, package_target = null) {
         if (busy) throw "An inspection is already running"
-        if (action != "check" && action != "explain" && action != "describe") throw "Only local inspection is available"
+        if (["check", "explain", "describe", "packages"].find(action) == null) throw "Unsupported backend action"
         if (runtime == null) throw "Cannot locate SQGI; set SQGI_GUI_RUNTIME"
         busy = true; cancelled = false
         try {
             local argv = [runtime, cli, action, "--json"]
-            if (action != "describe") foreach (arg in ["--manifest", "-", "--base-dir", base_dir]) argv.push(arg)
+            if (action == "check" || action == "explain") foreach (arg in ["--manifest", "-", "--base-dir", base_dir]) argv.push(arg)
+            if (action == "packages" && package_target != null) { argv.push("--package-target"); argv.push(package_target) }
+            if (action == "packages" && refresh) argv.push("--refresh-packages")
             local launcher = Gio.SubprocessLauncher.new(Gio.SubprocessFlags.stdin_pipe | Gio.SubprocessFlags.stdout_pipe | Gio.SubprocessFlags.stderr_pipe)
             launcher.set_cwd(base_dir)
             child = launcher.spawnv(argv)
@@ -48,4 +51,4 @@ class Inspection {
     }
     function cancel() { if (child != null && busy) { cancelled = true; child.force_exit() } }
 }
-return { Inspection = Inspection, command = command, printable = printable }
+return { Inspection = Inspection, command = command, printable = printable, build_command = build_command }

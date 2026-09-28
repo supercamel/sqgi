@@ -2,9 +2,11 @@
 """Offline CLI/recipe regressions, runnable from PowerShell or a POSIX terminal."""
 import ctypes
 import json
+import lzma
 import os
 from pathlib import Path
 import shutil
+import shlex
 import subprocess
 import struct
 import tarfile
@@ -38,6 +40,176 @@ class Ergonomics(unittest.TestCase):
     def manifest(self, data):
         (self.root / 'sqgipkg.json').write_text(json.dumps(data), encoding='utf8')
 
+    @unittest.skipUnless(shutil.which('cc') and shutil.which('readelf'), 'ELF compiler required')
+    def test_native_sysroot_indirect_library_link(self):
+        module = json.dumps((ROOT / 'tools/sqgipkg_lib/build.nut').as_posix())
+        triplet = subprocess.check_output(['cc', '-dumpmachine'], text=True).strip()
+        sysroot = self.root / 'private SDK'
+        libdir = sysroot / 'usr/lib' / triplet
+        nested = libdir / 'blas'
+        nested.mkdir(parents=True)
+        leaf = self.root / 'leaf.c'
+        leaf.write_text('int study_leaf(void) { return 43; }')
+        middle = self.root / 'middle.c'
+        middle.write_text('extern int study_leaf(void); int study_middle(void) { return study_leaf(); }')
+        main = self.root / 'main.c'
+        main.write_text('extern int study_middle(void); int main(void) { return study_middle(); }')
+        def cc(*args):
+            return subprocess.run(['cc', *map(str, args)], capture_output=True, text=True)
+        for args in [
+            ['-nostdlib', '-shared', '-fPIC', leaf, '-Wl,-soname,libstudy_leaf.so', '-o', nested / 'libstudy_leaf.so'],
+            ['-nostdlib', '-shared', '-fPIC', middle, '-L' + str(nested), '-lstudy_leaf', '-o', libdir / 'libstudy_middle.so']]:
+            result = cc(*args)
+            self.assertEqual(result.returncode, 0, result.stderr)
+        link = ['-nostdlib', '-Wl,-e,main', main, '-L' + str(libdir), '-lstudy_middle', '-o', self.root / 'consumer']
+        baseline = cc(*link)
+        self.assertNotEqual(baseline.returncode, 0, 'Fixture must require indirect dependency discovery')
+        self.assertIn('study_leaf', baseline.stderr)
+        flags = self.run_script(f'''local B = import({module}), p = B.SqgiPkgBuild(), opts = p.new_options()
+opts.linux.sysroot = {json.dumps(str(sysroot))}
+opts.appimage_arch = p.normalize_appimage_arch(p.machine_arch())
+print(p.linux_native_sysroot_ldflags(opts))
+''')
+        result = cc(*shlex.split(flags), *link)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        dynamic = subprocess.check_output(['readelf', '-d', str(self.root / 'consumer')], text=True)
+        self.assertNotIn('(RPATH)', dynamic)
+        self.assertNotIn('(RUNPATH)', dynamic)
+
+    def test_ooblerg_target_resolution_and_inspection(self):
+        value = {'schema_version': 2, 'entry': 'main.nut', 'target': 'all',
+                 'platforms': {'linux': {'architectures': ['x86_64', 'aarch64']}},
+                 'runtime': {'source': '.'}, 'windows': {'package_source': 'ooblerg', 'runtime': 'package'},
+                 'native': [{'name': 'serial', 'dir': 'native', 'build_system': 'meson', 'windows_package': 'gserial'}]}
+        self.manifest(value)
+        before = sorted(p.relative_to(self.root) for p in self.root.rglob('*'))
+        result = json.loads(self.run_pkg('explain', '--json'))
+        self.assertEqual(before, sorted(p.relative_to(self.root) for p in self.root.rglob('*')))
+        windows = result['configurations'][-1]
+        self.assertEqual(windows['package_source'], 'ooblerg')
+        self.assertEqual(windows['runtime']['package'], 'sqgi')
+        self.assertFalse(windows['runtime']['recipe'])
+        self.assertEqual(windows['runtime']['commands'], [])
+        self.assertIn('gserial', windows['packages'])
+        self.assertEqual(windows['native'][0]['commands'], [])
+        for linux in result['configurations'][:-1]:
+            self.assertTrue(linux['runtime']['recipe'])
+            self.assertGreater(len(linux['native'][0]['commands']), 0)
+        value['native'][0]['stage'] = False
+        self.manifest(value)
+        dev = json.loads(self.run_pkg('explain', '--json'))['configurations'][-1]
+        self.assertIn('gserial', dev['build_packages'])
+        self.assertNotIn('gserial', dev['packages'])
+        value['windows']['runtime'] = 'inherit'
+        self.manifest(value)
+        plan = json.loads(self.run_pkg('explain', '--json'))['configurations'][-1]
+        configure = plan['runtime']['commands'][0]
+        self.assertTrue(any('_ooblerg-x86_64/mingw64/lib/LLVM-C.lib' in a for a in configure))
+        self.assertIn('llvm18', plan['packages'])
+        value['windows']['package_source'] = 'msys2'
+        self.manifest(value)
+        self.assertIn('requires the Ooblerg', self.run_pkg('explain', '--json', ok=False))
+
+    def test_linux_ooblerg_development_seeds_do_not_become_runtime_packages(self):
+        module = json.dumps((ROOT / 'tools/sqgipkg_lib/build.nut').as_posix())
+        self.run_script(f'''
+local Core = import({module})
+local p = Core.SqgiPkgBuild(), opts = p.new_options()
+opts.target = "appimage"; opts.appimage_arch = "aarch64"; opts.entry_type = "native"
+opts.linux_ooblerg <- {{ build_packages = ["libglib2.0-dev", "libgdal-dev"] }}
+local seeds = p.linux_deb_sysroot_seed_packages(opts)
+if (seeds.find("libglib2.0-dev:arm64") == null || seeds.find("libgdal-dev:arm64") == null) throw "development inputs missing"
+if (opts.linux.deb.packages.len()) throw "development seeds leaked into runtime package list"
+opts.native_projects = [{{ linux_package = "gserial", gi = {{ strategy = "host" }} }}]
+if (p.linux_required_pkg_config_modules(opts).find("gobject-introspection-1.0") != null) throw "prebuilt replacement requires source GI tools"
+opts.native_projects[0].linux_package = ""
+if (p.linux_required_pkg_config_modules(opts).find("gobject-introspection-1.0") == null) throw "source GI requirement lost"
+foreach (path in ["/usr/share/pkgconfig/shared-mime-info.pc", "/usr/lib/aarch64-linux-gnu/glib-2.0/include/glibconfig.h", "/usr/share/vala/vapi/serial.vapi", "/usr/share/gir-1.0/Serial.gir"])
+    if (p.linux_package_dest_for_staging(opts, path, false, false) != null) throw "development file staged: " + path
+if (p.linux_package_dest_for_staging(opts, "/usr/share/mime/mime.cache", false, false) == null) throw "runtime data lost"
+if (p.linux_package_dest_for_staging(opts, "/usr/lib/aarch64-linux-gnu/libserial.so.1", false, false) == null) throw "runtime library lost"
+''')
+
+    def test_linux_ooblerg_preserves_source_and_windows(self):
+        value = {'schema_version': 2, 'entry': 'main.nut', 'target': 'all',
+                 'platforms': {'linux': {'architectures': ['x86_64', 'aarch64']}},
+                 'linux': {'ooblerg_packages': ['gworldscene']},
+                 'windows': {'package_source': 'ooblerg'},
+                 'native': [{'name': 'serial', 'repo': 'https://invalid.example/gserial', 'ref': 'a'*40,
+                             'build_system': 'meson', 'linux_package': 'gserial', 'windows_package': 'gserial'}]}
+        self.manifest(value)
+        before = sorted(p.relative_to(self.root) for p in self.root.rglob('*'))
+        plans = json.loads(self.run_pkg('explain', '--json'))['configurations']
+        self.assertEqual(before, sorted(p.relative_to(self.root) for p in self.root.rglob('*')))
+        for linux in plans[:-1]:
+            self.assertEqual(linux['linux_suite'], 'noble')
+            self.assertEqual(linux['package_source'], 'ubuntu')
+            self.assertEqual(linux['ooblerg_packages'], ['gworldscene', 'gserial'])
+            self.assertEqual(linux['native'][0]['commands'], [])
+        self.assertIn('gserial', plans[-1]['packages'])
+        value['native'][0]['stage'] = False
+        self.manifest(value)
+        build_only = json.loads(self.run_pkg('explain', '--json'))['configurations'][0]
+        self.assertIn('gserial', build_only['ooblerg_build_packages'])
+        self.assertNotIn('gserial', build_only['ooblerg_packages'])
+        del value['native'][0]['stage']
+        del value['native'][0]['linux_package']
+        self.manifest(value)
+        plans = json.loads(self.run_pkg('explain', '--json'))['configurations']
+        self.assertTrue(plans[0]['native'][0]['commands'])
+        self.assertFalse(plans[-1]['native'][0]['commands'])
+        value['linux']['suite'] = 'jammy'
+        self.manifest(value)
+        self.assertIn('Ubuntu 24.04/noble', self.run_pkg('explain', '--json', ok=False))
+        del value['linux']['ooblerg_packages']
+        self.manifest(value)
+        self.assertEqual(json.loads(self.run_pkg('explain', '--json'))['configurations'][0]['linux_suite'], 'jammy')
+
+    @unittest.skipUnless(shutil.which('makensis'), 'NSIS required')
+    def test_nsis_bootstrap_matches_x86_64_payload(self):
+        module = json.dumps((ROOT / 'tools/sqgipkg_lib/build.nut').as_posix())
+        self.run_script(f'''
+local Core = import({module})
+local p = Core.SqgiPkgBuild(), opts = p.new_options()
+opts.name = "Installer Probe"; opts.target = "win-nsis"; opts.output_dir = "dist"
+p.mkdir_p("dist/Installer Probe")
+p.write_file("dist/Installer Probe/Installer Probe.bat", "@echo off\\r\\n")
+p.write_nsis_script(opts, "dist/Installer Probe")
+''')
+        subprocess.run(['makensis', 'Installer Probe.nsi'], cwd=self.root / 'dist', check=True, capture_output=True)
+        data = (self.root / 'dist/Installer Probe-Setup.exe').read_bytes()
+        offset = struct.unpack_from('<I', data, 0x3c)[0]
+        self.assertEqual(data[offset:offset+4], b'PE\0\0')
+        self.assertEqual(struct.unpack_from('<H', data, offset+4)[0], 0x8664)
+
+    def test_windows_package_runtime_dll_selection(self):
+        module = json.dumps((ROOT / 'tools/sqgipkg_lib/build.nut').as_posix())
+        self.run_script(f'''
+local Core = import({module})
+local p = Core.SqgiPkgBuild()
+if (p.windows_package_dest("mingw64/lib/libscene.dll", "mingw64") != "bin/libscene.dll") throw "lib-directory DLL omitted"
+if (p.windows_package_dest("mingw64/bin/BASE.DLL", "mingw64") != "bin/BASE.DLL") throw "case-sensitive DLL selection"
+if (p.windows_package_dest("mingw64/lib/libscene.dll.a", "mingw64") != null) throw "development import library staged"
+if (p.windows_package_dest("mingw64/lib/gstreamer-1.0/libgstcore.dll.a", "mingw64") != null) throw "plugin import archive staged"
+if (p.windows_package_dest("mingw64/lib/gdk-pixbuf-2.0/loaders/image.dll.a", "mingw64") != null) throw "loader import archive staged"
+if (p.windows_package_dest("mingw64/lib/gstreamer-1.0/libgstcore.dll", "mingw64") == null) throw "runtime plugin lost"
+p.mkdir_p("payload/bin")
+p.write_file("payload/bin/LLVM-C.dll", "test")
+if (p.windows_dll_in_bundle("payload", "llvm-c.DLL") == null) throw "case-sensitive import lookup"
+''')
+
+    def test_ooblerg_runtime_conflicts(self):
+        for extra, error in [({'msys2_root': 'existing'}, 'private sysroot'),
+                             ({'package_source': 'invalid'}, 'must be msys2 or ooblerg'),
+                             ({'runtime': 'invalid'}, 'must be inherit or package')]:
+            self.manifest({'schema_version': 2, 'target': 'win-dir', 'entry': 'main.nut',
+                           'windows': dict({'package_source': 'ooblerg'}, **extra)})
+            self.assertIn(error, self.run_pkg('explain', '--json', ok=False))
+        self.manifest({'schema_version': 2, 'target': 'win-dir', 'entry': 'main.nut',
+                       'runtime': {'source': '.', 'jit': False},
+                       'windows': {'package_source': 'ooblerg', 'runtime': 'package'}})
+        self.assertIn('cannot honor', self.run_pkg('explain', '--json', ok=False))
+
     def test_short_help_and_full_reference(self):
         help_text = self.run_pkg('--help')
         self.assertLess(len(help_text.splitlines()), 32)
@@ -45,6 +217,30 @@ class Ergonomics(unittest.TestCase):
         reference = self.run_pkg('--help-all')
         self.assertIn('--msys2-package-cache', reference)
         self.assertNotIn('all, appdir, tarball', reference)
+
+    def test_templates_follow_imports_without_unrelated_scripts(self):
+        (self.root / 'main.nut').write_text('local value = import("needed.nut")\n')
+        (self.root / 'needed.nut').write_text('local Gst = import("Gst", "1.0"); return { answer = 42 }\n')
+        examples = self.root / 'native/examples'
+        examples.mkdir(parents=True)
+        (examples / 'unrelated.nut').write_text('local Gtk = import("Gtk", "4.0")\n')
+        for name in ['simple', 'gtk4', 'gtk4-gstreamer', 'native-gobject', 'native-vala']:
+            with self.subTest(template=name):
+                manifest = self.root / 'sqgipkg.json'
+                manifest.unlink(missing_ok=True)
+                self.run_pkg('--init', name)
+                value = json.loads(manifest.read_text())
+                self.assertNotIn('script_dirs', value)
+                self.assertEqual(value, json.loads((ROOT / 'tools/sqgipkg_templates' / (name + '.sqgipkg.json')).read_text()))
+        self.manifest({'schema_version': 2, 'entry': 'main.nut', 'target': 'appimage'})
+        plan = json.loads(self.run_pkg('explain', '--json'))['configurations'][0]
+        evidence = plan['discovery']['import_evidence']
+        self.assertTrue(any(item['file'].endswith('needed.nut') for item in evidence), evidence)
+        self.assertFalse(any(item['file'].endswith('unrelated.nut') for item in evidence))
+        self.manifest({'schema_version': 2, 'entry': 'main.nut', 'target': 'appimage', 'script_dirs': ['native/examples']})
+        plan = json.loads(self.run_pkg('explain', '--json'))['configurations'][0]
+        evidence = plan['discovery']['import_evidence']
+        self.assertTrue(any(item['file'].endswith('unrelated.nut') for item in evidence), evidence)
 
     def test_help_with_lf_and_crlf_sources(self):
         module = json.dumps((ROOT / 'tools/sqgipkg_lib/main.nut').as_posix())
@@ -221,6 +417,283 @@ b.finish_inputs(opts, "artifact")
         self.assertIn('example (meson)', output)
         self.assertFalse((self.root / '.sqgipkg').exists())
         self.assertFalse(any(self.root.glob('dist*')))
+
+    def test_local_runtime_source_without_revision(self):
+        relative_source = os.path.relpath(ROOT, self.root)
+        self.manifest({'schema_version': 2, 'runtime': {'source': relative_source},
+                       'target': 'win-dir' if os.name == 'nt' else 'appimage'})
+        plan = json.loads(self.run_pkg('explain', '--json'))
+        self.assertTrue(plan['ok'])
+        runtime = plan['configurations'][0]['runtime']
+        self.assertTrue(runtime['recipe'])
+        configure = runtime['commands'][0]
+        self.assertEqual(Path(configure[configure.index('-S') + 1]).resolve(), ROOT)
+        self.assertIn('-DSQGI_ENABLE_KERNELS=ON', configure)
+        self.assertIn('-DSQ_ENABLE_JIT=ON', configure)
+        self.run_pkg('check')
+        self.assertFalse((self.root / '.sqgipkg').exists())
+
+    def test_runtime_requires_a_usable_source_selection(self):
+        for runtime in [{}, {'jit': True}, {'source': ''}, {'sqgi': ''}]:
+            with self.subTest(runtime=runtime):
+                self.manifest({'schema_version': 2, 'runtime': runtime})
+                self.assertIn('runtime', self.run_pkg('explain', ok=False))
+
+    @unittest.skipIf(os.name == 'nt', 'Linux repository preparation uses POSIX tools')
+    @unittest.skipUnless(shutil.which('xz') and shutil.which('gzip'), 'index decompressors required')
+    def test_repository_refresh_downloads_each_index_once(self):
+        archive = self.root / 'fixture.xz'
+        archive.write_bytes(lzma.compress(b'Package: fixture\nArchitecture: amd64\n\n'))
+        fetcher = self.root / 'fetch.py'
+        fetcher.write_text('''import pathlib, shutil, sys
+root = pathlib.Path(__file__).parent
+with (root / 'downloads.txt').open('a') as log:
+    log.write(sys.argv[1] + '\\n')
+if 'missing' in sys.argv[1]:
+    raise SystemExit(1)
+shutil.copyfile(root / 'fixture.xz', sys.argv[2])
+''')
+        module = json.dumps((ROOT / 'tools/sqgipkg_lib/linux_deps.nut').as_posix())
+        self.run_script(f'''
+local Linux = import({module})
+class Fixture extends Linux.SqgiPkgLinuxDeps {{
+    function linux_repo_index_cache(opts) {{ return {json.dumps(str(self.root / 'indexes'))} }}
+    function downloader_command(url, output) {{
+        return this.shell_quote({json.dumps(sys.executable)}) + " " +
+            this.shell_quote({json.dumps(str(fetcher))}) + " " + this.shell_quote(url) + " " + this.shell_quote(output)
+    }}
+}}
+local fixture = Fixture(), opts = fixture.new_options()
+opts.linux.deb.refresh = true
+local target = {{ uri = "https://fixture.invalid", suite = "test", component = "main", arch = "amd64" }}
+local first = fixture.linux_repo_index_file(opts, target)
+if (first == null) throw "index was not downloaded"
+for (local i = 0; i < 4; i++)
+    if (fixture.linux_repo_index_file(opts, target) != first) throw "index cache changed"
+opts.linux.deb.refresh = false
+if (fixture.linux_repo_index_file(opts, target) != first) throw "disk cache changed"
+opts.linux.deb.refresh = true
+target.arch = "arm64"
+if (fixture.linux_repo_index_file(opts, target) == first) throw "architecture indexes mixed"
+target.component = "missing"
+for (local i = 0; i < 3; i++)
+    if (fixture.linux_repo_index_file(opts, target) != null) throw "missing index returned a path"
+local next_run = Fixture()
+target.component = "main"; target.arch = "amd64"
+if (next_run.linux_repo_index_file(opts, target) == null) throw "new run did not refresh"
+''')
+        downloads = (self.root / 'downloads.txt').read_text().splitlines()
+        self.assertEqual(len(downloads), 5, downloads)
+        self.assertEqual(sum('/main/binary-amd64/' in u for u in downloads), 2)
+        self.assertEqual(sum('/main/binary-arm64/' in u for u in downloads), 1)
+        self.assertEqual(sum('/missing/' in u for u in downloads), 2)
+
+    def test_recipe_private_sysroot_defaults(self):
+        module = json.dumps((ROOT / 'tools/sqgipkg_lib/manifest.nut').as_posix())
+        self.run_script(f'''
+local M = import({module}), pkg = M.SqgiPkgManifest()
+local project_dir = {json.dumps(self.root.as_posix())}
+foreach (recipe in [{{ runtime = {{ source = "sqgi" }} }}, {{ native = [{{ dir = "native", build_system = "meson" }}] }}]) {{
+    local opts = pkg.new_options()
+    pkg.apply_manifest_data(opts, recipe, project_dir)
+    if (!opts.linux.deb.download || opts.linux.deb.suite != "noble") throw "recipe lacks private sysroot default"
+    local explicit = clone recipe; explicit.linux <- {{ deb = {{ download = false, suite = "jammy" }} }}
+    opts = pkg.new_options(); pkg.apply_manifest_data(opts, explicit, project_dir)
+    if (opts.linux.deb.download || opts.linux.deb.suite != "jammy") throw "manifest opt-out lost"
+    opts = pkg.new_options(); opts.linux.deb.download_forced = false
+    pkg.apply_manifest_data(opts, recipe, project_dir)
+    if (opts.linux.deb.download) throw "CLI opt-out lost"
+}}
+local legacy = pkg.new_options(); pkg.apply_manifest_data(legacy, {{ entry = "main.nut" }}, project_dir)
+if (legacy.linux.deb.download) throw "legacy default changed"
+''')
+
+    @unittest.skipIf(os.name == 'nt', 'Linux sysroot preparation uses POSIX tools')
+    def test_refreshed_sysroot_packages_are_installed(self):
+        module = json.dumps((ROOT / 'tools/sqgipkg_lib/linux_deps.nut').as_posix())
+        self.run_script(f'''
+local Linux = import({module}), GLib = import("GLib")
+class Fixture extends Linux.SqgiPkgLinuxDeps {{
+    extracted = 0
+    selected = "fixture_1_amd64.deb"
+    function linux_deb_archive_metadata(opts, name) {{ return {{ basename = selected }} }}
+    function linux_deb_sysroot_seed_packages(opts) {{ return ["fixture:amd64"] }}
+    function resolve_linux_deb_packages(opts, seeds) {{ return seeds }}
+    function ensure_linux_sysroot_compat_links(opts) {{}}
+    function extract_linux_deb_to_sysroot(opts, name) {{
+        extracted++
+        local dir = this.linux_deb_sysroot_package_metadata(opts, name)
+        this.mkdir_p(dir)
+        this.write_file(GLib.build_filenamev([dir, "files"]), "/usr/lib/libfixture.so\\n")
+        this.write_file(GLib.build_filenamev([dir, "archive"]), selected + "\\n")
+    }}
+}}
+local pkg = Fixture(), opts = pkg.new_options()
+opts.linux.sysroot = {json.dumps((self.root / 'sysroot').as_posix())}
+opts.linux.deb.download = true; opts.linux.deb.refresh = true; opts.appimage_arch = "x86_64"
+if (pkg.linux_deb_sysroot_package_installed(opts, "fixture:amd64")) throw "missing package accepted"
+pkg.ensure_linux_deb_sysroot_packages(opts)
+if (!pkg.linux_deb_sysroot_package_installed(opts, "fixture:amd64")) throw "refreshed package still missing"
+if (pkg.extracted != 1) throw "initial extraction missing"
+opts.linux.deb.refresh = false; pkg.ensure_linux_deb_sysroot_packages(opts)
+if (pkg.extracted != 1) throw "current extraction not reused"
+opts.linux.deb.refresh = true; pkg.ensure_linux_deb_sysroot_packages(opts)
+if (pkg.extracted != 2) throw "refresh did not force extraction"
+opts.linux.deb.refresh = false; opts.locked = true; pkg.ensure_linux_deb_sysroot_packages(opts)
+if (pkg.extracted != 3) throw "locked preparation did not re-extract"
+opts.locked = false; pkg.selected = "fixture_2_amd64.deb"
+if (pkg.linux_deb_sysroot_package_installed(opts, "fixture:amd64")) throw "old archive accepted"
+pkg.ensure_linux_deb_sysroot_packages(opts)
+if (pkg.extracted != 4 || !pkg.linux_deb_sysroot_package_installed(opts, "fixture:amd64")) throw "new archive not recognized"
+''')
+
+    def test_native_entry_gi_development_dependencies(self):
+        module = json.dumps((ROOT / 'tools/sqgipkg_lib/build.nut').as_posix())
+        self.run_script(f'''
+local R = import({module})
+class Fixture extends R.SqgiPkgBuild {{
+    function linux_deb_package_available(opts, name) {{ return true }}
+}}
+local pkg = Fixture()
+foreach (arch in ["x86_64", "aarch64"]) {{
+    local opts = pkg.new_options()
+    pkg.apply_manifest_data(opts, {{schema_version=2, entry={{type="native", project="app", executable="app"}},
+        native=[{{name="dep", dir=".", build_system="meson", gi={{namespace="GSerial", version="1.0", library="gserial-1.0", strategy="host"}}}},
+                {{name="app", dir=".", build_system="meson"}}]}}, {json.dumps(self.root.as_posix())})
+    opts.target = "appimage"; opts.appimage_arch = arch
+    local expected = "libgirepository1.0-dev:" + (arch == "aarch64" ? "arm64" : "amd64")
+    if (pkg.linux_deb_sysroot_seed_packages(opts).find(expected) == null) throw "native GI target development seed missing"
+    opts.native_projects[0].gi = null
+    if (pkg.linux_required_pkg_config_modules(opts).find("gobject-introspection-1.0") != null) throw "non-GI native entry acquired introspection"
+}}
+''')
+
+    def test_source_runtime_llvm_and_base_gi_dependencies(self):
+        module = json.dumps((ROOT / 'tools/sqgipkg_lib/build.nut').as_posix())
+        self.run_script(f'''
+local R = import({module})
+class Fixture extends R.SqgiPkgBuild {{
+    function linux_deb_package_available(opts, name) {{ return true }}
+}}
+local pkg = Fixture()
+foreach (arch in ["x86_64", "aarch64"]) {{
+    local opts = pkg.new_options()
+    opts.target = "appimage"; opts.appimage_arch = arch
+    opts.linux.sysroot = {json.dumps((self.root / 'sysroot').as_posix())}
+    opts.linux.deb.download = true; opts.runtime_recipe = true
+    foreach (jit in [true, false]) {{
+        opts.runtime_jit = jit
+        local seeds = pkg.linux_deb_sysroot_seed_packages(opts)
+        local expected = "llvm-18-dev:" + (arch == "aarch64" ? "arm64" : "amd64")
+        if (seeds.find(expected) == null) throw "target LLVM seed missing"
+        local project = pkg.runtime_project(opts), options = project.options
+        if (options.SQGI_LLVM_INCLUDE_DIR != opts.linux.sysroot + "/usr/lib/llvm-18/include") throw "host LLVM headers selected"
+        if (options.SQGI_LLVM_LIBRARY != opts.linux.sysroot + "/usr/lib/" + pkg.linux_current_triplet(opts) + "/libLLVM-18.so") throw "host LLVM library selected"
+        if (options.SQGI_ENABLE_KERNELS != "ON") throw "kernels disabled"
+        local command = pkg.recipe_commands(opts, project, "source")[0]
+        if (command.find("-DSQGI_LLVM_INCLUDE_DIR=" + options.SQGI_LLVM_INCLUDE_DIR) == null) throw "cache override missing"
+    }}
+    pkg.apply_linux_package_defaults(opts); pkg.apply_linux_package_defaults(opts)
+    if (opts.linux.deb.packages.len() != 1 || opts.linux.deb.packages[0] != "gir1.2-glib-2.0") throw "base GI missing or duplicated"
+    opts.runtime_recipe = false
+    if (pkg.linux_deb_sysroot_seed_packages(opts).find("llvm-18-dev:" + pkg.linux_current_deb_arch(opts)) != null) throw "existing runtime needs LLVM development package"
+    opts.entry_type = "native"; opts.runtime_recipe = true
+    if (pkg.linux_deb_sysroot_seed_packages(opts).find("llvm-18-dev:" + pkg.linux_current_deb_arch(opts)) != null) throw "native entry needs SQGI LLVM"
+}}
+local explicit = pkg.new_options()
+pkg.apply_linux_package_defaults(explicit)
+if (explicit.linux.deb.packages.len()) throw "automatic package opt-out ignored"
+''')
+
+    @unittest.skipIf(os.name == 'nt', 'Linux executable staging test')
+    @unittest.skipUnless(shutil.which('meson') and shutil.which('cc'), 'Meson and C compiler required')
+    def test_native_recipe_builds_and_stages_entry(self):
+        (self.root / 'meson.build').write_text("project('entry-test', 'c')\nexecutable('hello', 'hello.c')\n")
+        (self.root / 'hello.c').write_text('#include <stdio.h>\nint main(void) { puts("native-entry=42"); return 0; }\n')
+        module = json.dumps((ROOT / 'tools/sqgipkg_lib/build.nut').as_posix())
+        self.run_script(f'''local B = import({module}), pkg = B.SqgiPkgBuild()
+local opts = pkg.new_options()
+pkg.apply_manifest_data(opts, {{ schema_version = 2, target = "appimage",
+    entry = {{ type = "native", project = "app", executable = "hello" }},
+    native = [{{ name = "app", dir = ".", build_system = "meson" }}],
+    linux = {{ deb = {{ download = false }} }} }}, {json.dumps(self.root.as_posix())})
+pkg.apply_project_defaults(opts)
+local selected = pkg.selected_configurations(opts)[0]
+pkg.run_native_recipe(selected, selected.native_projects[0])
+local staged = pkg.copy_linux_native_entry(selected, "payload")
+if (staged != "usr/bin/hello") throw "wrong staged entry"
+''')
+        result = subprocess.run([str(self.root / 'payload/usr/bin/hello')], text=True, capture_output=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), 'native-entry=42')
+
+    @unittest.skipIf(os.name == 'nt', 'Linux MIME postprocessing')
+    @unittest.skipUnless(shutil.which('update-mime-database'), 'MIME generator required')
+    def test_packaged_mime_database_generation(self):
+        payload = self.root / 'payload'
+        source = payload / 'usr/share/mime/packages/study.xml'
+        source.parent.mkdir(parents=True)
+        source.write_text('''<?xml version="1.0"?>
+<mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
+<mime-type type="application/x-sqgi-packaging-study"><comment>Study file</comment>
+<magic priority="80"><match type="string" value="SQGI-MIME-STUDY" offset="0"/></magic>
+<glob pattern="*.sqgistudy"/></mime-type></mime-info>''')
+        module = json.dumps((ROOT / 'tools/sqgipkg_lib/build.nut').as_posix())
+        self.run_script(f'''local B = import({module}), pkg = B.SqgiPkgBuild()
+pkg.postprocess_extra_files({json.dumps(payload.as_posix())})
+class Missing extends B.SqgiPkgBuild {{
+    function executable_available(name) {{ return name == "update-mime-database" ? false : base.executable_available(name) }}
+}}
+local failed = false
+try {{ Missing().postprocess_extra_files({json.dumps(payload.as_posix())}) }}
+catch (e) {{ failed = e.tostring().find("update-mime-database") != null }}
+if (!failed) throw "missing MIME generator was accepted"
+foreach (feature in ["gtk", "gdk_pixbuf"]) {{
+    local opts = pkg.new_options(); opts.linux.deb.download = true
+    opts.report["used_" + feature] = true
+    pkg.apply_linux_package_defaults(opts); pkg.apply_linux_package_defaults(opts)
+    local count = 0; foreach (name in opts.linux.deb.packages) if (name == "shared-mime-info") count++
+    if (count != 1) throw "MIME dependency missing or duplicated"
+}}
+''')
+        self.assertTrue((payload / 'usr/share/mime/mime.cache').is_file())
+        probe = self.root / 'mime-probe.nut'
+        probe.write_text('local Gio = import("Gio")\nprint(sqgi.json.stringify(Gio.content_type_guess("file.sqgistudy", null)) + "\\n")\n')
+        env = dict(os.environ, XDG_DATA_HOME=str(self.root / 'empty'), XDG_DATA_DIRS=str(payload / 'usr/share'))
+        result = subprocess.run([str(SQGI), str(probe)], env=env, capture_output=True, text=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn('application/x-sqgi-packaging-study', result.stdout)
+
+    @unittest.skipIf(os.name == 'nt', 'Linux package staging')
+    def test_package_staging_uses_selected_sysroot_without_shell_probes(self):
+        sysroot = self.root / 'sysroot'
+        (sysroot / 'etc').mkdir(parents=True)
+        (sysroot / 'etc/os-release').write_text('TARGET_ONLY=1\n')
+        (sysroot / 'etc/study link').symlink_to('os-release')
+        (sysroot / 'etc/directory').mkdir()
+        module = json.dumps((ROOT / 'tools/sqgipkg_lib/linux_deps.nut').as_posix())
+        self.run_script(f'''
+local L = import({module})
+class Fixture extends L.SqgiPkgLinuxDeps {{
+    function linux_deb_sysroot_package_files(opts, name) {{
+        return ["/etc/os-release", "/etc/study link", "/etc/directory", "/etc/hostname", "/usr/share/doc/irrelevant", "/usr/include/irrelevant.h"]
+    }}
+    function run_shell_status(command) {{
+        if (this.starts_with(command, "[ -f ")) throw "per-file shell probe"
+        return base.run_shell_status(command)
+    }}
+}}
+local pkg = Fixture(), opts = pkg.new_options()
+opts.linux.sysroot = {json.dumps(sysroot.as_posix())}
+opts.appimage_arch = "x86_64"
+pkg.stage_linux_package(opts, "payload", "fixture")
+if (pkg.read_file("payload/usr/etc/os-release") != "TARGET_ONLY=1\\n") throw "host content substituted"
+if (pkg.read_file("payload/usr/etc/study link") != "TARGET_ONLY=1\\n") throw "file symlink was not followed"
+if (pkg.path_exists("payload/usr/etc/hostname")) throw "missing target file fell back to host"
+if (pkg.path_exists("payload/usr/etc/directory")) throw "directory copied as file"
+pkg.stage_linux_package(opts, "dependency-payload", "fixture", true)
+if (pkg.path_exists("dependency-payload")) throw "unselected dependency paths copied"
+''')
 
     def run_script(self, source):
         path = self.root / 'probe.nut'

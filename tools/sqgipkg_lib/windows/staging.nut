@@ -1,8 +1,9 @@
 local GLib = import("GLib")
 local Gio = import("Gio")
-local Base = import("msys2.nut")
+local Base = import("ooblerg.nut")
+local typelib_compat = GLib.path_get_dirname(GLib.canonicalize_filename(__FILE__, null)) + "/typelib_compat.py"
 
-class SqgiPkgWindowsStaging extends Base.SqgiPkgWindowsMsys2 {
+class SqgiPkgWindowsStaging extends Base.SqgiPkgWindowsOoblerg {
     function run_optional_tool(command, description) {
         local status = typeof(command) == "array" ? this.process(command).status : this.run_shell_status(command)
         if (status != 0) this.info(description + " skipped or failed")
@@ -586,6 +587,7 @@ class SqgiPkgWindowsStaging extends Base.SqgiPkgWindowsMsys2 {
     }
 
     function stage_windows_dir(opts) {
+        this.resolve_native_recipe_entry(opts)
         this.begin_inputs(opts)
         local package_name = this.package_basename(opts.name)
         local windir = GLib.build_filenamev([opts.output_dir, package_name])
@@ -594,6 +596,7 @@ class SqgiPkgWindowsStaging extends Base.SqgiPkgWindowsMsys2 {
         this.apply_windows_package_defaults(opts)
         this.ensure_msys2_packages(opts)
         this.prepare_windows_cross_environment(opts)
+        if ("report_build_progress" in this) this.report_build_progress(opts, "building")
         this.build_windows_native_dependencies(opts)
         this.run_windows_build(opts)
         this.build_runtime_recipe(opts)
@@ -610,6 +613,7 @@ class SqgiPkgWindowsStaging extends Base.SqgiPkgWindowsMsys2 {
         this.stage_windows_native_projects(opts, windir)
         if (opts.entry_type == "native")
             entry_rel = this.copy_windows_native_entry(opts, windir)
+        if ("report_build_progress" in this) this.report_build_progress(opts, "collecting")
         this.stage_windows_extra_files(opts, windir, staged_scripts)
         this.stage_windows_runtime_support_files(opts, windir)
         this.postprocess_windows_runtime_files(opts, windir)
@@ -617,6 +621,13 @@ class SqgiPkgWindowsStaging extends Base.SqgiPkgWindowsMsys2 {
         this.verify_windows_binary_arches(opts, windir)
         this.write_windows_gtk_settings(opts, windir)
         this.materialize_windows_symlinks(windir)
+        if (opts.windows.package_source == "ooblerg") {
+            local python = this.executable_path("python3")
+            if (python == null) python = this.executable_path("python")
+            if (python == null) this.fail("Ooblerg typelib compatibility requires Python 3")
+            this.run_process([python, typelib_compat, "--root", windir,
+                "--record", windir + ".typelib-compat.json"], "checking Ooblerg typelib library names")
+        }
         this.write_windows_launcher(opts, windir, package_name, entry_rel)
         if (this.windows_gui_enabled(opts))
             this.write_windows_exe_launcher(opts, windir, package_name)

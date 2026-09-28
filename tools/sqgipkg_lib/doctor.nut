@@ -110,15 +110,16 @@ class SqgiPkgDoctor extends Base.SqgiPkgTemplates {
             }
 
             local entry_linux = this.table_get(config, "entry_linux", "")
-            if (opts.entry_type == "native" && entry_linux == "")
+            if (opts.entry_type == "native" && opts.entry_project == "" && entry_linux == "")
                 warnings.push("Linux arch " + arch + " has no arch-specific native entry")
         }
 
         return errors
     }
 
-    function doctor_projects(errors, warnings, projects) {
+    function doctor_projects(errors, warnings, projects, package_key = "windows_package") {
         foreach (project in projects) {
+            if (this.table_get(project, package_key, "") != "") continue
             if (!this.path_exists(project.dir) && project.repo != null && project.repo != "")
                 warnings.push("native project will be fetched: " + project.name)
             else errors = this.doctor_path(errors, "native project directory", project.dir)
@@ -134,6 +135,7 @@ class SqgiPkgDoctor extends Base.SqgiPkgTemplates {
         local errors = 0
         local warnings = []
         local windows_target = this.starts_with(opts.target, "win-")
+        if (!windows_target) this.apply_linux_ooblerg_defaults(opts)
         local script_abs = opts.script == "" ? "" : this.abs_path(opts.script)
 
         if (!machine_output) print("sqgipkg doctor\n")
@@ -225,7 +227,7 @@ class SqgiPkgDoctor extends Base.SqgiPkgTemplates {
             foreach (spec in opts.windows.files)
                 errors = this.doctor_file_spec(errors, warnings, spec, "Windows file", false)
         } else {
-            errors = this.doctor_projects(errors, warnings, opts.native_projects)
+            errors = this.doctor_projects(errors, warnings, opts.native_projects, "linux_package")
             errors = this.doctor_linux_arches(errors, warnings, opts)
         }
 
@@ -244,7 +246,7 @@ class SqgiPkgDoctor extends Base.SqgiPkgTemplates {
         if (!windows_target && this.executable_path(opts.appimagetool) == null)
             warnings.push("appimagetool not found in PATH; build will download it if curl or wget is available")
 
-        if (windows_target && opts.entry_type == "sqgi" && !this.table_get(opts, "runtime_recipe", false) &&
+        if (windows_target && opts.windows.runtime != "package" && opts.entry_type == "sqgi" && !this.table_get(opts, "runtime_recipe", false) &&
                 !this.path_exists(GLib.build_filenamev([this.windows_build_dir(opts), "sqgi.exe"])) &&
                 this.executable_path("sqgi.exe") == null && opts.windows.build.len() == 0)
             warnings.push("Windows runtime not found; configure runtime.sqgi or windows.build_dir")

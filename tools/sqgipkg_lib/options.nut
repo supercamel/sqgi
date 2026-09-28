@@ -16,6 +16,8 @@ class SqgiPkgOptions extends Base.SqgiPkgCore {
             entry_type = "sqgi",
             entry_linux = "",
             entry_windows = "",
+            entry_project = "",
+            entry_executable = "",
             manifest = "",
             manifest_dir = "",
             name = "",
@@ -41,6 +43,8 @@ class SqgiPkgOptions extends Base.SqgiPkgCore {
                 submodules = false
             },
             linux = {
+                ooblerg_packages = [],
+                ooblerg_repository = "https://ooblerg.xyz",
                 arches = [],
                 build = [],
                 sysroot = "",
@@ -85,9 +89,12 @@ class SqgiPkgOptions extends Base.SqgiPkgCore {
             gdk_backend = "",
             desktop_icon = "",
             desktop_categories = "Utility;",
+            desktop_comment = "",
             desktop_terminal = true,
             desktop_terminal_forced = false,
             windows = {
+                package_source = "msys2",
+                runtime = "inherit",
                 build_dir = "",
                 build = [],
                 msys2_root = "",

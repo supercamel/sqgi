@@ -511,6 +511,10 @@ endif()
 # Manifest authoring tool. GTK is loaded only when the GUI starts.
 option(SQGI_BUILD_PACKAGER_GUI "Install the SQGI manifest authoring tool" ON)
 if(SQGI_BUILD_PACKAGER_GUI)
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        add_executable(sqgipkg-runner tools/sqgipkg_gui/runner.c)
+        install(TARGETS sqgipkg-runner RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+    endif()
     add_executable(sqgipkg-gui-bin tools/sqgipkg_gui/launcher.c)
     set_target_properties(sqgipkg-gui-bin PROPERTIES OUTPUT_NAME sqgipkg-gui)
     if(WIN32)
@@ -880,10 +884,21 @@ set_tests_properties(sqgi_test_shebang PROPERTIES
 find_package(Python3 COMPONENTS Interpreter QUIET)
 if(Python3_Interpreter_FOUND)
     if(SQGI_BUILD_PACKAGER_GUI)
+        add_test(NAME sqgi_test_manifest_artifacts
+            COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/sqgipkg_gui/tests/test_artifacts.py $<TARGET_FILE:sqgi-bin>)
+        set_tests_properties(sqgi_test_manifest_artifacts PROPERTIES LABELS "packaging;manifest" TIMEOUT 30)
         add_test(NAME sqgi_test_manifest_contracts
             COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/sqgipkg_gui/tests/test_contracts.py $<TARGET_FILE:sqgi-bin>)
         add_test(NAME sqgi_test_manifest_delivery
             COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/sqgipkg_gui/tests/test_delivery.py $<TARGET_FILE:sqgi-bin>)
+        if(TARGET sqgipkg-runner)
+            add_test(NAME sqgi_test_packager_gui_runner
+                COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/sqgipkg_gui/tests/test_runner.py $<TARGET_FILE:sqgipkg-runner>)
+            set_tests_properties(sqgi_test_packager_gui_runner PROPERTIES LABELS "packaging;manifest;runner" TIMEOUT 30)
+        endif()
+        add_test(NAME sqgi_test_study_runner
+            COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/sqgipkg_gui/tests/test_study_runner.py)
+        set_tests_properties(sqgi_test_study_runner PROPERTIES LABELS "packaging;manifest;runner" TIMEOUT 30)
         set_tests_properties(sqgi_test_manifest_contracts sqgi_test_manifest_delivery PROPERTIES
             LABELS "packaging;manifest" TIMEOUT 90 ENVIRONMENT "${SQGI_TEST_ENV}")
         # Installation writes CMake's install manifest; serialize with other install tests.
@@ -891,13 +906,36 @@ if(Python3_Interpreter_FOUND)
         if(NOT WIN32)
             find_program(SQGI_XVFB_RUN xvfb-run)
             if(SQGI_XVFB_RUN)
+                add_test(NAME sqgi_test_manifest_close
+                    COMMAND ${SQGI_XVFB_RUN} -a ${CMAKE_COMMAND} -E env SQGI_GUI_RUNTIME=$<TARGET_FILE:sqgi-bin>
+                        $<TARGET_FILE:sqgi-bin> ${CMAKE_SOURCE_DIR}/tools/sqgipkg_gui/tests/close.nut)
+                set_tests_properties(sqgi_test_manifest_close PROPERTIES
+                    LABELS "packaging;manifest;gtk" TIMEOUT 15 ENVIRONMENT "${SQGI_TEST_ENV}")
+                add_test(NAME sqgi_test_manifest_appearance
+                    COMMAND ${SQGI_XVFB_RUN} -a ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/sqgipkg_gui/tests/test_appearance.py $<TARGET_FILE:sqgi-bin>)
+                set_tests_properties(sqgi_test_manifest_appearance PROPERTIES
+                    LABELS "packaging;manifest;gtk" TIMEOUT 45 ENVIRONMENT "${SQGI_TEST_ENV}")
+                add_test(NAME sqgi_test_manifest_desktop_metadata
+                    COMMAND ${SQGI_XVFB_RUN} -a ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/sqgipkg_gui/tests/test_desktop_metadata.py $<TARGET_FILE:sqgi-bin>)
+                set_tests_properties(sqgi_test_manifest_desktop_metadata PROPERTIES
+                    LABELS "packaging;manifest;gtk" TIMEOUT 45 ENVIRONMENT "${SQGI_TEST_ENV}")
                 add_test(NAME sqgi_test_manifest_gtk
                     COMMAND ${SQGI_XVFB_RUN} -a ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/sqgipkg_gui/tests/test_gtk.py $<TARGET_FILE:sqgi-bin>)
                 set_tests_properties(sqgi_test_manifest_gtk PROPERTIES
+                    LABELS "packaging;manifest;gtk" TIMEOUT 90 ENVIRONMENT "${SQGI_TEST_ENV}")
+                add_test(NAME sqgi_test_package_picker
+                    COMMAND ${SQGI_XVFB_RUN} -a ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/sqgipkg_gui/tests/test_package_picker.py $<TARGET_FILE:sqgi-bin>)
+                set_tests_properties(sqgi_test_package_picker PROPERTIES
                     LABELS "packaging;manifest;gtk" TIMEOUT 45 ENVIRONMENT "${SQGI_TEST_ENV}")
             endif()
         endif()
     endif()
+    add_test(NAME sqgi_test_ooblerg_provider
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/sqgipkg_tests/test_ooblerg.py)
+    set_tests_properties(sqgi_test_ooblerg_provider PROPERTIES LABELS "packaging" TIMEOUT 30)
+    add_test(NAME sqgi_test_native_sdk
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/sqgipkg_tests/test_native_sdk.py)
+    set_tests_properties(sqgi_test_native_sdk PROPERTIES LABELS "packaging" TIMEOUT 60)
     add_test(NAME sqgi_test_sqgipkg_ergonomics
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/sqgipkg_tests/test_ergonomics.py $<TARGET_FILE:sqgi-bin>)
     if(SQGI_ENABLE_KERNELS)
@@ -1239,6 +1277,7 @@ install(PROGRAMS tools/sqgipkg
 
 install(DIRECTORY tools/sqgipkg_lib
     DESTINATION ${CMAKE_INSTALL_DATADIR}/sqgi
+    PATTERN "__pycache__" EXCLUDE
 )
 
 install(FILES tools/sqgipkg.schema.json DESTINATION ${CMAKE_INSTALL_DATADIR}/sqgi)

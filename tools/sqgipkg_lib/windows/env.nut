@@ -56,7 +56,7 @@ class SqgiPkgWindowsEnv extends Base.SqgiPkgAppImage {
         // CMake source/build dir), so relative sysroot paths produce poisoned
         // include paths such as ../../dist or repo-root/dist.
         if (opts.windows.msys2_root == "")
-            opts.windows.msys2_root = GLib.build_filenamev([opts.output_dir, "_msys2-" + opts.windows.msys2_prefix])
+            opts.windows.msys2_root = GLib.build_filenamev([opts.output_dir, opts.windows.package_source == "ooblerg" ? "_ooblerg-x86_64" : "_msys2-" + opts.windows.msys2_prefix])
         opts.windows.msys2_root = this.abs_path(opts.windows.msys2_root)
         return opts.windows.msys2_root
     }
@@ -66,7 +66,7 @@ class SqgiPkgWindowsEnv extends Base.SqgiPkgAppImage {
     }
 
     function windows_cross_dir(opts) {
-        return GLib.build_filenamev([this.abs_path(opts.output_dir), "_cross", opts.windows.msys2_prefix])
+        return GLib.build_filenamev([this.abs_path(opts.output_dir), "_cross", opts.windows.package_source + "-" + opts.windows.msys2_prefix])
     }
 
     function windows_cmake_toolchain_path(opts) {
@@ -546,6 +546,12 @@ class SqgiPkgWindowsEnv extends Base.SqgiPkgAppImage {
     }
 
     function copy_windows_sqgi_runtime(opts, windir) {
+        if (opts.windows.runtime == "package") {
+            local prefix = this.windows_sysroot_prefix_dir(opts)
+            foreach (name in ["sqgi.exe", "libsqgi.dll"])
+                this.copy_into_appdir(prefix + "/bin/" + name, windir, "bin/" + name, "Ooblerg SQGI runtime")
+            return
+        }
         local build_dir = this.windows_build_dir(opts)
         local sqgi_exe = GLib.build_filenamev([build_dir, "sqgi.exe"])
 

@@ -27,6 +27,7 @@ class SqgiPkgLinuxDeps extends Base.SqgiPkgStaging {
     }
 
     function linux_current_sysroot(opts) {
+        if ("native_sdk" in opts) return opts.native_sdk
         local config = this.linux_current_config(opts)
         local sysroot = config == null ? "" : this.table_get(config, "sysroot", "")
         if (sysroot == "") sysroot = opts.linux.sysroot
@@ -44,13 +45,13 @@ class SqgiPkgLinuxDeps extends Base.SqgiPkgStaging {
 
     function linux_has_cross_build_work(opts) {
         if (opts.runtime_recipe) return true
-        foreach (project in opts.native_projects) if (this.table_get(project, "build_system", "") != "") return true
+        foreach (project in opts.native_projects) if (this.table_get(project, "linux_package", "") == "" && this.table_get(project, "build_system", "") != "") return true
         local config = this.linux_current_config(opts)
         if (opts.linux.build.len() > 0) return true
         if (config != null && this.table_get(config, "build", []).len() > 0) return true
 
         foreach (project in opts.native_projects) {
-            if (project.build.len() > 0) return true
+            if (this.table_get(project, "linux_package", "") == "" && project.build.len() > 0) return true
         }
 
         return false
@@ -119,7 +120,7 @@ class SqgiPkgLinuxDeps extends Base.SqgiPkgStaging {
 
     function linux_pkg_config_libdir(opts) {
         local dirs = this.linux_pkg_config_sysroot_dirs(opts)
-        local libdir = dirs[0] + ":" + dirs[1]
+        local libdir = dirs[0] + ":" + dirs[1] + ":" + dirs[2]
         if (this.linux_current_sysroot(opts) != "")
             libdir = this.linux_pkg_config_overlay_dir(opts) + ":" + libdir
         return libdir
@@ -131,12 +132,12 @@ class SqgiPkgLinuxDeps extends Base.SqgiPkgStaging {
         if (sysroot != "") sysroot = this.strip_trailing_slashes(sysroot)
 
         local root = sysroot == "" ? "" : sysroot
-        return [root + "/usr/lib/" + triplet + "/pkgconfig", root + "/usr/share/pkgconfig"]
+        return [root + "/usr/lib/" + triplet + "/pkgconfig", root + "/usr/share/pkgconfig", root + "/usr/lib/pkgconfig"]
     }
 
     function linux_pkg_config_sysroot_libdir(opts) {
         local dirs = this.linux_pkg_config_sysroot_dirs(opts)
-        return dirs[0] + ":" + dirs[1]
+        return dirs[0] + ":" + dirs[1] + ":" + dirs[2]
     }
 
     function linux_pkg_config_overlay_dir(opts) {
@@ -168,9 +169,19 @@ class SqgiPkgLinuxDeps extends Base.SqgiPkgStaging {
         if (sysroot == "") return ""
 
         local triplet = this.linux_current_triplet(opts)
-        return "--sysroot=" + sysroot +
-            " -B" + GLib.build_filenamev([sysroot, "usr", "lib", triplet]) + "/" +
-            " -B" + GLib.build_filenamev([sysroot, "lib", triplet]) + "/"
+        local flags = this.shell_quote("--sysroot=" + sysroot) +
+            " " + this.shell_quote("-B" + GLib.build_filenamev([sysroot, "usr", "lib", triplet]) + "/") +
+            " " + this.shell_quote("-B" + GLib.build_filenamev([sysroot, "lib", triplet]) + "/")
+        // Debian alternatives live below the triplet directory before package
+        // maintainer scripts run. Link against those files without embedding
+        // the private SDK path in the executable's runtime search path.
+        foreach (relative in ["usr/lib/" + triplet, "lib/" + triplet,
+            "usr/lib/" + triplet + "/blas", "usr/lib/" + triplet + "/lapack",
+            "usr/lib/" + triplet + "/openblas-pthread", "usr/lib", "lib"]) {
+            local dir = GLib.build_filenamev([sysroot, relative])
+            if (this.path_exists(dir)) flags += " " + this.shell_quote("-Wl,-rpath-link," + dir)
+        }
+        return flags
     }
 
     function linux_pkg_config_tool_overrides(pc_name) {
@@ -460,6 +471,12 @@ class SqgiPkgLinuxDeps extends Base.SqgiPkgStaging {
             ]) this.append_unique(out, module)
         }
 
+        // Meson GI projects need the target introspection .pc during setup,
+        // even when a separate host build generates the runnable metadata.
+        foreach (project in opts.native_projects)
+            if (this.table_get(project, "linux_package", "") == "" && "gi" in project && project.gi != null)
+                this.append_unique(out, "gobject-introspection-1.0")
+
         if (opts.report.used_gtk)
             this.append_unique(out, "gtk4")
 
@@ -478,6 +495,8 @@ class SqgiPkgLinuxDeps extends Base.SqgiPkgStaging {
     }
 
     function linux_pkg_config_module_package_candidates(module) {
+        local extra = { epoxy = "libepoxy-dev", gdal = "libgdal-dev", assimp = "libassimp-dev", zlib = "zlib1g-dev", x11 = "libx11-dev", xi = "libxi-dev", xtst = "libxtst-dev" }
+        if (module in extra) return [extra[module]]
         if (module == "glib-2.0" || module == "gobject-2.0" || module == "gio-2.0")
             return ["libglib2.0-dev"]
         if (module == "gobject-introspection-1.0")
@@ -519,6 +538,12 @@ class SqgiPkgLinuxDeps extends Base.SqgiPkgStaging {
 
     function apply_linux_package_defaults(opts) {
         if (!this.linux_auto_runtime_packages_enabled(opts)) return
+
+        if (opts.entry_type == "sqgi")
+            this.append_unique(opts.linux.deb.packages, "gir1.2-glib-2.0")
+
+        if (opts.report.used_gtk || opts.report.used_gdk_pixbuf)
+            this.append_unique(opts.linux.deb.packages, "shared-mime-info")
 
         if (opts.report.used_gtk) {
             this.append_unique(opts.linux.deb.packages, "libgtk-4-1")
@@ -749,8 +774,18 @@ class SqgiPkgLinuxDeps extends Base.SqgiPkgStaging {
 
     function linux_repo_index_file(opts, target) {
         local path = this.linux_repo_index_path(opts, target)
-        if (this.path_exists(path) && !opts.linux.deb.refresh) return path
+        if (this.repo_index_cache == null) this.repo_index_cache = {}
+        local cache_key = "index-file:" + path + (opts.linux.deb.refresh ? ":refresh" : ":cached")
+        if (cache_key in this.repo_index_cache) {
+            local cached = this.repo_index_cache[cache_key]
+            return cached == false ? null : cached
+        }
+        if (this.path_exists(path) && !opts.linux.deb.refresh) {
+            this.repo_index_cache[cache_key] <- path
+            return path
+        }
 
+        this.info("loading Linux repository index: " + target.suite + "/" + target.component + " (" + target.arch + ")")
         this.mkdir_p(this.dirname(path))
         foreach (format in [
             { suffix = "xz", tool = "xz" },
@@ -778,9 +813,11 @@ class SqgiPkgLinuxDeps extends Base.SqgiPkgStaging {
 
             if (this.path_exists(path)) remove(path)
             rename(decompressed, path)
+            this.repo_index_cache[cache_key] <- path
             return path
         }
 
+        this.repo_index_cache[cache_key] <- false
         return null
     }
 
@@ -1174,7 +1211,6 @@ class SqgiPkgLinuxDeps extends Base.SqgiPkgStaging {
     function linux_deb_sysroot_package_installed(opts, package_name) {
         local dir = this.linux_deb_sysroot_package_metadata(opts, package_name)
         if (dir == "") return false
-        if (opts.linux.deb.refresh) return false
         if (!this.path_exists(GLib.build_filenamev([dir, "files"]))) return false
 
         local metadata = this.linux_deb_archive_metadata(opts, package_name)
@@ -1702,6 +1738,8 @@ class SqgiPkgLinuxDeps extends Base.SqgiPkgStaging {
 
     function linux_deb_sysroot_seed_packages(opts) {
         local out = []
+        if ("linux_ooblerg" in opts) foreach (package_name in opts.linux_ooblerg.build_packages)
+            this.linux_append_install_package(out, package_name, this.linux_current_deb_arch(opts))
         foreach (package_name in opts.linux.deb.packages)
             this.linux_append_install_package(out, package_name, this.linux_current_deb_arch(opts))
 
@@ -1709,6 +1747,9 @@ class SqgiPkgLinuxDeps extends Base.SqgiPkgStaging {
             foreach (module in this.linux_required_pkg_config_modules(opts))
                 this.linux_append_install_package(out, this.linux_pkg_config_module_package(module, opts), this.linux_current_deb_arch(opts))
         }
+
+        if (opts.runtime_recipe && opts.entry_type == "sqgi")
+            this.linux_append_install_package(out, "llvm-18-dev", this.linux_current_deb_arch(opts))
 
         return out
     }
@@ -1736,7 +1777,7 @@ class SqgiPkgLinuxDeps extends Base.SqgiPkgStaging {
         foreach (package_name in ordered) {
             // Frozen builds re-extract the verified archive into their private
             // sysroot instead of trusting a previously modified extraction.
-            if (opts.locked || !this.linux_deb_sysroot_package_installed(opts, package_name))
+            if (opts.locked || opts.linux.deb.refresh || !this.linux_deb_sysroot_package_installed(opts, package_name))
                 this.extract_linux_deb_to_sysroot(opts, package_name)
             if (opts.write_lock) this.linux_download_deb(opts, package_name)
         }
@@ -2119,9 +2160,20 @@ class SqgiPkgLinuxDeps extends Base.SqgiPkgStaging {
         return false
     }
 
+    function linux_development_file(path) {
+        if (this.starts_with(path, "/")) path = path.slice(1)
+        if (this.starts_with(path, "usr/include/")) return true
+        foreach (suffix in [".h", ".hpp", ".a", ".la", ".pc", ".vapi", ".gir"])
+            if (this.ends_with(path, suffix)) return true
+        foreach (directory in ["/pkgconfig/", "/cmake/", "/gir-1.0/", "/vala/"])
+            if (path.find(directory) != null) return true
+        return false
+    }
+
     function linux_package_dest_for_staging(opts, path, dependency_package, dependency_libraries) {
         local dest = this.linux_package_dest_for_file(opts, path)
         if (dest == null) return null
+        if ("linux_ooblerg" in opts && this.linux_development_file(dest)) return null
         if (dependency_package && !this.linux_dependency_package_dest_selected(dest, dependency_libraries)) return null
         return dest
     }
@@ -2141,14 +2193,10 @@ class SqgiPkgLinuxDeps extends Base.SqgiPkgStaging {
 
         local copied = 0
         foreach (path in file_list) {
-            local src = path
-            if (!this.path_exists(src) && sysroot != "")
-                src = GLib.build_filenamev([sysroot, this.normalize_package_entry(path)])
-            if (!this.path_exists(src)) continue
-            if (this.run_shell_status("[ -f " + this.shell_quote(src) + " ]") != 0) continue
-
             local dest = this.linux_package_dest_for_staging(opts, path, dependency_package, dependency_libraries)
             if (dest == null) continue
+            local src = sysroot == "" ? path : GLib.build_filenamev([sysroot, this.normalize_package_entry(path)])
+            if (Gio.File.new_for_path(src).query_file_type(Gio.FileQueryInfoFlags.none, null) != Gio.FileType.regular) continue
 
             this.copy_file_to_appdir_dest(src, appdir, dest, "Linux package file")
             this.report_linux_package_dest(opts, dest)
@@ -2241,11 +2289,12 @@ class SqgiPkgLinuxDeps extends Base.SqgiPkgStaging {
         local triplet = this.linux_current_triplet(opts)
 
         local roots = []
+        if ("native_sdk" in opts) roots.push(opts.native_sdk)
         local config = this.table_get(opts, "linux_current", null)
         local sysroot = config == null ? "" : this.table_get(config, "sysroot", "")
         if (sysroot == "") sysroot = opts.linux.sysroot
         if (sysroot != "") roots.push(this.strip_trailing_slashes(sysroot))
-        roots.push("")
+        if (!("linux_ooblerg" in opts)) roots.push("")
 
         foreach (root in roots) {
             foreach (rel in [
@@ -2254,6 +2303,7 @@ class SqgiPkgLinuxDeps extends Base.SqgiPkgStaging {
                 "/usr/lib/" + triplet + "/lapack",
                 "/usr/lib/" + triplet + "/openblas-pthread",
                 "/usr/lib/" + triplet + "/pulseaudio",
+                "/usr/lib/" + triplet + "/libproxy",
                 "/lib/" + triplet,
                 "/lib/" + triplet + "/pulseaudio",
                 "/usr/" + triplet + "/lib",
@@ -2348,6 +2398,8 @@ class SqgiPkgLinuxDeps extends Base.SqgiPkgStaging {
         if (copied > 0)
             this.info("copied " + copied + " recursively resolved Linux ELF dependency/dependencies")
 
+        if (missing.len() && "linux_ooblerg" in opts)
+            this.fail("Linux Ooblerg dependencies are missing from the Ubuntu 24.04 SDK: " + this.join_strings(missing, ", ") + "; add the corresponding Ubuntu packages to linux.packages")
         foreach (name in missing)
             this.report_warn(opts, "Linux ELF dependency could not be resolved for " + opts.appimage_arch + ": " + name)
     }

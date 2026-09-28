@@ -1,14 +1,22 @@
 local GLib = import("GLib")
 local Gio = import("Gio")
-local Base = import("linux_deps.nut")
+local Base = import("linux_ooblerg.nut")
 
-class SqgiPkgAppImage extends Base.SqgiPkgLinuxDeps {
+class SqgiPkgAppImage extends Base.SqgiPkgLinuxOoblerg {
     function run_optional_tool(command, description) {
         local status = system(command)
         if (status != 0) this.info(description + " skipped or failed")
     }
 
     function postprocess_extra_files(appdir) {
+        local mime_dir = GLib.build_filenamev([appdir, "usr", "share", "mime"])
+        if (this.shell_has_matches(GLib.build_filenamev([mime_dir, "packages", "*.xml"]))) {
+            if (!this.executable_available("update-mime-database"))
+                this.fail("Bundled MIME definitions require update-mime-database on the build host (shared-mime-info package)")
+            this.run_process(["update-mime-database", mime_dir], "MIME database generation")
+            if (!this.path_exists(GLib.build_filenamev([mime_dir, "mime.cache"])))
+                this.fail("update-mime-database did not create the packaged mime.cache")
+        }
         local schema_dir = GLib.build_filenamev([appdir, "usr", "share", "glib-2.0", "schemas"])
         if (this.path_exists(schema_dir) &&
             this.executable_available("glib-compile-schemas") &&
@@ -365,16 +373,14 @@ class SqgiPkgAppImage extends Base.SqgiPkgLinuxDeps {
         local categories = opts.desktop_categories
         if (categories == "") categories = "Utility;"
         if (!this.ends_with(categories, ";")) categories += ";"
-        this.write_file(GLib.build_filenamev([appdir, app_id + ".desktop"]),
-            "[Desktop Entry]\n" +
-            "Type=Application\n" +
-            "Name=" + app_name + "\n" +
-            "Exec=AppRun\n" +
-            "Icon=" + app_id + "\n" +
-            "Categories=" + categories + "\n" +
-            "Terminal=" + terminal + "\n" +
-            "StartupNotify=true\n" +
-            "StartupWMClass=" + app_id + "\n")
+        local desktop = GLib.KeyFile.new(), group = "Desktop Entry"
+        foreach (key, value in {Type="Application", Name=app_name, Exec="AppRun", Icon=app_id,
+            Categories=categories, Terminal=terminal, StartupNotify="true", StartupWMClass=app_id})
+            desktop.set_string(group, key, value)
+        if ("desktop_comment" in opts && opts.desktop_comment != "") desktop.set_string(group, "Comment", opts.desktop_comment)
+        local data = desktop.to_data()
+        if (typeof(data) == "array") data = data[0]
+        this.write_file(GLib.build_filenamev([appdir, app_id + ".desktop"]), data)
     }
 
     function desktop_icon_extension(path) {

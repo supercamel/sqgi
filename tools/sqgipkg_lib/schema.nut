@@ -3,13 +3,13 @@ local Base = import("options.nut")
 class SqgiPkgSchema extends Base.SqgiPkgOptions {
     function schema_fields() {
         return {
-            manifest = ["$schema","app_id", "appimage_arch", "appimagetool", "appimagetool_cache", "build_dir", "compile_scripts", "desktop_categories", "desktop_icon", "desktop_terminal", "entry", "files", "gdk_backend", "gdk_pixbuf_loaders", "gio_modules", "gsettings_schemas", "gstreamer_plugins", "gtk_data", "gtk_font_name", "gtk_icon_theme", "gtk_prefer_dark", "gtk_theme", "icon", "includes", "keep_appdir", "libraries", "linux", "linux_arches", "name", "native_projects", "output", "refresh_appimagetool", "resources", "script", "script_dirs", "scripts", "sqgi_source", "target", "typelibs", "windows", "schema_version", "runtime", "features", "native", "platforms"],
-            linux = ["arches", "build", "copy_dependencies", "deb", "deb_download", "deb_package_cache", "deb_packages", "deb_refresh", "deb_suite", "deb_sysroot_cache", "download_packages", "library_dirs", "package_cache", "packages", "refresh_packages", "suite", "sysroot", "sysroot_cache"],
-            windows = ["auto_packages", "build", "build_dependencies", "build_dir", "build_packages", "cmake_toolchain", "console", "download_packages", "files", "fonts", "gdk_backend", "gtk_font_name", "gtk_icon_theme", "gtk_prefer_dark", "gtk_theme", "libraries", "meson_cross_file", "msys2_prefix", "msys2_root", "native_dependencies", "native_projects", "nsis", "nsis_options", "package_cache", "packages", "refresh_packages", "repo_url", "typelibs"],
+            manifest = ["$schema","app_id", "appimage_arch", "appimagetool", "appimagetool_cache", "build_dir", "compile_scripts", "desktop_categories", "desktop_comment", "desktop_icon", "desktop_terminal", "entry", "files", "gdk_backend", "gdk_pixbuf_loaders", "gio_modules", "gsettings_schemas", "gstreamer_plugins", "gtk_data", "gtk_font_name", "gtk_icon_theme", "gtk_prefer_dark", "gtk_theme", "icon", "includes", "keep_appdir", "libraries", "linux", "linux_arches", "name", "native_projects", "output", "refresh_appimagetool", "resources", "script", "script_dirs", "scripts", "sqgi_source", "target", "typelibs", "windows", "schema_version", "runtime", "features", "native", "platforms"],
+            linux = ["ooblerg_packages", "ooblerg_repository", "arches", "build", "copy_dependencies", "deb", "deb_download", "deb_package_cache", "deb_packages", "deb_refresh", "deb_suite", "deb_sysroot_cache", "download_packages", "library_dirs", "package_cache", "packages", "refresh_packages", "suite", "sysroot", "sysroot_cache"],
+            windows = ["package_source", "runtime", "auto_packages", "build", "build_dependencies", "build_dir", "build_packages", "cmake_toolchain", "console", "download_packages", "files", "fonts", "gdk_backend", "gtk_font_name", "gtk_icon_theme", "gtk_prefer_dark", "gtk_theme", "libraries", "meson_cross_file", "msys2_prefix", "msys2_root", "native_dependencies", "native_projects", "nsis", "nsis_options", "package_cache", "packages", "refresh_packages", "repo_url", "typelibs"],
             sqgi_source = ["branch", "cache", "cache_dir", "commit", "dir", "git", "path", "ref", "repo", "shallow", "submodules", "tag", "update"],
-            entry = ["linux", "path", "script", "type", "windows"],
+            entry = ["executable", "linux", "path", "project", "script", "type", "windows"],
             nsis_options = ["autostart", "desktop_shortcut", "header_image", "icon", "install_dir", "installer_name", "license", "request_execution_level", "start_menu_folder", "start_menu_shortcut", "uninstall_registry", "welcome_finish_image", "welcome_image"],
-            native_projects = ["branch", "build", "commit", "dir", "files", "git", "install", "libraries", "name", "ref", "repo", "shallow", "stage", "submodules", "tag", "typelibs", "update", "build_system", "options", "gi", "targets"],
+            native_projects = ["linux_package", "windows_package", "branch", "build", "commit", "dir", "files", "git", "install", "libraries", "name", "ref", "repo", "shallow", "stage", "submodules", "tag", "typelibs", "update", "build_system", "options", "gi", "targets"],
             arches = ["appimage_arch", "arch", "build", "build_dir", "cmake_toolchain", "copy_dependencies", "deb", "deb_download", "deb_package_cache", "deb_packages", "deb_refresh", "deb_suite", "deb_sysroot_cache", "download_packages", "entry_linux", "files", "gdk_pixbuf_loaders", "gio_modules", "gsettings_schemas", "gstreamer_plugins", "gtk_data", "inherit_native_projects", "libraries", "library_dirs", "meson_cross_file", "native_projects", "output", "package_arch", "package_cache", "packages", "refresh_packages", "resources", "suite", "sysroot", "sysroot_cache", "typelibs"],
             deb = ["download", "package_cache", "packages", "refresh", "suite", "sysroot_cache"],
             files = ["path", "src", "dest", "from", "dir", "to", "include", "includes", "glob", "globs", "exclude", "excludes", "match", "regex", "optional"],
@@ -26,11 +26,16 @@ class SqgiPkgSchema extends Base.SqgiPkgOptions {
         local runtime = this.table_get(manifest, "runtime")
         if (runtime != null) {
             local ref = this.table_get(runtime, "sqgi")
-            if (typeof(ref) != "string" || ref == "") this.fail("runtime.sqgi requires a version, tag or commit")
-            opts.runtime_recipe = true
-            if (opts.sqgi_source.ref == "") opts.sqgi_source.ref = ref
-            opts.runtime_jit = this.table_get(runtime, "jit", true)
             local source = this.table_get(runtime, "source")
+            if ("sqgi" in runtime && (typeof(ref) != "string" || ref == ""))
+                this.fail("runtime.sqgi requires a nonempty version, tag or commit")
+            if ("source" in runtime && (typeof(source) != "string" || source == ""))
+                this.fail("runtime.source requires a nonempty local SQGI source directory")
+            if (ref == null && source == null)
+                this.fail("runtime requires a local source checkout (runtime.source) or a version, tag or commit (runtime.sqgi)")
+            opts.runtime_recipe = true
+            if (ref != null && opts.sqgi_source.ref == "") opts.sqgi_source.ref = ref
+            opts.runtime_jit = this.table_get(runtime, "jit", true)
             if (source != null && opts.sqgi_source.dir == "") opts.sqgi_source.dir = this.manifest_path(base_dir, source)
         }
         local features = this.table_get(manifest, "features", [])
@@ -39,13 +44,12 @@ class SqgiPkgSchema extends Base.SqgiPkgOptions {
             if (!this.array_contains(["gtk4", "gstreamer", "gdk-pixbuf", "soup3"], feature)) this.fail("unknown feature: " + feature)
             opts.features.push(feature)
         }
-        if (features.len() > 0 && opts.linux.deb.download_forced == null) {
-            opts.linux.deb.download = true
-            if (opts.linux.deb.suite == "") opts.linux.deb.suite = "noble"
-        }
-        if (this.array_contains(features, "gtk4") && !opts.desktop_terminal_forced) opts.desktop_terminal = false
         local native = this.table_get(manifest, "native", [])
         if (typeof(native) != "array") this.fail("native must be an array")
+        if ((features.len() > 0 || runtime != null || native.len() > 0) && opts.linux.deb.download_forced == null) {
+            opts.linux.deb.download = true
+        }
+        if (this.array_contains(features, "gtk4") && !opts.desktop_terminal_forced) opts.desktop_terminal = false
         foreach (project in native) {
             local recipe = clone project
             if (!("build_system" in recipe)) recipe.build_system <- "meson"
@@ -93,6 +97,15 @@ class SqgiPkgSchema extends Base.SqgiPkgOptions {
                 continue
             }
             if (item == null) continue
+            if (kind == "windows" && key == "package_source" && item != "msys2" && item != "ooblerg") this.fail(label + " must be msys2 or ooblerg")
+            if (kind == "windows" && key == "runtime" && item != "inherit" && item != "package") this.fail(label + " must be inherit or package")
+            if ((key == "windows_package" || key == "linux_package") && (typeof(item) != "string" || item == "")) this.fail(label + " requires a nonempty Ooblerg package name")
+            if (kind == "linux" && key == "ooblerg_packages") {
+                if (typeof(item) != "array") this.fail(label + " must be an array")
+                foreach (entry in item) if (typeof(entry) != "string" || entry == "") this.fail(label + " entries must be nonempty strings")
+            }
+            if (kind == "linux" && key == "ooblerg_repository" && (typeof(item) != "string" || item == ""))
+                this.fail(label + " must be a nonempty repository origin")
             if (key == "build_system" && item != "meson" && item != "cmake") this.fail(label + " must be meson or cmake")
             if (key == "strategy" && item != "host") this.fail(label + " must be host")
             if (key == "gi") {
@@ -123,6 +136,7 @@ class SqgiPkgSchema extends Base.SqgiPkgOptions {
                     foreach (key, value in command) if (key != "argv" && key != "env") this.fail(label + " unknown command field: " + key)
                 }
             }
+            if (kind == "windows" && key == "runtime") continue
             local child = key
             if (kind == "platforms") child = "platform_" + key
             if (key == "native" || key == "native_dependencies") child = "native_projects"
@@ -149,7 +163,7 @@ class SqgiPkgSchema extends Base.SqgiPkgOptions {
                     "shallow", "submodules", "stage", "console", "auto_packages", "download_packages",
                     "refresh_packages", "copy_dependencies", "inherit_native_projects", "jit"], key) && typeof(item) != "bool")
                 this.fail(label + " must be a boolean")
-            if (this.array_contains(["name", "app_id", "target", "script", "build_dir", "output", "dir", "repo",
+            if (this.array_contains(["name", "app_id", "desktop_comment", "target", "script", "build_dir", "output", "dir", "repo",
                     "ref", "branch", "suite", "msys2_prefix", "build_system", "baseline", "format"], key) && typeof(item) != "string")
                 this.fail(label + " must be a string")
         }

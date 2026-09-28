@@ -11,7 +11,11 @@ class SqgiPkg extends Base.SqgiPkgProtocol {
         this.long_options = {}
         this.short_options = {}
 
+        this.add_option("build-result", 0, GLib.OptionArg.string, "Write versioned build outputs to a new JSON file", "FILE")
         this.add_option("json", 0, GLib.OptionArg.none, "Versioned JSON inspection output", null)
+        this.add_option("packages", 0, GLib.OptionArg.none, "Browse Ooblerg package metadata (may fetch catalog)", null)
+        this.add_option("package-target", 0, GLib.OptionArg.string, "Ooblerg catalog target triplet (defaults to Windows x86_64)", "TARGET")
+        this.add_option("refresh-packages", 0, GLib.OptionArg.none, "Refresh Ooblerg catalog metadata", null)
         this.add_option("describe", 0, GLib.OptionArg.none, "Describe packaging capabilities and editor schema", null)
         this.add_option("base-dir", 0, GLib.OptionArg.string, "Project directory for stdin inspection", "DIR")
         this.add_option("name", 'n', GLib.OptionArg.string,
@@ -19,7 +23,7 @@ class SqgiPkg extends Base.SqgiPkgProtocol {
         this.add_option("manifest", 'm', GLib.OptionArg.string,
             "Distribution manifest JSON file", "FILE")
         this.add_option("target", 't', GLib.OptionArg.string,
-            "Package target: appimage, linux-sysroot, win-dir, win-nsis, win-sysroot, all", "TARGET")
+            "Package target: appimage, appimage-all, linux-sysroot, win-dir, win-nsis, win-sysroot, all", "TARGET")
         this.add_option("build-dir", 0, GLib.OptionArg.string,
             "SQGI build directory", "DIR")
         this.add_option("output", 'o', GLib.OptionArg.string,
@@ -89,7 +93,7 @@ class SqgiPkg extends Base.SqgiPkgProtocol {
         this.add_option("smoke-test-isolated", 0, GLib.OptionArg.none,
             "Run smoke test with host GStreamer plugin discovery disabled", null)
         this.add_option("init", 0, GLib.OptionArg.string,
-            "Write a starter manifest: simple, gtk4, gtk4-gstreamer, native-gobject, native-vala", "TEMPLATE")
+            "Write a starter manifest: simple, gtk4, gtk4-gstreamer, native-gobject, native-vala, native-application", "TEMPLATE")
         this.add_option("no-compile-scripts", 0, GLib.OptionArg.none,
             "Copy .nut scripts as source instead of compiling bytecode", null)
         this.add_option("script", 0, GLib.OptionArg.string_array,
@@ -208,11 +212,15 @@ class SqgiPkg extends Base.SqgiPkgProtocol {
     }
 
     function execute_options(args, option_dict) {
-        if (this.option_present(option_dict, "json") || this.option_present(option_dict, "describe"))
+        if (this.option_present(option_dict, "json") || this.option_present(option_dict, "describe") || this.option_present(option_dict, "packages"))
             return this.execute_json(args, option_dict)
         try {
             if (this.option_value(option_dict, "manifest") == "-") this.fail("stdin manifests require --json check or explain")
             local opts = this.parse_args(args, option_dict)
+            local result_path = this.option_value(option_dict, "build-result")
+            if (result_path != null && (opts.doctor || opts.clean || opts.init_template != "" ||
+                this.option_present(option_dict, "explain") || ["appimage", "appimage-all", "all", "win-dir", "win-nsis"].find(opts.target) == null))
+                this.fail("--build-result is only available for package builds")
 
             if (opts.init_template != "") {
                 this.init_manifest(opts.init_template)
@@ -230,6 +238,7 @@ class SqgiPkg extends Base.SqgiPkgProtocol {
             }
 
             this.validate_options(opts)
+            if (result_path != null) this.begin_build_result(opts, result_path)
 
             if (opts.clean || opts.target == "clean") {
                 this.clean_project(opts)
@@ -243,7 +252,7 @@ class SqgiPkg extends Base.SqgiPkgProtocol {
                 this.build_selected_linux_sysroot(opts)
             } else if (opts.target == "win-sysroot") {
                 this.build_windows_sysroot(opts)
-            } else if (opts.target == "all") {
+            } else if (opts.target == "all" || opts.target == "appimage-all") {
                 this.build_all(opts)
             } else if (opts.target == "appdir") {
                 this.fail("--target appdir is reserved but not implemented yet")
@@ -253,8 +262,10 @@ class SqgiPkg extends Base.SqgiPkgProtocol {
                 this.fail("unknown target: " + opts.target)
             }
 
+            this.finish_build_result("succeeded")
             return 0
         } catch (e) {
+            try { this.finish_build_result("failed") } catch (report_error) { print("Cannot write build result: " + report_error + "\n") }
             print(e + "\n")
             return 1
         }

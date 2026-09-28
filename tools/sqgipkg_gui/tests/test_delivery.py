@@ -57,6 +57,9 @@ class Delivery(unittest.TestCase):
             self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
             launcher = prefix / 'bin/sqgipkg-gui'
             self.assertTrue(launcher.is_file())
+            if sys.platform.startswith('linux'):
+                self.assertTrue((prefix / 'bin/sqgipkg-runner').is_file())
+                self.assertTrue((prefix / 'share/sqgi/sqgipkg_gui/src/jobs.nut').is_file())
             proc = subprocess.run([str(launcher), '--help'], cwd=temp, capture_output=True, text=True, timeout=15)
             self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
             self.assertIn('Create and edit manifests', proc.stdout)

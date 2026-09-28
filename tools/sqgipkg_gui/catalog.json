@@ -12,14 +12,14 @@
       "section": "Application",
       "common": false,
       "alias": null,
-      "help": "manifest.app_id. Optional: leaving this unset uses sqgipkg defaults. "
+      "help": "Desktop application identifier, such as org.example.MyApp. Set this when you need a stable identity for desktop integration."
     },
     "manifest.appimage_arch": {
       "label": "Appimage arch",
       "section": "Targets",
       "common": false,
       "alias": null,
-      "help": "manifest.appimage_arch. Optional: leaving this unset uses sqgipkg defaults. "
+      "help": "CPU for a single AppImage target. Targets uses an explicit Linux architecture matrix for multiple outputs. Automatic and custom legacy selections remain preserved in Advanced."
     },
     "manifest.appimagetool": {
       "label": "Appimagetool",
@@ -61,7 +61,7 @@
       "section": "Appearance/installer",
       "common": true,
       "alias": null,
-      "help": "manifest.desktop_icon. Optional: leaving this unset uses sqgipkg defaults. "
+      "help": "Image used for the desktop application icon. Installer artwork is configured separately in Windows installer options."
     },
     "manifest.desktop_terminal": {
       "label": "Desktop terminal",
@@ -80,9 +80,9 @@
     "manifest.files": {
       "label": "Files",
       "section": "Files",
-      "common": true,
+      "common": false,
       "alias": null,
-      "help": "manifest.files. Optional: leaving this unset uses sqgipkg defaults. "
+      "help": "Custom source-to-destination mappings and inclusion rules. For ordinary assets, use Add asset in Files. Destinations refer to paths inside the package."
     },
     "manifest.gdk_backend": {
       "label": "Gdk backend",
@@ -113,11 +113,11 @@
       "help": "manifest.gsettings_schemas. Optional: leaving this unset uses sqgipkg defaults. "
     },
     "manifest.gstreamer_plugins": {
-      "label": "Gstreamer plugins",
+      "label": "Additional GStreamer plugin files",
       "section": "Files",
       "common": false,
       "alias": null,
-      "help": "manifest.gstreamer_plugins. Optional: leaving this unset uses sqgipkg defaults. "
+      "help": "Additional Linux plugin library files, for example plugins/libgstaudiotestsrc.so. Enter file paths, not element names such as audiotestsrc. Relative paths start at the manifest directory. GStreamer feature-based dependency collection still includes standard plugins; this list adds files and does not restrict that collection. Each .so must match its Linux target CPU; use per-architecture settings for different binaries. Windows plugins come from its dependency packages."
     },
     "manifest.gtk_data": {
       "label": "Gtk data",
@@ -187,7 +187,7 @@
       "section": "Targets",
       "common": false,
       "alias": null,
-      "help": "manifest.linux. Optional: leaving this unset uses sqgipkg defaults. "
+      "help": "Linux dependency sources, build hooks and architecture overrides. Review shows the combined configuration; these are advanced packaging settings."
     },
     "manifest.linux_arches": {
       "label": "Linux arches",
@@ -201,7 +201,7 @@
       "section": "Application",
       "common": true,
       "alias": null,
-      "help": "manifest.name. Optional: leaving this unset uses sqgipkg defaults. "
+      "help": "The application name shown to users. When omitted, sqgipkg uses the project directory name."
     },
     "manifest.native_projects": {
       "label": "Native projects",
@@ -215,7 +215,7 @@
       "section": "Targets",
       "common": true,
       "alias": null,
-      "help": "manifest.output. Optional: leaving this unset uses sqgipkg defaults. "
+      "help": "Folder where sqgipkg writes packages. When omitted, sqgipkg chooses a target-specific directory; Review shows the resolved path."
     },
     "manifest.refresh_appimagetool": {
       "label": "Refresh appimagetool",
@@ -229,21 +229,21 @@
       "section": "Files",
       "common": true,
       "alias": null,
-      "help": "manifest.resources. Optional: leaving this unset uses sqgipkg defaults. "
+      "help": "Images, UI definitions and other assets to place in the application resources folder. Files offers pickers; use custom file rules for another destination."
     },
     "manifest.script": {
       "label": "Main Squirrel script",
       "section": "Application",
-      "common": true,
+      "common": false,
       "alias": null,
-      "help": "manifest.script. Optional: leaving this unset uses sqgipkg defaults. "
+      "help": "Legacy main Squirrel script path. Keep an existing spelling; use the main script control for ordinary changes. Review shows which entry will launch."
     },
     "manifest.script_dirs": {
       "label": "Script directories",
       "section": "Files",
       "common": false,
       "alias": null,
-      "help": "manifest.script_dirs. Optional: leaving this unset uses sqgipkg defaults. "
+      "help": "Extra directories containing scripts, useful for dynamic imports. Literal local imports are followed automatically. Starter templates include the project directory."
     },
     "manifest.scripts": {
       "label": "Scripts",
@@ -264,7 +264,7 @@
       "section": "Targets",
       "common": false,
       "alias": null,
-      "help": "manifest.target. Optional: leaving this unset uses sqgipkg defaults. "
+      "help": "Package output selection. Targets offers both Linux AppImage architectures and Windows together or separately. New GUI projects select both AppImages plus Windows NSIS."
     },
     "manifest.typelibs": {
       "label": "Typelibs",
@@ -278,7 +278,7 @@
       "section": "Targets",
       "common": false,
       "alias": null,
-      "help": "manifest.windows. Optional: leaving this unset uses sqgipkg defaults. "
+      "help": "Windows dependencies, runtime and installer options. Normal output selection is in Targets; change these only for a custom Windows configuration."
     },
     "manifest.schema_version": {
       "label": "Schema version",
@@ -292,7 +292,7 @@
       "section": "Runtime/native code",
       "common": true,
       "alias": null,
-      "help": "manifest.runtime. Optional: leaving this unset uses sqgipkg defaults. "
+      "help": "Select a SQGI source checkout or revision to build. When omitted, packaging uses an existing build or installed runtime. Review shows what was resolved."
     },
     "manifest.features": {
       "label": "Application features",
@@ -306,14 +306,14 @@
       "section": "Runtime/native code",
       "common": true,
       "alias": null,
-      "help": "manifest.native. Optional: leaving this unset uses sqgipkg defaults. "
+      "help": "Libraries your app builds, for example C, GObject or Vala. Add a local directory or Git source and its build system; ordinary script-only apps need no native project."
     },
     "manifest.platforms": {
       "label": "Target platforms",
       "section": "Targets",
       "common": true,
       "alias": null,
-      "help": "manifest.platforms. Optional: leaving this unset uses sqgipkg defaults. "
+      "help": "Linux output architectures and dependency baseline, plus Windows format. Select ordinary output combinations in Targets; use Advanced for custom platform configuration."
     },
     "linux.arches": {
       "label": "Arches",
@@ -600,7 +600,7 @@
       "section": "Targets",
       "common": false,
       "alias": null,
-      "help": "windows.nsis_options. Optional: leaving this unset uses sqgipkg defaults. "
+      "help": "Windows installer presentation, license and shortcuts. Building an installer requires NSIS (makensis)."
     },
     "windows.package_cache": {
       "label": "Package cache",
@@ -775,7 +775,7 @@
       "section": "Appearance/installer",
       "common": false,
       "alias": null,
-      "help": "nsis_options.desktop_shortcut. Optional: leaving this unset uses sqgipkg defaults. "
+      "help": "Choose whether the Windows installer creates a desktop shortcut."
     },
     "nsis_options.header_image": {
       "label": "Header image",
@@ -810,7 +810,7 @@
       "section": "Appearance/installer",
       "common": false,
       "alias": null,
-      "help": "nsis_options.license. Optional: leaving this unset uses sqgipkg defaults. "
+      "help": "License text file shown by the Windows installer. This is a source file path, not the license text itself."
     },
     "nsis_options.request_execution_level": {
       "label": "Request execution level",
@@ -831,7 +831,7 @@
       "section": "Appearance/installer",
       "common": false,
       "alias": null,
-      "help": "nsis_options.start_menu_shortcut. Optional: leaving this unset uses sqgipkg defaults. "
+      "help": "Choose whether the Windows installer creates a Start Menu shortcut."
     },
     "nsis_options.uninstall_registry": {
       "label": "Uninstall registry",
@@ -915,21 +915,21 @@
       "section": "Runtime/native code",
       "common": true,
       "alias": null,
-      "help": "native_projects.name. Optional: leaving this unset uses sqgipkg defaults. "
+      "help": "Unique name for this native library build. The name sqgi is reserved for the runtime recipe."
     },
     "native_projects.ref": {
       "label": "Ref",
       "section": "Runtime/native code",
       "common": false,
       "alias": null,
-      "help": "native_projects.ref. Optional: leaving this unset uses sqgipkg defaults. "
+      "help": "Git branch, tag or commit to build. Choose a release tag or commit when you need a particular source revision."
     },
     "native_projects.repo": {
       "label": "Repo",
       "section": "Runtime/native code",
-      "common": false,
+      "common": true,
       "alias": null,
-      "help": "native_projects.repo. Optional: leaving this unset uses sqgipkg defaults. "
+      "help": "Git repository containing the native library source. Fetching happens during packaging, not when opening or checking this manifest."
     },
     "native_projects.shallow": {
       "label": "Shallow",
@@ -978,26 +978,26 @@
       "section": "Runtime/native code",
       "common": true,
       "alias": null,
-      "help": "native_projects.build_system. Optional: leaving this unset uses sqgipkg defaults. "
+      "help": "Use meson or cmake for a standard build recipe. Meson is the normal default. Custom build and install commands remain available in advanced settings."
     },
     "native_projects.options": {
       "label": "Options",
       "section": "Runtime/native code",
-      "common": true,
+      "common": false,
       "alias": null,
-      "help": "native_projects.options. Optional: leaving this unset uses sqgipkg defaults. "
+      "help": "Arguments passed to the selected native build system. Use them only when its default project configuration needs changing."
     },
     "native_projects.gi": {
       "label": "GObject Introspection",
       "section": "Runtime/native code",
-      "common": true,
+      "common": false,
       "alias": null,
       "help": "native_projects.gi. Optional: leaving this unset uses sqgipkg defaults. "
     },
     "native_projects.targets": {
       "label": "Targets",
       "section": "Runtime/native code",
-      "common": true,
+      "common": false,
       "alias": null,
       "help": "native_projects.targets. Optional: leaving this unset uses sqgipkg defaults. "
     },
@@ -1135,11 +1135,11 @@
       "help": "arches.gsettings_schemas. Optional: leaving this unset uses sqgipkg defaults. "
     },
     "arches.gstreamer_plugins": {
-      "label": "Gstreamer plugins",
+      "label": "Additional GStreamer plugin files",
       "section": "Targets",
       "common": false,
       "alias": null,
-      "help": "arches.gstreamer_plugins. Optional: leaving this unset uses sqgipkg defaults. "
+      "help": "Additional Linux plugin library files, for example plugins/libgstaudiotestsrc.so. Enter file paths, not element names such as audiotestsrc. Relative paths start at the manifest directory. GStreamer feature-based dependency collection still includes standard plugins; this list adds files and does not restrict that collection. Each .so must match its Linux target CPU; use per-architecture settings for different binaries. Windows plugins come from its dependency packages."
     },
     "arches.gtk_data": {
       "label": "Gtk data",
@@ -1298,7 +1298,7 @@
     "files.path": {
       "label": "Path",
       "section": "Files",
-      "common": true,
+      "common": false,
       "alias": null,
       "help": "Input file path. In a native project it is relative to that project; otherwise relative to the manifest."
     },
@@ -1312,7 +1312,7 @@
     "files.dest": {
       "label": "Dest",
       "section": "Files",
-      "common": true,
+      "common": false,
       "alias": "to",
       "help": "files.dest. Optional: leaving this unset uses sqgipkg defaults. Advanced/legacy spelling; preserved as authored."
     },
@@ -1321,7 +1321,7 @@
       "section": "Files",
       "common": true,
       "alias": null,
-      "help": "files.from. Optional: leaving this unset uses sqgipkg defaults. "
+      "help": "Source file or directory to copy. Paths normally start at the manifest directory, or at the native project for its own file rules."
     },
     "files.dir": {
       "label": "Dir",
@@ -1342,7 +1342,7 @@
       "section": "Files",
       "common": true,
       "alias": null,
-      "help": "files.include. Optional: leaving this unset uses sqgipkg defaults. "
+      "help": "Patterns selecting files from the source directory. Use this when only part of a directory belongs in the package."
     },
     "files.includes": {
       "label": "Includes",
@@ -1370,7 +1370,7 @@
       "section": "Files",
       "common": true,
       "alias": null,
-      "help": "files.exclude. Optional: leaving this unset uses sqgipkg defaults. "
+      "help": "Patterns excluding files from the source selection, for example development files that should not be distributed."
     },
     "files.excludes": {
       "label": "Excludes",
@@ -1398,7 +1398,7 @@
       "section": "Files",
       "common": true,
       "alias": null,
-      "help": "files.optional. Optional: leaving this unset uses sqgipkg defaults. "
+      "help": "Allow this rule to refer to input that is not present. Leave required inputs mandatory so Check can identify missing files."
     },
     "fonts.path": {
       "label": "Path",
@@ -1454,14 +1454,14 @@
       "section": "Runtime/native code",
       "common": true,
       "alias": null,
-      "help": "runtime.sqgi. Optional: leaving this unset uses sqgipkg defaults. "
+      "help": "SQGI revision to build, such as a release tag or commit. Builds may fetch sources later; inspection does not fetch or build."
     },
     "runtime.source": {
       "label": "SQGI source checkout",
       "section": "Runtime/native code",
       "common": true,
       "alias": null,
-      "help": "runtime.source. Optional: leaving this unset uses sqgipkg defaults. "
+      "help": "Local SQGI source checkout to build. Relative paths start at the manifest directory. Use this when testing or packaging your own runtime sources."
     },
     "runtime.jit": {
       "label": "Legacy JIT override",
@@ -1475,42 +1475,105 @@
       "section": "Targets",
       "common": true,
       "alias": null,
-      "help": "platforms.linux. Optional: leaving this unset uses sqgipkg defaults. "
+      "help": "Linux architectures and dependency baseline. Producing Linux packages requires a Linux build host."
     },
     "platforms.windows": {
       "label": "Windows",
       "section": "Targets",
       "common": true,
       "alias": null,
-      "help": "platforms.windows. Optional: leaving this unset uses sqgipkg defaults. "
+      "help": "Windows architectures and output format. Select directory for a portable folder or installer for NSIS output."
     },
     "platform_linux.architectures": {
       "label": "Architectures",
       "section": "Targets",
       "common": true,
       "alias": null,
-      "help": "platform_linux.architectures. Optional: leaving this unset uses sqgipkg defaults. "
+      "help": "Linux CPU architectures to package, such as x86_64 or aarch64. Review shows which target configurations will be selected."
     },
     "platform_linux.baseline": {
       "label": "Baseline",
       "section": "Targets",
       "common": true,
       "alias": null,
-      "help": "platform_linux.baseline. Optional: leaving this unset uses sqgipkg defaults. "
+      "help": "Dependency package suite, such as ubuntu-22.04 or ubuntu-24.04. This alone does not certify that the finished application runs on that OS."
     },
     "platform_windows.architectures": {
       "label": "Architectures",
       "section": "Targets",
       "common": true,
       "alias": null,
-      "help": "platform_windows.architectures. Optional: leaving this unset uses sqgipkg defaults. "
+      "help": "Windows CPU architectures declared for packaging. Use sqgipkg Check to validate current backend support."
     },
     "platform_windows.format": {
       "label": "Format",
       "section": "Targets",
       "common": true,
       "alias": null,
-      "help": "platform_windows.format. Optional: leaving this unset uses sqgipkg defaults. "
+      "help": "Windows package format: directory or installer. An explicit target of win-dir or win-nsis overrides this choice."
+    },
+    "entry.project": {
+      "label": "Application build project",
+      "section": "Application",
+      "common": false,
+      "alias": null,
+      "help": "Name of the Meson or CMake native recipe that builds this application."
+    },
+    "entry.executable": {
+      "label": "Built executable",
+      "section": "Application",
+      "common": false,
+      "alias": null,
+      "help": "Executable relative to that project build directory. Windows adds .exe automatically; do not enter architecture-specific build paths."
+    },
+    "windows.package_source": {
+      "label": "Windows package source",
+      "help": "Choose Ooblerg or MSYS2. Existing manifests default to MSYS2. Packages must come from the selected provider.",
+      "section": "Runtime/native code",
+      "common": false,
+      "alias": null
+    },
+    "windows.runtime": {
+      "label": "Windows SQGI runtime",
+      "help": "Use the shared runtime choice, or use prebuilt SQGI from Ooblerg for Windows only.",
+      "section": "Runtime/native code",
+      "common": false,
+      "alias": null
+    },
+    "native_projects.windows_package": {
+      "label": "Windows package",
+      "help": "Use this Ooblerg package instead of building the library source for Windows. Linux uses its independent source/prebuilt choice; the source recipe is preserved.",
+      "section": "Runtime/native code",
+      "common": false,
+      "alias": null
+    },
+    "manifest.desktop_comment": {
+      "label": "Application description",
+      "section": "Application",
+      "common": false,
+      "alias": null,
+      "help": "Short description used as Comment in the Linux desktop launcher. Use an existing desktop file in Application to reuse your app metadata."
+    },
+    "linux.ooblerg_packages": {
+      "label": "Linux Ooblerg packages",
+      "section": "Runtime/native code",
+      "help": "Optional precompiled libraries for Linux x86_64 and aarch64, built against Ubuntu 24.04/noble. Ubuntu supplies normal dependencies. Source recipes remain available; this list does not replace them.",
+      "common": false,
+      "alias": null
+    },
+    "linux.ooblerg_repository": {
+      "label": "Linux Ooblerg repository",
+      "section": "Runtime/native code",
+      "help": "Repository origin, normally https://ooblerg.xyz. sqgipkg appends the Linux target triplet and /v1.",
+      "common": false,
+      "alias": null
+    },
+    "native_projects.linux_package": {
+      "label": "Linux prebuilt replacement",
+      "section": "Runtime/native code",
+      "help": "Optional Ooblerg package to use instead of this library source recipe on Linux. Clear it to restore local/Git builds. Windows uses its independent setting.",
+      "common": false,
+      "alias": null
     }
   },
   "cli": {
@@ -1536,7 +1599,7 @@
     },
     "target": {
       "classification": "invocation",
-      "description": "Package target: appimage, linux-sysroot, win-dir, win-nsis, win-sysroot, all"
+      "description": "Package target: appimage, appimage-all, linux-sysroot, win-dir, win-nsis, win-sysroot, all"
     },
     "build-dir": {
       "classification": "invocation",
@@ -1905,6 +1968,22 @@
     "explain": {
       "classification": "action",
       "description": "Print the resolved configuration without building or fetching"
+    },
+    "packages": {
+      "classification": "action",
+      "description": "Browse or refresh Ooblerg catalog metadata without installing packages."
+    },
+    "refresh-packages": {
+      "classification": "action",
+      "description": "Browse or refresh Ooblerg catalog metadata without installing packages."
+    },
+    "build-result": {
+      "classification": "invocation",
+      "description": "GUI-managed JSON build-result file; records produced outputs without parsing log text."
+    },
+    "package-target": {
+      "classification": "invocation",
+      "description": "Ooblerg catalog target: Windows x86_64, Linux x86_64 or Linux aarch64."
     }
   }
 }

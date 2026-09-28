@@ -3,6 +3,7 @@ local Gio = import("Gio")
 local GLib = import("GLib")
 function box(vertical = true, spacing = 8) { return Gtk.Box.new(vertical ? Gtk.Orientation.vertical : Gtk.Orientation.horizontal, spacing) }
 function label(text) { local w = Gtk.Label.new(text); w.set_xalign(0.0); w.set_wrap(true); return w }
+function heading(text) { local w = label(""); w.set_markup("<b>" + GLib.markup_escape_text(text, -1) + "</b>"); return w }
 function button(text, action) { local w = Gtk.Button.new_with_label(text); w.connect("clicked", action); return w }
 function entry(text = "") { local w = Gtk.Entry.new(); w.set_text(text); w.set_hexpand(true); return w }
 function padded(w) { w.set_margin_top(12); w.set_margin_bottom(12); w.set_margin_start(12); w.set_margin_end(12); return w }
@@ -35,5 +36,5 @@ function question(parent, title, message, choices, done) {
     dialog.present()
     return dialog
 }
-return { box = box, label = label, button = button, entry = entry, padded = padded, scroll = scroll,
+return { box = box, label = label, heading = heading, button = button, entry = entry, padded = padded, scroll = scroll,
     clear = clear, dropdown = dropdown, textview = textview, contents = contents, choose = choose, question = question }

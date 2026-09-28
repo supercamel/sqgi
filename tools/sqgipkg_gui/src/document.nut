@@ -130,6 +130,7 @@ class Document {
         if (!valid) throw "Fix or revert the invalid JSON before editing fields"
         if (!parts.len()) {
             if (remove_value || typeof(setting) != "table") throw "The manifest must remain an object"
+            if (pretty(setting) == pretty(value)) return false
             return this.edit_json(pretty(setting) + "\n")
         }
         local next = copy_value(value), parent = next

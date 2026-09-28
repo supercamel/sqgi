@@ -65,7 +65,7 @@ class SqgiPkgManifest extends Base.SqgiPkgSchema {
     }
 
     function default_output_dir_for_target(opts) {
-        if (opts.target == "all" || opts.target == "clean") return "dist"
+        if (opts.target == "all" || opts.target == "appimage-all" || opts.target == "clean") return "dist"
         if (this.starts_with(opts.target, "win-")) return this.default_windows_output_dir(opts)
         return this.default_linux_output_dir(opts)
     }
@@ -101,6 +101,7 @@ class SqgiPkgManifest extends Base.SqgiPkgSchema {
         local icon = this.table_get(manifest, "icon")
         local desktop_icon = this.table_get(manifest, "desktop_icon")
         local desktop_categories = this.table_get(manifest, "desktop_categories")
+        local desktop_comment = this.table_get(manifest, "desktop_comment")
         local desktop_terminal = this.table_get(manifest, "desktop_terminal")
         local target = this.table_get(manifest, "target")
         local build_dir = this.table_get(manifest, "build_dir")
@@ -127,6 +128,7 @@ class SqgiPkgManifest extends Base.SqgiPkgSchema {
         if (opts.app_id == "" && app_id != null) opts.app_id = app_id
         if (opts.desktop_icon == "" && desktop_icon != null) opts.desktop_icon = this.manifest_path(base_dir, desktop_icon)
         if (opts.desktop_icon == "" && icon != null) opts.desktop_icon = this.manifest_path(base_dir, icon)
+        if (desktop_comment != null) opts.desktop_comment = desktop_comment
         if (desktop_categories != null) opts.desktop_categories = this.manifest_desktop_categories(desktop_categories)
         if (!opts.desktop_terminal_forced && desktop_terminal != null) opts.desktop_terminal = desktop_terminal
         if (opts.target == "" && target != null) opts.target = target
@@ -169,6 +171,10 @@ class SqgiPkgManifest extends Base.SqgiPkgSchema {
         if (linux != null) this.apply_linux_manifest(opts, base_dir, linux)
         this.append_values(opts.linux.arches, this.manifest_linux_arches(base_dir, linux_arches))
         if (windows != null) this.apply_windows_manifest(opts, base_dir, windows)
+        // Apply the recipe's default suite only after authored Linux settings.
+        if (opts.linux.deb.download && opts.linux.deb.suite == "" &&
+                (opts.runtime_recipe || opts.features.len() > 0 || this.table_get(manifest, "native", []).len() > 0))
+            opts.linux.deb.suite = "noble"
     }
 
     function apply_sqgi_source_manifest(opts, base_dir, value) {
@@ -209,6 +215,8 @@ class SqgiPkgManifest extends Base.SqgiPkgSchema {
     function apply_linux_manifest(opts, base_dir, linux) {
         if (typeof(linux) != "table") this.fail("manifest linux entry must be an object")
 
+        this.append_values(opts.linux.ooblerg_packages, this.manifest_string_list(this.table_get(linux, "ooblerg_packages")))
+        opts.linux.ooblerg_repository = this.table_get(linux, "ooblerg_repository", opts.linux.ooblerg_repository)
         local build = this.table_get(linux, "build")
         local sysroot = this.table_get(linux, "sysroot")
         local deb = this.table_get(linux, "deb")
@@ -245,6 +253,7 @@ class SqgiPkgManifest extends Base.SqgiPkgSchema {
             opts.linux.deb.package_cache = this.manifest_path(base_dir, package_cache)
         if (opts.linux.deb.sysroot_cache == "" && sysroot_cache != null)
             opts.linux.deb.sysroot_cache = this.manifest_path(base_dir, sysroot_cache)
+        if (download_packages != null) opts.linux.ooblerg_download <- download_packages
         if (download_packages != null && opts.linux.deb.download_forced == null)
             opts.linux.deb.download = download_packages
         if (suite != null && !opts.linux.deb.suite_forced && opts.linux.deb.suite == "")
@@ -260,6 +269,15 @@ class SqgiPkgManifest extends Base.SqgiPkgSchema {
     function apply_windows_manifest(opts, base_dir, windows) {
         if (typeof(windows) != "table") this.fail("manifest windows entry must be an object")
 
+        opts.windows.package_source = this.table_get(windows, "package_source", "msys2")
+        opts.windows.runtime = this.table_get(windows, "runtime", "inherit")
+        if (opts.windows.package_source == "ooblerg") {
+            if ("msys2_root" in windows || "msys2_prefix" in windows || opts.windows.msys2_root != "")
+                this.fail("Ooblerg uses its own private sysroot; remove explicit MSYS2 root/prefix settings")
+            opts.windows.msys2_prefix = "mingw64"
+        }
+        if (opts.windows.runtime == "package" && opts.windows.package_source != "ooblerg")
+            this.fail("windows.runtime=package requires windows.package_source=ooblerg")
         local build_dir = this.table_get(windows, "build_dir")
         local build = this.table_get(windows, "build")
         local msys2_root = this.table_get(windows, "msys2_root")
@@ -335,6 +353,28 @@ class SqgiPkgManifest extends Base.SqgiPkgSchema {
             this.fail("manifest entry.type must be sqgi or native")
 
         opts.entry_type = entry_type
+
+        if ("project" in entry || "executable" in entry) {
+            this.current_error_path = ["entry"]
+            if (entry_type != "native") this.fail("entry.project and entry.executable require entry.type native")
+            foreach (key in ["project", "executable"]) {
+                this.current_error_path = ["entry", key]
+                if (!(key in entry) || typeof(entry[key]) != "string" || entry[key] == "")
+                    this.fail("native entry requires nonempty entry." + key)
+            }
+            foreach (key in ["path", "linux", "windows", "script"]) {
+                if (key in entry) this.fail("entry.project cannot be combined with entry." + key)
+            }
+            local executable = this.replace_char(entry.executable, "\\", "/")
+            if (GLib.path_is_absolute(executable) || executable.find(":") != null ||
+                    executable == "." || ("/" + executable + "/").find("/../") != null)
+                this.fail("entry.executable must be a relative file within its project build directory")
+            opts.entry_project = entry.project
+            opts.entry_executable = this.relative_dest(executable)
+            if (opts.entry_executable == "") this.fail("entry.executable must name a file")
+            this.current_error_path = []
+            return
+        }
 
         if (entry_type == "sqgi") {
             local path = this.table_get(entry, "path")
@@ -676,6 +716,8 @@ class SqgiPkgManifest extends Base.SqgiPkgSchema {
                 name = name,
                 build_system = this.table_get(item, "build_system", ""),
                 gi = this.table_get(item, "gi", null),
+                windows_package = this.table_get(item, "windows_package", ""),
+                linux_package = this.table_get(item, "linux_package", ""),
                 targets = this.table_get(item, "targets", []),
                 options = this.table_get(item, "options", {}),
                 dir = project_dir,
@@ -780,7 +822,7 @@ class SqgiPkgManifest extends Base.SqgiPkgSchema {
     }
 
     function validate_options(opts) {
-        if (!this.array_contains(["clean", "appimage", "linux-sysroot", "win-dir", "win-nsis", "win-sysroot", "all"], opts.target))
+        if (!this.array_contains(["clean", "appimage", "appimage-all", "linux-sysroot", "win-dir", "win-nsis", "win-sysroot", "all"], opts.target))
             this.fail("unknown or unavailable target: " + opts.target)
         if (this.host_windows() && !this.starts_with(opts.target, "win-") && !opts.clean)
             this.fail("Linux targets require a Linux build host; Windows hosts support win-dir, win-nsis and win-sysroot")
@@ -792,11 +834,12 @@ class SqgiPkgManifest extends Base.SqgiPkgSchema {
         }
 
         if (opts.entry_type == "native") {
+            if (opts.entry_project != "") return // Resolved against each selected target's native recipes.
             local has_linux_entry = opts.entry_linux != ""
             foreach (config in opts.linux.arches) {
                 if (this.table_get(config, "entry_linux", "") != "") has_linux_entry = true
             }
-            if ((opts.target == "appimage" || opts.target == "all") && !has_linux_entry)
+            if ((opts.target == "appimage" || opts.target == "all" || opts.target == "appimage-all") && !has_linux_entry)
                 this.fail("native entry requires entry.linux for target " + opts.target)
             if ((this.starts_with(opts.target, "win-") || opts.target == "all") && opts.entry_windows == "")
                 this.fail("native entry requires entry.windows for target " + opts.target)
@@ -808,7 +851,7 @@ class SqgiPkgManifest extends Base.SqgiPkgSchema {
 
     function validate_doctor_options(opts) {
         if (opts.entry_type == "sqgi" && opts.script == "") this.fail("doctor requires a script")
-        if (opts.entry_type == "native" && opts.entry_linux == "" && opts.entry_windows == "")
+        if (opts.entry_type == "native" && opts.entry_project == "" && opts.entry_linux == "" && opts.entry_windows == "")
             this.fail("doctor requires a native entry path")
     }
 

@@ -1,7 +1,44 @@
 local GLib = import("GLib")
 local Base = import("scripts.nut")
+local sdk_helper = GLib.path_get_dirname(GLib.canonicalize_filename(__FILE__, null)) + "/native_sdk.py"
 
 class SqgiPkgRecipes extends Base.SqgiPkgScripts {
+    function native_sdk_command() {
+        local python = this.executable_path("python3")
+        if (python == null) this.fail("Native development export requires Python 3")
+        return [python, sdk_helper]
+    }
+
+    function prepare_native_sdk(opts) {
+        if (this.starts_with(opts.target, "win-")) return
+        if (!("linux_ooblerg" in opts)) {
+            if (opts.native_projects.len() == 0) return
+            if (opts.entry_type != "native" && opts.native_projects.len() < 2) return
+        }
+        local base_root = this.linux_current_sysroot(opts)
+        if (base_root == "") return // Preserve legacy builds using host development files.
+        local root = GLib.build_filenamev([this.abs_path(opts.output_dir), "_native_sdk", this.recipe_target(opts)])
+        local argv = this.native_sdk_command()
+        foreach (arg in ["init", "--base", base_root, "--root", root]) argv.push(arg)
+        this.info("preparing private native development SDK: " + root)
+        this.run_process(argv, "preparing private native development SDK")
+        opts.native_sdk <- root
+    }
+
+    function export_native_development(opts, project) {
+        if (!("native_sdk" in opts) || project.name == opts.entry_project || project.build_system == "") return
+        local argv = this.native_sdk_command()
+        foreach (arg in ["export", "--root", opts.native_sdk, "--build", this.recipe_build_dir(opts, project),
+            "--system", project.build_system, "--owner", project.name]) argv.push(arg)
+        if (this.recipe_uses_host_gi(opts, project)) {
+            local host = this.new_options(); host.target = "appimage"; host.manifest_dir = opts.manifest_dir
+            host.appimage_arch = this.normalize_appimage_arch(this.machine_arch())
+            local item = clone project; item.name = project.name + "-gi-host"
+            argv.push("--host-gi"); argv.push(this.recipe_build_dir(host, item))
+        }
+        this.run_process(argv, "exporting native development files for " + project.name)
+    }
+
     function recipe_environment(opts) {
         if (this.starts_with(opts.target, "win-")) {
             local env = {}
@@ -28,12 +65,32 @@ class SqgiPkgRecipes extends Base.SqgiPkgScripts {
     }
 
     function recipe_target(opts) {
-        return this.starts_with(opts.target, "win-") ? "windows-x86_64" : "linux-" + opts.appimage_arch
+        return this.starts_with(opts.target, "win-") ? (opts.windows.package_source == "ooblerg" ? "windows-x86_64-ooblerg" : "windows-x86_64") : "linux-" + opts.appimage_arch
     }
 
     function recipe_build_dir(opts, project) {
         local root = opts.manifest_dir == "" ? GLib.get_current_dir() : opts.manifest_dir
         return GLib.build_filenamev([root, ".sqgipkg", "build", this.recipe_target(opts), project.name])
+    }
+
+    function resolve_native_recipe_entry(opts) {
+        if (opts.entry_type != "native" || opts.entry_project == "") return
+        local windows = this.starts_with(opts.target, "win-")
+        this.current_error_path = ["entry", "project"]
+        local project = null
+        foreach (item in (windows ? opts.windows.native_projects : opts.native_projects))
+            if (item.name == opts.entry_project) project = item
+        if (project == null || (project.build_system != "meson" && project.build_system != "cmake"))
+            this.fail("entry.project must name a Meson/CMake native recipe for " + this.recipe_target(opts) + ": " + opts.entry_project)
+        if (!windows) foreach (config in opts.linux.arches)
+            if (this.table_get(config, "entry_linux", "") != "")
+                this.fail("entry.project cannot be combined with architecture-specific entry_linux paths")
+        local executable = opts.entry_executable
+        if (windows && !this.ends_with(executable.tolower(), ".exe")) executable += ".exe"
+        local path = GLib.build_filenamev([this.recipe_build_dir(opts, project), executable])
+        if (windows) opts.entry_windows = path
+        else opts.entry_linux = path
+        this.current_error_path = []
     }
 
     function recipe_cross_file(opts, cmake) {
@@ -51,7 +108,20 @@ class SqgiPkgRecipes extends Base.SqgiPkgScripts {
         local cross = this.recipe_cross_file(opts, cmake)
         local configure = cmake ? ["cmake", "-S", source, "-B", dir, "-G", "Ninja", "-DCMAKE_BUILD_TYPE=Release"]
             : ["meson", "setup", dir, source, "--buildtype=release"]
-        if (!cmake && this.path_exists(GLib.build_filenamev([dir, "meson-private", "coredata.dat"]))) configure.push("--reconfigure")
+        if (!cmake && this.path_exists(GLib.build_filenamev([dir, "meson-private", "coredata.dat"]))) {
+            local marker = GLib.build_filenamev([dir, ".sqgipkg-native-sdk"])
+            if ("native_sdk" in opts && (!this.path_exists(marker) || this.read_file(marker) != opts.native_sdk))
+                configure.push("--wipe") // Meson caches machine-file compiler/sysroot settings.
+            else {
+                configure.push("--reconfigure")
+                if ("native_sdk" in opts) configure.push("--clearcache")
+            }
+        }
+        if ("native_sdk" in opts && project.name != opts.entry_project) {
+            if (!("prefix" in project.options) && !("CMAKE_INSTALL_PREFIX" in project.options))
+                configure.push(cmake ? "-DCMAKE_INSTALL_PREFIX=/usr" : "--prefix=/usr")
+            if (!cmake && !("libdir" in project.options)) configure.push("--libdir=lib/" + this.linux_current_triplet(opts))
+        }
         if (cross != "") {
             if (cmake) configure.push("-DCMAKE_TOOLCHAIN_FILE=" + cross)
             else { configure.push("--cross-file"); configure.push(cross) }
@@ -80,6 +150,7 @@ class SqgiPkgRecipes extends Base.SqgiPkgScripts {
         foreach (argv in this.recipe_commands(opts, project, project.dir))
             this.run_process(argv, project.name + " " + argv[0], null, env)
         local dir = this.recipe_build_dir(opts, project)
+        if ("native_sdk" in opts) this.write_file(GLib.build_filenamev([dir, ".sqgipkg-native-sdk"]), opts.native_sdk)
         // Explicit outputs remain available. Otherwise collect the native build
         // products, including projects whose Meson targets use install:false.
         if (project.libraries.len() == 0) {
@@ -91,6 +162,7 @@ class SqgiPkgRecipes extends Base.SqgiPkgScripts {
         }
         if (this.recipe_uses_host_gi(opts, project)) this.build_host_gi(opts, project)
         else if (project.typelibs.len() == 0) project.typelibs = this.find_files(dir, "*.typelib")
+        this.export_native_development(opts, project)
         local entry = this.starts_with(opts.target, "win-") ? opts.entry_windows : opts.entry_linux
         local builds_entry = opts.entry_type == "native" && entry != "" &&
             this.path_is_within_dir(entry, dir) && this.path_exists(entry)
@@ -149,12 +221,28 @@ class SqgiPkgRecipes extends Base.SqgiPkgScripts {
         local options = { SQ_ENABLE_JIT = opts.runtime_jit ? "ON" : "OFF",
             SQGI_ENABLE_KERNELS = "ON", SQGI_BYTECODE_JIT_BACKEND = "LLVM",
             SQGI_KERNEL_BACKEND = "LLVM" }
-        if (this.starts_with(opts.target, "win-")) options.SQGI_WINDOWS_GUI <- this.windows_gui_cmake_value(opts)
+        if (this.starts_with(opts.target, "win-")) {
+            options.SQGI_WINDOWS_GUI <- this.windows_gui_cmake_value(opts)
+            if (opts.windows.package_source == "ooblerg") {
+                local prefix = this.windows_sysroot_prefix_dir(opts)
+                options.SQGI_LLVM_INCLUDE_DIR <- prefix + "/include"
+                options.SQGI_LLVM_LIBRARY <- prefix + "/lib/LLVM-C.lib"
+            }
+        }
+        else {
+            local sysroot = this.linux_current_sysroot(opts)
+            if (sysroot != "") {
+                // Explicit values also replace host paths in an existing cache.
+                options.SQGI_LLVM_INCLUDE_DIR <- GLib.build_filenamev([sysroot, "usr", "lib", "llvm-18", "include"])
+                options.SQGI_LLVM_LIBRARY <- GLib.build_filenamev([sysroot, "usr", "lib", this.linux_current_triplet(opts), "libLLVM-18.so"])
+            }
+        }
         return { name = "sqgi", build_system = "cmake", options = options, targets = ["sqgi-bin", "sqgi"] }
     }
 
     function build_runtime_recipe(opts) {
         if (!opts.runtime_recipe || opts.entry_type != "sqgi") return
+        if (this.starts_with(opts.target, "win-") && opts.windows.runtime == "package") return
         local source = this.ensure_sqgi_source(opts)
         local project = this.runtime_project(opts)
         foreach (argv in this.recipe_commands(opts, project, source))
@@ -168,26 +256,33 @@ class SqgiPkgRecipes extends Base.SqgiPkgScripts {
         this.scan_project_imports(opts)
         local windows = this.starts_with(opts.target, "win-")
         if (windows) this.apply_windows_package_defaults(opts)
-        else this.apply_linux_package_defaults(opts)
-        local runtime = { recipe = opts.runtime_recipe, revision = opts.sqgi_source.ref,
+        else { this.apply_linux_ooblerg_defaults(opts); this.apply_linux_package_defaults(opts) }
+        local package_runtime = windows && opts.windows.runtime == "package"
+        local runtime = { recipe = opts.runtime_recipe && !package_runtime, package = package_runtime ? "sqgi" : null, revision = opts.sqgi_source.ref,
             build_dir = windows ? opts.windows.build_dir : opts.build_dir, commands = [],
-            requested = opts.runtime_recipe ? { jit = opts.runtime_jit, kernels = true, backend = "LLVM" } : null,
+            requested = opts.runtime_recipe && !package_runtime ? { jit = opts.runtime_jit, kernels = true, backend = "LLVM" } : null,
             verified_binary = null }
-        if (opts.runtime_recipe) {
+        if (runtime.recipe) {
             local source = opts.sqgi_source.dir != "" ? opts.sqgi_source.dir : this.sqgi_source_checkout_dir(opts)
             runtime.commands = this.recipe_commands(opts, this.runtime_project(opts), source)
         }
         local native = []
         foreach (project in (windows ? opts.windows.native_projects : opts.native_projects)) {
-            local commands = project.build_system == "" ? [] : this.recipe_commands(opts, project, project.dir)
-            foreach (command in project.build) commands.push(command)
+            local package = windows ? project.windows_package : project.linux_package
+            local commands = project.build_system == "" || package != "" ? [] : this.recipe_commands(opts, project, project.dir)
+            if (package == "") foreach (command in project.build) commands.push(command)
             native.push({ name = project.name, build_system = project.build_system,
-                dir = project.dir, commands = commands })
+                dir = project.dir, package = package, commands = commands })
         }
         return { target = opts.target, architecture = windows ? "x86_64" : opts.appimage_arch,
             name = opts.name, entry = opts.entry_type == "sqgi" ? opts.script : (windows ? opts.entry_windows : opts.entry_linux),
             output = this.abs_path(opts.output_dir), runtime = runtime, native = native,
+            package_source = windows ? opts.windows.package_source : "ubuntu",
+            build_packages = windows ? opts.windows.build_packages : [],
             packages = windows ? opts.windows.packages : opts.linux.deb.packages,
+            ooblerg_packages = windows ? [] : this.linux_ooblerg_seeds(opts).packages,
+            ooblerg_build_packages = windows ? [] : this.linux_ooblerg_seeds(opts).build_packages,
+            ooblerg_repository = windows ? opts.windows.repo_url : opts.linux.ooblerg_repository,
             linux_suite = opts.linux.deb.suite, files = opts.files, scripts = opts.scripts,
             script_dirs = opts.script_dirs, resources = opts.resources, features = opts.features,
             discovery = opts.report, generated_outputs = "Native outputs are resolved after their build recipes run" }
@@ -200,7 +295,7 @@ class SqgiPkgRecipes extends Base.SqgiPkgScripts {
         if (plan.runtime.recipe) {
             print("  runtime: SQGI " + plan.runtime.revision + " (CMake recipe)\n")
             foreach (argv in plan.runtime.commands) print("    " + sqgi.json.stringify(argv) + "\n")
-        } else print("  runtime: existing build or installed runtime\n")
+        } else print(plan.runtime.package != null ? "  runtime: Ooblerg package " + plan.runtime.package + "\n" : "  runtime: existing build or installed runtime\n")
         foreach (project in plan.native) {
             print("  native: " + project.name + " (" + (project.build_system == "" ? "custom" : project.build_system) + ")\n")
             foreach (command in project.commands) print("    " + sqgi.json.stringify(command) + "\n")

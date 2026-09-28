@@ -106,11 +106,64 @@ class Contracts(unittest.TestCase):
         self.assertIn('-DSQ_ENABLE_JIT=OFF', command)
         self.assertIn('-DSQGI_ENABLE_KERNELS=ON', command)
 
+    @unittest.skipIf(os.name == 'nt', 'AppImage resolution requires a Linux build host')
+    def test_appimage_architecture_selection(self):
+        self.value['target'] = 'appimage'
+        self.value['platforms'] = {'linux': {'architectures': ['x86_64', 'aarch64']},
+                                   'windows': {'format': 'directory'}}
+        for architecture in ['aarch64', 'x86_64']:
+            self.value['appimage_arch'] = architecture
+            result = self.inspect(stdin=True)
+            self.assertTrue(result['ok'], result)
+            self.assertEqual([p['architecture'] for p in result['configurations']], [architecture])
+        self.value['appimage_arch'] = 'arm64'
+        self.assertEqual(self.inspect(stdin=True)['configurations'][0]['architecture'], 'aarch64')
+
+    @unittest.skipIf(os.name == 'nt', 'Linux matrix requires a Linux build host')
+    def test_output_matrix(self):
+        cases_file = self.directory / 'output-cases.json'
+        proc = subprocess.run([str(SQGI), str(GUI / 'tests/outputs.nut'), str(cases_file)], text=True, capture_output=True)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertIn('PASS EDIT-output-matrix', proc.stdout)
+        for case in json.loads(cases_file.read_text()):
+            for action in ['check', 'explain']:
+                result = self.inspect(action, stdin=True, value=case['manifest'])
+                configurations = result['configurations']
+                self.assertEqual([p['target'] + ':' + p['architecture'] for p in configurations], case['expected'])
+                self.assertEqual(len({p['output'] for p in configurations}), len(configurations))
+                if action == 'explain':
+                    self.assertTrue(result['ok'], result)
+            if case['manifest']['target'] == 'appimage-all':
+                (self.directory / 'matrix.json').write_text(json.dumps(case['manifest']))
+        proc = subprocess.run([str(SQGI), str(GUI / 'tests/matrix_build.nut'), str(ROOT / 'tools'), str(self.directory)],
+                              text=True, capture_output=True, timeout=20)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertIn('PASS PKG-matrix-build', proc.stdout)
+
     def test_legacy_compatibility(self):
         self.value = {'name': 'Old', 'script': 'main.nut', 'future': {'value': False}}
         result = self.inspect(stdin=True)
         self.assertTrue(result['ok'], result)
         self.assertTrue(any(d['code'] == 'unknown_field' and d['path'] == ['future'] for d in result['diagnostics']))
+
+    def test_runtime_choice(self):
+        cases = self.directory / 'runtime-cases.json'
+        proc = subprocess.run([str(SQGI), str(GUI / 'tests/runtime_choice.nut'), str(cases), str(ROOT)],
+                              text=True, capture_output=True, timeout=20)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertIn('PASS EDIT-runtime-choice', proc.stdout)
+        for value in json.loads(cases.read_text()):
+            result = self.inspect(stdin=True, value=value)
+            self.assertTrue(result['ok'], result)
+            runtime = result['configurations'][0]['runtime']
+            self.assertTrue(runtime['recipe'])
+            self.assertIn('-DSQ_ENABLE_JIT=ON', runtime['commands'][0])
+            self.assertIn('-DSQGI_ENABLE_KERNELS=ON', runtime['commands'][0])
+            if 'source' in value['runtime']:
+                command = runtime['commands'][0]
+                self.assertEqual(command[command.index('-S') + 1], str(ROOT))
+            else:
+                self.assertEqual(runtime['revision'], value['runtime']['sqgi'])
 
     def test_catalog_and_cli_coverage(self):
         described = json.loads(self.run_cli('describe', '--json').stdout)
@@ -118,8 +171,13 @@ class Contracts(unittest.TestCase):
         schema = described['schema']
         fields = {definition + '.' + key for definition, spec in schema['$defs'].items() for key in spec.get('properties', {})}
         self.assertEqual(fields, set(catalog['fields']))
+        for field in catalog['fields'].values():
+            self.assertIsInstance(field['common'], bool)
+            self.assertIn('alias', field)
+            self.assertIsInstance(field['help'], str)
         self.assertEqual({o['name'] for o in described['options']}, set(catalog['cli']))
         self.assertTrue(all(v['classification'] in {'field', 'invocation', 'action', 'alias'} for v in catalog['cli'].values()))
+        self.assertTrue(all(isinstance(v.get('description'), str) for v in catalog['cli'].values()))
         self.assertFalse(catalog['fields']['runtime.jit']['common'])
         self.assertTrue(described['runtime']['jit'])
         self.assertTrue(described['runtime']['kernels'])
@@ -127,6 +185,45 @@ class Contracts(unittest.TestCase):
         for name, template in described['templates'].items():
             self.assertEqual(template['schema_version'], 2, name)
             self.assertNotIn('runtime', template)
+
+    @unittest.skipIf(os.name == 'nt', 'Linux matrix requires a Linux host')
+    def test_native_library_preservation(self):
+        proc = subprocess.run([str(SQGI), str(GUI / 'tests/native_library.nut')],
+                              text=True, capture_output=True, timeout=20)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertIn('PASS EDIT-native-library-preservation', proc.stdout)
+
+    def test_native_application_entry_resolution(self):
+        proc = subprocess.run([str(SQGI), str(GUI / 'tests/native_application.nut')],
+                              text=True, capture_output=True, timeout=20)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertIn('PASS EDIT-native-application-preservation', proc.stdout)
+        value = {'schema_version': 2, 'name': 'Native example', 'target': 'all',
+                 'entry': {'type': 'native', 'project': 'app', 'executable': 'src/hello'},
+                 'native': [{'name': 'app', 'dir': '.', 'build_system': 'meson'}],
+                 'platforms': {'linux': {'architectures': ['x86_64', 'aarch64']}}}
+        for action in ['check', 'explain']:
+            result = self.inspect(action, stdin=True, value=value)
+            self.assertTrue(result['ok'], result)
+            for plan, target, executable in zip(result['configurations'],
+                    ['linux-x86_64', 'linux-aarch64', 'windows-x86_64'],
+                    ['src/hello', 'src/hello', 'src/hello.exe']):
+                self.assertEqual(Path(plan['entry']), self.directory / '.sqgipkg/build' / target / 'app' / executable)
+                self.assertFalse(plan['runtime']['recipe'])
+        self.assertFalse((self.directory / '.sqgipkg').exists())
+        for entry in [dict(value['entry'], project='missing'), dict(value['entry'], linux='bin/hello'),
+                      dict(value['entry'], executable='../escape'), dict(value['entry'], executable='/absolute'),
+                      dict(value['entry'], executable='C:\\app.exe'), dict(value['entry'], executable=''),
+                      dict(value['entry'], type='sqgi'), {'type': 'native', 'project': 'app'}]:
+            with self.subTest(entry=entry):
+                result = self.inspect(stdin=True, value=dict(value, entry=entry))
+                self.assertFalse(result['ok'], result)
+                self.assertEqual(result['diagnostics'][0]['path'][0], 'entry')
+        old = dict(value, entry={'type': 'native', 'linux': 'build/hello', 'windows': 'win/hello.exe'})
+        result = self.inspect(stdin=True, value=old)
+        self.assertTrue(result['ok'], result)
+        self.assertEqual(Path(result['configurations'][0]['entry']), self.directory / 'build/hello')
+        self.assertEqual(Path(result['configurations'][2]['entry']), self.directory / 'win/hello.exe')
 
     def test_async_inspection_and_cancellation(self):
         env = dict(os.environ, SQGI_GUI_RUNTIME=str(SQGI))

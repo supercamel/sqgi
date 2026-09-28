@@ -474,6 +474,7 @@ class SqgiPkgStaging extends Base.SqgiPkgRecipes {
 
     function stage_native_projects(opts, appdir) {
         foreach (project in opts.native_projects) {
+            if (this.table_get(project, "linux_package", "") != "") continue
             this.ensure_git_native_project(project, "native project " + project.name)
 
             local dir = project.dir
@@ -631,6 +632,7 @@ class SqgiPkgStaging extends Base.SqgiPkgRecipes {
     }
 
     function run_windows_native_project_commands(opts, project, label) {
+        if (project.windows_package != "") return
         this.ensure_git_native_project(project, label)
 
         local dir = project.dir
@@ -651,6 +653,7 @@ class SqgiPkgStaging extends Base.SqgiPkgRecipes {
     }
 
     function stage_windows_native_project_outputs(opts, project, windir, label) {
+        if (project.windows_package != "") return
         if (!project.stage) return
 
         foreach (path in project.libraries)

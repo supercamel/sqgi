@@ -343,8 +343,13 @@ class SqgiPkgWindowsMsys2 extends Base.SqgiPkgWindowsEnv {
         if (!this.starts_with(entry, prefix_slash)) return null
         local rel = entry.slice(prefix_slash.len())
 
-        if (this.starts_with(rel, "bin/") && this.ends_with(rel, ".dll"))
+        if (this.starts_with(rel, "lib/")) foreach (suffix in [".a", ".lib", ".la", ".pc", ".h", ".hpp"])
+            if (this.ends_with(rel.tolower(), suffix)) return null
+
+        if (this.starts_with(rel, "bin/") && this.ends_with(rel.tolower(), ".dll"))
             return rel
+        if (this.dirname(rel) == "lib" && this.ends_with(rel.tolower(), ".dll"))
+            return "bin/" + this.basename(rel)
         if (rel == "bin/gdk-pixbuf-query-loaders.exe")
             return rel
         if (rel == "bin/gdbus.exe")
@@ -552,6 +557,9 @@ class SqgiPkgWindowsMsys2 extends Base.SqgiPkgWindowsEnv {
         if (this.path_exists(bin_path)) return bin_path
         local lib_path = GLib.build_filenamev([windir, "lib", dll_name])
         if (this.path_exists(lib_path)) return lib_path
+        foreach (dir in [windir + "/bin", windir + "/lib"])
+            foreach (path in this.find_files(dir, "*", 1))
+                if (this.basename(path).tolower() == dll_name.tolower()) return path
         return null
     }
 

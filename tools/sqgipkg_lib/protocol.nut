@@ -6,7 +6,7 @@ local data_dir = GLib.path_get_dirname(GLib.path_get_dirname(GLib.canonicalize_f
 class SqgiPkgProtocol extends Base.SqgiPkgBuild {
     function describe() {
         local templates = {}
-        foreach (name in ["simple", "gtk4", "gtk4-gstreamer", "native-gobject", "native-vala"])
+        foreach (name in ["simple", "gtk4", "gtk4-gstreamer", "native-gobject", "native-vala", "native-application"])
             templates[name] <- sqgi.json.parse(this.template_manifest(name))
         local options = []
         foreach (entry in this.option_entries) options.push({ name = entry.name,
@@ -19,7 +19,7 @@ class SqgiPkgProtocol extends Base.SqgiPkgBuild {
             schema = sqgi.json.parse(this.read_file(GLib.build_filenamev([data_dir, "sqgipkg.schema.json"]))),
             templates = templates, options = options, runtime = runtime,
             host = this.host_windows() ? "windows" : "linux",
-            targets = this.host_windows() ? ["win-dir", "win-nsis", "win-sysroot"] : ["appimage", "linux-sysroot", "win-dir", "win-nsis", "win-sysroot", "all"] }
+            targets = this.host_windows() ? ["win-dir", "win-nsis", "win-sysroot"] : ["appimage", "appimage-all", "linux-sysroot", "win-dir", "win-nsis", "win-sysroot", "all"] }
     }
 
     function stdin_manifest() {
@@ -42,6 +42,12 @@ class SqgiPkgProtocol extends Base.SqgiPkgBuild {
         machine_output = true; diagnostics = []; current_error_path = null
         local result = { protocol_version = 1, ok = false, diagnostics = diagnostics, configurations = [] }
         try {
+            if (this.option_present(options, "build-result")) this.fail("inspection cannot use --build-result")
+            if (this.option_present(options, "packages")) {
+                local catalog = this.ooblerg_catalog(this.option_present(options, "refresh-packages"), this.option_value(options, "package-target"))
+                print(sqgi.json.stringify(catalog) + "\n")
+                return catalog.ok ? 0 : 1
+            }
             if (this.option_present(options, "describe")) {
                 print(sqgi.json.stringify(this.describe()) + "\n")
                 return 0

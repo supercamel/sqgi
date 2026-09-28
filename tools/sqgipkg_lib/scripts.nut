@@ -385,6 +385,37 @@ class SqgiPkgScripts extends Base.SqgiPkgManifest {
     function apply_windows_package_defaults(opts) {
         if (!this.starts_with(opts.target, "win-")) return
 
+        foreach (project in opts.windows.native_projects) {
+            if (this.table_get(project, "windows_package", "") == "") continue
+            if (opts.windows.package_source != "ooblerg") this.fail("native.windows_package requires the Ooblerg Windows package source")
+            if (project.name == opts.entry_project) this.fail("The application entry recipe cannot be replaced by windows_package")
+            this.append_unique(project.stage ? opts.windows.packages : opts.windows.build_packages, project.windows_package)
+        }
+        if (opts.windows.runtime == "package") {
+            if (opts.entry_type != "sqgi") this.fail("Prebuilt SQGI runtime is only valid for a Squirrel application")
+            if (!opts.runtime_jit) this.fail("The prebuilt SQGI runtime cannot honor runtime.jit=false; use the source runtime")
+            this.append_unique(opts.windows.packages, "sqgi")
+        }
+        if (opts.windows.package_source == "ooblerg") {
+            if (opts.runtime_recipe && opts.windows.runtime != "package" && opts.entry_type == "sqgi") {
+                this.append_unique(opts.windows.build_packages, "llvm18")
+                this.append_unique(opts.windows.packages, "llvm18")
+            }
+            if (this.host_windows() && (opts.runtime_recipe || opts.windows.native_projects.len() > 0))
+                this.append_unique(opts.windows.build_packages, "native-sdk")
+            if (this.windows_needs_default_vala(opts)) this.append_unique(opts.windows.build_packages, "vala")
+            if (!opts.windows.auto_packages) return
+            foreach (package in ["glib", "glib-introspection", "libgirepository-1.0", "libffi", "cairo"])
+                this.append_unique(opts.windows.packages, package)
+            this.append_unique(opts.windows.build_packages, "gobject-introspection")
+            if (opts.report.used_gtk) this.append_unique(opts.windows.packages, "gtk4")
+            if (opts.report.used_gtk || opts.report.used_gdk_pixbuf) this.append_unique(opts.windows.packages, "gdk-pixbuf")
+            if (opts.report.used_gst) foreach (package in ["gstreamer", "gst-plugins-base", "gst-plugins-good"])
+                this.append_unique(opts.windows.packages, package)
+            if (opts.report.used_soup) this.append_unique(opts.windows.packages, "libsoup3")
+            return
+        }
+
         if (this.host_windows() && (opts.runtime_recipe || opts.windows.native_projects.len() > 0)) {
             foreach (package in ["gcc", "cmake", "ninja", "meson", "pkgconf", "gobject-introspection"])
                 this.append_unique(opts.windows.build_packages, this.msys2_pkg(opts, package))

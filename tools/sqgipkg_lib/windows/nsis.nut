@@ -153,7 +153,7 @@ class SqgiPkgWindowsNsis extends Base.SqgiPkgWindowsStaging {
         local welcome_image_abs = this.nsis_compile_asset_path(opts.windows.nsis_welcome_image, "NSIS welcome image")
         local has_license = license_abs != ""
 
-        local text = "Unicode true\n" +
+        local text = "Target amd64-unicode\nUnicode true\n" +
             "!include MUI2.nsh\n" +
             "Name \"" + this.nsis_escape(opts.name) + "\"\n" +
             "OutFile \"" + this.nsis_escape(installer) + "\"\n" +

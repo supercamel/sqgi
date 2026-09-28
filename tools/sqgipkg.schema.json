@@ -332,6 +332,9 @@
         },
         "platforms": {
           "$ref": "#/$defs/platforms"
+        },
+        "desktop_comment": {
+          "type": "string"
         }
       },
       "additionalProperties": false
@@ -494,6 +497,19 @@
         },
         "sysroot_cache": {
           "type": "string"
+        },
+        "ooblerg_packages": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "Optional prebuilt Linux libraries from Ooblerg; Ubuntu remains the ordinary dependency source."
+        },
+        "ooblerg_repository": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Ooblerg repository origin; the target triplet and /v1 are appended."
         }
       },
       "additionalProperties": false
@@ -764,6 +780,20 @@
               }
             }
           ]
+        },
+        "package_source": {
+          "type": "string",
+          "enum": [
+            "msys2",
+            "ooblerg"
+          ]
+        },
+        "runtime": {
+          "type": "string",
+          "enum": [
+            "inherit",
+            "package"
+          ]
         }
       },
       "additionalProperties": false
@@ -816,11 +846,19 @@
     "entry": {
       "type": "object",
       "properties": {
+        "executable": {
+          "type": "string",
+          "minLength": 1
+        },
         "linux": {
           "type": "string"
         },
         "path": {
           "type": "string"
+        },
+        "project": {
+          "type": "string",
+          "minLength": 1
         },
         "script": {
           "type": "string"
@@ -1122,6 +1160,15 @@
           "items": {
             "type": "string"
           }
+        },
+        "windows_package": {
+          "type": "string",
+          "minLength": 1
+        },
+        "linux_package": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Optional Linux-only Ooblerg replacement; omit to build the retained local/Git recipe."
         }
       },
       "additionalProperties": false
