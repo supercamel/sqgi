@@ -532,6 +532,26 @@ static SQInteger sqgi_func_data_release(SQUserPointer p, SQInteger size)
  * Stack layout inside call: [this, arg1, ..., argN, freevar1]
  * We retrieve freevar1 with sq_gettop(v) (it is the last item pushed).
  */
+/* libsecret 0.21.x annotates async password attributes as transfer-full,
+ * but secret-password.c refs them into its closure; its own C convenience
+ * wrappers unref the caller's table after submitting the operation. Treat
+ * only these exact arguments as borrowed, preserving normal full transfer. */
+static GITransfer sqgi_gi_input_transfer(GICallableInfo *callable, GIArgInfo *arg)
+{
+    GITransfer transfer = g_arg_info_get_ownership_transfer(arg);
+    if (transfer != GI_TRANSFER_EVERYTHING ||
+        g_base_info_get_type((GIBaseInfo *)callable) != GI_INFO_TYPE_FUNCTION ||
+        g_strcmp0(g_base_info_get_namespace((GIBaseInfo *)callable), "Secret") != 0 ||
+        g_strcmp0(g_base_info_get_name((GIBaseInfo *)arg), "attributes") != 0)
+        return transfer;
+    const char *symbol = g_function_info_get_symbol((GIFunctionInfo *)callable);
+    const char *borrowed[] = { "secret_password_storev", "secret_password_storev_binary",
+        "secret_password_lookupv", "secret_password_clearv", "secret_password_searchv" };
+    for (guint i = 0; i < G_N_ELEMENTS(borrowed); i++)
+        if (g_strcmp0(symbol, borrowed[i]) == 0) return GI_TRANSFER_NOTHING;
+    return transfer;
+}
+
 /* Free any in-arg side allocations that sqgi_get_gi_argument made (e.g. the
  * char** strv we built for UTF-8/FILENAME C-arrays sourced from a Squirrel
  * array/table). Safe to call on both error and success paths. */
@@ -545,10 +565,14 @@ static void sqgi_gi_free_in_arg_allocs(GICallableInfo *callable, GIArgument *in_
         GITypeInfo *ti = g_arg_info_get_type(ai);
         /* Once invoked, the callee owns transferred arrays and may already
          * have reallocated or freed their storage (e.g. environ_setenv). */
-        if (invoked && g_arg_info_get_ownership_transfer(ai) != GI_TRANSFER_NOTHING) {
+        if (invoked && sqgi_gi_input_transfer(callable, ai) != GI_TRANSFER_NOTHING) {
             g_base_info_unref(ti);
             g_base_info_unref(ai);
             continue;
+        }
+        if (g_type_info_get_tag(ti) == GI_TYPE_TAG_GHASH && in_args[arg_to_in[i]].v_pointer) {
+            g_hash_table_unref(in_args[arg_to_in[i]].v_pointer);
+            in_args[arg_to_in[i]].v_pointer = NULL;
         }
         if (g_type_info_get_tag(ti) == GI_TYPE_TAG_ARRAY &&
             g_type_info_get_array_type(ti) == GI_ARRAY_TYPE_C) {
@@ -1016,7 +1040,13 @@ static SQInteger gi_function_call(HSQUIRRELVM v)
                         if(callback_bindings) g_ptr_array_free(callback_bindings, TRUE);
                         return sq_throwerror(v, msg);
                     }
-                    if (SQ_FAILED(sqgi_get_gi_argument(v, sq_idx, &in_args[in_idx], type_info))) {
+                    /* Container-only ownership and inout hashes require separate
+                     * element/storage lifetimes; reject rather than guess. */
+                    gboolean unsupported_hash = g_type_info_get_tag(type_info) == GI_TYPE_TAG_GHASH &&
+                        (dir != GI_DIRECTION_IN || g_arg_info_get_ownership_transfer(arg_info) == GI_TRANSFER_CONTAINER);
+                    if (unsupported_hash)
+                        sq_throwerror(v, "sqgi: hash-table inputs require direction in and transfer none/full");
+                    if (unsupported_hash || SQ_FAILED(sqgi_get_gi_argument(v, sq_idx, &in_args[in_idx], type_info))) {
                         g_base_info_unref(type_info);
                         g_base_info_unref(arg_info);
                         sqgi_gi_free_in_arg_allocs(callable, in_args, arg_to_in, n_args, FALSE);
@@ -1143,7 +1173,10 @@ static SQInteger gi_function_call(HSQUIRRELVM v)
                                          &return_arg, &error);
 
     if (!ok) {
-        sqgi_gi_free_in_arg_allocs(callable, in_args, arg_to_in, n_args, FALSE);
+        /* A callee-reported GError still means native code ran and consumed
+         * transfer-full arguments. Only GI invocation errors precede dispatch. */
+        gboolean invoked = error && error->domain != G_INVOKE_ERROR;
+        sqgi_gi_free_in_arg_allocs(callable, in_args, arg_to_in, n_args, invoked);
         for (guint bi = 0; callback_bindings && bi < callback_bindings->len; bi++) {
             SqgiCallbackBinding *b = g_ptr_array_index(callback_bindings, bi);
             sqgi_callback_destroy_notify(b->cb_data);

@@ -802,6 +802,12 @@ static SQInteger sqgi_struct_set(HSQUIRRELVM v)
         const char *fname = g_base_info_get_name((GIBaseInfo *)fi);
         if (fname && strcmp(fname, key) == 0) {
             GITypeInfo *ti = g_field_info_get_type(fi);
+            /* A field has no argument-transfer contract to own this allocation. */
+            if (g_type_info_get_tag(ti) == GI_TYPE_TAG_GHASH) {
+                g_base_info_unref(ti);
+                g_base_info_unref(fi);
+                return sq_throwerror(v, "sqgi: hash-table field assignment is unsupported");
+            }
             GIArgument val;
             if (SQ_FAILED(sqgi_get_gi_argument(v, 3, &val, ti))) {
                 g_base_info_unref(ti);

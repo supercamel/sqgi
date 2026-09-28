@@ -1317,3 +1317,14 @@ endforeach()
 # Native Vim package; custom prefixes may need to be added to 'packpath'.
 install(DIRECTORY editors/vim/
     DESTINATION ${CMAKE_INSTALL_DATADIR}/vim/vimfiles/pack/sqgi/start/sqgi)
+
+# Input GHashTable ownership and libsecret integration. The fixture is Linux-only
+# and builds in a temporary directory; the secret test owns a private D-Bus.
+if(Python3_EXECUTABLE AND G_IR_COMPILER_EXECUTABLE AND CMAKE_SYSTEM_NAME STREQUAL "Linux" AND NOT CMAKE_CROSSCOMPILING)
+    add_test(NAME sqgi_test_ghash_inputs
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/test/ghash/run.py $<TARGET_FILE:sqgi-bin>)
+    add_test(NAME sqgi_test_secret_private
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/test/ghash/secret.py $<TARGET_FILE:sqgi-bin>)
+    set_tests_properties(sqgi_test_ghash_inputs sqgi_test_secret_private PROPERTIES
+        ENVIRONMENT "${SQGI_TEST_ENV}" LABELS "gi;ownership" TIMEOUT 60 SKIP_RETURN_CODE 77)
+endif()

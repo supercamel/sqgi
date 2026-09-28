@@ -414,6 +414,82 @@ void sqgi_push_gi_argument_with_length(HSQUIRRELVM v, GIArgument *arg,
     }
 }
 
+/* Input dictionaries deliberately support only owned string keys and string or
+ * enum/flags values. Other pointer shapes need their own ownership policy. */
+static SQRESULT sqgi_get_hash_argument(HSQUIRRELVM v, SQInteger idx,
+                                      GIArgument *arg, GITypeInfo *type_info)
+{
+    GITypeInfo *key_type = g_type_info_get_param_type(type_info, 0);
+    GITypeInfo *value_type = g_type_info_get_param_type(type_info, 1);
+    GIBaseInfo *iface = NULL;
+    gboolean strings = FALSE, enums = FALSE, unsigned_enum = FALSE;
+    const char *error = "sqgi: unsupported hash-table key/value types";
+    GHashTable *table = NULL;
+    SQInteger top = sq_gettop(v);
+    if (!key_type || !value_type || g_type_info_get_tag(key_type) != GI_TYPE_TAG_UTF8)
+        goto fail;
+    strings = g_type_info_get_tag(value_type) == GI_TYPE_TAG_UTF8;
+    if (g_type_info_get_tag(value_type) == GI_TYPE_TAG_INTERFACE) {
+        iface = g_type_info_get_interface(value_type);
+        if (iface) {
+            GIInfoType kind = g_base_info_get_type(iface);
+            enums = kind == GI_INFO_TYPE_ENUM || kind == GI_INFO_TYPE_FLAGS;
+            if (enums) {
+                GITypeTag storage = g_enum_info_get_storage_type((GIEnumInfo *)iface);
+                unsigned_enum = storage == GI_TYPE_TAG_UINT32;
+                enums = storage == GI_TYPE_TAG_INT32 || unsigned_enum;
+            }
+        }
+    }
+    if (!strings && !enums) goto fail;
+    error = "sqgi: hash-table argument expects a table";
+    if (sq_gettype(v, idx) != OT_TABLE) goto fail;
+    table = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, strings ? g_free : NULL);
+    /* Copy the table to a stable stack slot; negative argument indices remain valid. */
+    sq_push(v, idx);
+    SQInteger slot = sq_gettop(v);
+    sq_pushnull(v);
+    while (SQ_SUCCEEDED(sq_next(v, slot))) {
+        const SQChar *key = NULL, *value = NULL;
+        SQInteger number = 0;
+        gpointer native_value;
+        error = "sqgi: hash-table keys must be UTF-8 strings without embedded NUL";
+        if (sq_gettype(v, -2) != OT_STRING || SQ_FAILED(sq_getstring(v, -2, &key)) ||
+            (SQInteger)strlen(key) != sq_getsize(v, -2) || !g_utf8_validate(key, -1, NULL)) goto fail;
+        if (strings) {
+            error = "sqgi: hash-table values must be UTF-8 strings without embedded NUL";
+            if (sq_gettype(v, -1) != OT_STRING || SQ_FAILED(sq_getstring(v, -1, &value)) ||
+                (SQInteger)strlen(value) != sq_getsize(v, -1) || !g_utf8_validate(value, -1, NULL)) goto fail;
+            native_value = g_strdup(value);
+        } else {
+            error = "sqgi: hash-table enum value must be an in-range integer";
+            if (sq_gettype(v, -1) != OT_INTEGER || SQ_FAILED(sq_getinteger(v, -1, &number))) goto fail;
+            if (unsigned_enum) {
+                if (number < 0 || (guint64)number > G_MAXUINT32) goto fail;
+                native_value = GUINT_TO_POINTER((guint)number);
+            } else {
+                if (number < G_MININT32 || number > G_MAXINT32) goto fail;
+                native_value = GINT_TO_POINTER((gint)number);
+            }
+        }
+        g_hash_table_insert(table, g_strdup(key), native_value);
+        sq_pop(v, 2);
+    }
+    sq_settop(v, top);
+    if (iface) g_base_info_unref(iface);
+    g_base_info_unref(key_type);
+    g_base_info_unref(value_type);
+    arg->v_pointer = table;
+    return SQ_OK;
+fail:
+    sq_settop(v, top);
+    if (table) g_hash_table_unref(table);
+    if (iface) g_base_info_unref(iface);
+    if (key_type) g_base_info_unref(key_type);
+    if (value_type) g_base_info_unref(value_type);
+    return sq_throwerror(v, error);
+}
+
 /* ── Squirrel → GIArgument ───────────────────────────────────────────────── */
 
 SQRESULT sqgi_get_gi_argument(HSQUIRRELVM v, SQInteger idx,
@@ -439,6 +515,8 @@ SQRESULT sqgi_get_gi_argument(HSQUIRRELVM v, SQInteger idx,
 
     /* Reset and dispatch properly */
     switch (tag) {
+    case GI_TYPE_TAG_GHASH:
+        return sqgi_get_hash_argument(v, idx, arg, type_info);
     case GI_TYPE_TAG_VOID:
         break;
 
