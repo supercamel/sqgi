@@ -146,3 +146,21 @@ with `python3 tests/test_study_runner.py -v` or CTest `sqgi_test_study_runner`.
 FreeLibrary teardown against a new copy of an actual Windows payload. It records
 hashes and requires markers plus zero exit. The opt-in integration currently
 exposes an unresolved GTK shutdown failure; see the [separate C3 report](../../reports/packaging-field-study-2026-09-25/windows-gtk-shutdown-crash.md).
+
+## Real GUI build acceptance (manual)
+
+`JOB-real-package` is manual integration acceptance, not an automatic claim of
+package execution. On a private headless GUI session, open the resource-rich
+fixture's manifest, select the required outputs, save through the GUI, and click
+Build in Review. Observe progress through real compiler/package operations and
+the terminal build status. Verify that every successful output listed by the
+GUI exists and matches the result report's size/hash and saved manifest digest.
+Open the artifact folder through the GUI and inspect the output, then run its
+functional checks on the appropriate target. Record failed/missing outputs and
+unavailable target runners separately; a build alone is not runtime acceptance.
+
+Use `headless.py`, `control.py` and `watch_gui_build.py` to run and observe this
+procedure. Keep generated screenshots, manifests, logs and package evidence in
+the local study directory. These files are deliberately outside the delivered
+source checkout. The traceability test verifies that these instructions exist;
+it does not turn a past private study result into a current automated pass.

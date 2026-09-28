@@ -55,6 +55,8 @@ jobs:
           if ($LASTEXITCODE) { $failed = $true }
           python tools/sqgipkg_gui/tests/test_contracts.py build-preflight/sqgi.exe -v Contracts.test_document_contracts Contracts.test_protocol_and_equivalence Contracts.test_runtime_choice Contracts.test_native_application_entry_resolution 2>&1 | Tee-Object -FilePath build-preflight/manifest-tests.log
           if ($LASTEXITCODE) { $failed = $true }
+          python tools/sqgipkg_gui/tests/test_delivery.py build-preflight/sqgi.exe -v Delivery.test_launch_from_unrelated_directory Delivery.test_traceability 2>&1 | Tee-Object -FilePath build-preflight/delivery-tests.log
+          if ($LASTEXITCODE) { $failed = $true }
           if ($failed) { exit 1 }
       - name: Build and install LLVM 18 for the native toolchain
         run: |

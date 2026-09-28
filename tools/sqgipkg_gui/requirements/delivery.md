@@ -26,6 +26,9 @@ them into successful or skipped acceptance. Packaging changes are validated on
 a candidate branch with native Windows CI before promotion to master.
 A local push guard rejects master updates without a successful native Windows
 run for the exact proposed commit, including missing, pending or failed runs.
+Delivery and traceability checks must pass in a clean source checkout without
+private study reports, screenshots or logs. Manual acceptance instructions are
+tracked separately from the local evidence produced by following them.
 
 ## End-to-end packaging study
 

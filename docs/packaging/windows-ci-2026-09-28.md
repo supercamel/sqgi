@@ -79,3 +79,12 @@ branch happens to be checked out. Run the same check manually with
 `python3 tools/check_windows_ci.py HEAD`. Use a fast-forward promotion of the
 tested candidate so the SHA remains unchanged. Git hooks are local and bypassable;
 server-side required checks are still needed to enforce this for every contributor.
+
+The first candidate's native run (36377642160) passed the original path case,
+LLVM/JIT/kernel suites, CLI regressions, GUI launcher, relocated Windows payload
+execution and NSIS compilation. Running the previously hidden delivery suite
+revealed a second defect: `JOB-real-package` referenced a deliberately untracked
+private study report. The inventory now labels this manual acceptance and points
+to its checked-in procedure. Traceability rejects dependencies on private report
+files, and delivery checks are included in the early preflight. Clean-source
+validation must not borrow the developer's local evidence to pass.

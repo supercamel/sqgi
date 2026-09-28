@@ -42,6 +42,9 @@ class Delivery(unittest.TestCase):
                 for test in entry['tests']:
                     self.assertIn(test, mapping['tests'], test)
         for identifier, test in mapping['tests'].items():
+            self.assertIn(test.get('kind', 'automated'), ['automated', 'manual'], identifier)
+            self.assertFalse(test['file'].startswith('tools/sqgipkg_gui/reports/'),
+                             identifier + ': private study evidence is not a source dependency')
             path = ROOT / test['file']
             self.assertTrue(path.is_file(), identifier)
             self.assertIn(test['anchor'], path.read_text(), identifier)

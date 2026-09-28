@@ -37,6 +37,11 @@ Windows workflow before it is merged/pushed to master.
 locally: query the destination repository's Windows workflow, require the latest
 run for the proposed commit to be completed/successful, and fail closed on
 missing results or API errors. Feature-branch pushes remain available to run CI.
+C-DEL-03 test inventory entries reference checked-in test sources or explicitly
+manual acceptance instructions, never files under the local GUI `reports/`
+directory. Validating a manual instruction's existence does not assert that its
+acceptance was executed. The fast native preflight also runs delivery/traceability
+checks so missing source references fail before LLVM bootstrap.
 
 The [end-to-end field study](../reports/packaging-field-study-2026-09-25/plan.md)
 extends C-DEL-04 evidence for the fixtures specified by R-DEL-05. Its execution
