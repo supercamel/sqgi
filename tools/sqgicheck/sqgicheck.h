@@ -1,15 +1,79 @@
 #ifndef SQGICHECK_H
 #define SQGICHECK_H
 
+#include <initializer_list>
 #include <memory>
-#include <utility>
 #include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 struct SQFunctionProto;
 
 namespace sqgicheck {
+
+// Abstract values are copied at every control-flow edge and closure capture.
+// Keep their recursive containers shared until an analyzer operation mutates
+// one, so a closure capturing a table of earlier closures stores a DAG rather
+// than repeatedly duplicating the whole graph.
+template <typename Container>
+class SharedContainer {
+public:
+    using value_type = typename Container::value_type;
+    using iterator = typename Container::iterator;
+    using const_iterator = typename Container::const_iterator;
+
+    SharedContainer() : data_(std::make_shared<Container>()) {}
+    SharedContainer(const Container &value)
+        : data_(std::make_shared<Container>(value)) {}
+    SharedContainer(Container &&value)
+        : data_(std::make_shared<Container>(std::move(value))) {}
+    SharedContainer(std::initializer_list<value_type> values)
+        : data_(std::make_shared<Container>(values)) {}
+
+    SharedContainer &operator=(const Container &value)
+    { data_ = std::make_shared<Container>(value); return *this; }
+    SharedContainer &operator=(Container &&value)
+    { data_ = std::make_shared<Container>(std::move(value)); return *this; }
+    SharedContainer &operator=(std::initializer_list<value_type> values)
+    { data_ = std::make_shared<Container>(values); return *this; }
+
+    iterator begin() { return writable().begin(); }
+    iterator end() { return writable().end(); }
+    const_iterator begin() const { return data_->begin(); }
+    const_iterator end() const { return data_->end(); }
+    const_iterator cbegin() const { return data_->cbegin(); }
+    const_iterator cend() const { return data_->cend(); }
+    template <typename C = Container>
+    auto find(const typename C::key_type &key)
+        -> decltype(std::declval<C &>().find(key))
+    { return writable().find(key); }
+    template <typename C = Container>
+    auto find(const typename C::key_type &key) const
+        -> decltype(std::declval<const C &>().find(key))
+    { return data_->find(key); }
+    template <typename C = Container>
+    auto operator[](const typename C::key_type &key)
+        -> decltype(std::declval<C &>()[key])
+    { return writable()[key]; }
+    void clear() { writable().clear(); }
+    size_t size() const { return data_->size(); }
+    bool empty() const { return data_->empty(); }
+    const Container &get() const { return *data_; }
+    operator const Container &() const { return *data_; }
+
+    bool operator==(const SharedContainer &other) const
+    { return data_ == other.data_ || *data_ == *other.data_; }
+    bool operator!=(const SharedContainer &other) const { return !(*this == other); }
+
+private:
+    Container &writable()
+    {
+        if (!data_.unique()) data_ = std::make_shared<Container>(*data_);
+        return *data_;
+    }
+    std::shared_ptr<Container> data_;
+};
 
 enum class Severity {
     Warning,
@@ -65,9 +129,9 @@ struct Value {
     bool members_known = false;
     std::string script_identity;
     SQFunctionProto *closure = nullptr;
-    std::vector<Value> closure_outers;
-    std::unordered_map<std::string, Value> fields;
-    std::unordered_map<std::string, Value> instance_fields;
+    SharedContainer<std::vector<Value>> closure_outers;
+    SharedContainer<std::unordered_map<std::string, Value>> fields;
+    SharedContainer<std::unordered_map<std::string, Value>> instance_fields;
 
     static Value unknown();
     static Value scalar();

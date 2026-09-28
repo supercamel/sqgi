@@ -786,6 +786,17 @@ void test_nested_closures()
     CHECK(analyzer.analyze("closures.nut", source).diagnostics.empty(),
           "nested closures preserve imported outer values");
 
+    std::string captured_table = "local module = {}\n";
+    for (int i = 0; i < 24; ++i) {
+        captured_table += "module.f" + std::to_string(i) +
+            " <- function() { return module }\n";
+    }
+    captured_table += "module.f0(1)\nreturn module\n";
+    SourceResult captured_result = analyzer.analyze(
+        "captured-table.nut", captured_table);
+    CHECK(has_code(captured_result.diagnostics, "SQGI103"),
+          "many closures capturing an evolving table stay bounded and retain arity checks");
+
     const char *transitive =
         "local X = import(\"Fake\")\n"
         "local w = X.Widget.new(\"x\")\n"
