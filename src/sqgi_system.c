@@ -3,6 +3,16 @@
 #include <glib.h>
 #include <squirrel.h>
 #include <string.h>
+#include <errno.h>
+#include <glib/gstdio.h>
+#ifdef G_OS_WIN32
+#include <windows.h>
+#else
+#include <fcntl.h>
+#include <sys/file.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#endif
 
 #ifndef SQGI_VERSION
 #define SQGI_VERSION "unknown"
@@ -154,6 +164,115 @@ static void sqgi_system_reg_fn(HSQUIRRELVM v, const char *name, SQFUNCTION fn)
     sq_newslot(v, -3, SQFalse);
 }
 
+/* A dedicated, stable file is the coordination object. Never unlink it. */
+typedef struct {
+#ifdef G_OS_WIN32
+    HANDLE handle;
+#else
+    int fd;
+#endif
+} SqgiFileLock;
+static char file_lock_tag;
+
+static void file_lock_close(SqgiFileLock *lock)
+{
+#ifdef G_OS_WIN32
+    if (lock->handle != INVALID_HANDLE_VALUE) {
+        CloseHandle(lock->handle);
+        lock->handle = INVALID_HANDLE_VALUE;
+    }
+#else
+    if (lock->fd >= 0) {
+        /* Do not retry close(EINTR): the descriptor may already be released. */
+        close(lock->fd);
+        lock->fd = -1;
+    }
+#endif
+}
+
+static SQInteger file_lock_release(SQUserPointer data, SQInteger size)
+{
+    (void)size;
+    file_lock_close((SqgiFileLock *)data);
+    return 0;
+}
+
+static SQInteger file_lock_close_method(HSQUIRRELVM v)
+{
+    SQUserPointer data = NULL, tag = NULL;
+    if (SQ_FAILED(sq_getuserdata(v, 1, &data, &tag)) || tag != &file_lock_tag)
+        return sq_throwerror(v, "file lock close: invalid receiver");
+    file_lock_close((SqgiFileLock *)data);
+    return 0;
+}
+
+static SQInteger file_lock_error(HSQUIRRELVM v, const char *detail)
+{
+    char *message = g_strdup_printf("system.try_file_lock: %s", detail);
+    SQInteger result = sq_throwerror(v, message);
+    g_free(message);
+    return result;
+}
+
+static SQInteger sqgi_system_try_file_lock(HSQUIRRELVM v)
+{
+    const SQChar *path = NULL;
+    SQInteger length = 0;
+    SqgiFileLock acquired;
+    if (sq_gettop(v) != 2 || SQ_FAILED(sq_getstringandsize(v, 2, &path, &length)) ||
+        length == 0 || (SQInteger)strlen(path) != length || !g_utf8_validate(path, length, NULL))
+        return sq_throwerror(v, "system.try_file_lock: expected a nonempty UTF-8 path without NUL bytes");
+#ifdef G_OS_WIN32
+    gunichar2 *wide = g_utf8_to_utf16(path, -1, NULL, NULL, NULL);
+    acquired.handle = CreateFileW((LPCWSTR)wide, GENERIC_READ | GENERIC_WRITE,
+        FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_ALWAYS,
+        FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT, NULL);
+    g_free(wide);
+    if (acquired.handle == INVALID_HANDLE_VALUE) {
+        char *message = g_win32_error_message(GetLastError());
+        SQInteger result = file_lock_error(v, message); g_free(message); return result;
+    }
+    BY_HANDLE_FILE_INFORMATION info;
+    if (!GetFileInformationByHandle(acquired.handle, &info) ||
+        GetFileType(acquired.handle) != FILE_TYPE_DISK ||
+        (info.dwFileAttributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT))) {
+        file_lock_close(&acquired);
+        return file_lock_error(v, "lock target must be a regular file, not a reparse point");
+    }
+    OVERLAPPED range = {0};
+    if (!LockFileEx(acquired.handle, LOCKFILE_EXCLUSIVE_LOCK | LOCKFILE_FAIL_IMMEDIATELY,
+                    0, 1, 0, &range)) {
+        DWORD error = GetLastError(); file_lock_close(&acquired);
+        if (error == ERROR_LOCK_VIOLATION) { sq_pushnull(v); return 1; }
+        char *message = g_win32_error_message(error);
+        SQInteger result = file_lock_error(v, message); g_free(message); return result;
+    }
+#else
+    acquired.fd = g_open(path, O_RDWR | O_CREAT | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK, 0600);
+    if (acquired.fd < 0) return file_lock_error(v, g_strerror(errno));
+    struct stat info;
+    if (fstat(acquired.fd, &info) < 0 || !S_ISREG(info.st_mode)) {
+        file_lock_close(&acquired);
+        return file_lock_error(v, "lock target must be a regular file");
+    }
+    int result;
+    do { result = flock(acquired.fd, LOCK_EX | LOCK_NB); } while (result < 0 && errno == EINTR);
+    if (result < 0) {
+        int error = errno; file_lock_close(&acquired);
+        if (error == EWOULDBLOCK || error == EAGAIN) { sq_pushnull(v); return 1; }
+        return file_lock_error(v, g_strerror(error));
+    }
+#endif
+    SqgiFileLock *lock = sq_newuserdata(v, sizeof(*lock));
+    *lock = acquired;
+    sq_settypetag(v, -1, &file_lock_tag);
+    sq_setreleasehook(v, -1, file_lock_release);
+    sq_newtable(v);
+    sqgi_system_reg_fn(v, "close", file_lock_close_method);
+    sq_setdelegate(v, -2);
+    return 1;
+}
+
 static void sqgi_system_push_env(HSQUIRRELVM v)
 {
     sqgi_push_k_table(v, "env");
@@ -245,6 +364,7 @@ SQRESULT sqgi_system_push_module(HSQUIRRELVM v)
 {
     sq_newtable(v);
 
+    sqgi_system_reg_fn(v, "try_file_lock", sqgi_system_try_file_lock);
     sqgi_system_push_os(v);
     sqgi_system_push_cpu(v);
     sqgi_system_push_runtime(v);

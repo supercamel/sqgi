@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.16)
-project(sqgi VERSION 0.2.0 LANGUAGES C CXX)
-set(SQGI_VERSION "${PROJECT_VERSION}-alpha")
+project(sqgi VERSION 0.2.2 LANGUAGES C CXX)
+set(SQGI_VERSION "${PROJECT_VERSION}")
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -882,6 +882,11 @@ set_tests_properties(sqgi_test_shebang PROPERTIES
 )
 
 find_package(Python3 COMPONENTS Interpreter QUIET)
+if(Python3_Interpreter_FOUND)
+    add_test(NAME sqgi_test_file_lock
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/test/test_file_lock.py $<TARGET_FILE:sqgi-bin>)
+    set_tests_properties(sqgi_test_file_lock PROPERTIES TIMEOUT 60 ENVIRONMENT "${SQGI_TEST_ENV}")
+endif()
 if(Python3_Interpreter_FOUND)
     add_test(NAME sqgi_test_windows_ci_guard
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/test/test_windows_ci_guard.py)

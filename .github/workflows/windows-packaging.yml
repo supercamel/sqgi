@@ -92,7 +92,7 @@ jobs:
       - name: Cairo, callback and checker regressions
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: |
-          ctest --test-dir build -R '^sqgi_test_(cairo|cairo_runtime|cairo_pixels|c_cairo|callback_async_lifetime|cpp_sqgicheck)$' --output-on-failure --no-tests=error --output-log build/runtime-tests.log --output-junit "$env:GITHUB_WORKSPACE/build/runtime-tests.xml"
+          ctest --test-dir build -R '^sqgi_test_(cairo|cairo_runtime|cairo_pixels|c_cairo|callback_async_lifetime|cpp_sqgicheck|system_module|file_lock)$' --output-on-failure --no-tests=error --output-log build/runtime-tests.log --output-junit "$env:GITHUB_WORKSPACE/build/runtime-tests.xml"
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
       - name: CLI, process, file, schema and native recipe regressions
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}

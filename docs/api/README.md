@@ -93,9 +93,8 @@ local system = import("system")
 local system = import("system")
 ```
 
-Returns a fresh table describing the current process environment. The module is
-read-mostly by design; use GLib/Gio for platform-specific mutation or process
-management.
+Returns a fresh table describing the current process environment, plus portable
+OS helpers. Use GLib/Gio for other filesystem and process operations.
 
 Shape:
 
@@ -706,3 +705,53 @@ The original C-level method is still accessible as `foo_async_raw` if you need t
 - `demo/` — runnable examples per GI namespace.
 - `test/` — exhaustive behavior tests.
 - Source of truth: `src/sqgi_async.c`, `src/sqgi_gi_object.c`, `src/sqgi_subclass.c`, `src/sqgi_gerror.c`, `src/sqgi_json.c`, `src/sqgi_import.c`.
+
+### `system.try_file_lock(path)` (since 0.2.2)
+
+Try to acquire an exclusive OS-held lock on a dedicated local coordination file.
+Returns an opaque handle on success, `null` for lock contention, and throws for
+invalid arguments, permissions, missing parents or other OS errors. Acquisition
+never waits for another owner, although filesystem operations can themselves take
+time. Use a nonempty UTF-8 path without embedded NUL bytes.
+
+```squirrel
+local system = import("system")
+local writer = system.try_file_lock(directory + "/writer.lock")
+if (writer == null) throw "Workspace is already open in another process"
+try {
+    // Load and write the journal while retaining writer.
+} catch (error) {
+    writer.close()
+    throw error
+}
+writer.close()
+```
+
+`close()` is idempotent. Garbage collection also closes the handle; retain a
+strong reference throughout ownership and close explicitly when finished. The
+OS releases ownership on process exit/crash. Handles are not inherited through
+exec/normal child-process creation. On Unix, a raw fork without exec would share
+the descriptor; this API does not provide fork support.
+
+The file is created if absent (Unix mode 0600, subject to umask), opened without
+truncating existing bytes, and **never deleted**. Its mere existence does not mean
+it is locked. Do not unlink, rename or replace this coordination file, including
+after release: competing processes could otherwise lock different file objects.
+Do not use an atomically replaced journal/checkpoint file as the lock target.
+Parents must exist. Symlink/reparse-point targets and nonregular files are
+rejected; parent directory aliases still follow normal OS path resolution.
+
+Linux/Unix uses nonblocking `flock`; Windows uses nonblocking exclusive
+`LockFileEx` over byte zero on a non-inheritable handle. Cooperating writers must
+all use this protocol; this does not prevent unrelated code from modifying the
+journal. Two separate acquisitions also conflict within the same process. Shared
+network filesystem behavior depends on the filesystem and server and is not
+qualified by this API's local-filesystem tests. Unix FIFO opens are nonblocking
+and rejected rather than hanging. Windows error conditions other than lock
+contention throw, including incompatible sharing modes from unrelated programs.
+
+`test/test_file_lock.py` exercises real processes: contention, simultaneous
+acquisition, explicit/GC/normal-exit release, forced termination and reacquisition,
+Unicode paths, preservation of existing contents, and invalid inputs. Unix also
+checks symlink/FIFO rejection and exec inheritance. Windows CI runs the portable
+cases natively.
