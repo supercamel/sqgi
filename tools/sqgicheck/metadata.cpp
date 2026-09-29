@@ -529,6 +529,8 @@ private:
 
     LookupResult lookup_system(const std::string &name)
     {
+        if (name == "try_file_lock")
+            return found(builtin_callable("system.try_file_lock", 1, 1));
         static const std::set<std::string> members = {
             "os", "cpu", "runtime", "paths", "package", "env"
         };

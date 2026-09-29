@@ -1172,6 +1172,10 @@ void test_deterministic_metadata()
           "system built-in namespace loads");
     CHECK(metadata->lookup_member(system.value, "os", false).found,
           "system built-in member");
+    LookupResult lock = metadata->lookup_member(system.value, "try_file_lock", true);
+    CHECK(lock.found && lock.value.kind == ValueKind::Callable &&
+          lock.value.minimum_args == 1 && lock.value.maximum_args == 1,
+          "file lock is a one-argument system callable");
     CHECK(metadata->lookup_member(system.value, "oops", false).definite_missing,
           "missing system member");
 
