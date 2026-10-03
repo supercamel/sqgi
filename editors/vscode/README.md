@@ -51,6 +51,8 @@ The formatter honors the editor's tab size and spaces/tabs setting (1–16 colum
 This first formatter normalizes indentation and horizontal spacing while
 preserving line breaks, semicolons, comments, and literal contents. It does not
 wrap lines, split single-line statements, sort imports, or convert quotes.
+It does not insert braces or move them onto separate lines: these transformations
+need a parser to preserve statement boundaries and local variable scope.
 Squirrel's optional semicolons make line-break preservation significant.
 Incomplete strings, comments, or delimiters produce a warning and no edit. The
 formatter also verifies that token spelling and line boundaries remain intact.

@@ -134,9 +134,10 @@ function format(source, options = {}) {
     }
     if (stack.length) throw new Error('Unclosed delimiter; fix the syntax before formatting');
     const result = out.join('');
-    // Refuse an edit if a lexical corner case would change tokens or newlines.
+    // Compare against the untouched input, including every newline. Braces
+    // and statement boundaries cannot be rewritten safely without a parser.
     if (JSON.stringify(signature(tokens)) !== JSON.stringify(signature(tokenize(result)))) {
-        throw new Error('Formatting would change tokens; source left unchanged');
+        throw new Error('Formatting would change tokens or line boundaries; source left unchanged');
     }
     return result;
 }

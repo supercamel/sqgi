@@ -1230,7 +1230,8 @@ find_program(SQGI_NODE_EXECUTABLE NAMES node nodejs)
 if(SQGI_NODE_EXECUTABLE)
     add_test(NAME sqgi_test_formatter
         COMMAND ${SQGI_NODE_EXECUTABLE} --test ${CMAKE_SOURCE_DIR}/editors/vscode/test/formatter.test.js)
-    set_tests_properties(sqgi_test_formatter PROPERTIES LABELS "editor" TIMEOUT 30)
+    set_tests_properties(sqgi_test_formatter PROPERTIES LABELS "editor" TIMEOUT 30
+        ENVIRONMENT "SQGI_TEST_EXECUTABLE=$<TARGET_FILE:sqgi-bin>")
 endif()
 
 # ── Install ───────────────────────────────────────────────────────────────────
