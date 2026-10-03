@@ -19,7 +19,8 @@ test('preserves semicolon-optional statement boundaries and line endings', () =>
         const r = format(s);
         assert.deepEqual(signature(tokenize(r)), signature(tokenize(s)));
         assert.equal(format(r), r);
-        assert.equal(r.split(eol).length, s.split(eol).length);
+        assert.ok(r.endsWith(eol));
+        assert.ok(!r.replaceAll(eol, '').match(/[\r\n]/));
     }
 });
 test('strings, comments, verbatim strings and BOM remain byte-identical', () => {
@@ -67,4 +68,67 @@ test('prototype-named identifiers and control blocks remain ordinary syntax', ()
     const r = format(s);
     assert.equal(format(r), r);
     assert.ok(r.includes('if (x)\n{\n    f()'));
+});
+
+// These cases must preserve more than token order: Squirrel uses newlines as
+// statement boundaries, and adding a scope can change local variable lifetime.
+const safetyCases = {
+    'nested unbraced controls': 'if (true)\nif (false)\nprint("bad")\nelse\nprint("ok")\n',
+    'multiline unbraced call': 'if (true)\nprint(\n"ok"\n)\n',
+    'unbraced local scope': 'if (true)\nlocal value = 7\nprint(value)\n',
+    'do while terminator': 'local n=0\ndo\n++n\nwhile (n < 2)\nprint(n)\n',
+    'control text inside literal': 'local s=@"text\nif (true)\nliteral body\nend"\nprint(s)\n',
+    'control text inside comment': '/*\nif (true)\ncomment body\n*/\nprint("ok")\n',
+    'comment as unbraced body prefix': 'if (true)\n/* explanation */\nprint("ok")\n',
+    'same-line body followed by return boundary': 'function f() { return\n7\n}\nprint(f())\n',
+    'function expression invocation': 'print((function() { return 7 })())\n',
+    'mixed line endings inside literals': 'local s=@"one\r\ntwo\nthree\r\nfour"\nprint(s)\r\n',
+    'trailing comment after brace': 'if (true) { // keep body\nprint("ok")\n}\n',
+};
+for (const [name, source] of Object.entries(safetyCases)) {
+    test(`safety: ${name}`, () => {
+        const result = format(source);
+        assert.deepEqual(signature(tokenize(result)), signature(tokenize(source)));
+        assert.equal(format(result), result);
+    });
+}
+
+test('formatted programs compile and behave identically in SQGI', t => {
+    const runtime = process.env.SQGI_TEST_EXECUTABLE || 'sqgi';
+    const probe = spawnSync(runtime, ['--version'], { encoding: 'utf8', timeout: 5000 });
+    if (probe.error && probe.error.code === 'ENOENT' && !process.env.SQGI_TEST_EXECUTABLE) {
+        t.skip('sqgi unavailable; set SQGI_TEST_EXECUTABLE to enable runtime checks');
+        return;
+    }
+    assert.equal(probe.status, 0, probe.stderr);
+    for (const [name, source] of Object.entries(safetyCases)) {
+        const run = text => spawnSync(runtime, ['-e', text], { encoding: 'utf8', timeout: 5000 });
+        const original = run(source);
+        assert.equal(original.status, 0, `${name}: original: ${original.stderr}`);
+        const formatted = run(format(source));
+        assert.equal(formatted.status, 0, `${name}: formatted: ${formatted.stderr}`);
+        assert.equal(formatted.stdout, original.stdout, name);
+        assert.equal(formatted.stderr, original.stderr, name);
+    }
+});
+
+test('repository demos and tests preserve tokens, line boundaries and idempotence', () => {
+    const root = path.resolve(__dirname, '../../..');
+    let checked = 0;
+    function visit(dir) {
+        for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+            const file = path.join(dir, entry.name);
+            if (entry.isDirectory()) visit(file);
+            else if (/\.(nut|sqk)$/.test(entry.name)) {
+                const source = fs.readFileSync(file, 'utf8');
+                const result = format(source);
+                assert.deepEqual(signature(tokenize(result)), signature(tokenize(source)), file);
+                assert.equal(format(result), result, file);
+                ++checked;
+            }
+        }
+    }
+    visit(path.join(root, 'demo'));
+    visit(path.join(root, 'test'));
+    assert.ok(checked > 0, 'repository corpus must not be empty');
 });
