@@ -10,4 +10,5 @@ constexpr SQOpcode SQJIT_OP_VECTOR_GET = (SQOpcode)0x83;
 constexpr SQOpcode SQJIT_OP_VECTOR_LEN = (SQOpcode)0x84;
 constexpr SQOpcode SQJIT_OP_INSTANCE = (SQOpcode)0x85;
 constexpr SQOpcode SQJIT_OP_CLASS_GUARD = (SQOpcode)0x86;
+constexpr SQOpcode SQJIT_OP_INPUT_LOAD = (SQOpcode)0x87;
 #endif

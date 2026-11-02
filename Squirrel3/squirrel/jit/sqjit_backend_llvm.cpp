@@ -10,6 +10,7 @@
 #include "sqjit_local_array.h"
 #include "sqjit_local_graph.h"
 #include "sqjit_numeric.h"
+#include "sqjit_input_plan.h"
 #include "sqjit_numeric_ops.h"
 #include "sqjit_dynamic_array.h"
 #include "sqjit_object_inline.h"
@@ -65,6 +66,7 @@ struct Artifact {
     std::vector<SQJitScalarBinding> bindings;
     std::vector<SQJitNumericBinding> numeric_bindings;
     std::vector<SQJitClassBinding> class_bindings;
+    SQJitInputBindings input_bindings;
     ~Artifact() { if(jit) if(auto e = LLVMOrcDisposeLLJIT(jit)) LLVMConsumeError(e); }
     static void release(void *p) { delete static_cast<Artifact *>(p); }
 };
@@ -95,6 +97,9 @@ SQInteger numeric_bindings_match(Artifact *artifact,SQObjectPtr *stack,SQClosure
     return 1;
 }
 SQInteger class_bindings_match(Artifact *artifact,SQObjectPtr *stack,SQClosure *closure){return sqjit_class_bindings_match(artifact->class_bindings,stack,closure);}
+SQInteger read_inputs(Artifact *artifact,SQObjectPtr *stack,SQClosure *closure,SQInteger *values) {
+    return artifact->input_bindings.Read(stack,closure,values);
+}
 SQInteger bindings_match(Artifact *artifact, SQObjectPtr *stack, SQClosure *closure) {
     if(!closure || closure->_env || sq_type(stack[0]) != OT_TABLE) return 0;
     for(const auto &binding : artifact->bindings) {
@@ -156,12 +161,16 @@ bool lower(SQFunctionProto *p, SQObjectPtr *stack, SQClosure *closure, SQJitNati
     static_assert(sizeof(SQFloat) == 8, "LLVM scalar backend requires double precision");
     static_assert(sizeof(SQInteger) == 8, "LLVM scalar backend requires 64-bit integers");
     if(!p)return attempt.Reject(-1,SQ_JIT_REJECT_OPCODE,"missing function");
+    const SQInteger original_parameters=p->_nparameters;
     for(SQInteger ip=0;ip<p->_ninstructions;++ip)
         if(p->_instructions[ip].op>=SQJIT_OP_TOFLOAT)
             return attempt.Reject(ip,SQ_JIT_REJECT_OPCODE,"internal numeric IR in original bytecode");
+    SQJitInputPlan inputs;
+    if(inputs.Build(p,stack,closure))p=inputs.Lowered();
     SQJitScalarInlinePlan inlining;
     if(stack && !SQJitLeafPlan::Eligible(p, true) && inlining.Build(p, stack, closure)) p = inlining.Lowered();
     std::vector<SQInteger> temporary_writes;
+    if(inputs.Lowered())temporary_writes=inputs.temporary_writes;
     if(inlining.Lowered()) temporary_writes = inlining.temporary_writes;
     SQJitObjectInlinePlan objects;
     if(objects.Build(p,stack,closure,temporary_writes)){p=objects.Lowered();temporary_writes=objects.temporary_writes;}
@@ -212,6 +221,7 @@ bool lower(SQFunctionProto *p, SQObjectPtr *stack, SQClosure *closure, SQJitNati
     artifact->bindings = std::move(inlining.bindings);
     artifact->numeric_bindings=std::move(numeric.bindings);
     artifact->class_bindings=std::move(objects.bindings);
+    artifact->input_bindings=std::move(inputs.bindings);
     checked(sqgi_llvm::create_jit(&artifact->jit));
     // Bind only audited math entries that LLVM intrinsics may call. Do not
     // expose arbitrary process symbols to ordinary Squirrel source.
@@ -304,6 +314,14 @@ bool lower(SQFunctionProto *p, SQObjectPtr *stack, SQClosure *closure, SQJitNati
         auto result=helper_call((uintptr_t)&class_bindings_match,word,{LLVMConstIntToPtr(integer((uintptr_t)artifact.get()),pointer),LLVMGetParam(fn,0),LLVMGetParam(fn,2)});
         guard(LLVMBuildICmp(b,LLVMIntNE,result,integer(0),"class_bindings_valid"));
     }
+    LLVMValueRef input_values=nullptr;
+    if(!artifact->input_bindings.nodes.empty()) {
+        input_values=LLVMBuildAlloca(b,LLVMArrayType(word,artifact->input_bindings.nodes.size()),"object_inputs");
+        LLVMSetAlignment(input_values,alignof(SQInteger));
+        auto result=helper_call((uintptr_t)&read_inputs,word,{
+            LLVMConstIntToPtr(integer((uintptr_t)artifact.get()),pointer),LLVMGetParam(fn,0),LLVMGetParam(fn,2),input_values});
+        guard(LLVMBuildICmp(b,LLVMIntNE,result,integer(0),"object_inputs_valid"));
+    }
     for(SQInteger i = 1; i < p->_nparameters; ++i) {
         auto tagType = LLVMIntTypeInContext(c, sizeof(SQObjectType) * 8);
         auto tag = LLVMBuildLoad2(b, tagType, address(i, offsetof(SQObject, _type)), "tag");
@@ -393,6 +411,13 @@ bool lower(SQFunctionProto *p, SQObjectPtr *stack, SQClosure *closure, SQJitNati
         case _OP_LOADINT: store(i._arg0, integer((SQInt32)i._arg1)); break;
         case _OP_LOADFLOAT: return attempt.Reject(ip, SQ_JIT_REJECT_OPCODE, "32-bit float bytecode is unsupported");
         case _OP_LOADBOOL: store(i._arg0, integer(i._arg1 != 0)); break;
+        case SQJIT_OP_INPUT_LOAD: {
+            if(!input_values || i._arg1<0 || size_t(i._arg1)>=artifact->input_bindings.nodes.size())
+                return attempt.Reject(ip,SQ_JIT_REJECT_OPCODE,"missing object input binding");
+            auto index=integer(i._arg1);
+            store(i._arg0,LLVMBuildLoad2(b,word,LLVMBuildGEP2(b,word,input_values,&index,1,"object_input"),"input_bits"));
+            break;
+        }
         case _OP_LOAD: store(i._arg0, literal(i._arg1)); break;
         case _OP_DLOAD: store(i._arg0, literal(i._arg1)); store(i._arg2, literal(i._arg3)); break;
         case _OP_MOVE: case _OP_DMOVE:
@@ -487,8 +512,8 @@ bool lower(SQFunctionProto *p, SQObjectPtr *stack, SQClosure *closure, SQJitNati
     LLVMOrcExecutorAddress code = 0;
     checked(LLVMOrcLLJITLookup(artifact->jit, &code, "squirrel_entry"));
     native->_code.SetExternal((void *)(uintptr_t)code, artifact.release(), Artifact::release);
-    native->_stack_live_slots = p->_nparameters;
-    native->_stack_storage_slots = p->_nparameters;
+    native->_stack_live_slots = inputs.Lowered()?original_parameters:p->_nparameters;
+    native->_stack_storage_slots = native->_stack_live_slots;
     return true;
 }
 }

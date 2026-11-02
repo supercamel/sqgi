@@ -1,0 +1,70 @@
+{
+  "binary_sha256": "f46110649cba7d1fe8e233a6eda2300d377f3fa6b5615b955413376c2305506a",
+  "release": {
+    "passed": 17,
+    "tests": [
+      "sqgi_test_llvm_jit_memory",
+      "sqgi_test_jit_math",
+      "sqgi_test_jit_loop_regressions",
+      "sqgi_test_jit_fastpath",
+      "sqgi_test_jit_correctness",
+      "sqgi_test_integer_edges",
+      "sqgi_test_integer_edges_runtime",
+      "sqgi_test_cpp_sqjit_contracts",
+      "sqgi_test_cpp_sqjit_checked_accessors",
+      "sqgi_test_cpp_sqjit_side_exit",
+      "sqgi_test_cpp_sqjit_values",
+      "sqgi_test_cpp_sqjit_memory",
+      "sqgi_test_cpp_sqjit_llvm",
+      "sqgi_test_cpp_sqjit_leaf",
+      "sqgi_test_cpp_sqjit_objects",
+      "sqgi_test_cpp_sqjit_object_plan",
+      "sqgi_test_cpp_sqjit_input_plan"
+    ],
+    "expanded_input_plan_recheck": "passed"
+  },
+  "asan_ubsan": {
+    "passed": 4,
+    "tests": [
+      "sqgi_test_cpp_sqjit_contracts",
+      "sqgi_test_cpp_sqjit_checked_accessors",
+      "sqgi_test_cpp_sqjit_llvm",
+      "sqgi_test_cpp_sqjit_input_plan"
+    ],
+    "expanded_input_plan_recheck": "passed"
+  },
+  "general_cases": {
+    "workloads": [
+      "Horner polynomial recurrence",
+      "pricing with nested settings and inlined method"
+    ],
+    "native_array_lengths": [
+      0,
+      1,
+      4,
+      8,
+      16
+    ],
+    "fallback_array_lengths": [
+      17
+    ],
+    "exact_interpreter_agreement": true
+  },
+  "kernel_differential": [
+    "Kernel differential: 13237 checks; max difference 0; {\"enabled\":true,\"calls\":{\"tilt\":5610,\"drag\":1,\"motor\":5610,\"motion\":4008,\"rotation\":5610,\"aero\":4008,\"atmosphere\":12024,\"forces\":4008,\"contact\":27234},\"compileUs\":169546,\"backend\":\"llvm\",\"problem\":null}"
+  ],
+  "sqtheia_sources": {
+    "verified_files": 621,
+    "changed": [],
+    "manifest_sha256": "98fa94257884865bcb5d762bc5c8ac619d5b6f9d50e95e2e348bc75245926953"
+  },
+  "existing_reference_failure": {
+    "test": "tests/dynamics.nut",
+    "check": 1719,
+    "field": "sc1.1.aeroMoment.1",
+    "actual": -1.9798606890727,
+    "expected": -1.9749556784346,
+    "reproduced_with": "a8a77cd baseline runtime, SQGI_JIT=0 and scalar dynamics",
+    "wrapper_failure": "tests/dynamics.py rejects current resources/simulation/sc1.json SHA-256"
+  }
+}

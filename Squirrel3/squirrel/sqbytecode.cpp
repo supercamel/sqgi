@@ -41,6 +41,7 @@ SQBytecodeFacts sq_bytecode_facts(const SQInstruction &i, SQInteger ip, SQIntege
     case SQJIT_OP_VECTOR_LEN: write(i._arg0); break;
     case SQJIT_OP_INSTANCE: write(i._arg0); break;
     case SQJIT_OP_CLASS_GUARD: read(i._arg0); break;
+    case SQJIT_OP_INPUT_LOAD: write(i._arg0); break;
     case _OP_LOAD: case _OP_LOADINT: case _OP_LOADFLOAT: case _OP_LOADBOOL:
     case _OP_LOADROOT: case _OP_GETBASE: write(i._arg0); break;
     case _OP_DLOAD: write(i._arg0); write(i._arg2); break;

@@ -14,8 +14,14 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
+#include <vector>
 #include "sqjit_platform.h"
 #include "sqjit_specialize.h"
+#include "sqbytecode.h"
+#include "sqjit_context.h"
+#include "sqjit_write_log.h"
+
+extern bool sq_nativeclosure_is_default_len(SQNativeClosure *);
 
 static bool sqjit_member_get_value(const SQObjectPtr &target, const SQObjectPtr *key,
     SQObjectPtr &value)
@@ -57,6 +63,13 @@ static SQInteger sqjit_accessor_entry(SQObjectPtr *stack, SQObjectPtr *outres,
 
     SQJitNative *native = closure->_function->_jit->_entry;
     SQFunctionProto *proto = closure->_function;
+    const bool checked_scratch = native->_native_kind == SQ_JIT_NATIVE_FIELD_ARRAY_CHECKED_ACCESSOR ||
+        native->_native_kind == SQ_JIT_NATIVE_FIELD_ARRAY_CONST_ACCESSOR;
+    if(checked_scratch) {
+        SQJitContext &ctx = sqjit_context(proto->_sharedstate);
+        if(ctx.active_vm && !SQJitWriteLog::CanReleaseInContext(ctx,ctx.active_vm->temp_reg))
+            return SQ_JIT_NATIVE_GUARD_FAILED;
+    }
     if((SQJitNativeKind)native->_native_kind == SQ_JIT_NATIVE_SETTER) {
         if(native->_setter_count <= 0 ||
             native->_setter_count > SQ_JIT_NATIVE_MAX_SETTERS) {
@@ -128,13 +141,27 @@ static SQInteger sqjit_accessor_entry(SQObjectPtr *stack, SQObjectPtr *outres,
                 !_array(value)->Get(native->_array_index, *outres)) {
                 return SQ_JIT_NATIVE_GUARD_FAILED;
             }
+            {
+                SQJitContext &ctx = sqjit_context(proto->_sharedstate);
+                if(ctx.active_vm) ctx.active_vm->temp_reg.Null();
+            }
             return SQ_JIT_NATIVE_RETURNED;
+        case SQ_JIT_NATIVE_FIELD_ARRAY_CHECKED_ACCESSOR:
+            // The proof below folds only the VM's builtin array length call.
+            if(sq_type(proto->_sharedstate->_array_len_closure) != OT_NATIVECLOSURE ||
+                !sq_nativeclosure_is_default_len(_nativeclosure(proto->_sharedstate->_array_len_closure)))
+                return SQ_JIT_NATIVE_GUARD_FAILED;
+            // Fall through to the same live type/index/bounds checks.
         case SQ_JIT_NATIVE_FIELD_ARRAY_DYNAMIC_ACCESSOR:
             if(sq_type(value) != OT_ARRAY || native->_index_slot < 0 ||
                 native->_index_slot >= MAX_FUNC_STACKSIZE ||
                 sq_type(stack[native->_index_slot]) != OT_INTEGER ||
                 !_array(value)->Get(_integer(stack[native->_index_slot]), *outres)) {
                 return SQ_JIT_NATIVE_GUARD_FAILED;
+            }
+            if(native->_native_kind == SQ_JIT_NATIVE_FIELD_ARRAY_CHECKED_ACCESSOR) {
+                SQJitContext &ctx = sqjit_context(proto->_sharedstate);
+                if(ctx.active_vm) ctx.active_vm->temp_reg.Null();
             }
             return SQ_JIT_NATIVE_RETURNED;
         case SQ_JIT_NATIVE_FIELD_ARRAY_LEN_ACCESSOR:
@@ -298,6 +325,7 @@ bool sqjit_native_precheck(SQJitNative *native, SQObjectPtr *stack)
     }
 
     switch((SQJitNativeKind)native->_native_kind) {
+        case SQ_JIT_NATIVE_FIELD_ARRAY_CHECKED_ACCESSOR:
         case SQ_JIT_NATIVE_FIELD_ARRAY_DYNAMIC_ACCESSOR:
             return native->_index_slot >= 0 &&
                 native->_index_slot < MAX_FUNC_STACKSIZE &&
@@ -564,6 +592,7 @@ static bool sqjit_compile_accessor_proto(SQFunctionProto *proto, SQJitNative *na
     SQInteger value_slot = -1;
     SQInteger array_index = -1;
     SQInteger index_slot = -1;
+    SQInteger access_ip = ip1;
     SQJitNativeKind kind = SQ_JIT_NATIVE_RAW_CODE;
     if(second.op == _OP_PREPCALLK && second._arg0 == field_get._arg0 &&
         second._arg2 == field_get._arg0 &&
@@ -593,7 +622,18 @@ static bool sqjit_compile_accessor_proto(SQFunctionProto *proto, SQJitNative *na
         return true;
     }
 
-    if(second.op == _OP_GETK && second._arg2 == field_get._arg0 &&
+    if(second.op == _OP_LOADINT && second._arg0 != field_get._arg0 &&
+        sqjit_native_loadint_value(second) >= 0) {
+        access_ip = sqjit_next_effective_ip(proto,ip1+1);
+        if(access_ip >= proto->_ninstructions) return false;
+        const SQInstruction &read = proto->_instructions[access_ip];
+        if(read.op != _OP_GET || read._arg1 != field_get._arg0 || read._arg2 != second._arg0)
+            return false;
+        value_slot = read._arg0;
+        array_index = sqjit_native_loadint_value(second);
+        kind = SQ_JIT_NATIVE_FIELD_ARRAY_CONST_ACCESSOR;
+    }
+    else if(second.op == _OP_GETK && second._arg2 == field_get._arg0 &&
         second._arg1 >= 0 && second._arg1 < proto->_nliterals &&
         sq_type(proto->_literals[second._arg1]) == OT_INTEGER) {
         value_slot = second._arg0;
@@ -610,7 +650,7 @@ static bool sqjit_compile_accessor_proto(SQFunctionProto *proto, SQJitNative *na
         return false;
     }
 
-    SQInteger ip2 = sqjit_next_effective_ip(proto, ip1 + 1);
+    SQInteger ip2 = sqjit_next_effective_ip(proto, access_ip + 1);
     if(ip2 >= proto->_ninstructions ||
         !sqjit_return_matches_slot(proto->_instructions[ip2], value_slot)) {
         return false;
@@ -670,6 +710,120 @@ static bool sqjit_compile_guarded_accessor_proto(SQFunctionProto *proto, SQJitNa
     native->_index_slot = index_slot;
     native->_code.SetStub((void *)sqjit_accessor_entry);
     return true;
+}
+
+// Prove a read-only accessor's successful path under the entry guard:
+// receiver.field is an array and 0 <= integer index < its current length.
+// This folds type/range checks without depending on names, error strings or
+// a particular arrangement of if/and/or bytecode. Any other work rejects the
+// proof. A failed runtime guard executes the original body, including errors.
+static bool sqjit_compile_checked_accessor_proto(SQFunctionProto *proto, SQJitNative *native)
+{
+    if(!proto || !native || proto->_nparameters != 2 || proto->_varparams ||
+        proto->_ndefaultparams || proto->_noutervalues || proto->_bgenerator ||
+        proto->_stacksize < 2 || proto->_stacksize > MAX_FUNC_STACKSIZE ||
+        proto->_ninstructions <= 0 || proto->_ninstructions > 96) return false;
+    SQBytecodeAnalysis analysis;
+    if(!analysis.Build(proto->_instructions,proto->_ninstructions,proto->_stacksize)) return false;
+    enum Kind { Unknown, Receiver, Index, IntegerType, Zero, Boolean, Array, Length, Element, LenCall };
+    struct Value {
+        Kind kind; bool flag;
+        Value(Kind k = Unknown, bool b = false) : kind(k), flag(b) {}
+    };
+    std::vector<Value> slots(proto->_stacksize);
+    slots[0]=Value(Receiver); slots[1]=Value(Index);
+    SQInteger field=-1;
+    auto literal = [&](SQInteger n) -> Value {
+        if(n<0 || n>=proto->_nliterals) return Value();
+        const SQObjectPtr &v=proto->_literals[n];
+        if(sq_type(v)==OT_INTEGER && _integer(v)==0) return Value(Zero);
+        if(sq_type(v)==OT_BOOL) return Value(Boolean,_integer(v)!=0);
+        if(sqjit_literal_is_string(proto,n,_SC("integer"))) return Value(IntegerType);
+        return Value();
+    };
+    auto comparison = [&](Value left, Value right, CmpOP op, bool &result) -> bool {
+        if((left.kind==Index && right.kind==Zero) || (left.kind==Length && right.kind==Index)) {
+            if(left.kind==Index && op==CMP_GE) {result=true;return true;}
+            if(left.kind==Index && op==CMP_L) {result=false;return true;}
+            if(left.kind==Length && op==CMP_G) {result=true;return true;}
+            if(left.kind==Length && op==CMP_LE) {result=false;return true;}
+        }
+        if((left.kind==Index && right.kind==Length) || (left.kind==Zero && right.kind==Index)) {
+            if(left.kind==Index && op==CMP_L) {result=true;return true;}
+            if(left.kind==Index && op==CMP_GE) {result=false;return true;}
+            if(left.kind==Zero && op==CMP_LE) {result=true;return true;}
+            if(left.kind==Zero && op==CMP_G) {result=false;return true;}
+        }
+        return false;
+    };
+    for(SQInteger ip=0;ip<proto->_ninstructions;) {
+        const SQInstruction &i=proto->_instructions[ip];
+        const SQBytecodeFacts &facts=analysis.facts[ip];
+        if(!facts.valid || facts.writes.test(0) || facts.writes.test(1)) return false;
+        SQInteger next=ip+1;
+        switch(i.op) {
+        case _OP_LINE: break;
+        case _OP_LOAD: slots[i._arg0]=literal(i._arg1); break;
+        case _OP_LOADINT: slots[i._arg0]=Value((SQInt32)i._arg1==0?Zero:Unknown); break;
+        case _OP_LOADBOOL: slots[i._arg0]=Value(Boolean,i._arg1!=0); break;
+        case _OP_MOVE: slots[i._arg0]=slots[i._arg1]; break;
+        case _OP_TYPEOF:
+            if(slots[i._arg1].kind!=Index) return false;
+            slots[i._arg0]=Value(IntegerType); break;
+        case _OP_EQ: case _OP_NE: {
+            Value left=slots[i._arg2],right=i._arg3?literal(i._arg1):slots[i._arg1];
+            bool equal;
+            if(left.kind==IntegerType && right.kind==IntegerType) equal=true;
+            else if(left.kind==Boolean && right.kind==Boolean) equal=left.flag==right.flag;
+            else return false;
+            slots[i._arg0]=Value(Boolean,i.op==_OP_EQ?equal:!equal); break;
+        }
+        case _OP_CMP: case _OP_JCMP: {
+            bool result;
+            if(!comparison(slots[i._arg2],slots[i.op==_OP_CMP?i._arg1:i._arg0],(CmpOP)i._arg3,result)) return false;
+            if(i.op==_OP_CMP) slots[i._arg0]=Value(Boolean,result);
+            else if(!result) next=facts.target;
+            break;
+        }
+        case _OP_JZ:
+            if(slots[i._arg0].kind!=Boolean) return false;
+            if(!slots[i._arg0].flag) next=facts.target;
+            break;
+        case _OP_AND: case _OP_OR:
+            if(slots[i._arg2].kind!=Boolean) return false;
+            if(slots[i._arg2].flag==(i.op==_OP_OR)) {
+                slots[i._arg0]=slots[i._arg2]; next=facts.target;
+            }
+            break;
+        case _OP_JMP: next=facts.target; break;
+        case _OP_GETK:
+            if(slots[i._arg2].kind!=Receiver || i._arg1<0 || i._arg1>=proto->_nliterals ||
+                sq_type(proto->_literals[i._arg1])!=OT_STRING) return false;
+            if(field>=0 && _string(proto->_literals[field])!=_string(proto->_literals[i._arg1])) return false;
+            field=i._arg1; slots[i._arg0]=Value(Array); break;
+        case _OP_PREPCALLK:
+            if(slots[i._arg2].kind!=Array || i._arg0==i._arg3 ||
+                !sqjit_literal_is_string(proto,i._arg1,_SC("len"))) return false;
+            slots[i._arg3]=Value(Array); slots[i._arg0]=Value(LenCall); break;
+        case _OP_CALL:
+            if(i._arg3!=1 || i._arg0==255 || slots[i._arg1].kind!=LenCall || slots[i._arg2].kind!=Array) return false;
+            slots[i._arg0]=Value(Length); break;
+        case _OP_GET:
+            if(slots[i._arg1].kind!=Array || slots[i._arg2].kind!=Index) return false;
+            slots[i._arg0]=Value(Element); break;
+        case _OP_RETURN:
+            if(i._arg0==255 || slots[i._arg1].kind!=Element || field<0) return false;
+            native->_native_kind=SQ_JIT_NATIVE_FIELD_ARRAY_CHECKED_ACCESSOR;
+            native->_base_slot=0; native->_field_literal_index=field;
+            native->_array_index=-1; native->_index_slot=1;
+            native->_code.SetStub((void *)sqjit_accessor_entry);
+            return true;
+        default: return false;
+        }
+        if(next<=ip || next>=proto->_ninstructions) return false;
+        ip=next;
+    }
+    return false;
 }
 
 static void sqjit_native_record_setter(SQJitNative *native, SQInteger base_slot,
@@ -944,6 +1098,7 @@ bool sqjit_compile_specialized_proto(SQFunctionProto *proto, SQObjectPtr *entry_
     bool compiled = sqjit_compile_numeric_select_proto(proto, native) ||
         sqjit_compile_accessor_proto(proto, native) ||
         sqjit_compile_guarded_accessor_proto(proto, native) ||
+        sqjit_compile_checked_accessor_proto(proto, native) ||
         sqjit_compile_setter_proto(proto, native) ||
         sqjit_compile_guarded_setter_proto(proto, native);
     if(compiled && entry_stack && native->_native_kind == SQ_JIT_NATIVE_SETTER) {

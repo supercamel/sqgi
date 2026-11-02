@@ -284,6 +284,7 @@ if(SQ_ENABLE_JIT)
             Squirrel3/squirrel/jit/sqjit_local_array.cpp
             Squirrel3/squirrel/jit/sqjit_local_graph.cpp
             Squirrel3/squirrel/jit/sqjit_numeric.cpp
+            Squirrel3/squirrel/jit/sqjit_input_plan.cpp
             Squirrel3/squirrel/jit/sqjit_dynamic_array.cpp
             Squirrel3/squirrel/jit/sqjit_object_inline.cpp
             Squirrel3/squirrel/jit/sqjit_llvm_objects.cpp
@@ -1158,6 +1159,8 @@ if(SQ_ENABLE_JIT)
     set_tests_properties(sqgi_test_cpp_sqjit_x64_win64_emit PROPERTIES LABELS "jit")
     add_sqgi_c_test(sqgi_test_cpp_sqjit_contracts test/cpp/test_sqjit_contracts.cpp)
     set_tests_properties(sqgi_test_cpp_sqjit_contracts PROPERTIES LABELS "jit")
+    add_sqgi_c_test(sqgi_test_cpp_sqjit_checked_accessors test/cpp/test_sqjit_checked_accessors.cpp)
+    set_tests_properties(sqgi_test_cpp_sqjit_checked_accessors PROPERTIES LABELS "jit")
     add_sqgi_c_test(sqgi_test_cpp_sqjit_side_exit test/cpp/test_sqjit_side_exit.cpp)
     set_tests_properties(sqgi_test_cpp_sqjit_side_exit PROPERTIES LABELS "jit")
     add_sqgi_c_test(sqgi_test_cpp_sqjit_values test/cpp/test_sqjit_values.cpp)
@@ -1170,6 +1173,8 @@ if(SQ_ENABLE_JIT)
         target_include_directories(sqgi_bench_bytecode_jit PRIVATE Squirrel3/include Squirrel3/squirrel)
         add_sqgi_c_test(sqgi_test_cpp_sqjit_llvm test/cpp/test_sqjit_llvm.cpp)
         set_tests_properties(sqgi_test_cpp_sqjit_llvm PROPERTIES LABELS "jit;llvm")
+        add_sqgi_c_test(sqgi_test_cpp_sqjit_input_plan test/cpp/test_sqjit_input_plan.cpp)
+        set_tests_properties(sqgi_test_cpp_sqjit_input_plan PROPERTIES LABELS "jit;llvm")
     endif()
     add_sqgi_c_test(sqgi_test_cpp_sqjit_leaf test/cpp/test_sqjit_leaf.cpp)
     set_tests_properties(sqgi_test_cpp_sqjit_leaf PROPERTIES LABELS "jit")

@@ -32,6 +32,9 @@ bool SQJitLeafPlan::Eligible(SQFunctionProto *p, bool scalar_loops)
         if(!f.valid || f.reads.test(0) || f.writes.test(0) ||
             (f.target >= 0 && ((!scalar_loops && f.target <= ip) || f.target >= p->_ninstructions))) return false;
         switch(i.op) {
+        case SQJIT_OP_INPUT_LOAD:
+            if(!scalar_loops || i._arg1<0 || i._arg1>=128 || !scalar((SQJitSlotKind)i._arg3))return false;
+            break;
         case SQJIT_OP_TOFLOAT: if(!scalar_loops) return false; break;
         case SQJIT_OP_VECTOR_APPEND:case SQJIT_OP_VECTOR_LEN:
             if(!scalar_loops)return false;break;
@@ -101,6 +104,7 @@ bool SQJitLeafPlan::Build(SQFunctionProto *p, const std::vector<SQJitSlotKind> &
         const SQBytecodeFacts &facts = analysis.facts[ip];
         auto set = [&](SQInteger dst, SQJitLeafValue value) { state[dst] = value; node.result = value.kind; };
         switch(i.op) {
+        case SQJIT_OP_INPUT_LOAD:set(i._arg0,SQJitLeafValue((SQJitSlotKind)i._arg3));break;
         case SQJIT_OP_TOFLOAT:
             if(!scalar(state[i._arg1].kind))return false;
             set(i._arg0,SQJitLeafValue(SQ_JIT_SLOT_FLOAT));break;

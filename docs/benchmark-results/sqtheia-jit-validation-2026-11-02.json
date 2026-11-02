@@ -1,0 +1,52 @@
+{
+  "release": {
+    "tests": [
+      "sqgi_test_llvm_jit_memory",
+      "sqgi_test_jit_math",
+      "sqgi_test_jit_loop_regressions",
+      "sqgi_test_jit_fastpath",
+      "sqgi_test_jit_correctness",
+      "sqgi_test_integer_edges",
+      "sqgi_test_integer_edges_runtime",
+      "sqgi_test_cpp_sqjit_contracts",
+      "sqgi_test_cpp_sqjit_checked_accessors",
+      "sqgi_test_cpp_sqjit_side_exit",
+      "sqgi_test_cpp_sqjit_values",
+      "sqgi_test_cpp_sqjit_memory",
+      "sqgi_test_cpp_sqjit_llvm",
+      "sqgi_test_cpp_sqjit_leaf",
+      "sqgi_test_cpp_sqjit_objects",
+      "sqgi_test_cpp_sqjit_object_plan"
+    ],
+    "passed": 16
+  },
+  "asan_ubsan": {
+    "tests": [
+      "sqgi_test_cpp_sqjit_contracts",
+      "sqgi_test_cpp_sqjit_checked_accessors"
+    ],
+    "passed": 2
+  },
+  "sqtheia_sources": {
+    "verified_files": 621,
+    "changed": [],
+    "manifest_sha256": "98fa94257884865bcb5d762bc5c8ac619d5b6f9d50e95e2e348bc75245926953"
+  },
+  "kernel_differential": {
+    "cwd": "/home/sam/Programming/sqtheia",
+    "command": "SQGI_JIT=1 SQGI_JIT_THRESHOLD=1000 SQGI_JIT_PRECISE_EXITS=0 SQTHEIA_DYNAMICS_KERNELS=1 /home/sam/Programming/sqgi/build/sqgi tests/dynamics_kernels.nut",
+    "output": [
+      "Kernel differential: 13237 checks; max difference 0; {\"enabled\":true,\"calls\":{\"tilt\":5610,\"drag\":1,\"motor\":5610,\"motion\":4008,\"rotation\":5610,\"aero\":4008,\"atmosphere\":12024,\"forces\":4008,\"contact\":27234},\"compileUs\":178479,\"backend\":\"llvm\",\"problem\":null}",
+      "KERNEL_BENCHMARK {\"repetitions\":5,\"steps\":4000,\"kernelSeconds\":0.760837,\"speedup\":1.646953289600795,\"compileUs\":178479,\"scalarSeconds\":1.253063,\"backend\":\"llvm\",\"realtime\":5.2573678724878}"
+    ]
+  },
+  "existing_reference_failure": {
+    "test": "tests/dynamics.nut",
+    "check": 1719,
+    "field": "sc1.1.aeroMoment.1",
+    "actual": -1.9798606890727,
+    "expected": -1.9749556784346,
+    "reproduced_with": "a8a77cd baseline runtime, SQGI_JIT=0 and scalar dynamics",
+    "wrapper_failure": "tests/dynamics.py rejects current resources/simulation/sc1.json SHA-256"
+  }
+}
