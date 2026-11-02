@@ -961,6 +961,12 @@ if(Python3_Interpreter_FOUND)
     endif()
 endif()
 
+add_test(NAME sqgi_test_host_gi_libraries
+    COMMAND sqgi-bin ${CMAKE_SOURCE_DIR}/tools/sqgipkg_tests/host_gi_libraries.nut)
+set_tests_properties(sqgi_test_host_gi_libraries PROPERTIES
+    LABELS "packaging" TIMEOUT 30 ENVIRONMENT "${SQGI_TEST_ENV}"
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+
 add_test(
     NAME sqgi_test_sqgipkg
     COMMAND bash ${CMAKE_SOURCE_DIR}/tools/sqgipkg_tests/run_tests.sh ${CMAKE_BINARY_DIR}/sqgi

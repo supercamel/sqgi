@@ -176,6 +176,36 @@ class SqgiPkgRecipes extends Base.SqgiPkgScripts {
         return this.linux_current_is_cross(opts)
     }
 
+    function target_gi_libraries(declared, available) {
+        local result = []
+        local dll_version = regexp("^[0-9]+(\\.[0-9]+)*\\.dll$")
+        foreach (library in split(declared, ",")) {
+            local name = strip(library), stem = name
+            local so = stem.find(".so")
+            if (so != null) stem = stem.slice(0, so)
+            else if (this.ends_with(stem, ".dylib")) stem = stem.slice(0, -6)
+            local windows_name = stem + ".dll"
+            if (so != null && this.starts_with(name.slice(so), ".so."))
+                windows_name = stem + "-" + name.slice(so + 4) + ".dll"
+            local matches = []
+            foreach (path in available) {
+                local target = this.basename(path)
+                local versioned_dll = this.starts_with(target, stem + "-") &&
+                    dll_version.match(target.slice(stem.len() + 1))
+                if (target == name || target == stem + ".dll" || versioned_dll ||
+                    target == stem + ".so" || this.starts_with(target, stem + ".so."))
+                    if (matches.find(target) == null) matches.push(target)
+            }
+            if (matches.len() == 0) this.fail("GI target library not found for host declaration: " + name)
+            // Prefer the declared ABI, including Meson's Windows soversion
+            // suffix. Otherwise use the available target-specific ABI.
+            local chosen = matches.find(name) != null ? name :
+                (matches.find(windows_name) != null ? windows_name : matches[0])
+            result.push(chosen)
+        }
+        return this.join_strings(result, ",")
+    }
+
     function build_host_gi(opts, project) {
         if (project.build_system != "meson") this.fail("host GI recipe currently requires Meson")
         local host = this.new_options()
@@ -200,14 +230,10 @@ class SqgiPkgRecipes extends Base.SqgiPkgScripts {
         start += marker.len()
         local end = text.find("\"", start)
         if (end == null) this.fail("invalid shared-library attribute in " + gir_name)
-        local libraries = []
-        foreach (path in project.libraries)
-            if (this.basename(path).find(project.gi.library) != null) libraries.push(path)
-        if (libraries.len() == 0) this.fail("GI target library not found: " + project.gi.library)
-        // Preserve the metadata; change only its declared target library name.
-        // This strategy is explicit because metadata must describe the same API
-        // on both targets. Native Windows builds generate GI natively instead.
-        text = text.slice(0, start) + this.basename(libraries[0]) + text.slice(end)
+        // Every library in the host namespace owns callable symbols. Preserve
+        // its order and translate each name, rather than dropping core libraries.
+        local libraries = this.target_gi_libraries(text.slice(start, end), project.libraries)
+        text = text.slice(0, start) + libraries + text.slice(end)
         local dir = this.recipe_build_dir(opts, project)
         local gir = GLib.build_filenamev([dir, gir_name])
         local typelib = this.replace_suffix(gir, ".gir", ".typelib")

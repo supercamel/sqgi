@@ -108,6 +108,24 @@ import('pkgconfig').generate(lib, subdirs: 'study-export')
             self.assertEqual((overlay/'original').read_text(),sentinel.read_text())
             self.assertNotEqual((overlay/'original').stat().st_ino,sentinel.stat().st_ino)
 
+    def test_meson_alias_and_target_gi_locations(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);base=root/'base';base.mkdir();overlay=root/'sdk';sdk.initialize(base,overlay)
+            build=root/'build';(build/'src').mkdir(parents=True)
+            (build/'src/libstudy.so.1.0').write_bytes(b'target library')
+            (build/'src/libstudy.so.1').symlink_to('libstudy.so.1.0')
+            (build/'Study-1.0.typelib').write_bytes(b'target metadata')
+            installed={'libstudy.so.1':'/usr/lib/libstudy.so.1',
+                str(build/'src/Study-1.0.typelib'):'/usr/lib/girepository-1.0/Study-1.0.typelib'}
+            sdk.export_files(overlay,'study',installed,build=build)
+            self.assertEqual((overlay/'usr/lib/libstudy.so.1').read_bytes(),b'target library')
+            self.assertEqual((overlay/'usr/lib/girepository-1.0/Study-1.0.typelib').read_bytes(),b'target metadata')
+            (build/'duplicate').mkdir();(build/'duplicate/libstudy.so.1').write_bytes(b'wrong')
+            with self.assertRaisesRegex(ValueError,'ambiguous'):
+                sdk.export_files(overlay,'study',{'libstudy.so.1':'/usr/lib/libstudy.so.1'},build=build)
+            with self.assertRaisesRegex(ValueError,'Invalid relative'):
+                sdk.export_files(overlay,'study',{'../libstudy.so.1':'/usr/lib/libstudy.so.1'},build=build)
+
     def test_host_gi_fallback_never_substitutes_target_library(self):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp);base=root/'base';base.mkdir();overlay=root/'sdk';sdk.initialize(base,overlay)

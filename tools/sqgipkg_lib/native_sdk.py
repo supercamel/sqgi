@@ -51,7 +51,7 @@ def initialize(base, root):
             shutil.rmtree(temporary)
 
 
-def export_files(root, owner, installed, fallback=None):
+def export_files(root, owner, installed, fallback=None, build=None):
     root = root.resolve(strict=True)
     data = json.loads((root / MARKER).read_text())
     prepared = []
@@ -63,6 +63,17 @@ def export_files(root, owner, installed, fallback=None):
         relative = Path(*target.parts[1:])
         if relative.parts[0] != 'usr':
             raise ValueError('Native development exports must install below /usr: '+str(target))
+        # Meson reports versioned-library aliases as basenames. Host-GI recipes
+        # emit target GIR/typelib files at the build root, not the Meson subdir.
+        if build and (not source.is_absolute() or
+                      (not source.is_file() and source.suffix in ('.gir', '.typelib'))):
+            build_root = Path(build).resolve(strict=True)
+            if not source.is_absolute() and (len(source.parts) != 1 or source.name in ('.', '..')):
+                raise ValueError('Invalid relative native output: '+str(source))
+            matches = [p for p in build_root.rglob(source.name) if p.is_file()]
+            if len(matches) != 1 or not matches[0].resolve().is_relative_to(build_root):
+                raise ValueError('Missing or ambiguous target native output: '+str(source))
+            source = matches[0]
         if not source.is_file() and fallback and source.suffix in ('.vapi', '.deps'):
             matches = list(Path(fallback).rglob(source.name))
             if len(matches) == 1:
@@ -131,7 +142,7 @@ def main():
         overlay_packages(a.root, a.package_root)
     elif a.system == 'meson':
         installed = json.loads(subprocess.check_output(['meson', 'introspect', '--installed', str(a.build)], text=True))
-        export_files(a.root, a.owner, installed, a.host_gi)
+        export_files(a.root, a.owner, installed, a.host_gi, a.build)
     else:
         with tempfile.TemporaryDirectory(prefix='sqgipkg-native-install-') as directory:
             env = dict(os.environ, DESTDIR=directory)

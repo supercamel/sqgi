@@ -209,6 +209,10 @@ printf 'stat target\n' >"${WORK_DIR}/stat-target.txt"
 assert_contains "${WORK_DIR}/modules.out" "sqgipkg module tests passed"
 pass "module-level sqgipkg tests"
 
+"${SQGI_BIN}" "${ROOT_DIR}/tools/sqgipkg_tests/host_gi_libraries.nut" >"${WORK_DIR}/host-gi-libraries.out"
+assert_contains "${WORK_DIR}/host-gi-libraries.out" "PASS host GI library mapping tests"
+pass "host GI library mapping tests"
+
 "${SQGI_BIN}" "${ROOT_DIR}/tools/sqgipkg_tests/test_platform_helpers.nut" >"${WORK_DIR}/platform-helpers.out"
 assert_contains "${WORK_DIR}/platform-helpers.out" "sqgipkg platform helper tests passed"
 pass "platform helper sqgipkg tests"
