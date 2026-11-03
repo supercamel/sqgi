@@ -50,7 +50,7 @@ for this project only):
 ```
 
 The formatter uses the editor's indentation settings and preserves comments,
-literals, and existing line breaks. See [formatting behavior](vscode/README.md#formatting-behavior)
+literals, braces, and existing line breaks. See [formatting behavior](vscode/README.md#formatting-behavior)
 for its scope.
 
 ### Troubleshooting
