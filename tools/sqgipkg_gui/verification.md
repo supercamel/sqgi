@@ -934,6 +934,7 @@ Local validation on Ubuntu 24.04:
 - `ctest --test-dir build-windows-ooblerg -L 'jit|kernel' -E kernel_packaging --output-on-failure --timeout 60 -j 4` under the isolated Wine runner: 62/62 passed.
 - A relocated Windows directory package loaded GLib and executed a typed kernel returning 42 with the SDK absent from its DLL search path.
 - The shell suite's migrated Windows sections passed staging, console override, missing-runtime rejection, native entry, NSIS generation, local-repository dependency resolution and Git branch fallback.
+- Ooblerg's native Windows GCC configured and built the interpreter under Wine. Five CLI preflight cases and eight Windows provider cases passed with Windows Python. Preparation now normalizes absolute pkg-config fields relative to `prefix`, fixing relocated zlib/GIO/cairo discovery; the provider regression verifies resolved include/library paths and locked replay.
 
 The full shell suite still fails in its unrelated Linux fake-package fixture
 (the fake dpkg-query omits required GLib introspection data). Its stale init

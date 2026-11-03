@@ -13,9 +13,13 @@ jobs:
       - name: Install Ubuntu cross-build and execution tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake ninja-build pkg-config gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64 gobject-introspection libgirepository1.0-dev wine64 xvfb
+          sudo apt-get install -y cmake ninja-build meson pkg-config gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64 gobject-introspection libgirepository1.0-dev wine64 xvfb
       - name: Prepare Ooblerg target dependencies
         run: python3 tools/prepare-windows-sdk.py --cross --root "$RUNNER_TEMP/ooblerg" --cache "$RUNNER_TEMP/ooblerg-cache"
+      - name: Verify package provider and Linux SDK exports
+        run: |
+          python3 tools/sqgipkg_tests/test_ooblerg.py
+          python3 tools/sqgipkg_tests/test_native_sdk.py
       - name: Cross-build SQGI with LLVM and kernels
         run: |
           cmake -S . -B build-cross -G Ninja -DCMAKE_BUILD_TYPE=Release \
@@ -131,7 +135,7 @@ jobs:
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: |
           # CTest runs every selected suite even when an earlier suite fails.
-          ctest --test-dir build -R '^sqgi_test_(sqgipkg_ergonomics|ooblerg_provider|native_sdk|kernel_packaging|windows_ci_guard)$' --output-on-failure --no-tests=error --output-log build/packaging-tests.log --output-junit "$env:GITHUB_WORKSPACE/build/packaging-tests.xml"
+          ctest --test-dir build -R '^sqgi_test_(sqgipkg_ergonomics|ooblerg_provider|kernel_packaging|windows_ci_guard)$' --output-on-failure --no-tests=error --output-log build/packaging-tests.log --output-junit "$env:GITHUB_WORKSPACE/build/packaging-tests.xml"
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
       - name: Manifest authoring contracts
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
