@@ -8,7 +8,7 @@ For the task-oriented CLI, version 2 manifests and native Windows execution, see
 It takes a Squirrel entry script, any supporting modules/resources/native GObject
 libraries, and the SQGI runtime, then stages a runnable application for Linux or
 Windows. On Linux the primary target is AppImage. On Windows it can create a
-portable directory, an NSIS installer, or just prepare a Windows MSYS2 sysroot for
+portable directory, an NSIS installer, or just prepare a Windows Ooblerg sysroot for
 cross-build/debug workflows.
 
 The design goal is simple: keep the developer-facing manifest small, while
@@ -23,7 +23,7 @@ If you are learning `sqgipkg` from scratch, start with the tutorial-style
 - Linux Debian/sysroot preparation with `linux-sysroot`.
 - Windows directory packaging with `win-dir`.
 - Windows NSIS installer generation with `win-nsis`.
-- Windows MSYS2 sysroot bootstrap with `win-sysroot`.
+- Windows Ooblerg sysroot bootstrap with `win-sysroot`.
 - Combined Linux + Windows builds with `all`.
 - Squirrel `.nut` script discovery, recursive local import staging, and optional bytecode compilation to `.cnut`.
 - Compatibility `.nut` links/copies so `import("module.nut")` keeps working.
@@ -34,7 +34,7 @@ If you are learning `sqgipkg` from scratch, start with the tutorial-style
 - Git-managed script/data dependencies for vendoring shared Squirrel modules, themes, schemas, assets, or other payloads.
 - Native executable entrypoints for C/C++/Vala apps that do not launch through SQGI.
 - Vala/C/C++ native module support, including `.dll`/`.so` plus `.typelib`.
-- Windows native dependency builds that install private libraries into the generated MSYS2 sysroot before the app is configured.
+- Windows native dependency builds that install private libraries into the generated Ooblerg sysroot before the app is configured.
 - GObject Introspection typelib staging.
 - GStreamer plugin staging.
 - GSettings schema staging and optional schema compilation.
@@ -42,7 +42,7 @@ If you are learning `sqgipkg` from scratch, start with the tutorial-style
 - gdk-pixbuf loader staging and optional loader cache generation.
 - GTK data/theme/icon staging.
 - GTK theme/settings selection for AppImage and Windows launchers.
-- Windows MSYS2 package downloading, dependency resolution, extraction, and local package database writing.
+- Windows Ooblerg dependency resolution, verified archive extraction, and provenance recording.
 - Windows recursive DLL dependency closure using PE imports.
 - Generated CMake and Meson cross files for Ubuntu/MinGW Windows builds.
 - Automatic `PKG_CONFIG_*` isolation for Windows cross-builds.
@@ -162,18 +162,18 @@ dist-windows-x86_64/<name>-Setup.exe
 
 ### `win-sysroot`
 
-Downloads/extracts MSYS2 packages, prepares a Windows sysroot, writes generated
+Downloads/extracts Ooblerg packages, prepares a Windows sysroot, writes generated
 CMake/Meson cross files, prints the paths, and exits. It does not require a
 script.
 
 ```sh
-sqgipkg --target win-sysroot --msys2-prefix mingw64
+sqgipkg --target win-sysroot
 ```
 
 Typical output layout:
 
 ```text
-dist-windows-x86_64/_msys2-mingw64/
+dist-windows-x86_64/_ooblerg-x86_64/
   mingw64/
     bin/
     include/
@@ -327,7 +327,7 @@ Native form for C/C++/Vala apps:
 Native entries skip bundling/launching `sqgi`. The generated AppImage `AppRun`
 executes the Linux binary directly, and the Windows `.bat` launches the Windows
 `.exe` directly. `scripts`, `script_dirs`, `includes`, resources, native
-libraries, typelibs, GTK data, GStreamer plugins, and Windows MSYS2 packages
+libraries, typelibs, GTK data, GStreamer plugins, and Windows Ooblerg packages
 still work, so embedded-SQGI native apps can ship compiled `.cnut` payloads
 beside the native executable.
 
@@ -1145,7 +1145,7 @@ The selected suite is part of the generated repository-index and sysroot cache
 keys, so changing it creates a separate private sysroot instead of silently
 reusing packages from another Ubuntu release. This option selects the
 Debian/Ubuntu package source for Linux sysroots; it does not change the host
-runner, host build tools, cross compiler, or Windows MSYS2 packages.
+runner, host build tools, cross compiler, or Windows Ooblerg packages.
 
 This works for native and cross target architectures, so an x86_64 package can
 use an x86_64 sysroot instead of the host `/usr`, and an aarch64 package can use
@@ -1375,34 +1375,18 @@ Windows packaging has three separable jobs:
 
 1. Build or locate a Windows `sqgi.exe` runtime.
 2. Stage app scripts/resources/native modules.
-3. Stage MSYS2 runtime packages and recursively resolve DLL imports.
+3. Stage Ooblerg runtime packages and recursively resolve DLL imports.
 
-`sqgipkg` supports both native MSYS2 builds and Linux-hosted MinGW cross-builds.
-
-### Recommended CRT/package rule
-
-For the current Ubuntu stock MinGW cross compiler:
-
-```text
-x86_64-w64-mingw32-gcc/g++ -> MSYS2 mingw64 packages
-```
-
-For native MSYS2 UCRT64 builds:
-
-```text
-MSYS2 UCRT64 gcc/clang -> MSYS2 ucrt64 packages
-```
-
-Do not mix compiler CRT families and dependency package families.
-
-### Basic Windows manifest
+`sqgipkg` supports native Windows builds using Ooblerg's native SDK and
+Ubuntu 24.04 cross builds using the Ubuntu MinGW compiler. Both consume the same
+Ooblerg Windows catalog and target ABI.
 
 ```json
 {
   "name": "NativeVala",
   "script_dirs": ["."],
   "windows": {
-    "msys2_prefix": "mingw64",
+    "package_source": "ooblerg",
     "build": [
       "cmake -E rm -rf \"$SQGI_WINDOWS_BUILD_DIR\"",
       "cmake -S \"$SQGI_SOURCE_DIR\" -B \"$SQGI_WINDOWS_BUILD_DIR\" -G Ninja -DCMAKE_TOOLCHAIN_FILE=\"$SQGI_WIN_CMAKE_TOOLCHAIN\" -DCMAKE_BUILD_TYPE=Release",
@@ -1464,70 +1448,36 @@ directory and `windows.build` can be empty. If `sqgi.exe` is not present there
 or on `PATH`, `win-dir`/`win-nsis` fails instead of falling back to the host
 Linux `sqgi` executable.
 
-### `windows.msys2_prefix`
+### `windows.package_source`
 
-MSYS2 environment prefix.
+Ooblerg is the only Windows provider and is the default when this field is
+omitted. Package names use the Ooblerg catalog, for example `glib` or `gtk4`.
+The target is Windows x86_64 with a fixed `/mingw64` prefix.
 
-Common values:
+### `windows.sysroot`
 
-```text
-mingw64
-ucrt64
-clang64
-clangarm64
-mingw32
-```
-
-Default:
-
-```json
-"msys2_prefix": "mingw64"
-```
-
-Package name prefixes are inferred from this value:
-
-```text
-mingw64    -> mingw-w64-x86_64-
-ucrt64     -> mingw-w64-ucrt-x86_64-
-clang64    -> mingw-w64-clang-x86_64-
-clangarm64 -> mingw-w64-clang-aarch64-
-mingw32    -> mingw-w64-i686-
-```
-
-### `windows.msys2_root`
-
-MSYS2 root/sysroot directory. If omitted, `sqgipkg` creates a target-specific
-sysroot under `dist`, for example:
-
-```text
-dist-windows-x86_64/_msys2-mingw64
-```
+Optional owned Ooblerg preparation directory. The default is
+`dist-windows-x86_64/_ooblerg-x86_64`. Preparation replaces only roots carrying
+Ooblerg's ownership marker; it refuses existing unrelated directories.
 
 ### `windows.repo_url`
 
-MSYS2 repository URL. If omitted:
-
-```text
-https://repo.msys2.org/mingw/<msys2_prefix>
-```
+Ooblerg repository or compatible mirror URL. Defaults to `https://ooblerg.xyz/v1`.
 
 ### `windows.package_cache`
 
-MSYS2 repository/package archive cache. Default:
-
-```text
-~/.cache/sqgipkg/msys2
-```
+Verified Ooblerg metadata and archive cache. Defaults to
+`~/.cache/sqgipkg/ooblerg`. Archives are addressed by SHA-256 digest.
 
 ### `windows.download_packages`
 
-Download and extract missing MSYS2 packages. Default:
+Download and extract missing Ooblerg packages. Default:
 
 ```json
 "download_packages": true
 ```
 
-Disable for an already-prepared sysroot:
+Disable network access when the verified package archives are already cached:
 
 ```json
 "download_packages": false
@@ -1536,12 +1486,12 @@ Disable for an already-prepared sysroot:
 CLI:
 
 ```sh
---no-msys2-download
+--no-windows-download
 ```
 
 ### `windows.refresh_packages`
 
-Refresh cached repo DBs and package archives.
+Refresh cached repository metadata and package archives.
 
 ```json
 "refresh_packages": true
@@ -1550,7 +1500,7 @@ Refresh cached repo DBs and package archives.
 CLI:
 
 ```sh
---refresh-msys2-packages
+--refresh-windows-packages
 ```
 
 ### `windows.auto_packages`
@@ -1585,7 +1535,7 @@ a GUI app. The default is automatic:
 - console off for GTK-looking GUI apps
 
 GTK-looking means a GTK import was detected, GTK settings were configured, or a
-GTK MSYS2 package was selected.
+GTK Ooblerg package was selected.
 
 When the console is off, the generated Windows CMake toolchain sets:
 
@@ -1626,45 +1576,42 @@ CLI:
 
 ### `windows.build_packages`
 
-MSYS2 packages installed into the Windows sysroot for build-time use, but not
+Ooblerg packages installed into the Windows sysroot for build-time use, but not
 staged as runtime package payload.
 
 ```json
 "build_packages": [
-  "mingw-w64-x86_64-gettext-tools"
+  "gettext"
 ]
 ```
 
 Vala is always installed as a build package for Windows targets, so Vala
-projects usually do not need to list `mingw-w64-x86_64-vala` themselves.
+projects usually do not need to list `vala` themselves.
 
 CLI:
 
 ```sh
---windows-build-package mingw-w64-x86_64-gettext-tools
+--windows-build-package gettext
 ```
 
 ### `windows.packages`
 
-Additional MSYS2 packages to install/stage.
+Additional Ooblerg packages to install/stage.
 
 ```json
 "packages": [
-  "mingw-w64-x86_64-gtk4",
-  "mingw-w64-x86_64-gstreamer",
-  "mingw-w64-x86_64-gst-plugins-good",
-  "mingw-w64-x86_64-gst-plugins-bad",
-  "mingw-w64-x86_64-gst-libav"
+  "gtk4",
+  "gstreamer",
+  "gst-plugins-good",
+  "gst-plugins-bad",
+  "gst-plugins-ugly"
 ]
 ```
 
-When downloading is enabled, `sqgipkg` fetches the repository database,
-recursively resolves package dependencies from that repository, downloads
-archives, extracts them into `msys2_root`, and records local metadata under:
-
-```text
-var/lib/pacman/local/
-```
+`sqgipkg` resolves the Ooblerg index dependency closure, verifies every archive's
+SHA-256 digest, and prepares an owned sysroot transactionally. Locks retain the
+repository, target, package metadata, and archive digests. Disabled downloads
+require the verified archives in cache; installed files alone are insufficient.
 
 ### `windows.libraries`
 
@@ -1733,14 +1680,14 @@ form is:
 ### `windows.native_dependencies` / `windows.build_dependencies`
 
 Private Windows build dependencies that must be available before the main Windows
-app is configured. These projects run after the MSYS2 sysroot and cross files are
+app is configured. These projects run after the Ooblerg sysroot and cross files are
 prepared, but before `windows.build` and `windows.native_projects`.
 
 Use this for project-local libraries that provide headers, `.pc` files, DLLs, or
 typelibs that the main application needs during Meson/CMake configuration, such
 as private Vala/GObject libraries.
 
-A dependency usually installs into the generated MSYS2-style sysroot:
+A dependency usually installs into the generated Ooblerg sysroot:
 
 ```json
 "windows": {
@@ -1834,11 +1781,11 @@ and exports:
 
 ```text
 PKG_CONFIG_PATH=
-PKG_CONFIG_SYSROOT_DIR=<absolute MSYS2 sysroot>
+PKG_CONFIG_SYSROOT_DIR=<absolute Ooblerg sysroot>
 PKG_CONFIG_LIBDIR=<prefix>/lib/pkgconfig:<prefix>/share/pkgconfig
-SQGI_WINDOWS_SYSROOT=<absolute MSYS2 sysroot>
+SQGI_WINDOWS_SYSROOT=<absolute Ooblerg sysroot>
 SQGI_WINDOWS_BUILD_DIR=<configured Windows build_dir>
-SQGI_WINDOWS_PREFIX=/mingw64                 # or /ucrt64, /clang64, ...
+SQGI_WINDOWS_PREFIX=/mingw64                 # fixed Ooblerg target prefix
 SQGI_WINDOWS_PREFIX_DIR=<absolute prefix dir>
 SQGI_WINDOWS_SYSROOT_PREFIX=<absolute prefix dir>
 SQGI_SOURCE_DIR=<resolved SQGI source checkout> # only when a command references it
@@ -1851,11 +1798,11 @@ install steps.
 For Meson projects that generate GObject Introspection data, the generated
 cross file also pins `g-ir-scanner` and `g-ir-compiler` to build-host tools.
 That avoids the common Linux cross-build failure where Meson discovers the
-MSYS2 `g-ir-scanner.exe` from the Windows sysroot and then tries to execute it
+Ooblerg `g-ir-scanner.exe` from the Windows sysroot and then tries to execute it
 directly on Linux. When Wine is available, `sqgipkg` also writes a small
 `exe_wrapper` plus scanner/ldd wrappers so `g-ir-scanner` can run the temporary
 MinGW introspection binary while keeping the Windows DLL search path pointed at
-the staged MSYS2 prefix.
+the staged Ooblerg prefix.
 
 ### `windows.cmake_toolchain` / `--win-cmake-toolchain`
 
@@ -1869,7 +1816,7 @@ Use a specific Meson cross file, or let `sqgipkg` generate one.
 
 After staging the Windows app, `sqgipkg` scans every bundled `.exe` and `.dll`
 using MinGW `objdump`, parses imported DLL names, skips known Windows system
-DLLs, copies missing DLLs from the MSYS2 sysroot, then scans the copied DLLs as
+DLLs, copies missing DLLs from the Ooblerg sysroot, then scans the copied DLLs as
 well.
 
 This means declaring `gtk4`, `cairo`, `gstreamer`, or a native Vala DLL usually
@@ -1956,7 +1903,7 @@ gtk-application-prefer-dark-theme=true
 ```
 
 Use `windows.packages` or `windows.auto_packages` to ensure the relevant GTK,
-icon, and theme packages are present in the MSYS2 sysroot.
+icon, and theme packages are present in the Ooblerg sysroot.
 
 ## NSIS installer support
 
@@ -2044,13 +1991,13 @@ The working Windows native extension shape is:
 4. Stage the `.typelib` under `lib/girepository-1.0/`.
 5. Let recursive DLL resolution copy transitive dependencies.
 
-A Vala package normally needs Vala vapis in the MSYS2 sysroot. `sqgipkg`
+A Vala package normally needs Vala vapis in the Ooblerg sysroot. `sqgipkg`
 installs the Vala package automatically as a Windows build package, so it does
 not need to be listed in `windows.packages`.
 
 ```json
 "windows": {
-  "msys2_prefix": "mingw64"
+  "package_source": "ooblerg"
 }
 ```
 
@@ -2062,7 +2009,7 @@ compiler/toolchain.
 For a native Windows app with private libraries, the normal order is:
 
 ```text
-1. prepare MSYS2 sysroot and package dependencies
+1. prepare Ooblerg sysroot and package dependencies
 2. clone/update native dependency repos
 3. build/install native dependencies into the sysroot
 4. configure/build the main app against that sysroot
@@ -2207,16 +2154,15 @@ AppImage options:
 --smoke-test-isolated
 ```
 
-Windows/MSYS2 options:
+Windows/Ooblerg options:
 
 ```text
---msys2-root DIR
---msys2-prefix PREFIX
+--windows-sysroot DIR
 --windows-package PACKAGE
---msys2-repo-url URL
---msys2-package-cache DIR
---refresh-msys2-packages
---no-msys2-download
+--windows-repo-url URL
+--windows-package-cache DIR
+--refresh-windows-packages
+--no-windows-download
 --no-windows-auto-packages
 --windows-console
 --no-windows-console
@@ -2294,9 +2240,9 @@ sqgipkg --manifest sqgipkg.json --smoke-test "--analyse --timeout=2"
   "script_dirs": ["."],
   "resources": ["assets"],
   "windows": {
-    "msys2_prefix": "mingw64",
+    "package_source": "ooblerg",
     "packages": [
-      "mingw-w64-x86_64-gtk4"
+      "gtk4"
     ],
     "build": [
       "cmake -E rm -rf \"$SQGI_WINDOWS_BUILD_DIR\"",
@@ -2391,7 +2337,7 @@ sets `SQGI_APP_SHARE` to the SQGI share directory when it is otherwise unset, so
 the support modules are loaded from the shared data location instead of `bin/`.
 
 The modules are split by responsibility: command-line options, manifests,
-script staging, Linux dependency closure, AppImage staging, Windows/MSYS2 setup,
+script staging, Linux dependency closure, AppImage staging, Windows/Ooblerg setup,
 NSIS generation, templates, doctor checks, and final build orchestration.
 
 The test suite builds real packages:
@@ -2427,12 +2373,12 @@ It covers:
 - Implemented targets: `appimage`, `linux-sysroot`, `win-dir`, `win-nsis`, `win-sysroot`, `all`.
 - Reserved targets: `appdir`, `tarball`.
 - Linux dependency discovery is intentionally not a full distro dependency solver.
-- Windows package downloading resolves normal dependencies from one MSYS2 repo; virtual `provides` and cross-repo resolution are limited.
+- Windows package downloading resolves the complete Ooblerg dependency closure from one compatible repository.
 - Native modules must declare explicit library and typelib outputs when they need to be staged directly.
 - Git-managed native projects and script/data dependencies are updated from the declared repo/ref; pin `tag`, `ref`, or `commit` for reproducible builds.
 - GTK/GStreamer portability still depends on declared runtime data and testing.
 - Bytecode is useful for packaging and casual source hiding, but it is not strong code secrecy.
-- Ubuntu stock MinGW cross-builds should use `mingw64`; UCRT64 is a good future/native MSYS2 target, but only with a matching UCRT toolchain.
+- Windows builds use Ooblerg with Ubuntu 24.04-compatible MinGW dependencies.
 
 ## Philosophy
 
@@ -2527,7 +2473,7 @@ metadata only; `--refresh-packages` refreshes the catalog. GUI Runtime/native co
 includes a searchable picker with package descriptions and dependencies.
 
 Set `windows.package_source` to `"ooblerg"` to prepare verified Ooblerg archives in
-a private sysroot. Existing manifests keep MSYS2 by default. With Ooblerg,
+a private sysroot. Ooblerg is the default and only Windows provider. With Ooblerg,
 `windows.runtime: "package"` selects prebuilt SQGI for Windows, preserving the
 Linux runtime choice. `windows.packages` adds runtime dependencies such as
 `gserial` and `gworldscene`; `windows.build_packages` supplies development-only
@@ -2540,8 +2486,8 @@ dependency closures, separate provider sysroots and build directories, and the
 existing package lock/provenance controls. Check/Explain do not fetch packages.
 `windows.download_packages: false` permits only cached verified inputs; a
 compatible repository mirror can be set with `windows.repo_url`. The GUI picker
-currently browses the official Ooblerg catalog. Do not mix MSYS2 package names or
-explicit MSYS2 root/prefix settings with Ooblerg.
+currently browses the official Ooblerg catalog. Do not mix Ooblerg package names or
+explicit Ooblerg root/prefix settings with Ooblerg.
 
 
 ### Optional Ooblerg Linux bundles

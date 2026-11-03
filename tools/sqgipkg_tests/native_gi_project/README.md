@@ -43,8 +43,8 @@ SQGI revision. For a fast host-only test using installed development libraries,
 add `--no-linux-deb-download`.
 
 Use `sqgipkg check` to validate and `sqgipkg explain` to inspect the resolved
-recipes. Windows builds run from PowerShell/CMD without an MSYS2 shell; these
-examples explicitly retain the MinGW64 package ABI. `win-nsis` requires NSIS.
+recipes. Windows builds run from PowerShell/CMD with Ooblerg dependencies; these
+examples use the Ooblerg Windows x86_64 catalog. `win-nsis` requires NSIS.
 Use `--target win-dir` to produce a directory without an installer compiler.
 
 The C library declares `gi.strategy: host` for cross builds. Native Windows

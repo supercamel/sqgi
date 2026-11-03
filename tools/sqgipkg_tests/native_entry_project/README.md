@@ -40,7 +40,7 @@ cd tools/sqgipkg_tests/native_entry_project
 sqgipkg --target win-dir
 ```
 
-`sqgipkg` will prepare the MSYS2 sysroot/cross files when Windows packages are
+`sqgipkg` will prepare the Ooblerg sysroot/cross files when Windows packages are
 declared. This example has no external runtime packages, so it only needs the
 MinGW compiler and generated Meson cross file.
 
@@ -52,4 +52,4 @@ directory and can run the AppDir smoke test through QEMU user-mode when
 The version 2 `native` Meson recipe replaces the per-platform shell commands.
 Only the executable entry paths vary by architecture. This demo does not build
 or bundle SQGI, because the packaged entry is a standalone C executable.
-Windows commands run from PowerShell/CMD; no MSYS2 shell is needed.
+Windows commands run from PowerShell/CMD with Ooblerg dependencies.

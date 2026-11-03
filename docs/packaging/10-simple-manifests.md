@@ -105,20 +105,17 @@ is explicit because the host metadata must describe the same API on the target.
 Native Windows builds generate their GI metadata natively. The host strategy
 currently supports Meson projects.
 
-## Windows without an MSYS2 shell
+## Windows with Ooblerg
 
-Windows installs provide a native `sqgipkg.exe`, usable directly from PowerShell
-or CMD. The common packaging path uses GIO process/file operations and an
-internal PE reader; it does not run Bash, `find`, `cp`, `sed`, or `objdump`.
-The toolchain and dependency packages can still come from MSYS2 repositories:
-a package source and a user-facing shell are separate requirements.
+Windows installs provide a native `sqgipkg.exe`, usable from PowerShell or CMD.
+Windows dependency packages come exclusively from Ooblerg. Both native Windows
+and Ubuntu 24.04 cross builds use its `x86_64-w64-mingw32` catalog and `/mingw64`
+prefix. Source runtime recipes use the published LLVM 18 SDK.
 
-Install SQGI and its runtime dependencies into a prefix on PATH. Standard native
-build recipes can prepare private compiler/build-tool packages; downloading and
-extracting packages requires native `curl`/`wget` and a `tar` capable of the
-archive format. Native Windows defaults to UCRT64 packages; Linux cross builds
-retain MinGW64. An explicit `windows.msys2_prefix` preserves a project's chosen
-ABI. Keep compiler and package runtime families consistent.
+Python 3 downloads, verifies, and extracts the Ooblerg archives into an owned
+private sysroot. Standard native recipes prepare Ooblerg's `native-sdk` build
+tools on Windows; Ubuntu uses its MinGW cross compiler. No MSYS2 installation
+is used. Old MSYS2 settings must be migrated as described below.
 
 ```powershell
 sqgipkg check
@@ -156,7 +153,7 @@ checksums. `--locked` requires the same manifest, pins fetched Git sources to
 those commits, and uses the recorded package metadata/checksums. Keep the
 package cache or retain the archives: a lockfile cannot make a removed remote
 archive available. Private package downloads are required for package locking;
-externally installed MSYS2 packages are not rewritten into a lock.
+external unowned sysroots cannot be used as Ooblerg preparation roots.
 
 The lock covers these dependency inputs, not the host compiler, local application
 source, arbitrary build hooks, or the entire operating system. It is not a
@@ -170,3 +167,31 @@ from RFDTool, FoamCutter and StlViewer. They preserve explicit package/payload
 choices while replacing runtime and native build command arrays. RouteTastic's
 custom launcher, file rules and provenance remain explicit. These are migration
 candidates, not claims of release-artifact equivalence.
+
+## Migrating old MSYS2 manifests
+
+Windows packaging now uses Ooblerg exclusively. Omit `windows.package_source`
+or set it to `"ooblerg"`. Remove `windows.msys2_prefix`; the target prefix is
+fixed at `/mingw64`. Remove `windows.msys2_root`, or replace it with
+`windows.sysroot` pointing to a new private Ooblerg directory. Existing unrelated
+roots are never overwritten. Regenerate package lockfiles with `--write-lock`
+after migrating; old MSYS2 provenance cannot replay against Ooblerg.
+
+Select actual Ooblerg catalog names rather than stripping prefixes blindly:
+
+| Old package | Ooblerg package |
+| --- | --- |
+| `mingw-w64-x86_64-glib2` | `glib` |
+| `mingw-w64-x86_64-gobject-introspection-runtime` | `libgirepository-1.0` |
+| `mingw-w64-x86_64-gdk-pixbuf2` | `gdk-pixbuf` |
+| `mingw-w64-x86_64-gtk4` | `gtk4` |
+
+Use `sqgipkg packages --json` or the GUI package search to inspect available
+packages. Packages absent from that catalog need an explicit source recipe or
+runtime resources. Linux Ubuntu package lists retain their existing meaning.
+
+CLI replacements are `--windows-sysroot`, `--windows-repo-url`,
+`--windows-package-cache`, `--refresh-windows-packages`, and
+`--no-windows-download`. The old `--msys2-*` flags are rejected.
+Disabled downloads require verified package archives in cache, not just files
+in an installed SDK.

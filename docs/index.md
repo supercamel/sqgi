@@ -120,39 +120,33 @@ After installing, you can run scripts directly with:
 sqgi my_script.nut
 ```
 
-## Build From Source On MSYS2
+## Build Windows from source with Ooblerg
 
-On MSYS2, use a MinGW-style shell such as UCRT64 or MINGW64. Clone the
-repository first:
+Use PowerShell, Git, and Python 3. The SDK helper downloads verified Ooblerg
+packages, including the native GCC toolchain and the LLVM 18 C API SDK.
 
-```sh
-git clone https://github.com/supercamel/sqgi.git
-cd sqgi
+```powershell
+$sdk = Join-Path $PWD 'build-ooblerg-sdk'
+$cache = Join-Path $PWD 'build-ooblerg-cache'
+python tools/prepare-windows-sdk.py --root $sdk --cache $cache
+$prefix = "$sdk/mingw64"
+$env:PATH = "$prefix/bin;$env:PATH"
+$env:PKG_CONFIG_LIBDIR = "$prefix/lib/pkgconfig;$prefix/share/pkgconfig"
+$env:GI_TYPELIB_PATH = "$prefix/lib/girepository-1.0"
+cmake -S . -B build-windows -G Ninja -DCMAKE_BUILD_TYPE=Release `
+  "-DCMAKE_PREFIX_PATH=$prefix" `
+  "-DSQGI_LLVM_INCLUDE_DIR=$prefix/include" `
+  "-DSQGI_LLVM_LIBRARY=$prefix/lib/LLVM-C.lib" `
+  -DCMAKE_INSTALL_PREFIX=C:/sqgi
+cmake --build build-windows
+cmake --install build-windows
 ```
 
-The helper script installs the matching CMake, Ninja, compiler, and GLib/GI
-dependencies:
+Windows dependencies use Ooblerg's fixed `/mingw64` target prefix on both hosts.
+For Ubuntu 24.04 cross compilation, use `prepare-windows-sdk.py --cross` with
+the host MinGW compiler; see the [cross-build guide](packaging/08-targets-and-cross-builds.md).
+MSYS2 is no longer supported.
 
-```sh
-./tools/install-msys2-prereqs.sh ucrt64
-```
-
-Then build and install:
-
-```sh
-cmake -S . -B build-ucrt64 -G Ninja \
-  -DCMAKE_BUILD_TYPE=Release \
-  -DCMAKE_INSTALL_PREFIX=/ucrt64
-
-cmake --build build-ucrt64
-cmake --install build-ucrt64
-```
-
-Check the installed interpreter:
-
-```sh
-sqgi --version
-```
 
 ## Tiny Async Example
 

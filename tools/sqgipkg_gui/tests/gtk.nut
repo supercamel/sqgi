@@ -520,7 +520,6 @@ app.connect("activate", function() {
             require(editor.document.get(["native"]).len() == 1 && editor.document.get(["native", 0, "name"]) == "app", "library removal preserves application")
             print("PASS EDIT-native-library\n")
             editor.navigate("Runtime/native code")
-            editor.widgets["common.windows.provider"].set_selected(0)
             editor.widgets["common.windows.apply"].activate()
         },
         function() {

@@ -352,19 +352,6 @@ class SqgiPkgScripts extends Base.SqgiPkgManifest {
         if (!this.array_contains(list, value)) list.push(value)
     }
 
-    function msys2_package_prefix(opts) {
-        local prefix = opts.windows.msys2_prefix
-        if (prefix == "ucrt64") return "mingw-w64-ucrt-x86_64"
-        if (prefix == "clang64") return "mingw-w64-clang-x86_64"
-        if (prefix == "clangarm64") return "mingw-w64-clang-aarch64"
-        if (prefix == "mingw32") return "mingw-w64-i686"
-        return "mingw-w64-x86_64"
-    }
-
-    function msys2_pkg(opts, name) {
-        return this.msys2_package_prefix(opts) + "-" + name
-    }
-
     function windows_project_has_build_steps(project) {
         return project.build.len() > 0 || project.install.len() > 0 || this.table_get(project, "build_system", "") != ""
     }
@@ -384,10 +371,13 @@ class SqgiPkgScripts extends Base.SqgiPkgManifest {
 
     function apply_windows_package_defaults(opts) {
         if (!this.starts_with(opts.target, "win-")) return
+        foreach (names in [opts.windows.packages, opts.windows.build_packages]) foreach (name in names) {
+            if (this.starts_with(name, "mingw-w64-") && name != "mingw-w64-runtime")
+                this.fail("MSYS2 package names are no longer supported; use Ooblerg catalog names: " + name)
+        }
 
         foreach (project in opts.windows.native_projects) {
             if (this.table_get(project, "windows_package", "") == "") continue
-            if (opts.windows.package_source != "ooblerg") this.fail("native.windows_package requires the Ooblerg Windows package source")
             if (project.name == opts.entry_project) this.fail("The application entry recipe cannot be replaced by windows_package")
             this.append_unique(project.stage ? opts.windows.packages : opts.windows.build_packages, project.windows_package)
         }
@@ -396,59 +386,25 @@ class SqgiPkgScripts extends Base.SqgiPkgManifest {
             if (!opts.runtime_jit) this.fail("The prebuilt SQGI runtime cannot honor runtime.jit=false; use the source runtime")
             this.append_unique(opts.windows.packages, "sqgi")
         }
-        if (opts.windows.package_source == "ooblerg") {
-            if (opts.runtime_recipe && opts.windows.runtime != "package" && opts.entry_type == "sqgi") {
-                this.append_unique(opts.windows.build_packages, "llvm18")
-                this.append_unique(opts.windows.packages, "llvm18")
-            }
-            if (this.host_windows() && (opts.runtime_recipe || opts.windows.native_projects.len() > 0))
-                this.append_unique(opts.windows.build_packages, "native-sdk")
-            if (this.windows_needs_default_vala(opts)) this.append_unique(opts.windows.build_packages, "vala")
-            if (!opts.windows.auto_packages) return
-            foreach (package in ["glib", "glib-introspection", "libgirepository-1.0", "libffi", "cairo"])
-                this.append_unique(opts.windows.packages, package)
-            this.append_unique(opts.windows.build_packages, "gobject-introspection")
-            if (opts.report.used_gtk) this.append_unique(opts.windows.packages, "gtk4")
-            if (opts.report.used_gtk || opts.report.used_gdk_pixbuf) this.append_unique(opts.windows.packages, "gdk-pixbuf")
-            if (opts.report.used_gst) foreach (package in ["gstreamer", "gst-plugins-base", "gst-plugins-good"])
-                this.append_unique(opts.windows.packages, package)
-            if (opts.report.used_soup) this.append_unique(opts.windows.packages, "libsoup3")
-            return
+        if (opts.runtime_recipe && opts.windows.runtime != "package" && opts.entry_type == "sqgi") {
+            this.append_unique(opts.windows.build_packages, "llvm18")
+            this.append_unique(opts.windows.packages, "llvm18")
         }
-
-        if (this.host_windows() && (opts.runtime_recipe || opts.windows.native_projects.len() > 0)) {
-            foreach (package in ["gcc", "cmake", "ninja", "meson", "pkgconf", "gobject-introspection"])
-                this.append_unique(opts.windows.build_packages, this.msys2_pkg(opts, package))
-        }
-        if (this.windows_needs_default_vala(opts))
-            this.append_unique(opts.windows.build_packages, this.msys2_pkg(opts, "vala"))
-
+        if (this.host_windows() && (opts.runtime_recipe || opts.windows.native_projects.len() > 0))
+            this.append_unique(opts.windows.build_packages, "native-sdk")
+        if (this.windows_needs_default_vala(opts)) this.append_unique(opts.windows.build_packages, "vala")
         if (!opts.windows.auto_packages) return
-
-        this.append_unique(opts.windows.packages, this.msys2_pkg(opts, "glib2"))
-        // Build-time GI provides headers/tools; runtime GI provides the DLL name
-        // older consumers still link against (libgirepository-1.0-1.dll).
-        this.append_unique(opts.windows.build_packages, this.msys2_pkg(opts, "gobject-introspection"))
-        this.append_unique(opts.windows.packages, this.msys2_pkg(opts, "gobject-introspection-runtime"))
-        this.append_unique(opts.windows.packages, this.msys2_pkg(opts, "libffi"))
-        this.append_unique(opts.windows.packages, this.msys2_pkg(opts, "cairo"))
-
-        if (opts.report.used_gtk)
-            this.append_unique(opts.windows.packages, this.msys2_pkg(opts, "gtk4"))
-
-        if (opts.report.used_gtk || opts.report.used_gdk_pixbuf)
-            this.append_unique(opts.windows.packages, this.msys2_pkg(opts, "gdk-pixbuf2"))
-
-        if (opts.report.used_gst) {
-            this.append_unique(opts.windows.packages, this.msys2_pkg(opts, "gstreamer"))
-            this.append_unique(opts.windows.packages, this.msys2_pkg(opts, "gst-plugins-base"))
-            this.append_unique(opts.windows.packages, this.msys2_pkg(opts, "gst-plugins-good"))
-            if (opts.report.used_gtk)
-                this.append_unique(opts.windows.packages, this.msys2_pkg(opts, "gst-plugin-gtk"))
-        }
-
-        if (opts.report.used_soup)
-            this.append_unique(opts.windows.packages, this.msys2_pkg(opts, "libsoup3"))
+        // Installed/build-tree SQGI runtimes use LLVM too, even without a
+        // runtime source recipe. The default typed kernels require this DLL.
+        if (opts.entry_type == "sqgi") this.append_unique(opts.windows.packages, "llvm18")
+        foreach (package in ["glib", "glib-introspection", "libgirepository-1.0", "libffi", "cairo"])
+            this.append_unique(opts.windows.packages, package)
+        this.append_unique(opts.windows.build_packages, "gobject-introspection")
+        if (opts.report.used_gtk) this.append_unique(opts.windows.packages, "gtk4")
+        if (opts.report.used_gtk || opts.report.used_gdk_pixbuf) this.append_unique(opts.windows.packages, "gdk-pixbuf")
+        if (opts.report.used_gst) foreach (package in ["gstreamer", "gst-plugins-base", "gst-plugins-good"])
+            this.append_unique(opts.windows.packages, package)
+        if (opts.report.used_soup) this.append_unique(opts.windows.packages, "libsoup3")
     }
 
 }

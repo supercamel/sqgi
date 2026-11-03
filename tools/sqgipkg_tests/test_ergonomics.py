@@ -108,7 +108,7 @@ print(p.linux_native_sysroot_ldflags(opts))
         self.assertIn('llvm18', plan['packages'])
         value['windows']['package_source'] = 'msys2'
         self.manifest(value)
-        self.assertIn('requires the Ooblerg', self.run_pkg('explain', '--json', ok=False))
+        self.assertIn('must be ooblerg', self.run_pkg('explain', '--json', ok=False))
 
     def test_linux_ooblerg_development_seeds_do_not_become_runtime_packages(self):
         module = json.dumps((ROOT / 'tools/sqgipkg_lib/build.nut').as_posix())
@@ -214,8 +214,8 @@ if (p.windows_dll_in_bundle("payload", "llvm-c.DLL") == null) throw "case-sensit
 ''')
 
     def test_ooblerg_runtime_conflicts(self):
-        for extra, error in [({'msys2_root': 'existing'}, 'private sysroot'),
-                             ({'package_source': 'invalid'}, 'must be msys2 or ooblerg'),
+        for extra, error in [({'msys2_root': 'existing'}, 'no longer supported'),
+                             ({'package_source': 'invalid'}, 'must be ooblerg'),
                              ({'runtime': 'invalid'}, 'must be inherit or package')]:
             self.manifest({'schema_version': 2, 'target': 'win-dir', 'entry': 'main.nut',
                            'windows': dict({'package_source': 'ooblerg'}, **extra)})
@@ -225,12 +225,49 @@ if (p.windows_dll_in_bundle("payload", "llvm-c.DLL") == null) throw "case-sensit
                        'windows': {'package_source': 'ooblerg', 'runtime': 'package'}})
         self.assertIn('cannot honor', self.run_pkg('explain', '--json', ok=False))
 
+    def test_ooblerg_is_default_and_legacy_settings_fail_before_downloads(self):
+        value = {'schema_version': 2, 'target': 'win-dir', 'entry': 'main.nut',
+                 'runtime': {'source': '.'}}
+        self.manifest(value)
+        before = sorted(p.relative_to(self.root) for p in self.root.rglob('*'))
+        implicit = json.loads(self.run_pkg('explain', '--json'))
+        self.assertEqual(implicit['configurations'][0]['package_source'], 'ooblerg')
+        self.assertIn('glib', implicit['configurations'][0]['packages'])
+        value['windows'] = {'package_source': 'ooblerg'}
+        self.manifest(value)
+        self.assertEqual(implicit, json.loads(self.run_pkg('explain', '--json')))
+        for version in [1, 2]:
+            for old in [{'package_source': 'msys2'}, {'msys2_root': 'existing'},
+                        {'msys2_prefix': 'ucrt64'}, {'packages': ['mingw-w64-x86_64-gtk4']}]:
+                with self.subTest(version=version, settings=old):
+                    value.update(schema_version=version, windows=old)
+                    self.manifest(value)
+                    result = json.loads(self.run_pkg('explain', '--json', ok=False))
+                    self.assertFalse(result['ok'])
+                    message = result['diagnostics'][0]['message']
+                    self.assertTrue('no longer supported' in message or 'support has been removed' in message, message)
+        self.assertEqual(before, sorted(p.relative_to(self.root) for p in self.root.rglob('*')))
+
+    def test_windows_cli_uses_owned_ooblerg_sysroot(self):
+        self.manifest({'schema_version': 2, 'target': 'win-dir', 'entry': 'main.nut',
+                       'runtime': {'source': '.'}})
+        result = json.loads(self.run_pkg('explain', '--json', '--windows-sysroot', 'custom-sdk',
+            '--windows-repo-url', 'https://invalid.example/v1', '--windows-package-cache', 'cache',
+            '--no-windows-download', '--refresh-windows-packages'))
+        commands = result['configurations'][0]['runtime']['commands']
+        self.assertTrue(any('custom-sdk/mingw64/lib/LLVM-C.lib' in arg.replace('\\', '/')
+                            for arg in commands[0]), commands)
+        self.assertFalse((self.root / 'custom-sdk').exists())
+        self.assertFalse((self.root / 'cache').exists())
+        for option in ['--msys2-root', '--msys2-prefix', '--no-msys2-download']:
+            self.assertIn('unknown option', self.run_pkg('check', option, ok=False).lower())
+
     def test_short_help_and_full_reference(self):
         help_text = self.run_pkg('--help')
         self.assertLess(len(help_text.splitlines()), 32)
-        self.assertNotIn('--msys2-package-cache', help_text)
+        self.assertNotIn('--windows-package-cache', help_text)
         reference = self.run_pkg('--help-all')
-        self.assertIn('--msys2-package-cache', reference)
+        self.assertIn('--windows-package-cache', reference)
         self.assertNotIn('all, appdir, tarball', reference)
 
     def test_templates_follow_imports_without_unrelated_scripts(self):
@@ -964,15 +1001,25 @@ try {{ pe.inspect(c.read_file("broken.exe")); throw "accepted bad offset" }}
 catch(e) {{ if (("" + e).find("PE RVA") == null) throw e }}
 ''')
 
-    @unittest.skipUnless(shutil.which('tar'), 'tar required')
     def test_locked_package_replays_archive_and_rejects_corruption(self):
-        self.manifest({'schema_version': 2, 'target': 'win-dir'})
-        cached = self.root / 'cache/mingw64/packages'
-        cached.mkdir(parents=True)
+        import hashlib
+        repository = self.root / 'repository'
+        repository.mkdir()
         payload = self.root / 'payload'
         payload.write_text('original')
-        with tarfile.open(cached / 'fixture-1.pkg.tar', 'w') as archive:
+        archive_path = repository / 'fixture.tar.gz'
+        with tarfile.open(archive_path, 'w:gz') as archive:
             archive.add(payload, arcname='mingw64/bin/fixture.dll')
+        sha = hashlib.sha256(archive_path.read_bytes()).hexdigest()
+        (repository / 'index.json').write_text(json.dumps({
+            'target': 'x86_64-w64-mingw32', 'prefix': '/mingw64',
+            'packages': [{'name': 'fixture', 'version': '1', 'kind': 'package',
+                          'artifact': 'fixture.tar.gz', 'sha256': sha, 'dependencies': []}]}))
+        self.manifest({'schema_version': 2, 'target': 'win-dir', 'windows': {
+            'sysroot': 'sysroot', 'package_cache': 'cache', 'repo_url': repository.as_uri(),
+            'packages': ['fixture'], 'auto_packages': False}})
+        cache_key = hashlib.sha256(repository.as_uri().encode()).hexdigest()[:20]
+        cached_archive = json.dumps((self.root / 'cache' / cache_key / 'packages' / (sha + '.tar.gz')).as_posix())
         module = json.dumps((ROOT / 'tools/sqgipkg_lib/build.nut').as_posix())
         self.run_script(f'''
 local Build = import({module})
@@ -981,27 +1028,23 @@ local opts = b.new_options()
 opts.manifest = "sqgipkg.json"
 b.apply_manifest(opts)
 b.apply_project_defaults(opts)
-opts.windows.msys2_root = "sysroot"
-opts.windows.package_cache = "cache"
-opts.windows.repo_url = "https://invalid.example/mingw64"
-opts.windows.download_packages = true
 opts.write_lock = true
 b.mkdir_p(opts.output_dir)
 b.write_file("artifact", "package")
 b.begin_inputs(opts)
-local entry = {{name="fixture", filename="fixture-1.pkg.tar", depends=[]}}
-b.extract_msys2_package(opts, opts.windows.repo_url, entry)
+b.ensure_windows_packages(opts)
 b.finish_inputs(opts, "artifact")
 b.write_file("sysroot/mingw64/bin/fixture.dll", "modified extraction")
 opts.write_lock = false
 opts.locked = true
 b.begin_inputs(opts)
-b.ensure_msys2_package_list(opts, ["fixture"], false)
+opts.windows.download_packages = false
+b.ensure_windows_packages(opts)
 if (b.read_file("sysroot/mingw64/bin/fixture.dll") != "original") throw "lock did not restore archive"
 b.finish_inputs(opts, "artifact")
-b.write_file("cache/mingw64/packages/fixture-1.pkg.tar", "corrupt")
-try {{ b.ensure_msys2_package_list(opts, ["fixture"], false); throw "accepted corrupt archive" }}
-catch(e) {{ if (("" + e).find("locked input changed") == null) throw e }}
+b.write_file({cached_archive}, "corrupt")
+try {{ b.ensure_windows_packages(opts); throw "accepted corrupt archive" }}
+catch(e) {{ if (("" + e).find("checksum mismatch") == null) throw e }}
 try {{ b.resolve_linux_deb_packages(opts, ["unlocked"]); throw "accepted unlocked package" }}
 catch(e) {{ if (("" + e).find("Linux package absent from lock") == null) throw e }}
 ''')

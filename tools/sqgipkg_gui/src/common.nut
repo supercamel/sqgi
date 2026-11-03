@@ -348,11 +348,9 @@ class Common {
         e.content.append(W.heading("Windows packages"))
         if ("windows" in value && typeof(value.windows) != "table") { this.expert("windows", "Custom Windows settings are preserved in Advanced."); return }
         local settings = "windows" in value ? value.windows : {}
-        local source = "package_source" in settings ? settings.package_source : "msys2"
-        if (["msys2", "ooblerg"].find(source) == null) { this.expert("windows", "Choose a supported package source in Advanced."); return }
-        local provider = W.dropdown(["Ooblerg — prebuilt libraries for Windows x86_64", "MSYS2 — existing package workflow"])
-        provider.set_selected(source == "ooblerg" ? 0 : 1); e.content.append(provider)
-        e.content.append(W.label("The package source supplies Windows libraries and their development files. Linux uses its own packages. Existing package names are preserved when changing providers; Check reports conflicts."))
+        local source = "package_source" in settings ? settings.package_source : "ooblerg"
+        if (source != "ooblerg") { this.expert("windows", "MSYS2 support has been removed. Use Ooblerg and update the package names in Advanced."); return }
+        e.content.append(W.label("Ooblerg supplies Windows x86_64 libraries and development files. Linux uses its own packages."))
         local native = "entry" in value && typeof(value.entry) == "table" && "type" in value.entry && value.entry.type == "native"
         local runtime = W.dropdown(["Use the SQGI runtime choice below", "Use prebuilt SQGI from Ooblerg for Windows"])
         runtime.set_selected("runtime" in settings && settings.runtime == "package" ? 1 : 0)
@@ -360,12 +358,11 @@ class Common {
         local apply = W.button("Apply Windows choices", function() { self.mutate(function() {
             local next = e.document.get([])
             if (!("windows" in next)) next.windows <- {}
-            next.windows.package_source <- provider.get_selected() == 0 ? "ooblerg" : "msys2"
+            next.windows.package_source <- "ooblerg"
             if (!native) next.windows.runtime <- runtime.get_selected() == 1 ? "package" : "inherit"
             e.document.set([], next)
         }) }); e.content.append(apply)
-        e.widgets["common.windows.provider"] <- provider; e.widgets["common.windows.runtime"] <- runtime; e.widgets["common.windows.apply"] <- apply
-        if (source != "ooblerg") return
+        e.widgets["common.windows.runtime"] <- runtime; e.widgets["common.windows.apply"] <- apply
         local packages = "packages" in settings ? settings.packages : []
         if (typeof(packages) == "string") packages = [packages]
         if (typeof(packages) != "array") { this.expert("windows", "Custom Windows package selections are preserved in Advanced."); return }

@@ -10,7 +10,7 @@ Ubuntu GitHub Actions runner:
 The application does not have to be an SQGI script app. Use a native entry
 manifest when your program is a Vala, C, C++, GTK, libadwaita, GStreamer, or
 other GObject Introspection application with its own executable. `sqgipkg`
-provides the packaging machinery: Linux sysroots, generated cross files, MSYS2
+provides the packaging machinery: Linux sysroots, generated cross files, Ooblerg
 package staging, launchers, AppImage output, and NSIS output.
 
 This pattern is used by native applications such as Verminal, RFDTool, and
@@ -90,11 +90,11 @@ For a native app, declare the executable paths instead of a Squirrel script:
     ]
   },
   "windows": {
-    "msys2_prefix": "mingw64",
+    "package_source": "ooblerg",
     "gdk_backend": "win32",
     "build_dir": "build-windows-x86_64",
     "packages": [
-      "mingw-w64-x86_64-gtk4"
+      "gtk4"
     ],
     "native_projects": [
       {
@@ -111,7 +111,7 @@ For a native app, declare the executable paths instead of a Squirrel script:
 ```
 
 Each Linux architecture entry can download its own Debian/Ubuntu packages into a
-private sysroot. The Windows section downloads MSYS2 packages into a private
+private sysroot. The Windows section downloads Ooblerg packages into a private
 Windows sysroot. Build commands receive target-specific variables such as
 `SQGI_LINUX_MESON_CROSS_FILE`, `SQGI_LINUX_SYSROOT`,
 `SQGI_WINDOWS_PREFIX`, and `SQGI_MESON_CROSS_FILE`.

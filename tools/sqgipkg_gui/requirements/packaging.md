@@ -81,9 +81,10 @@ Extracting Debian archives does not run package triggers; copying MIME XML alone
 does not satisfy runtime image detection. Image/GTK dependency defaults include
 the MIME definitions while preserving explicit package opt-outs.
 
-R-PKG-01/R-PKG-04/R-PKG-06 Windows packaging supports Ooblerg as an explicit
-package source. Existing manifests retain MSYS2 semantics. New GUI projects
-recommend Ooblerg and explain its x86_64 scope. Prebuilt SQGI and native libraries
+R-PKG-01/R-PKG-04/R-PKG-06 Windows packaging uses Ooblerg exclusively. Omitted providers select Ooblerg;
+MSYS2 providers, settings, and prefixed package names are rejected with migration
+guidance. Windows-native builds and Ubuntu 24.04 cross builds use the same
+x86_64 dependency catalog. New GUI projects explain that scope. Prebuilt SQGI and native libraries
 must be usable without compiling those projects; custom projects can still
 cross-compile against the same provider's headers, import libraries and GI data.
 Selecting a Windows package must not silently alter Linux source builds.

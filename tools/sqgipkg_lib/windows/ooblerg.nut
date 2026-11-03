@@ -1,8 +1,8 @@
 local GLib = import("GLib")
-local Base = import("msys2.nut")
+local Base = import("packages.nut")
 local helper = GLib.path_get_dirname(GLib.canonicalize_filename(__FILE__, null)) + "/ooblerg.py"
 
-class SqgiPkgWindowsOoblerg extends Base.SqgiPkgWindowsMsys2 {
+class SqgiPkgWindowsOoblerg extends Base.SqgiPkgWindowsPackages {
     function ooblerg_cache(opts) {
         return opts.windows.package_cache != "" ? opts.windows.package_cache :
             GLib.build_filenamev([GLib.get_user_cache_dir(), "sqgipkg", "ooblerg"])
@@ -21,8 +21,11 @@ class SqgiPkgWindowsOoblerg extends Base.SqgiPkgWindowsMsys2 {
         if (result.stdout == "") this.fail("Ooblerg catalog failed: " + result.stderr)
         return sqgi.json.parse(result.stdout)
     }
-    function ensure_msys2_packages(opts) {
-        if (opts.windows.package_source != "ooblerg") { base.ensure_msys2_packages(opts); return }
+    function ensure_windows_packages(opts) {
+        if (opts.windows.packages.len() == 0 && opts.windows.build_packages.len() == 0) {
+            opts.windows.ooblerg_packages <- {}
+            return
+        }
         local root = this.windows_sysroot_root(opts)
         local request = { root = root, repository = opts.windows.repo_url == "" ? "https://ooblerg.xyz/v1" : opts.windows.repo_url,
             cache = this.ooblerg_cache(opts), download = opts.windows.download_packages, refresh = opts.windows.refresh_packages,
@@ -51,13 +54,12 @@ class SqgiPkgWindowsOoblerg extends Base.SqgiPkgWindowsMsys2 {
         }
         opts.windows.packages = result.runtime_packages
     }
-    function stage_msys2_package(opts, windir, name) {
-        if (opts.windows.package_source != "ooblerg") { base.stage_msys2_package(opts, windir, name); return }
+    function stage_windows_package(opts, windir, name) {
         foreach (path in opts.windows.ooblerg_packages[name]) {
             local dest = this.windows_package_dest(path, "mingw64")
             if (this.starts_with(path, "mingw64/share/licenses/")) dest = path.slice(8)
             if (dest == null) continue
-            this.copy_into_appdir(GLib.build_filenamev([opts.windows.msys2_root, path]), windir, dest, "Ooblerg " + name)
+            this.copy_into_appdir(GLib.build_filenamev([opts.windows.sysroot, path]), windir, dest, "Ooblerg " + name)
             this.report_windows_package_dest(opts, dest)
         }
     }

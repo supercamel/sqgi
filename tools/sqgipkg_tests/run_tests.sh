@@ -260,7 +260,7 @@ INIT_DIR="${WORK_DIR}/init"
 mkdir -p "${INIT_DIR}"
 (cd "${INIT_DIR}" && run_sqgipkg --init gtk4 >"${WORK_DIR}/init.out")
 assert_file "${INIT_DIR}/sqgipkg.json"
-assert_contains "${INIT_DIR}/sqgipkg.json" "\"script_dirs\""
+assert_not_contains "${INIT_DIR}/sqgipkg.json" "\"script_dirs\""
 assert_contains "${INIT_DIR}/sqgipkg.json" "\"features\""
 assert_contains "${WORK_DIR}/init.out" "wrote sqgipkg.json"
 pass "manifest init template"
@@ -805,67 +805,8 @@ fi
 
 WIN_PROJECT="${WORK_DIR}/win-project"
 WIN_BUILD="${WIN_PROJECT}/build-windows-x86_64"
-WIN_MSYS2="${WIN_PROJECT}/msys64"
-mkdir -p "${WIN_PROJECT}" "${WIN_BUILD}" \
-  "${WIN_MSYS2}/mingw64/bin" \
-  "${WIN_MSYS2}/mingw64/lib/girepository-1.0" \
-  "${WIN_MSYS2}/mingw64/share/glib-2.0/schemas" \
-  "${WIN_MSYS2}/var/lib/pacman/local/mingw-w64-x86_64-gtk4-4.22.0-1" \
-  "${WIN_MSYS2}/var/lib/pacman/local/mingw-w64-x86_64-pango-1.57.0-1" \
-  "${WIN_MSYS2}/var/lib/pacman/local/mingw-w64-x86_64-glib2-2.80.0-1" \
-  "${WIN_MSYS2}/var/lib/pacman/local/mingw-w64-x86_64-faketype-1.0-1"
-printf 'fake exe\n' >"${WIN_BUILD}/sqgi.exe"
-printf 'fake dll\n' >"${WIN_BUILD}/libsqgi-0.dll"
-printf 'glib dll\n' >"${WIN_MSYS2}/mingw64/bin/libglib-2.0-0.dll"
-printf 'gio typelib\n' >"${WIN_MSYS2}/mingw64/lib/girepository-1.0/Gio-2.0.typelib"
-printf 'gtk typelib\n' >"${WIN_MSYS2}/mingw64/lib/girepository-1.0/Gtk-4.0.typelib"
-printf 'pango typelib\n' >"${WIN_MSYS2}/mingw64/lib/girepository-1.0/Pango-1.0.typelib"
-printf 'pangocairo typelib\n' >"${WIN_MSYS2}/mingw64/lib/girepository-1.0/PangoCairo-1.0.typelib"
-printf 'transitive typelib\n' >"${WIN_MSYS2}/mingw64/lib/girepository-1.0/FakeType-1.0.typelib"
-printf '<schemalist/>\n' >"${WIN_MSYS2}/mingw64/share/glib-2.0/schemas/org.example.gschema.xml"
-cat >"${WIN_MSYS2}/var/lib/pacman/local/mingw-w64-x86_64-gtk4-4.22.0-1/desc" <<EOF
-%NAME%
-mingw-w64-x86_64-gtk4
-
-%DEPENDS%
-mingw-w64-x86_64-glib2>=2.80
-mingw-w64-x86_64-pango>=1.57
-EOF
-cat >"${WIN_MSYS2}/var/lib/pacman/local/mingw-w64-x86_64-gtk4-4.22.0-1/files" <<EOF
-%FILES%
-mingw64/lib/girepository-1.0/Gtk-4.0.typelib
-EOF
-cat >"${WIN_MSYS2}/var/lib/pacman/local/mingw-w64-x86_64-pango-1.57.0-1/desc" <<EOF
-%NAME%
-mingw-w64-x86_64-pango
-EOF
-cat >"${WIN_MSYS2}/var/lib/pacman/local/mingw-w64-x86_64-pango-1.57.0-1/files" <<EOF
-%FILES%
-mingw64/lib/girepository-1.0/Pango-1.0.typelib
-mingw64/lib/girepository-1.0/PangoCairo-1.0.typelib
-EOF
-cat >"${WIN_MSYS2}/var/lib/pacman/local/mingw-w64-x86_64-glib2-2.80.0-1/desc" <<EOF
-%NAME%
-mingw-w64-x86_64-glib2
-
-%DEPENDS%
-mingw-w64-x86_64-faketype>=1.0
-EOF
-cat >"${WIN_MSYS2}/var/lib/pacman/local/mingw-w64-x86_64-glib2-2.80.0-1/files" <<EOF
-%FILES%
-mingw64/bin/libglib-2.0-0.dll
-mingw64/lib/girepository-1.0/Gio-2.0.typelib
-mingw64/share/glib-2.0/schemas/org.example.gschema.xml
-mingw64/include/glib-2.0/glib.h
-EOF
-cat >"${WIN_MSYS2}/var/lib/pacman/local/mingw-w64-x86_64-faketype-1.0-1/desc" <<EOF
-%NAME%
-mingw-w64-x86_64-faketype
-EOF
-cat >"${WIN_MSYS2}/var/lib/pacman/local/mingw-w64-x86_64-faketype-1.0-1/files" <<EOF
-%FILES%
-mingw64/lib/girepository-1.0/FakeType-1.0.typelib
-EOF
+WIN_SYSROOT="${WIN_PROJECT}/ooblerg-sdk"
+python3 "${ROOT_DIR}/tools/sqgipkg_tests/fixture_ooblerg.py" "${WIN_PROJECT}"
 cat >"${WIN_PROJECT}/main.nut" <<'EOF'
 local Gtk = import("Gtk", "4.0")
 local helper = import("helper.nut")
@@ -905,13 +846,14 @@ cat >"${WIN_PROJECT}/sqgipkg.json" <<EOF
   },
   "windows": {
     "build_dir": "build-windows-x86_64",
-    "msys2_root": "msys64",
-    "msys2_prefix": "mingw64",
+    "sysroot": "ooblerg-sdk",
+    "repo_url": "file://${WIN_PROJECT}/repository",
+    "package_cache": "cache",
     "download_packages": false,
     "auto_packages": false,
     "gdk_backend": "win32",
     "packages": [
-      "mingw-w64-x86_64-gtk4"
+      "gtk4"
     ]
   }
 }
@@ -951,28 +893,28 @@ assert_contains "${WINDIR}/etc/gtk-4.0/settings.ini" "gtk-icon-theme-name=Shared
 assert_contains "${WINDIR}/etc/gtk-4.0/settings.ini" "gtk-font-name=Shared Font 9"
 assert_contains "${WINDIR}/etc/gtk-4.0/settings.ini" "gtk-application-prefer-dark-theme=true"
 assert_contains "${WORK_DIR}/win-dir-package.out" "Windows dist directory"
-CROSS_FILE="${WIN_OUT}/_cross/mingw64/mingw64.ini"
-TOOLCHAIN_FILE="${WIN_OUT}/_cross/mingw64/toolchain-mingw64.cmake"
+CROSS_FILE="${WIN_OUT}/_cross/ooblerg-mingw64/mingw64.ini"
+TOOLCHAIN_FILE="${WIN_OUT}/_cross/ooblerg-mingw64/toolchain-mingw64.cmake"
 assert_file "${CROSS_FILE}"
 assert_file "${TOOLCHAIN_FILE}"
 assert_contains "${CROSS_FILE}" "pkg-config = 'pkg-config'"
 assert_contains "${CROSS_FILE}" "pkgconfig = 'pkg-config'"
 assert_contains "${TOOLCHAIN_FILE}" "set(SQGI_WINDOWS_GUI ON"
 if command -v g-ir-scanner >/dev/null 2>&1; then
-  assert_file "${WIN_OUT}/_cross/mingw64/g-ir-scanner-wrapper.sh"
-  assert_contains "${CROSS_FILE}" "g-ir-scanner = '${WIN_OUT}/_cross/mingw64/g-ir-scanner-wrapper.sh'"
-  assert_contains "${WIN_OUT}/_cross/mingw64/g-ir-scanner-wrapper.sh" "exec '$(command -v g-ir-scanner)'"
+  assert_file "${WIN_OUT}/_cross/ooblerg-mingw64/g-ir-scanner-wrapper.sh"
+  assert_contains "${CROSS_FILE}" "g-ir-scanner = '${WIN_OUT}/_cross/ooblerg-mingw64/g-ir-scanner-wrapper.sh'"
+  assert_contains "${WIN_OUT}/_cross/ooblerg-mingw64/g-ir-scanner-wrapper.sh" "exec '$(command -v g-ir-scanner)'"
 fi
 if command -v g-ir-compiler >/dev/null 2>&1; then
   assert_contains "${CROSS_FILE}" "g-ir-compiler = '$(command -v g-ir-compiler)'"
 fi
 if { command -v wine >/dev/null 2>&1 || command -v wine64 >/dev/null 2>&1; } &&
    command -v g-ir-scanner >/dev/null 2>&1; then
-  assert_file "${WIN_OUT}/_cross/mingw64/wine-wrapper.sh"
-  assert_file "${WIN_OUT}/_cross/mingw64/g-ir-ldd-wrapper.sh"
-  assert_contains "${CROSS_FILE}" "exe_wrapper = '${WIN_OUT}/_cross/mingw64/wine-wrapper.sh'"
-  assert_contains "${WIN_OUT}/_cross/mingw64/g-ir-scanner-wrapper.sh" "--use-binary-wrapper='${WIN_OUT}/_cross/mingw64/wine-wrapper.sh'"
-  assert_contains "${WIN_OUT}/_cross/mingw64/g-ir-scanner-wrapper.sh" "--use-ldd-wrapper='${WIN_OUT}/_cross/mingw64/g-ir-ldd-wrapper.sh'"
+  assert_file "${WIN_OUT}/_cross/ooblerg-mingw64/wine-wrapper.sh"
+  assert_file "${WIN_OUT}/_cross/ooblerg-mingw64/g-ir-ldd-wrapper.sh"
+  assert_contains "${CROSS_FILE}" "exe_wrapper = '${WIN_OUT}/_cross/ooblerg-mingw64/wine-wrapper.sh'"
+  assert_contains "${WIN_OUT}/_cross/ooblerg-mingw64/g-ir-scanner-wrapper.sh" "--use-binary-wrapper='${WIN_OUT}/_cross/ooblerg-mingw64/wine-wrapper.sh'"
+  assert_contains "${WIN_OUT}/_cross/ooblerg-mingw64/g-ir-scanner-wrapper.sh" "--use-ldd-wrapper='${WIN_OUT}/_cross/ooblerg-mingw64/g-ir-ldd-wrapper.sh'"
 fi
 pass "Windows dist directory staging"
 
@@ -985,7 +927,7 @@ run_sqgipkg \
   >"${WORK_DIR}/win-console-package.out"
 assert_file "${WIN_CONSOLE_OUT}/WinSqurl/WinSqurl.bat"
 assert_not_file "${WIN_CONSOLE_OUT}/WinSqurl/WinSqurl.vbs"
-assert_contains "${WIN_CONSOLE_OUT}/_cross/mingw64/toolchain-mingw64.cmake" "set(SQGI_WINDOWS_GUI OFF"
+assert_contains "${WIN_CONSOLE_OUT}/_cross/ooblerg-mingw64/toolchain-mingw64.cmake" "set(SQGI_WINDOWS_GUI OFF"
 pass "Windows console launcher override"
 
 WIN_MISSING_PROJECT="${WORK_DIR}/win-missing-runtime"
@@ -1018,7 +960,7 @@ pass "Windows sqgi.exe is required for script entry packages"
 WIN_NATIVE_PROJECT="${WORK_DIR}/win-native-project"
 WIN_NATIVE_BUILD="${WIN_NATIVE_PROJECT}/build-windows-x86_64"
 mkdir -p "${WIN_NATIVE_PROJECT}" "${WIN_NATIVE_BUILD}"
-printf 'fake native exe\n' >"${WIN_NATIVE_BUILD}/native-entry.exe"
+cp "${WIN_BUILD}/native-entry.exe" "${WIN_NATIVE_BUILD}/native-entry.exe"
 cat >"${WIN_NATIVE_PROJECT}/helper.nut" <<'EOF'
 return {
     message = "windows native helper"
@@ -1091,41 +1033,9 @@ pass "all target builds native AppImage and Windows NSIS"
 
 WIN_REPO_PROJECT="${WORK_DIR}/win-repo-project"
 WIN_REPO_BUILD="${WIN_REPO_PROJECT}/build-windows-x86_64"
-WIN_REPO="${WIN_REPO_PROJECT}/repo/mingw64"
-WIN_REPO_DB="${WIN_REPO_PROJECT}/repo-db"
-WIN_REPO_PKGS="${WIN_REPO_PROJECT}/repo-pkgs"
-WIN_REPO_SYSROOT="${WIN_REPO_PROJECT}/downloaded-msys64"
-mkdir -p "${WIN_REPO_PROJECT}" "${WIN_REPO_BUILD}" "${WIN_REPO}" \
-  "${WIN_REPO_DB}/mingw-w64-x86_64-fakeglib-1.0-1" \
-  "${WIN_REPO_DB}/mingw-w64-x86_64-fakegtk-1.0-1"
-printf 'fake exe\n' >"${WIN_REPO_BUILD}/sqgi.exe"
-printf 'fake dll\n' >"${WIN_REPO_BUILD}/libsqgi-0.dll"
-cat >"${WIN_REPO_DB}/mingw-w64-x86_64-fakeglib-1.0-1/desc" <<EOF
-%NAME%
-mingw-w64-x86_64-fakeglib
-
-%FILENAME%
-mingw-w64-x86_64-fakeglib-1.0-1-any.pkg.tar
-EOF
-cat >"${WIN_REPO_DB}/mingw-w64-x86_64-fakegtk-1.0-1/desc" <<EOF
-%NAME%
-mingw-w64-x86_64-fakegtk
-
-%FILENAME%
-mingw-w64-x86_64-fakegtk-1.0-1-any.pkg.tar
-
-%DEPENDS%
-mingw-w64-x86_64-fakeglib>=1.0
-EOF
-tar -C "${WIN_REPO_DB}" -cf "${WIN_REPO}/mingw64.db" .
-mkdir -p "${WIN_REPO_PKGS}/glib/mingw64/bin" \
-  "${WIN_REPO_PKGS}/gtk/mingw64/bin" \
-  "${WIN_REPO_PKGS}/gtk/mingw64/share/gtk-4.0"
-printf 'fake glib dll\n' >"${WIN_REPO_PKGS}/glib/mingw64/bin/libfakeglib-0.dll"
-printf 'fake gtk dll\n' >"${WIN_REPO_PKGS}/gtk/mingw64/bin/libfakegtk-0.dll"
-printf '[Settings]\n' >"${WIN_REPO_PKGS}/gtk/mingw64/share/gtk-4.0/settings.ini"
-tar -C "${WIN_REPO_PKGS}/glib" -cf "${WIN_REPO}/mingw-w64-x86_64-fakeglib-1.0-1-any.pkg.tar" mingw64
-tar -C "${WIN_REPO_PKGS}/gtk" -cf "${WIN_REPO}/mingw-w64-x86_64-fakegtk-1.0-1-any.pkg.tar" mingw64
+WIN_REPO="${WIN_REPO_PROJECT}/repository"
+WIN_REPO_SYSROOT="${WIN_REPO_PROJECT}/ooblerg-sdk"
+python3 "${ROOT_DIR}/tools/sqgipkg_tests/fixture_ooblerg.py" "${WIN_REPO_PROJECT}" --cold
 cat >"${WIN_REPO_PROJECT}/main.nut" <<'EOF'
 print("windows repo resolver\n")
 EOF
@@ -1136,13 +1046,12 @@ cat >"${WIN_REPO_PROJECT}/sqgipkg.json" <<EOF
   "target": "win-dir",
   "windows": {
     "build_dir": "build-windows-x86_64",
-    "msys2_root": "downloaded-msys64",
-    "msys2_prefix": "mingw64",
+    "sysroot": "ooblerg-sdk",
     "repo_url": "file://${WIN_REPO}",
     "package_cache": "pkg-cache",
     "auto_packages": false,
     "packages": [
-      "mingw-w64-x86_64-fakegtk"
+      "fakegtk"
     ]
   }
 }
@@ -1154,13 +1063,12 @@ run_sqgipkg \
   --output "${WIN_RESOLVED_OUT}" \
   >"${WORK_DIR}/win-resolved-package.out"
 WIN_RESOLVED_DIR="${WIN_RESOLVED_OUT}/WinResolved"
-assert_file "${WIN_REPO_SYSROOT}/var/lib/pacman/local/mingw-w64-x86_64-fakeglib-1.0-1-any/desc"
-assert_file "${WIN_REPO_SYSROOT}/var/lib/pacman/local/mingw-w64-x86_64-fakegtk-1.0-1-any/files"
+assert_file "${WIN_REPO_SYSROOT}/.sqgipkg-ooblerg.json"
 assert_file "${WIN_RESOLVED_DIR}/bin/libfakeglib-0.dll"
 assert_file "${WIN_RESOLVED_DIR}/bin/libfakegtk-0.dll"
 assert_file "${WIN_RESOLVED_DIR}/share/gtk-4.0/settings.ini"
-assert_contains "${WORK_DIR}/win-resolved-package.out" "installed MSYS2 package into sysroot: mingw-w64-x86_64-fakeglib"
-pass "Windows MSYS2 package resolver"
+assert_contains "${WORK_DIR}/win-resolved-package.out" "preparing Ooblerg Windows packages"
+pass "Windows Ooblerg package resolver"
 
 if command -v git >/dev/null 2>&1; then
   GIT_BRANCH_PROJECT="${WORK_DIR}/git-branch-project"
@@ -1180,8 +1088,7 @@ if command -v git >/dev/null 2>&1; then
 {
   "name": "GitBranchFallback",
   "windows": {
-    "msys2_root": "${WIN_MSYS2}",
-    "msys2_prefix": "mingw64",
+    "sysroot": "${WIN_SYSROOT}",
     "download_packages": false,
     "auto_packages": false,
     "packages": [],

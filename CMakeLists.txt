@@ -134,7 +134,7 @@ endif()
 
 # Use imported pkg-config targets instead of hand-splicing *_LIBRARIES.
 # This preserves -L search paths and any extra linker flags, which matters
-# when cross-building against an MSYS2 sysroot from Linux.
+# when cross-building against an Ooblerg sysroot from Linux.
 pkg_check_modules(GLIB REQUIRED IMPORTED_TARGET glib-2.0)
 pkg_check_modules(GOBJECT REQUIRED IMPORTED_TARGET gobject-2.0)
 pkg_check_modules(GIO REQUIRED IMPORTED_TARGET gio-2.0)
@@ -145,7 +145,7 @@ pkg_check_modules(CAIRO REQUIRED IMPORTED_TARGET cairo)
 # ── MinGW runtime linking ─────────────────────────────────────────────────────
 #
 # Ubuntu/MinGW-built C++ binaries can otherwise depend on the host toolchain's
-# libstdc++-6.dll/libgcc_s_seh-1.dll while sqgipkg bundles MSYS2 runtime DLLs.
+# libstdc++-6.dll/libgcc_s_seh-1.dll while sqgipkg bundles dependency runtime DLLs.
 # That mixture can fail at process start with missing C++ entry points such as
 # std::ios_base_library_init().  Statically link the compiler runtime into SQGI
 # targets by default when cross-building for Windows, while leaving normal

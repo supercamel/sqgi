@@ -10,8 +10,7 @@ import tempfile
 if os.name != 'nt':
     raise SystemExit('Run this test on Windows (PowerShell or CMD).')
 exe = Path(sys.argv[1]).resolve()
-sysroot = Path(sys.argv[2]).resolve()
-prefix = sys.argv[3]
+cache = Path(sys.argv[2]).resolve()
 with tempfile.TemporaryDirectory(prefix='sqgipkg é spaces-') as temp:
     project = Path(temp)
     (project / 'src').mkdir()
@@ -25,8 +24,8 @@ with tempfile.TemporaryDirectory(prefix='sqgipkg é spaces-') as temp:
     (project / 'kernels/math.sqk').write_text(kernel, encoding='utf8')
     manifest = {'schema_version': 2, 'name': 'NativeAcceptance', 'target': 'win-dir',
                 'script': 'src/main.nut',
-                'windows': {'build_dir': str(exe.parent), 'msys2_root': str(sysroot),
-                            'msys2_prefix': prefix, 'download_packages': False, 'console': True}}
+                'windows': {'build_dir': str(exe.parent), 'package_cache': str(cache),
+                            'download_packages': False, 'console': True}}
     (project / 'sqgipkg.json').write_text(json.dumps(manifest), encoding='utf8')
     def run(argv):
         result = subprocess.run(list(map(str, argv)), cwd=project, text=True, capture_output=True, timeout=300)

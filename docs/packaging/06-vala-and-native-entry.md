@@ -49,7 +49,7 @@ package. It does not need to be listed in `windows.packages`.
 ```json
 {
   "windows": {
-    "msys2_prefix": "mingw64"
+    "package_source": "ooblerg"
   }
 }
 ```

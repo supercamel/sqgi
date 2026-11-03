@@ -4,6 +4,29 @@
 Windows app directory, write an NSIS installer, or run a combined target that
 does Linux and Windows outputs from one manifest.
 
+## Ubuntu 24.04 to Windows x86_64
+
+Windows dependencies come from Ooblerg, using the same Ubuntu 24.04-era
+MinGW ABI for native Windows and Linux cross builds. From the SQGI repository:
+
+```sh
+sudo apt install cmake ninja-build pkg-config gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64
+python3 tools/prepare-windows-sdk.py --cross --root "$PWD/build-ooblerg-sdk" --cache "$PWD/build-ooblerg-cache"
+cmake -S . -B build-windows -G Ninja -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_TOOLCHAIN_FILE=tools/mingw/toolchain_mingw64.cmake \
+  -DSQGI_WINDOWS_SYSROOT="$PWD/build-ooblerg-sdk" \
+  -DSQGI_LLVM_INCLUDE_DIR="$PWD/build-ooblerg-sdk/mingw64/include" \
+  -DSQGI_LLVM_LIBRARY="$PWD/build-ooblerg-sdk/mingw64/lib/LLVM-C.lib"
+cmake --build build-windows --parallel
+```
+
+The helper verifies archive digests and prepares a private SDK. `--cross` omits
+Windows-native build tools because Ubuntu supplies the compiler. SQGI's normal
+LLVM JIT and typed kernels remain enabled. `sqgipkg` source runtime recipes
+prepare the equivalent SDK and generate CMake/Meson cross files automatically.
+Native Windows builds use the same helper without `--cross`; see the
+[Windows source-build instructions](../../README.md#build-windows-from-source-with-ooblerg).
+
 ## Common Targets
 
 ```sh
@@ -157,7 +180,7 @@ release.
 
 This option selects the Debian/Ubuntu package source for the Linux sysroot. It
 does not change the host runner, host build tools, cross compiler, or Windows
-MSYS2 packages.
+Ooblerg packages.
 
 When a target is not the host architecture, `sqgipkg` writes generated cross
 files under the target output directory and exports paths such as:
@@ -179,7 +202,7 @@ sudo apt install gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
 
 ## Windows From Linux
 
-For Windows targets, `sqgipkg` can prepare an MSYS2-style sysroot, generate
+For Windows targets, `sqgipkg` can prepare an Ooblerg sysroot, generate
 CMake and Meson cross files, build SQGI for Windows, stage DLLs, and write the
 launcher.
 
@@ -188,7 +211,7 @@ Minimal Windows section:
 ```json
 {
   "windows": {
-    "msys2_prefix": "mingw64",
+    "package_source": "ooblerg",
     "gdk_backend": "win32"
   }
 }
@@ -200,9 +223,9 @@ Add explicit packages when inference is not enough:
 {
   "windows": {
     "packages": [
-      "mingw-w64-x86_64-gtk4",
-      "mingw-w64-x86_64-gstreamer",
-      "mingw-w64-x86_64-gst-plugins-good"
+      "gtk4",
+      "gstreamer",
+      "gst-plugins-good"
     ]
   }
 }

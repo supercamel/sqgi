@@ -140,30 +140,28 @@ class SqgiPkg extends Base.SqgiPkgProtocol {
             "Set Terminal=true in the AppImage .desktop file", null)
         this.add_option("desktop-no-terminal", 0, GLib.OptionArg.none,
             "Set Terminal=false in the AppImage .desktop file", null)
-        this.add_option("msys2-root", 0, GLib.OptionArg.string,
-            "MSYS2 root used for Windows packaging", "DIR")
-        this.add_option("msys2-prefix", 0, GLib.OptionArg.string,
-            "MSYS2 MinGW prefix for Windows packaging, usually mingw64 or clang64", "PREFIX")
+        this.add_option("windows-sysroot", 0, GLib.OptionArg.string,
+            "Owned Ooblerg sysroot used for Windows packaging", "DIR")
         this.add_option("windows-build-package", 0, GLib.OptionArg.string_array,
-            "Install an MSYS2 package for Windows builds without staging it", "PACKAGE")
+            "Install an Ooblerg package for Windows builds without staging it", "PACKAGE")
         this.add_option("windows-package", 0, GLib.OptionArg.string_array,
-            "Copy runtime files from an installed MSYS2 package", "PACKAGE")
+            "Copy runtime files from an Ooblerg package", "PACKAGE")
         this.add_option("windows-font", 0, GLib.OptionArg.string_array,
             "Stage and register a Windows font for NSIS installers, PATH=REGISTRY_NAME", "SPEC")
-        this.add_option("msys2-repo-url", 0, GLib.OptionArg.string,
-            "MSYS2 repository URL used to download Windows packages", "URL")
-        this.add_option("msys2-package-cache", 0, GLib.OptionArg.string,
-            "Download cache for MSYS2 package archives", "DIR")
+        this.add_option("windows-repo-url", 0, GLib.OptionArg.string,
+            "Ooblerg repository URL used to download Windows packages", "URL")
+        this.add_option("windows-package-cache", 0, GLib.OptionArg.string,
+            "Download cache for Ooblerg package archives", "DIR")
         this.add_option("win-cmake-toolchain", 0, GLib.OptionArg.string,
             "CMake toolchain file for Ubuntu/MinGW Windows builds", "FILE")
         this.add_option("win-meson-cross-file", 0, GLib.OptionArg.string,
             "Meson cross file for Ubuntu/MinGW Windows native extension builds", "FILE")
-        this.add_option("refresh-msys2-packages", 0, GLib.OptionArg.none,
-            "Refresh cached MSYS2 repository databases and package archives", null)
-        this.add_option("no-msys2-download", 0, GLib.OptionArg.none,
-            "Do not download missing MSYS2 packages", null)
+        this.add_option("refresh-windows-packages", 0, GLib.OptionArg.none,
+            "Refresh cached Ooblerg repository metadata and package archives", null)
+        this.add_option("no-windows-download", 0, GLib.OptionArg.none,
+            "Do not download missing Ooblerg packages", null)
         this.add_option("no-windows-auto-packages", 0, GLib.OptionArg.none,
-            "Do not add inferred base/GTK/GStreamer MSYS2 packages", null)
+            "Do not add inferred base/GTK/GStreamer Ooblerg packages", null)
         this.add_option("windows-console", 0, GLib.OptionArg.none,
             "Use the Windows console launcher even for GUI apps", null)
         this.add_option("no-windows-console", 0, GLib.OptionArg.none,

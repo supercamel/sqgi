@@ -27,7 +27,7 @@ class SqgiPkgWindowsStaging extends Base.SqgiPkgWindowsOoblerg {
         foreach (font in opts.windows.fonts)
             this.copy_windows_font(opts, font, windir)
         foreach (package_name in opts.windows.packages)
-            this.stage_msys2_package(opts, windir, package_name)
+            this.stage_windows_package(opts, windir, package_name)
     }
 
     function copy_windows_font(opts, font, windir) {
@@ -425,8 +425,8 @@ class SqgiPkgWindowsStaging extends Base.SqgiPkgWindowsOoblerg {
         if (this.path_exists(cache)) return
 
         local source_cache = GLib.build_filenamev([
-            opts.windows.msys2_root,
-            opts.windows.msys2_prefix,
+            opts.windows.sysroot,
+            opts.windows.prefix,
             cache_rel
         ])
 
@@ -594,7 +594,7 @@ class SqgiPkgWindowsStaging extends Base.SqgiPkgWindowsOoblerg {
 
         this.scan_project_imports(opts)
         this.apply_windows_package_defaults(opts)
-        this.ensure_msys2_packages(opts)
+        this.ensure_windows_packages(opts)
         this.prepare_windows_cross_environment(opts)
         if ("report_build_progress" in this) this.report_build_progress(opts, "building")
         this.build_windows_native_dependencies(opts)

@@ -5,7 +5,7 @@ class SqgiPkgSchema extends Base.SqgiPkgOptions {
         return {
             manifest = ["$schema","app_id", "appimage_arch", "appimagetool", "appimagetool_cache", "build_dir", "compile_scripts", "desktop_categories", "desktop_comment", "desktop_icon", "desktop_terminal", "entry", "files", "gdk_backend", "gdk_pixbuf_loaders", "gio_modules", "gsettings_schemas", "gstreamer_plugins", "gtk_data", "gtk_font_name", "gtk_icon_theme", "gtk_prefer_dark", "gtk_theme", "icon", "includes", "keep_appdir", "libraries", "linux", "linux_arches", "name", "native_projects", "output", "refresh_appimagetool", "resources", "script", "script_dirs", "scripts", "sqgi_source", "target", "typelibs", "windows", "schema_version", "runtime", "features", "native", "platforms"],
             linux = ["ooblerg_packages", "ooblerg_repository", "arches", "build", "copy_dependencies", "deb", "deb_download", "deb_package_cache", "deb_packages", "deb_refresh", "deb_suite", "deb_sysroot_cache", "download_packages", "library_dirs", "package_cache", "packages", "refresh_packages", "suite", "sysroot", "sysroot_cache"],
-            windows = ["package_source", "runtime", "auto_packages", "build", "build_dependencies", "build_dir", "build_packages", "cmake_toolchain", "console", "download_packages", "files", "fonts", "gdk_backend", "gtk_font_name", "gtk_icon_theme", "gtk_prefer_dark", "gtk_theme", "libraries", "meson_cross_file", "msys2_prefix", "msys2_root", "native_dependencies", "native_projects", "nsis", "nsis_options", "package_cache", "packages", "refresh_packages", "repo_url", "typelibs"],
+            windows = ["package_source", "runtime", "auto_packages", "build", "build_dependencies", "build_dir", "build_packages", "cmake_toolchain", "console", "download_packages", "files", "fonts", "gdk_backend", "gtk_font_name", "gtk_icon_theme", "gtk_prefer_dark", "gtk_theme", "libraries", "meson_cross_file", "sysroot", "native_dependencies", "native_projects", "nsis", "nsis_options", "package_cache", "packages", "refresh_packages", "repo_url", "typelibs"],
             sqgi_source = ["branch", "cache", "cache_dir", "commit", "dir", "git", "path", "ref", "repo", "shallow", "submodules", "tag", "update"],
             entry = ["executable", "linux", "path", "project", "script", "type", "windows"],
             nsis_options = ["autostart", "desktop_shortcut", "header_image", "icon", "install_dir", "installer_name", "license", "request_execution_level", "start_menu_folder", "start_menu_shortcut", "uninstall_registry", "welcome_finish_image", "welcome_image"],
@@ -91,15 +91,19 @@ class SqgiPkgSchema extends Base.SqgiPkgOptions {
             local label = path + "." + key
             local field_path = clone key_path; field_path.push(key)
             current_error_path = field_path
+            if (kind == "windows" && (key == "msys2_root" || key == "msys2_prefix"))
+                this.fail(label + " is no longer supported; use Ooblerg and an owned windows.sysroot (fixed mingw64 prefix)")
             if (!this.array_contains(fields[kind], key)) {
                 if (strict) this.fail("unknown field: " + label)
                 this.diagnostic("warning", "unknown field: " + label + " (ignored)", current_error_path, "unknown_field")
                 continue
             }
             if (item == null) continue
-            if (kind == "windows" && key == "package_source" && item != "msys2" && item != "ooblerg") this.fail(label + " must be msys2 or ooblerg")
+            if (kind == "windows" && key == "package_source" && item != "ooblerg") this.fail(label + " must be ooblerg; MSYS2 support has been removed")
             if (kind == "windows" && key == "runtime" && item != "inherit" && item != "package") this.fail(label + " must be inherit or package")
             if ((key == "windows_package" || key == "linux_package") && (typeof(item) != "string" || item == "")) this.fail(label + " requires a nonempty Ooblerg package name")
+            if (key == "windows_package" && this.starts_with(item, "mingw-w64-") && item != "mingw-w64-runtime")
+                this.fail(label + ": MSYS2 package names are no longer supported; select an Ooblerg catalog name")
             if (kind == "linux" && key == "ooblerg_packages") {
                 if (typeof(item) != "array") this.fail(label + " must be an array")
                 foreach (entry in item) if (typeof(entry) != "string" || entry == "") this.fail(label + " entries must be nonempty strings")
@@ -164,7 +168,7 @@ class SqgiPkgSchema extends Base.SqgiPkgOptions {
                     "refresh_packages", "copy_dependencies", "inherit_native_projects", "jit"], key) && typeof(item) != "bool")
                 this.fail(label + " must be a boolean")
             if (this.array_contains(["name", "app_id", "desktop_comment", "target", "script", "build_dir", "output", "dir", "repo",
-                    "ref", "branch", "suite", "msys2_prefix", "build_system", "baseline", "format"], key) && typeof(item) != "string")
+                    "ref", "branch", "suite", "build_system", "baseline", "format"], key) && typeof(item) != "string")
                 this.fail(label + " must be a string")
         }
         current_error_path = null

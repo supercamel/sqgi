@@ -92,7 +92,7 @@ For Linux, list the runtime packages you need:
   "windows": {
     "gdk_backend": "win32",
     "packages": [
-      "mingw-w64-x86_64-gst-plugin-gtk"
+      "gst-plugins-good"
     ]
   }
 }

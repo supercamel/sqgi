@@ -207,7 +207,7 @@ class Contracts(unittest.TestCase):
             result = self.inspect(action, stdin=True, value=value)
             self.assertTrue(result['ok'], result)
             for plan, target, executable in zip(result['configurations'],
-                    ['linux-x86_64', 'linux-aarch64', 'windows-x86_64'],
+                    ['linux-x86_64', 'linux-aarch64', 'windows-x86_64-ooblerg'],
                     ['src/hello', 'src/hello', 'src/hello.exe']):
                 self.assertEqual(Path(plan['entry']), self.directory / '.sqgipkg/build' / target / 'app' / executable)
                 self.assertFalse(plan['runtime']['recipe'])

@@ -6,7 +6,7 @@ local Manifest = import("../sqgipkg_lib/manifest.nut")
 local Linux = import("../sqgipkg_lib/linux_deps.nut")
 local AppImage = import("../sqgipkg_lib/appimage.nut")
 local Build = import("../sqgipkg_lib/build.nut")
-local Msys2 = import("../sqgipkg_lib/windows/msys2.nut")
+local Packages = import("../sqgipkg_lib/windows/packages.nut")
 local Nsis = import("../sqgipkg_lib/windows/nsis.nut")
 
 local failures = 0
@@ -1188,108 +1188,107 @@ check("appimage isolated cross smoke blanks gstreamer system path",
     isolated_smoke_command.find("GST_REGISTRY_FORK='no'") != null)
 system("rm -rf " + appimage.shell_quote(smoke_opts.linux.sysroot) + " " + appimage.shell_quote(smoke_appdir))
 
-local msys2 = Msys2.SqgiPkgWindowsMsys2()
-check("msys2 dependency version strip", msys2.strip_dependency_version("mingw-w64-x86_64-glib2>=2.80") == "mingw-w64-x86_64-glib2")
-check("msys2 url basename", msys2.url_basename("https://example.invalid/repo/pkg.tar.zst") == "pkg.tar.zst")
-local win_opts = msys2.new_options()
-check("windows cross tools target x64", msys2.windows_cross_tool_names(win_opts)[0] == "x86_64-w64-mingw32-gcc")
-check("windows cross tool packages mention mingw64", msys2.windows_cross_tool_package_names(win_opts)[0] == "gcc-mingw-w64-x86-64")
+local packages = Packages.SqgiPkgWindowsPackages()
+check("packages url basename", packages.url_basename("https://example.invalid/repo/pkg.tar.zst") == "pkg.tar.zst")
+local win_opts = packages.new_options()
+check("windows cross tools target x64", packages.windows_cross_tool_names(win_opts)[0] == "x86_64-w64-mingw32-gcc")
+check("windows cross tool packages mention mingw64", packages.windows_cross_tool_package_names(win_opts)[0] == "gcc-mingw-w64-x86-64")
 local win_vapi_root = GLib.build_filenamev([GLib.get_tmp_dir(), "sqgipkg-win-vapi-" + GLib.get_monotonic_time()])
-local win_vapi_opts = msys2.new_options()
+local win_vapi_opts = packages.new_options()
 win_vapi_opts.target = "win-nsis"
 win_vapi_opts.output_dir = GLib.build_filenamev([win_vapi_root, "out"])
-win_vapi_opts.windows.msys2_root = GLib.build_filenamev([win_vapi_root, "root"])
-win_vapi_opts.windows.msys2_prefix = "mingw64"
-local win_vapi_prefix = msys2.windows_sysroot_prefix_dir(win_vapi_opts)
+win_vapi_opts.windows.sysroot = GLib.build_filenamev([win_vapi_root, "root"])
+win_vapi_opts.windows.prefix = "mingw64"
+local win_vapi_prefix = packages.windows_sysroot_prefix_dir(win_vapi_opts)
 local win_vapi_unversioned = GLib.build_filenamev([win_vapi_prefix, "share", "vala", "vapi"])
 local win_vapi_versioned = GLib.build_filenamev([win_vapi_prefix, "share", "vala-0.56", "vapi"])
-msys2.mkdir_p(win_vapi_unversioned)
-msys2.mkdir_p(win_vapi_versioned)
-local win_vapi_flags = msys2.windows_vala_flags(win_vapi_opts)
-local win_vapi_env = msys2.windows_env_prefix(win_vapi_opts)
+packages.mkdir_p(win_vapi_unversioned)
+packages.mkdir_p(win_vapi_versioned)
+local win_vapi_flags = packages.windows_vala_flags(win_vapi_opts)
+local win_vapi_env = packages.windows_env_prefix(win_vapi_opts)
 check("windows build env exposes target Vala vapidirs",
     win_vapi_flags != null &&
-    msys2.starts_with(win_vapi_flags, "--vapidir=" + win_vapi_unversioned) &&
+    packages.starts_with(win_vapi_flags, "--vapidir=" + win_vapi_unversioned) &&
     win_vapi_flags.find("--vapidir=" + win_vapi_versioned) != null &&
     win_vapi_env.find("VALAFLAGS=") != null &&
     win_vapi_env.find("--vapidir=" + win_vapi_unversioned) != null &&
     win_vapi_env.find("--vapidir=" + win_vapi_versioned) != null)
-system("rm -rf " + msys2.shell_quote(win_vapi_root))
-local win_auto_pixbuf_opts = msys2.new_options()
+system("rm -rf " + packages.shell_quote(win_vapi_root))
+local win_auto_pixbuf_opts = packages.new_options()
 win_auto_pixbuf_opts.target = "win-nsis"
 win_auto_pixbuf_opts.report.used_gdk_pixbuf = true
-msys2.apply_windows_package_defaults(win_auto_pixbuf_opts)
+packages.apply_windows_package_defaults(win_auto_pixbuf_opts)
 check("windows auto runtime packages do not imply Vala",
-    win_auto_pixbuf_opts.windows.build_packages.find(msys2.msys2_pkg(win_auto_pixbuf_opts, "vala")) == null &&
-    win_auto_pixbuf_opts.windows.packages.find(msys2.msys2_pkg(win_auto_pixbuf_opts, "vala")) == null)
+    win_auto_pixbuf_opts.windows.build_packages.find("vala") == null &&
+    win_auto_pixbuf_opts.windows.packages.find("vala") == null)
 check("windows auto packages keep GI tooling build-only",
-    win_auto_pixbuf_opts.windows.build_packages.find(msys2.msys2_pkg(win_auto_pixbuf_opts, "gobject-introspection")) != null &&
-    win_auto_pixbuf_opts.windows.packages.find(msys2.msys2_pkg(win_auto_pixbuf_opts, "gobject-introspection")) == null &&
-    win_auto_pixbuf_opts.windows.packages.find(msys2.msys2_pkg(win_auto_pixbuf_opts, "gobject-introspection-runtime")) != null)
+    win_auto_pixbuf_opts.windows.build_packages.find("gobject-introspection") != null &&
+    win_auto_pixbuf_opts.windows.packages.find("gobject-introspection") == null &&
+    win_auto_pixbuf_opts.windows.packages.find("libgirepository-1.0") != null)
 check("windows auto packages include gdk-pixbuf2 for GdkPixbuf imports",
-    win_auto_pixbuf_opts.windows.packages.find(msys2.msys2_pkg(win_auto_pixbuf_opts, "gdk-pixbuf2")) != null)
-local win_no_auto_opts = msys2.new_options()
+    win_auto_pixbuf_opts.windows.packages.find("gdk-pixbuf") != null)
+local win_no_auto_opts = packages.new_options()
 win_no_auto_opts.target = "win-nsis"
 win_no_auto_opts.windows.auto_packages = false
 win_no_auto_opts.windows.build = ["ninja"]
-msys2.apply_windows_package_defaults(win_no_auto_opts)
+packages.apply_windows_package_defaults(win_no_auto_opts)
 check("windows build commands include Vala without auto runtime packages",
-    win_no_auto_opts.windows.build_packages.find(msys2.msys2_pkg(win_no_auto_opts, "vala")) != null &&
+    win_no_auto_opts.windows.build_packages.find("vala") != null &&
     win_no_auto_opts.windows.packages.len() == 0)
-local win_auto_gtk_opts = msys2.new_options()
+local win_auto_gtk_opts = packages.new_options()
 win_auto_gtk_opts.target = "win-nsis"
 win_auto_gtk_opts.report.used_gtk = true
-msys2.apply_windows_package_defaults(win_auto_gtk_opts)
+packages.apply_windows_package_defaults(win_auto_gtk_opts)
 check("windows auto packages include gdk-pixbuf2 for GTK imports",
-    win_auto_gtk_opts.windows.packages.find(msys2.msys2_pkg(win_auto_gtk_opts, "gtk4")) != null &&
-    win_auto_gtk_opts.windows.packages.find(msys2.msys2_pkg(win_auto_gtk_opts, "gdk-pixbuf2")) != null)
-local win_auto_soup_opts = msys2.new_options()
+    win_auto_gtk_opts.windows.packages.find("gtk4") != null &&
+    win_auto_gtk_opts.windows.packages.find("gdk-pixbuf") != null)
+local win_auto_soup_opts = packages.new_options()
 win_auto_soup_opts.target = "win-nsis"
 win_auto_soup_opts.report.used_soup = true
-msys2.apply_windows_package_defaults(win_auto_soup_opts)
+packages.apply_windows_package_defaults(win_auto_soup_opts)
 check("windows auto packages include libsoup3 for Soup imports",
-    win_auto_soup_opts.windows.packages.find(msys2.msys2_pkg(win_auto_soup_opts, "libsoup3")) != null)
-check("windows classifies dwrite as system dll", msys2.windows_system_dll("DWrite.dll"))
-check("windows classifies bcryptprimitives as system dll", msys2.windows_system_dll("bcryptprimitives.dll"))
-check("windows classifies winhttp as system dll", msys2.windows_system_dll("WINHTTP.dll"))
+    win_auto_soup_opts.windows.packages.find("libsoup3") != null)
+check("windows classifies dwrite as system dll", packages.windows_system_dll("DWrite.dll"))
+check("windows classifies bcryptprimitives as system dll", packages.windows_system_dll("bcryptprimitives.dll"))
+check("windows classifies winhttp as system dll", packages.windows_system_dll("WINHTTP.dll"))
 check("windows classifies media foundation dlls as system dlls",
-    msys2.windows_system_dll("MFPlat.DLL") &&
-    msys2.windows_system_dll("MFReadWrite.dll") &&
-    msys2.windows_system_dll("mmdevapi.dll"))
+    packages.windows_system_dll("MFPlat.DLL") &&
+    packages.windows_system_dll("MFReadWrite.dll") &&
+    packages.windows_system_dll("mmdevapi.dll"))
 check("windows classifies legacy capture and d3d dlls as system dlls",
-    msys2.windows_system_dll("AVICAP32.dll") &&
-    msys2.windows_system_dll("AVRT.dll") &&
-    msys2.windows_system_dll("d3d9.dll"))
-local dll_candidates = msys2.windows_sysroot_dll_name_candidates("eigen_blas.dll")
+    packages.windows_system_dll("AVICAP32.dll") &&
+    packages.windows_system_dll("AVRT.dll") &&
+    packages.windows_system_dll("d3d9.dll"))
+local dll_candidates = packages.windows_sysroot_dll_name_candidates("eigen_blas.dll")
 check("windows dll resolver tries lib-prefixed alias",
     dll_candidates.len() == 2 &&
     dll_candidates[0] == "eigen_blas.dll" &&
     dll_candidates[1] == "libeigen_blas.dll")
 check("windows stages gdbus helper",
-    msys2.windows_package_dest("mingw64/bin/gdbus.exe", "mingw64") ==
+    packages.windows_package_dest("mingw64/bin/gdbus.exe", "mingw64") ==
     GLib.build_filenamev(["bin", "gdbus.exe"]))
 check("windows stages gspawn helpers",
-    msys2.windows_package_dest("mingw64/bin/gspawn-win64-helper.exe", "mingw64") ==
+    packages.windows_package_dest("mingw64/bin/gspawn-win64-helper.exe", "mingw64") ==
     GLib.build_filenamev(["bin", "gspawn-win64-helper.exe"]))
 check("windows skips arbitrary helper executables",
-    msys2.windows_package_dest("mingw64/bin/gapplication.exe", "mingw64") == null)
+    packages.windows_package_dest("mingw64/bin/gapplication.exe", "mingw64") == null)
 check("windows stages gdal data",
-    msys2.windows_package_dest("mingw64/share/gdal/gcs.csv", "mingw64") ==
+    packages.windows_package_dest("mingw64/share/gdal/gcs.csv", "mingw64") ==
     GLib.build_filenamev(["share", "gdal", "gcs.csv"]))
 check("windows stages fontconfig data",
-    msys2.windows_package_dest("mingw64/share/fontconfig/conf.avail/10-hinting-slight.conf", "mingw64") ==
+    packages.windows_package_dest("mingw64/share/fontconfig/conf.avail/10-hinting-slight.conf", "mingw64") ==
     GLib.build_filenamev(["share", "fontconfig", "conf.avail", "10-hinting-slight.conf"]))
 check("windows stages locale data",
-    msys2.windows_package_dest("mingw64/share/locale/en/LC_MESSAGES/glib20.mo", "mingw64") ==
+    packages.windows_package_dest("mingw64/share/locale/en/LC_MESSAGES/glib20.mo", "mingw64") ==
     GLib.build_filenamev(["share", "locale", "en", "LC_MESSAGES", "glib20.mo"]))
 check("windows stages gstreamer runtime helpers",
-    msys2.windows_package_dest("mingw64/libexec/gstreamer-1.0/gst-plugin-scanner.exe", "mingw64") ==
+    packages.windows_package_dest("mingw64/libexec/gstreamer-1.0/gst-plugin-scanner.exe", "mingw64") ==
     GLib.build_filenamev(["libexec", "gstreamer-1.0", "gst-plugin-scanner.exe"]))
 check("windows stages openssl providers",
-    msys2.windows_package_dest("mingw64/lib/ossl-modules/legacy.dll", "mingw64") ==
+    packages.windows_package_dest("mingw64/lib/ossl-modules/legacy.dll", "mingw64") ==
     GLib.build_filenamev(["lib", "ossl-modules", "legacy.dll"]))
 check("windows stages gdk-pixbuf loader cache",
-    msys2.windows_package_dest("mingw64/lib/gdk-pixbuf-2.0/2.10.0/loaders.cache", "mingw64") ==
+    packages.windows_package_dest("mingw64/lib/gdk-pixbuf-2.0/2.10.0/loaders.cache", "mingw64") ==
     GLib.build_filenamev(["lib", "gdk-pixbuf-2.0", "2.10.0", "loaders.cache"]))
 
 local win_cache = Nsis.SqgiPkgWindowsNsis()
@@ -1300,7 +1299,7 @@ win_cache.write_file(GLib.build_filenamev([win_cache_loader_dir, "libpixbufloade
 win_cache.write_file(GLib.build_filenamev([win_cache_loader_dir, "pixbufloader_svg.dll"]), "svg")
 win_cache.write_file(GLib.build_filenamev([win_cache_loader_dir, "libpixbufloader-custom.dll"]), "custom")
 local win_cache_opts = win_cache.new_options()
-win_cache_opts.windows.msys2_root = GLib.build_filenamev([win_cache_root, "_missing-msys2"])
+win_cache_opts.windows.sysroot = GLib.build_filenamev([win_cache_root, "_missing-packages"])
 win_cache.ensure_windows_gdk_pixbuf_loader_cache(win_cache_opts, win_cache_root)
 local win_cache_path = GLib.build_filenamev([win_cache_root, "lib", "gdk-pixbuf-2.0", "2.10.0", "loaders.cache"])
 local win_cache_text = win_cache.read_file(win_cache_path)
@@ -1314,56 +1313,56 @@ check("windows synthesized gdk-pixbuf cache warns on unknown loaders",
 system("rm -rf " + win_cache.shell_quote(win_cache_root))
 
 local win_source_cache_root = GLib.build_filenamev([GLib.get_tmp_dir(), "sqgipkg-win-source-pixbuf-cache-" + GLib.get_monotonic_time()])
-local win_source_msys2_cache_dir = GLib.build_filenamev([win_source_cache_root, "_msys2", "mingw64", "lib", "gdk-pixbuf-2.0", "2.10.0"])
+local win_source_packages_cache_dir = GLib.build_filenamev([win_source_cache_root, "_packages", "mingw64", "lib", "gdk-pixbuf-2.0", "2.10.0"])
 local win_source_app = GLib.build_filenamev([win_source_cache_root, "app"])
 local win_source_loader_dir = GLib.build_filenamev([win_source_app, "lib", "gdk-pixbuf-2.0", "2.10.0", "loaders"])
-win_cache.mkdir_p(win_source_msys2_cache_dir)
+win_cache.mkdir_p(win_source_packages_cache_dir)
 win_cache.mkdir_p(win_source_loader_dir)
 win_cache.write_file(GLib.build_filenamev([win_source_loader_dir, "libpixbufloader-png.dll"]), "png")
-win_cache.write_file(GLib.build_filenamev([win_source_msys2_cache_dir, "loaders.cache"]),
+win_cache.write_file(GLib.build_filenamev([win_source_packages_cache_dir, "loaders.cache"]),
     "# header\n" +
-    "\"C:\\msys64\\mingw64\\lib\\gdk-pixbuf-2.0\\2.10.0\\loaders\\libpixbufloader-png.dll\"\n" +
+    "\"C:\\ooblerg\\mingw64\\lib\\gdk-pixbuf-2.0\\2.10.0\\loaders\\libpixbufloader-png.dll\"\n" +
     "\"png\" 5 \"gdk-pixbuf\" \"PNG\" \"LGPL\"\n" +
     "\n" +
-    "\"C:\\msys64\\mingw64\\lib\\gdk-pixbuf-2.0\\2.10.0\\loaders\\libpixbufloader-missing.dll\"\n" +
+    "\"C:\\ooblerg\\mingw64\\lib\\gdk-pixbuf-2.0\\2.10.0\\loaders\\libpixbufloader-missing.dll\"\n" +
     "\"missing\" 1 \"gdk-pixbuf\" \"Missing\" \"LGPL\"\n" +
     "\n")
 local win_source_cache_opts = win_cache.new_options()
-win_source_cache_opts.windows.msys2_root = GLib.build_filenamev([win_source_cache_root, "_msys2"])
-win_source_cache_opts.windows.msys2_prefix = "mingw64"
+win_source_cache_opts.windows.sysroot = GLib.build_filenamev([win_source_cache_root, "_packages"])
+win_source_cache_opts.windows.prefix = "mingw64"
 win_cache.ensure_windows_gdk_pixbuf_loader_cache(win_source_cache_opts, win_source_app)
 local win_source_cache_text = win_cache.read_file(GLib.build_filenamev([win_source_app, "lib", "gdk-pixbuf-2.0", "2.10.0", "loaders.cache"]))
 check("windows rewrites source gdk-pixbuf loader cache to relative paths",
     win_source_cache_text.find("\"lib/gdk-pixbuf-2.0/2.10.0/loaders/libpixbufloader-png.dll\"") != null &&
-    win_source_cache_text.find("C:\\msys64") == null &&
+    win_source_cache_text.find("C:\\ooblerg") == null &&
     win_source_cache_text.find("libpixbufloader-missing.dll") == null)
 system("rm -rf " + win_cache.shell_quote(win_source_cache_root))
 
 local win_runtime_root = GLib.build_filenamev([GLib.get_tmp_dir(), "sqgipkg-win-runtime-" + GLib.get_monotonic_time()])
 local win_runtime_app = GLib.build_filenamev([GLib.get_tmp_dir(), "sqgipkg-win-app-" + GLib.get_monotonic_time()])
 local win_runtime_prefix = GLib.build_filenamev([win_runtime_root, "mingw64"])
-msys2.mkdir_p(GLib.build_filenamev([win_runtime_prefix, "bin"]))
-msys2.mkdir_p(GLib.build_filenamev([win_runtime_prefix, "share", "gdal"]))
-msys2.mkdir_p(GLib.build_filenamev([win_runtime_prefix, "share", "fontconfig", "conf.avail"]))
-msys2.mkdir_p(GLib.build_filenamev([win_runtime_prefix, "libexec", "gstreamer-1.0"]))
-msys2.write_file(GLib.build_filenamev([win_runtime_prefix, "bin", "gdbus.exe"]), "gdbus")
-msys2.write_file(GLib.build_filenamev([win_runtime_prefix, "share", "gdal", "gcs.csv"]), "gdal")
-msys2.write_file(GLib.build_filenamev([win_runtime_prefix, "share", "fontconfig", "conf.avail", "fonts.conf"]), "fontconfig")
-msys2.write_file(GLib.build_filenamev([win_runtime_prefix, "libexec", "gstreamer-1.0", "gst-plugin-scanner.exe"]), "scanner")
-local win_runtime_opts = msys2.new_options()
-win_runtime_opts.windows.msys2_root = win_runtime_root
-win_runtime_opts.windows.msys2_prefix = "mingw64"
-msys2.stage_windows_runtime_support_files(win_runtime_opts, win_runtime_app)
+packages.mkdir_p(GLib.build_filenamev([win_runtime_prefix, "bin"]))
+packages.mkdir_p(GLib.build_filenamev([win_runtime_prefix, "share", "gdal"]))
+packages.mkdir_p(GLib.build_filenamev([win_runtime_prefix, "share", "fontconfig", "conf.avail"]))
+packages.mkdir_p(GLib.build_filenamev([win_runtime_prefix, "libexec", "gstreamer-1.0"]))
+packages.write_file(GLib.build_filenamev([win_runtime_prefix, "bin", "gdbus.exe"]), "gdbus")
+packages.write_file(GLib.build_filenamev([win_runtime_prefix, "share", "gdal", "gcs.csv"]), "gdal")
+packages.write_file(GLib.build_filenamev([win_runtime_prefix, "share", "fontconfig", "conf.avail", "fonts.conf"]), "fontconfig")
+packages.write_file(GLib.build_filenamev([win_runtime_prefix, "libexec", "gstreamer-1.0", "gst-plugin-scanner.exe"]), "scanner")
+local win_runtime_opts = packages.new_options()
+win_runtime_opts.windows.sysroot = win_runtime_root
+win_runtime_opts.windows.prefix = "mingw64"
+packages.stage_windows_runtime_support_files(win_runtime_opts, win_runtime_app)
 check("windows runtime support copies helper files",
-    msys2.path_exists(GLib.build_filenamev([win_runtime_app, "bin", "gdbus.exe"])))
+    packages.path_exists(GLib.build_filenamev([win_runtime_app, "bin", "gdbus.exe"])))
 check("windows runtime support copies data directories",
-    msys2.path_exists(GLib.build_filenamev([win_runtime_app, "share", "gdal", "gcs.csv"])) &&
-    msys2.path_exists(GLib.build_filenamev([win_runtime_app, "share", "fontconfig", "conf.avail", "fonts.conf"])) &&
-    msys2.path_exists(GLib.build_filenamev([win_runtime_app, "libexec", "gstreamer-1.0", "gst-plugin-scanner.exe"])))
-system("rm -rf " + msys2.shell_quote(win_runtime_root) + " " + msys2.shell_quote(win_runtime_app))
+    packages.path_exists(GLib.build_filenamev([win_runtime_app, "share", "gdal", "gcs.csv"])) &&
+    packages.path_exists(GLib.build_filenamev([win_runtime_app, "share", "fontconfig", "conf.avail", "fonts.conf"])) &&
+    packages.path_exists(GLib.build_filenamev([win_runtime_app, "libexec", "gstreamer-1.0", "gst-plugin-scanner.exe"])))
+system("rm -rf " + packages.shell_quote(win_runtime_root) + " " + packages.shell_quote(win_runtime_app))
 
 local win_launcher_dir = GLib.build_filenamev([GLib.get_tmp_dir(), "sqgipkg-win-launcher-" + GLib.get_monotonic_time()])
-msys2.mkdir_p(win_launcher_dir)
+packages.mkdir_p(win_launcher_dir)
 local win_launcher = Nsis.SqgiPkgWindowsNsis()
 local win_launcher_opts = win_launcher.new_options()
 win_launcher_opts.entry_type = "native"

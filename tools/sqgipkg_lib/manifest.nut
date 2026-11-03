@@ -269,19 +269,11 @@ class SqgiPkgManifest extends Base.SqgiPkgSchema {
     function apply_windows_manifest(opts, base_dir, windows) {
         if (typeof(windows) != "table") this.fail("manifest windows entry must be an object")
 
-        opts.windows.package_source = this.table_get(windows, "package_source", "msys2")
+        opts.windows.package_source = this.table_get(windows, "package_source", "ooblerg")
         opts.windows.runtime = this.table_get(windows, "runtime", "inherit")
-        if (opts.windows.package_source == "ooblerg") {
-            if ("msys2_root" in windows || "msys2_prefix" in windows || opts.windows.msys2_root != "")
-                this.fail("Ooblerg uses its own private sysroot; remove explicit MSYS2 root/prefix settings")
-            opts.windows.msys2_prefix = "mingw64"
-        }
-        if (opts.windows.runtime == "package" && opts.windows.package_source != "ooblerg")
-            this.fail("windows.runtime=package requires windows.package_source=ooblerg")
         local build_dir = this.table_get(windows, "build_dir")
         local build = this.table_get(windows, "build")
-        local msys2_root = this.table_get(windows, "msys2_root")
-        local msys2_prefix = this.table_get(windows, "msys2_prefix")
+        local sysroot = this.table_get(windows, "sysroot")
         local repo_url = this.table_get(windows, "repo_url")
         local package_cache = this.table_get(windows, "package_cache")
         local cmake_toolchain = this.table_get(windows, "cmake_toolchain")
@@ -305,9 +297,8 @@ class SqgiPkgManifest extends Base.SqgiPkgSchema {
         if (opts.windows.build_dir == "" && build_dir != null)
             opts.windows.build_dir = this.manifest_path(base_dir, build_dir)
         this.append_values(opts.windows.build, this.manifest_command_list(build))
-        if (opts.windows.msys2_root == "" && msys2_root != null)
-            opts.windows.msys2_root = this.manifest_path(base_dir, msys2_root)
-        if (msys2_prefix != null) opts.windows.msys2_prefix = msys2_prefix
+        if (opts.windows.sysroot == "" && sysroot != null)
+            opts.windows.sysroot = this.manifest_path(base_dir, sysroot)
         if (opts.windows.repo_url == "" && repo_url != null) opts.windows.repo_url = repo_url
         if (opts.windows.package_cache == "" && package_cache != null)
             opts.windows.package_cache = this.manifest_path(base_dir, package_cache)

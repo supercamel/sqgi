@@ -93,12 +93,12 @@ class SqgiPkgOptions extends Base.SqgiPkgCore {
             desktop_terminal = true,
             desktop_terminal_forced = false,
             windows = {
-                package_source = "msys2",
+                package_source = "ooblerg",
                 runtime = "inherit",
                 build_dir = "",
                 build = [],
-                msys2_root = "",
-                msys2_prefix = this.host_windows() ? "ucrt64" : "mingw64",
+                sysroot = "",
+                prefix = "mingw64",
                 build_packages = [],
                 packages = [],
                 repo_url = "",
@@ -188,13 +188,12 @@ class SqgiPkgOptions extends Base.SqgiPkgCore {
             "--gdk-backend",
             "--desktop-icon",
             "--desktop-categories",
-            "--msys2-root",
-            "--msys2-prefix",
+            "--windows-sysroot",
             "--windows-build-package",
             "--windows-package",
             "--windows-font",
-            "--msys2-repo-url",
-            "--msys2-package-cache",
+            "--windows-repo-url",
+            "--windows-package-cache",
             "--win-cmake-toolchain",
             "--win-meson-cross-file",
             "--nsis",
@@ -336,13 +335,11 @@ class SqgiPkgOptions extends Base.SqgiPkgCore {
         if (v != null) opts.desktop_icon = v
         v = this.option_value(option_dict, "desktop-categories")
         if (v != null) opts.desktop_categories = v
-        v = this.option_value(option_dict, "msys2-root")
-        if (v != null) opts.windows.msys2_root = v
-        v = this.option_value(option_dict, "msys2-prefix")
-        if (v != null) opts.windows.msys2_prefix = v
-        v = this.option_value(option_dict, "msys2-repo-url")
+        v = this.option_value(option_dict, "windows-sysroot")
+        if (v != null) opts.windows.sysroot = v
+        v = this.option_value(option_dict, "windows-repo-url")
         if (v != null) opts.windows.repo_url = v
-        v = this.option_value(option_dict, "msys2-package-cache")
+        v = this.option_value(option_dict, "windows-package-cache")
         if (v != null) opts.windows.package_cache = v
         v = this.option_value(option_dict, "win-cmake-toolchain")
         if (v != null) opts.windows.cmake_toolchain = v
@@ -410,8 +407,8 @@ class SqgiPkgOptions extends Base.SqgiPkgCore {
             opts.desktop_terminal = false
             opts.desktop_terminal_forced = true
         }
-        if (this.option_present(option_dict, "refresh-msys2-packages")) opts.windows.refresh_packages = true
-        if (this.option_present(option_dict, "no-msys2-download")) opts.windows.download_packages = false
+        if (this.option_present(option_dict, "refresh-windows-packages")) opts.windows.refresh_packages = true
+        if (this.option_present(option_dict, "no-windows-download")) opts.windows.download_packages = false
         if (this.option_present(option_dict, "no-windows-auto-packages")) opts.windows.auto_packages = false
         if (this.option_present(option_dict, "windows-console")) {
             opts.windows.console = true

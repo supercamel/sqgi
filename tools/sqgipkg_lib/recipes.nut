@@ -65,7 +65,7 @@ class SqgiPkgRecipes extends Base.SqgiPkgScripts {
     }
 
     function recipe_target(opts) {
-        return this.starts_with(opts.target, "win-") ? (opts.windows.package_source == "ooblerg" ? "windows-x86_64-ooblerg" : "windows-x86_64") : "linux-" + opts.appimage_arch
+        return this.starts_with(opts.target, "win-") ? "windows-x86_64-ooblerg" : "linux-" + opts.appimage_arch
     }
 
     function recipe_build_dir(opts, project) {

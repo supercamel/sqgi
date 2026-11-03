@@ -193,12 +193,11 @@ Revision rationale: field reachability did not establish an understandable commo
 workflow. Requirements v3 makes that workflow independently testable. Search to
 a containing object remains an explicit limitation, not deep-field focus.
 
-C-EDIT-06 Windows provider controls author `windows.package_source` and
-`windows.runtime` through ordinary document edits. Omitted provider remains
-MSYS2 when an existing manifest is opened; only new project creation sets
-Ooblerg. The prebuilt runtime choice is hidden for native entries. Changing
-provider must not silently delete packages, recipe selections or overrides;
-Check reports incompatible combinations. Library forms preserve and edit
+C-EDIT-06 Windows dependency controls identify Ooblerg as the only provider
+and author `windows.runtime` through ordinary document edits. Omitted providers
+select Ooblerg. Unsupported authored providers remain visible in Advanced and
+fail Check; opening a document must not silently delete its packages or overrides.
+The prebuilt runtime choice is hidden for native entries. Library forms preserve and edit
 `windows_package`, with a description of the Windows-only source replacement.
 Exercise actual controls, save/reopen and undo in the private GTK session and
 inspect screenshots at the ordinary window size. Acceptance:

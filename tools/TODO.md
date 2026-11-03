@@ -4,7 +4,7 @@ This is the working roadmap for `sqgipkg`, the SQGI packaging tool. The goal is
 to make packaging a SQGI/Squirrel app feel boring in the best way: one small
 manifest, isolated target dependencies, repeatable outputs, and enough
 diagnostics that users can fix problems without learning every detail of
-AppImage, MSYS2, pkg-config, Debian package metadata, or cross compilation.
+AppImage, Ooblerg, pkg-config, Debian package metadata, or cross compilation.
 
 ## Product Goals
 
@@ -37,9 +37,9 @@ AppImage, MSYS2, pkg-config, Debian package metadata, or cross compilation.
 - Linux multi-arch AppImage matrix through `linux.arches`; native aarch64 plus
   cross-built x86_64 from an arm64 host is a P0 verification target.
 - Debian/Ubuntu package download into isolated Linux sysroots.
-- Windows portable directory through MSYS2 packages.
+- Windows portable directory through Ooblerg packages.
 - Windows NSIS installer.
-- Windows MSYS2 sysroot preparation.
+- Windows Ooblerg sysroot preparation.
 - Native GObject/Vala/C/C++ project builds and staging.
 
 ## P0 Functionality
@@ -56,7 +56,7 @@ AppImage, MSYS2, pkg-config, Debian package metadata, or cross compilation.
   - Preflight errors on arm64 must name missing host tools such as
     `x86_64-linux-gnu-gcc`/`g++` and `x86_64-w64-mingw32-gcc`/`g++`, and must
     not suggest installing target GTK/GStreamer packages into the host root when
-    the Debian/MSYS2 sysroot backends are enabled.
+    the Debian/Ooblerg sysroot backends are enabled.
   - [x] AppImage smoke tests should run for native outputs directly and
     cross-arch Linux outputs through QEMU user-mode/binfmt when the matching
     emulator and target sysroot are available.
@@ -169,11 +169,10 @@ AppImage, MSYS2, pkg-config, Debian package metadata, or cross compilation.
   - [x] Honor `stage = false` for Linux native projects, matching Windows.
   - Better distinguish native dependencies installed into a sysroot from native
     project artifacts staged into the app.
-- [ ] Improve Windows/MSYS2 parity.
-  - Cache reporting and prune support for MSYS2 package caches/sysroots.
+- [ ] Improve Windows/Ooblerg parity.
+  - Cache reporting and prune support for Ooblerg package caches/sysroots.
   - Better diagnostics for missing DLLs and missing typelibs.
-  - Verify generated CMake/Meson cross files across `mingw64`, `ucrt64`, and
-    `clang64`.
+  - Verify generated CMake/Meson cross files against the Ooblerg Windows x86_64 SDK.
   - Verify `mingw64` x64 Windows builds from an arm64 Linux host, including
     native dependencies that produce GIR/typelib data.
   - Add support for Windows architecture selection if needed later; for now,
@@ -286,7 +285,7 @@ The test suite should have three layers:
   - Warns but does not crash on unresolved optional libraries when appropriate.
 - [ ] Add Windows DLL dependency closure tests.
   - Parses PE imports.
-  - Resolves DLLs from the MSYS2 prefix.
+  - Resolves DLLs from the Ooblerg prefix.
   - Handles case-insensitive DLL names.
   - Reports unresolved DLLs clearly.
 - [ ] Add generated cross-file tests.
@@ -346,7 +345,7 @@ The test suite should have three layers:
   - User quick start.
   - Manifest reference.
   - Linux sysroot/backend guide.
-  - Windows/MSYS2 guide.
+  - Windows/Ooblerg guide.
   - Native project guide.
   - Troubleshooting guide.
 - [ ] Add troubleshooting pages.

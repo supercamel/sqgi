@@ -273,7 +273,7 @@ class SqgiPkgBuild extends Base.SqgiPkgDoctor {
         // application or building an installer.
         this.scan_project_imports(opts)
         this.apply_windows_package_defaults(opts)
-        this.ensure_msys2_packages(opts)
+        this.ensure_windows_packages(opts)
         this.prepare_windows_cross_environment(opts)
         this.build_windows_native_dependencies(opts)
 
@@ -281,8 +281,8 @@ class SqgiPkgBuild extends Base.SqgiPkgDoctor {
         local prefix_dir = this.windows_sysroot_prefix_dir(opts)
 
         this.info("Windows sysroot ready")
-        this.info("  MSYS2 root: " + sysroot)
-        this.info("  MSYS2 prefix: " + opts.windows.msys2_prefix)
+        this.info("  Ooblerg root: " + sysroot)
+        this.info("  Ooblerg prefix: " + opts.windows.prefix)
         this.info("  prefix dir: " + prefix_dir)
         this.info("  CMake toolchain: " + GLib.getenv("SQGI_WIN_CMAKE_TOOLCHAIN"))
         this.info("  Meson cross file: " + GLib.getenv("SQGI_MESON_CROSS_FILE"))

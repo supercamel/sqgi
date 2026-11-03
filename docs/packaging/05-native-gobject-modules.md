@@ -126,7 +126,7 @@ Windows builds use DLLs:
 ```json
 {
   "windows": {
-    "msys2_prefix": "mingw64",
+    "package_source": "ooblerg",
     "native_projects": [
       {
         "dir": "native",
@@ -145,7 +145,7 @@ Windows builds use DLLs:
 }
 ```
 
-On non-Windows hosts, `sqgipkg` prepares an MSYS2 sysroot and generated Meson or
+On non-Windows hosts, `sqgipkg` prepares an Ooblerg sysroot and generated Meson or
 CMake cross files. Your build command consumes `SQGI_MESON_CROSS_FILE` or
 `SQGI_WIN_CMAKE_TOOLCHAIN`.
 

@@ -1,5 +1,17 @@
 # Windows LLVM JIT and kernel validation
 
+## Ooblerg migration: 2026-11-03
+
+The current Windows dependency source is Ooblerg. Build with
+`tools/prepare-windows-sdk.py --cross` and
+`tools/mingw/toolchain_mingw64.cmake`; see the
+[cross-build guide](packaging/08-targets-and-cross-builds.md).
+On Ubuntu 24.04, the Ooblerg build passed all 62 selected JIT/kernel CTest cases
+under Wine. A relocated Windows package also loaded GLib and executed a typed
+kernel returning 42 without the SDK on its DLL search path. Native Windows
+execution is checked separately by `.github/workflows/windows-packaging.yml`.
+The older results below record their original dependency stack and are historical.
+
 ## Initial results: 2026-09-25
 
 The Windows x86-64 runtime was cross-compiled with both LLVM backends enabled

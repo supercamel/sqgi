@@ -917,3 +917,28 @@ runtime checks (aarch64 native, x86_64 QEMU). All ELF CPUs match and no developm
 files remain in final runtime payloads. See
 [the report](reports/linux-ooblerg-2026-09-27/README.md) and
 [artifact hashes](reports/linux-ooblerg-2026-09-27/logs/final-artifacts.json).
+
+
+## Windows Ooblerg-only migration (2026-11-03)
+
+R-PKG-01/R-PKG-04/R-PKG-07 and C-EDIT-06 now use Ooblerg as the only Windows
+provider, including omitted providers. Legacy MSYS2 fields/provider values and
+package names fail inspection with migration guidance. The common GUI no longer
+offers MSYS2; document preservation and Advanced remain available for corrections.
+The CLI/catalog/schema use `windows.sysroot` and provider-neutral Windows flags.
+
+Local validation on Ubuntu 24.04:
+
+- `ctest --test-dir build --output-on-failure -j 8 -E '^sqgi_test_(sqgipkg|study_runner)$'`: 167/167 passed, including GUI, catalog, provider, SDK, locking and migration tests.
+- `tools/prepare-windows-sdk.py --cross` downloaded and verified the published Ooblerg SDK. The standard LLVM/JIT/kernel build cross-compiled with Ubuntu MinGW using `tools/mingw/toolchain_mingw64.cmake`.
+- `ctest --test-dir build-windows-ooblerg -L 'jit|kernel' -E kernel_packaging --output-on-failure --timeout 60 -j 4` under the isolated Wine runner: 62/62 passed.
+- A relocated Windows directory package loaded GLib and executed a typed kernel returning 42 with the SDK absent from its DLL search path.
+- The shell suite's migrated Windows sections passed staging, console override, missing-runtime rejection, native entry, NSIS generation, local-repository dependency resolution and Git branch fallback.
+
+The full shell suite still fails in its unrelated Linux fake-package fixture
+(the fake dpkg-query omits required GLib introspection data). Its stale init
+assertion was corrected while migrating fixtures. The study runner requires
+Bubblewrap network namespaces unavailable on this host, as established before
+this migration. These exclusions are not reported as passes. Native Windows
+acceptance and an Ubuntu 24.04 cross-build are enforced by the updated Windows
+workflow; Wine execution alone is not native Windows evidence.

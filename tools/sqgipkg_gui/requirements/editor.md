@@ -107,10 +107,10 @@ clipboard, with shell quoting and Unicode paths preserved. A success message
 requires successful clipboard publication. Acceptance must read back the actual
 clipboard, rather than checking only whether the button is enabled.
 
-R-EDIT-03/R-EDIT-11 Runtime/native code offers a Windows package source and an
+R-EDIT-03/R-EDIT-11 Runtime/native code uses Ooblerg for Windows dependencies and offers an
 explicit prebuilt Windows SQGI choice, explaining that Linux keeps its runtime
-selection. New GUI projects select Ooblerg; opened manifests preserve omission
-and existing choices. A library's optional Windows package replaces its Windows
+selection. Omitted providers select Ooblerg. Opened manifests preserve authored data;
+unsupported MSYS2 settings remain visible for correction and fail Check. A library's optional Windows package replaces its Windows
 source build only. Explain this distinction next to the field, with validation
 and undo. Complex or conflicting authored settings remain in Advanced.
 

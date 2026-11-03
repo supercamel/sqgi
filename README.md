@@ -417,14 +417,14 @@ Depending on the manifest, `sqgipkg` can stage and resolve:
 - GIO modules
 - gdk-pixbuf loaders
 - Debian/Ubuntu packages into private Linux sysroots
-- Windows MSYS2 packages
+- Windows Ooblerg packages
 - recursive Windows DLL dependency closure
 - generated Linux and Windows launchers
 - AppImages
 - NSIS installers
 
 Linux dependency sysroots can be isolated from the build host, and Windows
-cross-builds can prepare an MSYS2-style dependency tree and recursively gather
+cross-builds can prepare an Ooblerg dependency tree and recursively gather
 the DLLs the final application needs.
 
 Cross-architecture AppImage smoke tests can use QEMU user-mode/binfmt when the
@@ -487,27 +487,32 @@ Install system-wide:
 sudo cmake --install build --prefix /usr/local
 ```
 
-### Optional: build from source with MSYS2
+### Build Windows from source with Ooblerg
 
-This source-build route uses a MinGW-style shell such as UCRT64 or MINGW64.
-Running SQGI or a packaged Windows application does not require an MSYS2 shell.
+Use PowerShell, Git, and Python 3. The SDK helper downloads verified Ooblerg
+packages, including the native GCC toolchain and the LLVM 18 C API SDK.
 
-The helper script installs the matching compiler, CMake, Ninja, and GLib/GI
-dependencies, then builds and installs LLVM 18.1.8 for that toolchain. The first
-run downloads LLVM's pinned source archive and compiles its native backend;
-subsequent runs reuse the `build-llvm18-<target>` build directory. Set
-`CMAKE_BUILD_PARALLEL_LEVEL` to limit build concurrency on machines with less RAM.
-
-```sh
-./tools/install-msys2-prereqs.sh ucrt64
-
-cmake -S . -B build-ucrt64 -G Ninja \
-  -DCMAKE_BUILD_TYPE=Release \
-  -DCMAKE_INSTALL_PREFIX=/ucrt64
-
-cmake --build build-ucrt64
-cmake --install build-ucrt64
+```powershell
+$sdk = Join-Path $PWD 'build-ooblerg-sdk'
+$cache = Join-Path $PWD 'build-ooblerg-cache'
+python tools/prepare-windows-sdk.py --root $sdk --cache $cache
+$prefix = "$sdk/mingw64"
+$env:PATH = "$prefix/bin;$env:PATH"
+$env:PKG_CONFIG_LIBDIR = "$prefix/lib/pkgconfig;$prefix/share/pkgconfig"
+$env:GI_TYPELIB_PATH = "$prefix/lib/girepository-1.0"
+cmake -S . -B build-windows -G Ninja -DCMAKE_BUILD_TYPE=Release `
+  "-DCMAKE_PREFIX_PATH=$prefix" `
+  "-DSQGI_LLVM_INCLUDE_DIR=$prefix/include" `
+  "-DSQGI_LLVM_LIBRARY=$prefix/lib/LLVM-C.lib" `
+  -DCMAKE_INSTALL_PREFIX=C:/sqgi
+cmake --build build-windows
+cmake --install build-windows
 ```
+
+Windows dependencies use Ooblerg's fixed `/mingw64` target prefix on both hosts.
+For Ubuntu 24.04 cross compilation, use `prepare-windows-sdk.py --cross` with
+the host MinGW compiler; see the [cross-build guide](docs/packaging/08-targets-and-cross-builds.md).
+MSYS2 is no longer supported.
 
 The install includes the interpreter, packaging tool, static checker, embeddable
 library, headers, `pkg-config` metadata, and packaging runtime/templates.

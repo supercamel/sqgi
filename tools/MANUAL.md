@@ -311,13 +311,13 @@ plus GStreamer manifest can look like this:
     }
   },
   "windows": {
-    "msys2_prefix": "mingw64",
+    "package_source": "ooblerg",
     "gdk_backend": "win32",
     "packages": [
-      "mingw-w64-x86_64-gstreamer",
-      "mingw-w64-x86_64-gst-plugins-base",
-      "mingw-w64-x86_64-gst-plugins-good",
-      "mingw-w64-x86_64-gst-plugin-gtk"
+      "gstreamer",
+      "gst-plugins-base",
+      "gst-plugins-good",
+      "gst-plugins-good"
     ]
   }
 }
@@ -431,7 +431,7 @@ For libsoup, the usual portable path is package-based:
   },
   "windows": {
     "packages": [
-      "mingw-w64-x86_64-libsoup3"
+      "libsoup3"
     ]
   }
 }
@@ -439,7 +439,7 @@ For libsoup, the usual portable path is package-based:
 
 ## 8. Build A Windows Package
 
-From Linux, `sqgipkg` can build Windows output with an MSYS2 sysroot.
+From Linux, `sqgipkg` can build Windows output with an Ooblerg sysroot.
 
 Portable directory:
 
@@ -462,10 +462,10 @@ Useful Windows manifest fields:
     "."
   ],
   "windows": {
-    "msys2_prefix": "mingw64",
+    "package_source": "ooblerg",
     "gdk_backend": "win32",
     "packages": [
-      "mingw-w64-x86_64-gtk4"
+      "gtk4"
     ],
     "fonts": [
       {
@@ -694,7 +694,7 @@ package. It does not need to be listed in `windows.packages`.
 ```json
 {
   "windows": {
-    "msys2_prefix": "mingw64"
+    "package_source": "ooblerg"
   }
 }
 ```
@@ -890,7 +890,7 @@ QEMU user-mode when the matching emulator and target sysroot are available.
 
 ## 13. Cross-Build Windows Output
 
-A script app can often use the default Windows SQGI build plus MSYS2 packages:
+A script app can often use the default Windows SQGI build plus Ooblerg packages:
 
 ```json
 {
@@ -899,10 +899,10 @@ A script app can often use the default Windows SQGI build plus MSYS2 packages:
     "."
   ],
   "windows": {
-    "msys2_prefix": "mingw64",
+    "package_source": "ooblerg",
     "gdk_backend": "win32",
     "packages": [
-      "mingw-w64-x86_64-gtk4"
+      "gtk4"
     ],
     "build": [
       "cmake -E rm -rf \"$SQGI_WINDOWS_BUILD_DIR\"",
@@ -923,7 +923,7 @@ For native Windows modules:
 ```json
 {
   "windows": {
-    "msys2_prefix": "mingw64",
+    "package_source": "ooblerg",
     "native_projects": [
       {
         "dir": "native",

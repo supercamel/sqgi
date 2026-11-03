@@ -96,7 +96,10 @@ check which metadata files were actually loaded.
 **C-PKG-04 Operations:** classify each current CLI option as a field, invocation,
 action, or alias. Invocation arguments stay separate from the manifest. Per-run settings are documented for terminal use. Describe available target/host combinations clearly.
 
-Windows `package_source` is `msys2` (the compatibility default) or `ooblerg`.
+Windows `package_source` is `ooblerg`, including when omitted. Reject `msys2`,
+legacy `msys2_root`/`msys2_prefix` fields in both schema versions, and MSYS2
+package names before downloads. `windows.sysroot` optionally selects an owned
+Ooblerg preparation root; its target prefix is always `/mingw64`.
 Ooblerg uses https://ooblerg.xyz/v1 and its x86_64-w64-mingw32 `/mingw64`
 repository. `windows.repo_url` can select a compatible mirror; package names are
 provider-native (for example `gserial`, not MSYS2-prefixed names). `packages`
@@ -104,7 +107,7 @@ selects runtime packages, `build_packages` selects development-only seeds.
 `windows.runtime` is `inherit` by default or `package`: the latter explicitly
 selects Ooblerg's `sqgi` package for SQGI entries only, overriding the global
 source recipe for Windows while preserving its Linux meaning. Reject package
-runtime with MSYS2, native entries, or explicit runtime.jit overrides that the
+runtime with native entries or explicit runtime.jit overrides that the
 prebuilt binary cannot honor. Inspection names the provider and runtime package;
 it does not claim verified binary capabilities.
 
@@ -112,7 +115,7 @@ A declarative library recipe may name `windows_package`. For Ooblerg Windows
 configurations, replace that recipe's source build with the named package and
 its complete dependencies. `stage:false` selects development-only seeds.
 Linux retains the original recipe. Reject this field
-for MSYS2 or the native application's entry recipe. Explicit package choices
+for the native application's entry recipe. Explicit package choices
 work with automatic package selection disabled. Source runtime builds add
 `llvm18` to development/runtime preparation and configure its include and
 LLVM-C.lib paths on every build. Prebuilt runtime builds copy SQGI from the
@@ -120,7 +123,9 @@ provider and execute no source-runtime recipe.
 
 Use a distinct `_ooblerg-x86_64` private output sysroot, provider-specific
 cross-file directory and `windows-x86_64-ooblerg` recipe build directory, so
-changing providers cannot reuse Meson/CMake caches from the other provider. Do not accept explicit MSYS2 roots/prefixes with Ooblerg.
+retired MSYS2 build caches cannot be reused. Windows CI bootstraps the same
+Ooblerg SDK, including LLVM 18; Ubuntu 24.04 uses its MinGW cross compiler.
+The CLI exposes Windows sysroot/repository/cache options without MSYS2 aliases.
 Resolve index dependencies in deterministic dependency-first order, including
 meta packages and cycles, with missing dependencies fatal. Verify archive hashes
 before extraction, reject traversal, links and special archive entries, detect

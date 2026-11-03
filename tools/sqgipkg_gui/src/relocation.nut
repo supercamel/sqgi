@@ -8,7 +8,7 @@ local schema = sqgi.json.parse(Gio.File.new_for_path(schema_file).load_contents(
 local path_keys = ["script", "script_dirs", "scripts", "build_dir", "output", "desktop_icon", "icon", "appimagetool_cache",
     "resources", "libraries", "typelibs", "gstreamer_plugins", "gsettings_schemas", "gtk_data", "gio_modules", "gdk_pixbuf_loaders",
     "library_dirs", "sysroot", "package_cache", "cache", "cache_dir", "deb_package_cache", "deb_sysroot_cache", "sysroot_cache",
-    "msys2_root", "cmake_toolchain", "meson_cross_file", "entry_linux", "license", "header_image", "welcome_image", "welcome_finish_image"]
+    "sysroot", "cmake_toolchain", "meson_cross_file", "entry_linux", "license", "header_image", "welcome_image", "welcome_finish_image"]
 function relocate(value, old_dir, new_dir) {
     local result = sqgi.json.parse(sqgi.json.stringify(value))
     local rebase = function(path) {

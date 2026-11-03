@@ -560,20 +560,6 @@
       "alias": null,
       "help": "windows.meson_cross_file. Optional: leaving this unset uses sqgipkg defaults. "
     },
-    "windows.msys2_prefix": {
-      "label": "Msys2 prefix",
-      "section": "Targets",
-      "common": false,
-      "alias": null,
-      "help": "windows.msys2_prefix. Optional: leaving this unset uses sqgipkg defaults. "
-    },
-    "windows.msys2_root": {
-      "label": "Msys2 root",
-      "section": "Targets",
-      "common": false,
-      "alias": null,
-      "help": "windows.msys2_root. Optional: leaving this unset uses sqgipkg defaults. "
-    },
     "windows.native_dependencies": {
       "label": "Native dependencies",
       "section": "Targets",
@@ -1528,7 +1514,7 @@
     },
     "windows.package_source": {
       "label": "Windows package source",
-      "help": "Choose Ooblerg or MSYS2. Existing manifests default to MSYS2. Packages must come from the selected provider.",
+      "help": "Ooblerg supplies Windows x86_64 libraries and development files. It is also the default when omitted.",
       "section": "Runtime/native code",
       "common": false,
       "alias": null
@@ -1574,6 +1560,13 @@
       "help": "Optional Ooblerg package to use instead of this library source recipe on Linux. Clear it to restore local/Git builds. Windows uses its independent setting.",
       "common": false,
       "alias": null
+    },
+    "windows.sysroot": {
+      "label": "Windows sysroot",
+      "section": "Targets",
+      "common": false,
+      "alias": null,
+      "help": "Owned Ooblerg preparation directory. Leave unset to use a private directory inside the output folder."
     }
   },
   "cli": {
@@ -1833,33 +1826,17 @@
       "classification": "invocation",
       "description": "Set Terminal=false in the AppImage .desktop file"
     },
-    "msys2-root": {
-      "classification": "invocation",
-      "description": "MSYS2 root used for Windows packaging"
-    },
-    "msys2-prefix": {
-      "classification": "invocation",
-      "description": "MSYS2 MinGW prefix for Windows packaging, usually mingw64 or clang64"
-    },
     "windows-build-package": {
       "classification": "invocation",
-      "description": "Install an MSYS2 package for Windows builds without staging it"
+      "description": "Install an Ooblerg package for Windows builds without staging it"
     },
     "windows-package": {
       "classification": "invocation",
-      "description": "Copy runtime files from an installed MSYS2 package"
+      "description": "Copy runtime files from an Ooblerg package"
     },
     "windows-font": {
       "classification": "invocation",
       "description": "Stage and register a Windows font for NSIS installers, PATH=REGISTRY_NAME"
-    },
-    "msys2-repo-url": {
-      "classification": "invocation",
-      "description": "MSYS2 repository URL used to download Windows packages"
-    },
-    "msys2-package-cache": {
-      "classification": "invocation",
-      "description": "Download cache for MSYS2 package archives"
     },
     "win-cmake-toolchain": {
       "classification": "invocation",
@@ -1869,17 +1846,9 @@
       "classification": "invocation",
       "description": "Meson cross file for Ubuntu/MinGW Windows native extension builds"
     },
-    "refresh-msys2-packages": {
-      "classification": "invocation",
-      "description": "Refresh cached MSYS2 repository databases and package archives"
-    },
-    "no-msys2-download": {
-      "classification": "invocation",
-      "description": "Do not download missing MSYS2 packages"
-    },
     "no-windows-auto-packages": {
       "classification": "invocation",
-      "description": "Do not add inferred base/GTK/GStreamer MSYS2 packages"
+      "description": "Do not add inferred base/GTK/GStreamer Ooblerg packages"
     },
     "windows-console": {
       "classification": "invocation",
@@ -1984,6 +1953,26 @@
     "package-target": {
       "classification": "invocation",
       "description": "Ooblerg catalog target: Windows x86_64, Linux x86_64 or Linux aarch64."
+    },
+    "windows-sysroot": {
+      "classification": "invocation",
+      "description": "Owned Ooblerg sysroot used for Windows packaging"
+    },
+    "windows-repo-url": {
+      "classification": "invocation",
+      "description": "Ooblerg repository URL used to download Windows packages"
+    },
+    "windows-package-cache": {
+      "classification": "invocation",
+      "description": "Download cache for Ooblerg package archives"
+    },
+    "refresh-windows-packages": {
+      "classification": "invocation",
+      "description": "Refresh cached Ooblerg repository metadata and package archives"
+    },
+    "no-windows-download": {
+      "classification": "invocation",
+      "description": "Do not download missing Ooblerg packages"
     }
   }
 }

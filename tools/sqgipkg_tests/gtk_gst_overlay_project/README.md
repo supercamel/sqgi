@@ -69,8 +69,8 @@ SQGI revision. For a fast host-only test using installed development libraries,
 add `--no-linux-deb-download`.
 
 Use `sqgipkg check` to validate and `sqgipkg explain` to inspect the resolved
-recipes. Windows builds run from PowerShell/CMD without an MSYS2 shell; these
-examples explicitly retain the MinGW64 package ABI. `win-nsis` requires NSIS.
+recipes. Windows builds run from PowerShell/CMD with Ooblerg dependencies; these
+examples use the Ooblerg Windows x86_64 catalog. `win-nsis` requires NSIS.
 Use `--target win-dir` to produce a directory without an installer compiler.
 
 When `--smoke-test` is used for a non-native Linux arch, sqgipkg runs the
@@ -91,12 +91,12 @@ cd tools/sqgipkg_tests/gtk_gst_overlay_project
 sqgipkg --target win-dir
 ```
 
-On non-Windows hosts, `sqgipkg` prepares the target-local MSYS2 sysroot and
+On non-Windows hosts, `sqgipkg` prepares the target-local Ooblerg sysroot and
 generated CMake/Meson cross files automatically. The manifest is intentionally
-small; `sqgipkg` infers the base SQGI, GTK, and GStreamer MSYS2 packages from
+small; `sqgipkg` infers the base SQGI, GTK, and GStreamer Ooblerg packages from
 imports. If a Windows package must guarantee embedded `gtk4paintablesink`
 instead of using the demo's GTK fallback renderer, add
-`mingw-w64-x86_64-gst-plugin-gtk` to `windows.packages`.
+`gst-plugins-good` to `windows.packages`.
 
 Depending on the target machine, a fully portable Linux GStreamer bundle may
 also need plugin directories or other runtime assets. Add those manually to

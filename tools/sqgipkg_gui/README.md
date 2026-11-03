@@ -127,9 +127,9 @@ Python is needed for contract checks. On Linux, CMake registers the GTK workflow
 test when `xvfb-run` is available. The [verification record](verification.md)
 states which platforms and workflows were actually exercised.
 
-In Runtime/native code, Windows package choices support Ooblerg and the existing
-MSYS2 workflow. New projects use Ooblerg for Windows; opened manifests keep their
-previous settings. Search Ooblerg packages opens a catalog with name/description/
+In Runtime/native code, Windows packages come from Ooblerg. Omitted
+providers also use Ooblerg. Opened manifests retain authored data, but legacy
+MSYS2 settings must be corrected in Advanced before Check or Build can pass. Search Ooblerg packages opens a catalog with name/description/
 tag filtering, versions and dependencies. Browsing fetches metadata only.
 Add selects a dependency; it is downloaded when sqgipkg builds. Native library
 forms offer the same picker for a prebuilt Windows alternative while keeping

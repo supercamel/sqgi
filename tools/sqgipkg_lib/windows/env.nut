@@ -55,18 +55,18 @@ class SqgiPkgWindowsEnv extends Base.SqgiPkgAppImage {
         // execute from different directories (manifest dir, native project dir,
         // CMake source/build dir), so relative sysroot paths produce poisoned
         // include paths such as ../../dist or repo-root/dist.
-        if (opts.windows.msys2_root == "")
-            opts.windows.msys2_root = GLib.build_filenamev([opts.output_dir, opts.windows.package_source == "ooblerg" ? "_ooblerg-x86_64" : "_msys2-" + opts.windows.msys2_prefix])
-        opts.windows.msys2_root = this.abs_path(opts.windows.msys2_root)
-        return opts.windows.msys2_root
+        if (opts.windows.sysroot == "")
+            opts.windows.sysroot = GLib.build_filenamev([opts.output_dir, "_ooblerg-x86_64"])
+        opts.windows.sysroot = this.abs_path(opts.windows.sysroot)
+        return opts.windows.sysroot
     }
 
     function windows_sysroot_prefix_dir(opts) {
-        return GLib.build_filenamev([this.windows_sysroot_root(opts), opts.windows.msys2_prefix])
+        return GLib.build_filenamev([this.windows_sysroot_root(opts), opts.windows.prefix])
     }
 
     function windows_cross_dir(opts) {
-        return GLib.build_filenamev([this.abs_path(opts.output_dir), "_cross", opts.windows.package_source + "-" + opts.windows.msys2_prefix])
+        return GLib.build_filenamev([this.abs_path(opts.output_dir), "_cross", opts.windows.package_source + "-" + opts.windows.prefix])
     }
 
     function windows_cmake_toolchain_path(opts) {
@@ -198,9 +198,9 @@ class SqgiPkgWindowsEnv extends Base.SqgiPkgAppImage {
             "set(CMAKE_SHARED_LINKER_FLAGS_INIT \"-static-libgcc -static-libstdc++\")\n" +
             "set(CMAKE_MODULE_LINKER_FLAGS_INIT \"-static-libgcc -static-libstdc++\")\n" +
             "\n" +
-            "set(SQGI_MSYS2_PREFIX \"" + prefix_dir + "\")\n" +
-            "set(CMAKE_FIND_ROOT_PATH \"${SQGI_MSYS2_PREFIX}\")\n" +
-            "set(CMAKE_PREFIX_PATH \"${SQGI_MSYS2_PREFIX}\")\n" +
+            "set(SQGI_WINDOWS_DEPENDENCY_PREFIX \"" + prefix_dir + "\")\n" +
+            "set(CMAKE_FIND_ROOT_PATH \"${SQGI_WINDOWS_DEPENDENCY_PREFIX}\")\n" +
+            "set(CMAKE_PREFIX_PATH \"${SQGI_WINDOWS_DEPENDENCY_PREFIX}\")\n" +
             "\n" +
             "set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)\n" +
             "set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)\n" +
@@ -208,7 +208,7 @@ class SqgiPkgWindowsEnv extends Base.SqgiPkgAppImage {
             "set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE ONLY)\n" +
             "\n" +
             "set(ENV{PKG_CONFIG_PATH} \"\")\n" +
-            "set(ENV{PKG_CONFIG_SYSROOT_DIR} \"" + opts.windows.msys2_root + "\")\n" +
+            "set(ENV{PKG_CONFIG_SYSROOT_DIR} \"" + opts.windows.sysroot + "\")\n" +
             "set(ENV{PKG_CONFIG_LIBDIR} \"" + prefix_dir + "/lib/pkgconfig:" + prefix_dir + "/share/pkgconfig\")\n" +
             "set(PKG_CONFIG_EXECUTABLE pkg-config CACHE FILEPATH \"pkg-config\")\n" +
             "set(SQGI_WINDOWS_GUI " + gui_value + " CACHE BOOL \"Build sqgi.exe with the Windows GUI subsystem\" FORCE)\n")
@@ -330,7 +330,7 @@ class SqgiPkgWindowsEnv extends Base.SqgiPkgAppImage {
             binary_overrides +
             "\n" +
             "[properties]\n" +
-            "sys_root = '" + opts.windows.msys2_root + "'\n" +
+            "sys_root = '" + opts.windows.sysroot + "'\n" +
             "pkg_config_libdir = ['" + prefix_dir + "/lib/pkgconfig', '" + prefix_dir + "/share/pkgconfig']\n" +
             "\n" +
             "[built-in options]\n" +
@@ -382,7 +382,7 @@ class SqgiPkgWindowsEnv extends Base.SqgiPkgAppImage {
         if (!this.path_exists(prefix_dir) && !needs_sysroot)
             return
         if (!this.path_exists(prefix_dir))
-            this.fail("Windows MSYS2 sysroot prefix not found: " + prefix_dir)
+            this.fail("Windows Ooblerg sysroot prefix not found: " + prefix_dir)
 
         this.require_windows_cross_tools(opts)
 
@@ -397,7 +397,7 @@ class SqgiPkgWindowsEnv extends Base.SqgiPkgAppImage {
         GLib.setenv("SQGI_WIN_CMAKE_TOOLCHAIN", toolchain, true)
         GLib.setenv("SQGI_MESON_CROSS_FILE", cross_file, true)
         GLib.setenv("SQGI_WINDOWS_SYSROOT", sysroot, true)
-        GLib.setenv("SQGI_WINDOWS_PREFIX", "/" + opts.windows.msys2_prefix, true)
+        GLib.setenv("SQGI_WINDOWS_PREFIX", "/" + opts.windows.prefix, true)
         GLib.setenv("SQGI_WINDOWS_PREFIX_DIR", prefix_dir, true)
         GLib.setenv("SQGI_WINDOWS_SYSROOT_PREFIX", prefix_dir, true)
         GLib.setenv("SQGI_WINDOWS_GUI", this.windows_gui_cmake_value(opts), true)
@@ -409,7 +409,7 @@ class SqgiPkgWindowsEnv extends Base.SqgiPkgAppImage {
         GLib.setenv("PKG_CONFIG_SYSROOT_DIR", sysroot, true)
         GLib.setenv("PKG_CONFIG_LIBDIR", prefix_dir + "/lib/pkgconfig:" + prefix_dir + "/share/pkgconfig", true)
 
-        this.info("Windows cross sysroot: " + sysroot + " (" + opts.windows.msys2_prefix + ")")
+        this.info("Windows cross sysroot: " + sysroot + " (" + opts.windows.prefix + ")")
         this.info("SQGI_WIN_CMAKE_TOOLCHAIN=" + GLib.getenv("SQGI_WIN_CMAKE_TOOLCHAIN"))
         this.info("SQGI_MESON_CROSS_FILE=" + GLib.getenv("SQGI_MESON_CROSS_FILE"))
         this.info("SQGI_WINDOWS_GUI=" + GLib.getenv("SQGI_WINDOWS_GUI"))
@@ -449,7 +449,7 @@ class SqgiPkgWindowsEnv extends Base.SqgiPkgAppImage {
         if (missing.len() == 0) return
 
         local message = "missing Windows x64 cross build tools for " +
-            opts.windows.msys2_prefix + "; refusing to run Windows build.\n"
+            opts.windows.prefix + "; refusing to run Windows build.\n"
         message += "Missing tools:\n"
         foreach (tool in missing)
             message += "  - " + tool + "\n"
@@ -512,7 +512,7 @@ class SqgiPkgWindowsEnv extends Base.SqgiPkgAppImage {
             this.shell_export("SQGI_MESON_CROSS_FILE", GLib.getenv("SQGI_MESON_CROSS_FILE")) +
             this.shell_export("SQGI_WINDOWS_BUILD_DIR", this.windows_build_dir(opts)) +
             this.shell_export("SQGI_WINDOWS_SYSROOT", sysroot) +
-            this.shell_export("SQGI_WINDOWS_PREFIX", "/" + opts.windows.msys2_prefix) +
+            this.shell_export("SQGI_WINDOWS_PREFIX", "/" + opts.windows.prefix) +
             this.shell_export("SQGI_WINDOWS_PREFIX_DIR", prefix_dir) +
             this.shell_export("SQGI_WINDOWS_SYSROOT_PREFIX", prefix_dir) +
             this.shell_export("SQGI_WINDOWS_GUI", this.windows_gui_cmake_value(opts))
