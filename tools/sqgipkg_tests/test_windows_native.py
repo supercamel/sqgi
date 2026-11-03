@@ -16,6 +16,7 @@ with tempfile.TemporaryDirectory(prefix='sqgipkg é spaces-') as temp:
     (project / 'src').mkdir()
     (project / 'kernels').mkdir()
     (project / 'src/main.nut').write_text(
+        'local Gtk = import("Gtk", "4.0")\n'
         'local p = import("helper.nut")\nassert(p.answer() == 42)\n'
         'print("Windows packaged kernel=42\\n")\n', encoding='utf8')
     (project / 'src/helper.nut').write_text(

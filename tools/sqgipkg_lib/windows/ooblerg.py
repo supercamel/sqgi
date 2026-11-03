@@ -234,6 +234,28 @@ def relocate_windows_pkgconfig(root, paths):
             path.write_text(relocated, encoding='utf-8')
 
 
+def complete_windows_typelibs(root, packages):
+    # Published HarfBuzz requires the standard opaque FreeType namespace, which
+    # the current Ooblerg freetype package omits. These declarations contain no
+    # host library names or architecture-dependent layouts. Prefer repository
+    # metadata as soon as the package supplies it.
+    directory = 'mingw64/lib/girepository-1.0/'
+    typelib = directory + 'freetype2-2.0.typelib'
+    if (root / typelib).exists() or not (root / directory / 'HarfBuzz-0.0.typelib').exists():
+        return
+    owner = next(p for p in packages if directory + 'HarfBuzz-0.0.typelib' in p['files'])
+    source = Path(__file__).parent
+    owner['compatibility_files'] = {}
+    for relative in [typelib, 'mingw64/share/gir-1.0/freetype2-2.0.gir']:
+        destination = root / relative
+        if destination.exists():
+            continue
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes((source / destination.name).read_bytes())
+        owner['files'].append(relative)
+        owner['compatibility_files'][relative] = digest(destination)
+
+
 def prepare(request):
     target = request.get('target', TARGET)
     repo = Repository(request['repository'], request['cache'], request['download'], request['refresh'], target)
@@ -271,6 +293,7 @@ def prepare(request):
         result = {'packages': prepared, 'runtime_packages': [e['name'] for e in runtime]}
         if target == TARGET:
             relocate_windows_pkgconfig(staging, owners)
+            complete_windows_typelibs(staging, prepared)
         if target != TARGET:
             provided = {Path(path).stem for e in prepared for path in e['files'] if path.endswith('.pc')}
             required = set()

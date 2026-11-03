@@ -23,6 +23,15 @@ compat_spec.loader.exec_module(compat)
 
 
 class TypelibCompatibility(unittest.TestCase):
+    @unittest.skipUnless(shutil.which('g-ir-compiler'), 'GI compiler required')
+    def test_freetype_typelib_matches_checked_in_declarations(self):
+        source = Path(provider.__file__).parent
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / 'freetype2-2.0.typelib'
+            subprocess.run(['g-ir-compiler', str(source / 'freetype2-2.0.gir'), '-o', str(output)],
+                           check=True, capture_output=True)
+            self.assertEqual(output.read_bytes(), (source / output.name).read_bytes())
+
     def fixture(self):
         data = bytearray(128)
         data[:16] = b'GOBJ\nMETADATA\r\n\x1a'
@@ -133,6 +142,24 @@ class Provider(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'dependency not found: absent'):
             self.prepare()
         self.assertFalse(Path(self.request['root']).exists())
+
+    def test_harfbuzz_missing_freetype_metadata_is_staged_and_locked(self):
+        typelib = 'mingw64/lib/girepository-1.0/freetype2-2.0.typelib'
+        self.package('harfbuzz', {'mingw64/lib/girepository-1.0/HarfBuzz-0.0.typelib': b'harfbuzz'})
+        self.index()
+        self.request['packages'] = ['harfbuzz']
+        result = self.prepare()
+        record = result['packages'][0]
+        self.assertIn(typelib, record['files'])
+        self.assertEqual(record['compatibility_files'][typelib], provider.digest(Path(self.request['root']) / typelib))
+        self.request.update(locked=result['packages'], download=False)
+        self.assertEqual(self.prepare(), result)
+        self.package('freetype-metadata', {typelib: b'repository-provided'})
+        self.index()
+        self.request.update(packages=['harfbuzz', 'freetype-metadata'], locked=None, download=True, refresh=True)
+        result = self.prepare()
+        self.assertEqual((Path(self.request['root']) / typelib).read_bytes(), b'repository-provided')
+        self.assertNotIn('compatibility_files', result['packages'][0])
 
     @unittest.skipUnless(shutil.which('pkg-config'), 'pkg-config required')
     def test_absolute_pkgconfig_paths_relocate_and_replay(self):

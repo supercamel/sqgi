@@ -936,6 +936,12 @@ Local validation on Ubuntu 24.04:
 - The shell suite's migrated Windows sections passed staging, console override, missing-runtime rejection, native entry, NSIS generation, local-repository dependency resolution and Git branch fallback.
 - Ooblerg's native Windows GCC configured and built the interpreter under Wine. Five CLI preflight cases and eight Windows provider cases passed with Windows Python. Preparation now normalizes absolute pkg-config fields relative to `prefix`, fixing relocated zlib/GIO/cairo discovery; the provider regression verifies resolved include/library paths and locked replay.
 
+The published HarfBuzz package references the missing `freetype2-2.0` namespace.
+Windows preparation supplies its opaque FreeType declarations and reproducible
+typelib only when missing, records their hashes, and stages them with HarfBuzz.
+Repository-provided metadata takes precedence. Native package acceptance imports
+GTK before executing its kernel to cover the complete metadata dependency chain.
+
 The full shell suite still fails in its unrelated Linux fake-package fixture
 (the fake dpkg-query omits required GLib introspection data). Its stale init
 assertion was corrected while migrating fixtures. The study runner requires

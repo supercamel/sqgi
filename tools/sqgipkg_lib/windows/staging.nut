@@ -554,8 +554,8 @@ class SqgiPkgWindowsStaging extends Base.SqgiPkgWindowsOoblerg {
             "set \"GDK_PIXBUF_MODULEDIR=%HERE%lib\\gdk-pixbuf-2.0\\2.10.0\\loaders\"\r\n" +
             "set \"GDK_PIXBUF_BUNDLE_MODULE_FILE=%HERE%lib\\gdk-pixbuf-2.0\\2.10.0\\loaders.cache\"\r\n" +
             "set \"GDK_PIXBUF_MODULE_FILE=%GDK_PIXBUF_BUNDLE_MODULE_FILE%\"\r\n" +
+            "set \"GDK_PIXBUF_RUNTIME_MODULE_FILE=%LOCALAPPDATA%\\sqgi\\" + app_name + "-gdk-pixbuf-loaders.cache\"\r\n" +
             "if exist \"%HERE%bin\\gdk-pixbuf-query-loaders.exe\" (\r\n" +
-            "  set \"GDK_PIXBUF_RUNTIME_MODULE_FILE=%LOCALAPPDATA%\\sqgi\\" + app_name + "-gdk-pixbuf-loaders.cache\"\r\n" +
             "  type NUL > \"%GDK_PIXBUF_RUNTIME_MODULE_FILE%\"\r\n" +
             "  for %%F in (\"%GDK_PIXBUF_MODULEDIR%\\*.dll\") do \"%HERE%bin\\gdk-pixbuf-query-loaders.exe\" \"%%~fF\" >> \"%GDK_PIXBUF_RUNTIME_MODULE_FILE%\" 2>NUL\r\n" +
             "  if exist \"%GDK_PIXBUF_RUNTIME_MODULE_FILE%\" for %%C in (\"%GDK_PIXBUF_RUNTIME_MODULE_FILE%\") do if %%~zC GTR 0 set \"GDK_PIXBUF_MODULE_FILE=%GDK_PIXBUF_RUNTIME_MODULE_FILE%\"\r\n" +
