@@ -32,7 +32,10 @@ jobs:
           xvfb-run -a wineboot -u
           export WINEPATH="Z:$RUNNER_TEMP/ooblerg/mingw64/bin;Z:$GITHUB_WORKSPACE/build-cross"
           export GI_TYPELIB_PATH="Z:$RUNNER_TEMP/ooblerg/mingw64/lib/girepository-1.0"
-          xvfb-run -a ctest --test-dir build-cross -L 'jit|kernel' -E kernel_packaging --output-on-failure --timeout 60 --no-tests=error --parallel 2 --output-junit "$GITHUB_WORKSPACE/build-cross/wine-tests.xml"
+          xvfb-run -a ctest --test-dir build-cross -L 'jit|kernel' -E kernel_packaging --output-on-failure --timeout 60 --no-tests=error --parallel 2 --output-junit "$GITHUB_WORKSPACE/build-cross/wine-tests.xml" || {
+            python3 tools/report_ci_failure.py build-cross/wine-tests.xml
+            exit 1
+          }
       - name: Save cross-build diagnostics
         if: always()
         uses: actions/upload-artifact@v4
@@ -76,10 +79,10 @@ jobs:
         run: |
           # Catch path/schema/fixture failures before the default LLVM build.
           # This interpreter build does not replace default-build tests.
-          cmake -S . -B build-preflight -G Ninja -DCMAKE_BUILD_TYPE=Release -DSQ_ENABLE_JIT=OFF -DSQGI_ENABLE_KERNELS=OFF
-          if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          cmake --build build-preflight --target sqgi-bin
-          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          cmake -S . -B build-preflight -G Ninja -DCMAKE_BUILD_TYPE=Release -DSQ_ENABLE_JIT=OFF -DSQGI_ENABLE_KERNELS=OFF 2>&1 | Tee-Object -FilePath preflight-configure.log
+          if ($LASTEXITCODE) { python tools/report_ci_failure.py preflight-configure.log; exit 1 }
+          cmake --build build-preflight --target sqgi-bin 2>&1 | Tee-Object -FilePath preflight-build.log
+          if ($LASTEXITCODE) { python tools/report_ci_failure.py preflight-build.log; exit 1 }
       - name: Fast CLI and manifest preflight
         run: |
           # Only runtime-independent cases belong here. The complete suites
@@ -95,10 +98,10 @@ jobs:
       - name: Build and install into a path containing spaces
         id: build
         run: |
-          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release '-DCMAKE_INSTALL_PREFIX=C:/sqgipkg test' "-DSQGI_LLVM_INCLUDE_DIR=$env:SQGI_TEST_OOBLERG_PREFIX/include" "-DSQGI_LLVM_LIBRARY=$env:SQGI_TEST_OOBLERG_PREFIX/lib/LLVM-C.lib"
-          if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          cmake --build build
-          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release '-DCMAKE_INSTALL_PREFIX=C:/sqgipkg test' "-DSQGI_LLVM_INCLUDE_DIR=$env:SQGI_TEST_OOBLERG_PREFIX/include" "-DSQGI_LLVM_LIBRARY=$env:SQGI_TEST_OOBLERG_PREFIX/lib/LLVM-C.lib" 2>&1 | Tee-Object -FilePath configure.log
+          if ($LASTEXITCODE) { python tools/report_ci_failure.py configure.log; exit 1 }
+          cmake --build build 2>&1 | Tee-Object -FilePath build.log
+          if ($LASTEXITCODE) { python tools/report_ci_failure.py build.log; exit 1 }
           cmake --install build
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
       - name: LLVM JIT and typed kernel regressions
@@ -145,12 +148,21 @@ jobs:
         run: |
           python tools/sqgipkg_tests/test_windows_native.py 'C:/sqgipkg test/bin/sqgipkg.exe' $env:SQGI_TEST_OOBLERG_CACHE 2>&1 | Tee-Object -FilePath build/native-packaging-tests.log
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: Annotate test failures
+        if: failure()
+        run: |
+          Get-ChildItem build/*tests.xml,build-preflight/*tests.log,build/native-packaging-tests.log -ErrorAction SilentlyContinue | ForEach-Object {
+            python tools/report_ci_failure.py $_.FullName
+          }
       - name: Save all test diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: windows-test-logs
           path: |
+            preflight-*.log
+            configure.log
+            build.log
             build/*tests.log
             build/*tests.xml
             build/CMakeCache.txt
