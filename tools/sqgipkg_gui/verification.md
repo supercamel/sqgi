@@ -942,6 +942,15 @@ typelib only when missing, records their hashes, and stages them with HarfBuzz.
 Repository-provided metadata takes precedence. Native package acceptance imports
 GTK before executing its kernel to cover the complete metadata dependency chain.
 
+Ooblerg's Cairo record-only metadata also omits public enums used by SQGI's
+native binding. Preparation supplies enum declarations while preserving richer
+repository metadata and recording original/replacement hashes. All seven Cairo,
+checker, callback and system regressions pass with the prepared Windows SDK under
+Wine. Both compatibility typelibs reproduce exactly from their checked-in GIRs.
+Ooblerg's Git shim loses quotes around spaced paths; preparation omits that shim
+and the native environment selects its bundled `opt/git/cmd/git.exe`. The Windows
+source-lock regression passes using that executable with a spaced repository path.
+
 The full shell suite still fails in its unrelated Linux fake-package fixture
 (the fake dpkg-query omits required GLib introspection data). Its stale init
 assertion was corrected while migrating fixtures. The study runner requires

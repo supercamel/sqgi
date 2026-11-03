@@ -24,13 +24,14 @@ compat_spec.loader.exec_module(compat)
 
 class TypelibCompatibility(unittest.TestCase):
     @unittest.skipUnless(shutil.which('g-ir-compiler'), 'GI compiler required')
-    def test_freetype_typelib_matches_checked_in_declarations(self):
+    def test_bundled_typelibs_match_checked_in_declarations(self):
         source = Path(provider.__file__).parent
         with tempfile.TemporaryDirectory() as temporary:
-            output = Path(temporary) / 'freetype2-2.0.typelib'
-            subprocess.run(['g-ir-compiler', str(source / 'freetype2-2.0.gir'), '-o', str(output)],
-                           check=True, capture_output=True)
-            self.assertEqual(output.read_bytes(), (source / output.name).read_bytes())
+            for name in ['freetype2-2.0', 'cairo-1.0']:
+                output = Path(temporary) / (name + '.typelib')
+                subprocess.run(['g-ir-compiler', str(source / (name + '.gir')), '-o', str(output)],
+                               check=True, capture_output=True)
+                self.assertEqual(output.read_bytes(), (source / output.name).read_bytes())
 
     def fixture(self):
         data = bytearray(128)
@@ -160,6 +161,42 @@ class Provider(unittest.TestCase):
         result = self.prepare()
         self.assertEqual((Path(self.request['root']) / typelib).read_bytes(), b'repository-provided')
         self.assertNotIn('compatibility_files', result['packages'][0])
+
+    def test_cairo_opaque_metadata_gets_enums_but_rich_metadata_is_preserved(self):
+        gir = 'mingw64/share/gir-1.0/cairo-1.0.gir'
+        typelib = 'mingw64/lib/girepository-1.0/cairo-1.0.typelib'
+        self.package('cairo', {gir: b'<repository xmlns="http://www.gtk.org/introspection/core/1.0"><namespace name="cairo"><record name="Context"/></namespace></repository>', typelib: b'opaque'})
+        self.index()
+        self.request['packages'] = ['cairo']
+        result = self.prepare()
+        root = Path(self.request['root'])
+        node = ET.parse(root / gir).find('.//{*}enumeration[@name="Format"]/{*}member[@name="argb32"]')
+        self.assertEqual(node.attrib['value'], '0')
+        self.assertEqual(result['packages'][0]['compatibility_originals'][typelib], hashlib.sha256(b'opaque').hexdigest())
+        self.request.update(locked=result['packages'], download=False)
+        self.assertEqual(self.prepare(), result)
+        self.entries = []
+        self.package('cairo', {gir: (root / gir).read_bytes(), typelib: b'richer repository metadata'})
+        self.index()
+        self.request.update(locked=None, download=True, refresh=True)
+        result = self.prepare()
+        self.assertEqual((root / typelib).read_bytes(), b'richer repository metadata')
+        self.assertNotIn('compatibility_files', result['packages'][0])
+
+    def test_bundled_git_uses_real_executable_instead_of_argument_losing_shim(self):
+        shim = 'mingw64/bin/git.exe'
+        real = 'mingw64/opt/git/cmd/git.exe'
+        self.package('git', {shim: b'shim', real: b'git'})
+        self.index()
+        self.request['packages'] = ['git']
+        result = self.prepare()
+        root = Path(self.request['root'])
+        self.assertFalse((root / shim).exists())
+        self.assertEqual((root / real).read_bytes(), b'git')
+        self.assertNotIn(shim, result['packages'][0]['files'])
+        self.assertEqual(result['packages'][0]['compatibility_omissions'][shim], hashlib.sha256(b'shim').hexdigest())
+        self.request.update(locked=result['packages'], download=False)
+        self.assertEqual(self.prepare(), result)
 
     @unittest.skipUnless(shutil.which('pkg-config'), 'pkg-config required')
     def test_absolute_pkgconfig_paths_relocate_and_replay(self):

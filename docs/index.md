@@ -130,7 +130,7 @@ $sdk = Join-Path $PWD 'build-ooblerg-sdk'
 $cache = Join-Path $PWD 'build-ooblerg-cache'
 python tools/prepare-windows-sdk.py --root $sdk --cache $cache
 $prefix = "$sdk/mingw64"
-$env:PATH = "$prefix/bin;$env:PATH"
+$env:PATH = "$prefix/opt/git/cmd;$prefix/bin;$env:PATH"
 $env:PKG_CONFIG_LIBDIR = "$prefix/lib/pkgconfig;$prefix/share/pkgconfig"
 $env:GI_TYPELIB_PATH = "$prefix/lib/girepository-1.0"
 cmake -S . -B build-windows -G Ninja -DCMAKE_BUILD_TYPE=Release `

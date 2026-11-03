@@ -29,7 +29,7 @@ with tempfile.TemporaryDirectory(prefix='sqgipkg é spaces-') as temp:
                             'download_packages': False, 'console': True}}
     (project / 'sqgipkg.json').write_text(json.dumps(manifest), encoding='utf8')
     def run(argv):
-        result = subprocess.run(list(map(str, argv)), cwd=project, text=True, capture_output=True, timeout=300)
+        result = subprocess.run(list(map(str, argv)), cwd=project, text=True, errors='replace', capture_output=True, timeout=300)
         if result.returncode:
             raise AssertionError(
                 f'{argv}\nexit code: {result.returncode} (0x{result.returncode & 0xffffffff:08X})'

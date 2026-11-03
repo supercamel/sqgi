@@ -352,8 +352,9 @@ class SqgiPkgWindowsEnv extends Base.SqgiPkgAppImage {
     function prepare_windows_native_environment(opts) {
         local prefix = this.windows_sysroot_prefix_dir(opts)
         local bin = GLib.build_filenamev([prefix, "bin"])
+        local git_bin = GLib.build_filenamev([prefix, "opt", "git", "cmd"])
         local current = GLib.getenv("PATH")
-        GLib.setenv("PATH", bin + ";" + (current == null ? "" : current), true)
+        GLib.setenv("PATH", git_bin + ";" + bin + ";" + (current == null ? "" : current), true)
         GLib.setenv("CMAKE_PREFIX_PATH", prefix, true)
         GLib.setenv("PKG_CONFIG_PATH", "", true)
         GLib.setenv("PKG_CONFIG_SYSROOT_DIR", "", true)

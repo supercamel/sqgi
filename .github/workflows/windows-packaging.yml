@@ -40,6 +40,10 @@ jobs:
             python3 tools/report_ci_failure.py build-cross/wine-tests.xml
             exit 1
           }
+          xvfb-run -a ctest --test-dir build-cross -R '^sqgi_test_(cairo|cairo_runtime|cairo_pixels|c_cairo|callback_async_lifetime|cpp_sqgicheck|system_module)$' --output-on-failure --timeout 60 --no-tests=error --parallel 2 --output-junit "$GITHUB_WORKSPACE/build-cross/runtime-tests.xml" || {
+            python3 tools/report_ci_failure.py build-cross/runtime-tests.xml
+            exit 1
+          }
       - name: Save cross-build diagnostics
         if: always()
         uses: actions/upload-artifact@v4
@@ -47,7 +51,7 @@ jobs:
           name: ubuntu-cross-test-logs
           path: |
             build-cross/CMakeCache.txt
-            build-cross/wine-tests.xml
+            build-cross/*tests.xml
             build-cross/Testing/Temporary/
   windows:
     runs-on: windows-latest
@@ -71,6 +75,8 @@ jobs:
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           $prefix = "$root/mingw64"
           "$prefix/bin" | Out-File -FilePath $env:GITHUB_PATH -Append
+          # Use Ooblerg's bundled Git directly; its bin shim loses argument quotes.
+          "$prefix/opt/git/cmd" | Out-File -FilePath $env:GITHUB_PATH -Append
           "SQGI_TEST_OOBLERG_CACHE=$cache" | Out-File -FilePath $env:GITHUB_ENV -Append
           "SQGI_TEST_OOBLERG_PREFIX=$prefix" | Out-File -FilePath $env:GITHUB_ENV -Append
           "CMAKE_PREFIX_PATH=$prefix" | Out-File -FilePath $env:GITHUB_ENV -Append

@@ -17,6 +17,7 @@ import tarfile
 import tempfile
 import urllib.parse
 import urllib.request
+import xml.etree.ElementTree as ET
 
 TARGET = 'x86_64-w64-mingw32'
 DEFAULT_REPOSITORY = 'https://ooblerg.xyz/v1'
@@ -234,18 +235,50 @@ def relocate_windows_pkgconfig(root, paths):
             path.write_text(relocated, encoding='utf-8')
 
 
+def omit_windows_git_shim(root, packages):
+    # This launcher reconstructs argv without preserving Windows quoting.
+    # Python also searches its own executable directory before PATH, so merely
+    # prepending the bundled Git directory does not avoid the broken shim.
+    shim = 'mingw64/bin/git.exe'
+    if not (root / shim).is_file() or not (root / 'mingw64/opt/git/cmd/git.exe').is_file():
+        return
+    owner = next(p for p in packages if shim in p['files'])
+    owner['compatibility_omissions'] = {shim: digest(root / shim)}
+    owner['files'].remove(shim)
+    (root / shim).unlink()
+
+
 def complete_windows_typelibs(root, packages):
+    directory = 'mingw64/lib/girepository-1.0/'
+    source = Path(__file__).parent
+    cairo_gir = 'mingw64/share/gir-1.0/cairo-1.0.gir'
+    if (root / cairo_gir).is_file():
+        namespace = ET.parse(root / cairo_gir).getroot().find('{http://www.gtk.org/introspection/core/1.0}namespace')
+        # Ooblerg currently ships only Cairo's opaque records, omitting the
+        # public enums used by SQGI's native binding. Keep richer metadata.
+        if (namespace is not None and len(namespace) and
+                all(node.tag == '{http://www.gtk.org/introspection/core/1.0}record' for node in namespace)):
+            owner = next(p for p in packages if cairo_gir in p['files'])
+            owner.setdefault('compatibility_files', {})
+            owner.setdefault('compatibility_originals', {})
+            for relative in [cairo_gir, directory + 'cairo-1.0.typelib']:
+                destination = root / relative
+                if destination.exists():
+                    owner['compatibility_originals'][relative] = digest(destination)
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                destination.write_bytes((source / destination.name).read_bytes())
+                if relative not in owner['files']:
+                    owner['files'].append(relative)
+                owner['compatibility_files'][relative] = digest(destination)
     # Published HarfBuzz requires the standard opaque FreeType namespace, which
     # the current Ooblerg freetype package omits. These declarations contain no
     # host library names or architecture-dependent layouts. Prefer repository
     # metadata as soon as the package supplies it.
-    directory = 'mingw64/lib/girepository-1.0/'
     typelib = directory + 'freetype2-2.0.typelib'
     if (root / typelib).exists() or not (root / directory / 'HarfBuzz-0.0.typelib').exists():
         return
     owner = next(p for p in packages if directory + 'HarfBuzz-0.0.typelib' in p['files'])
-    source = Path(__file__).parent
-    owner['compatibility_files'] = {}
+    owner.setdefault('compatibility_files', {})
     for relative in [typelib, 'mingw64/share/gir-1.0/freetype2-2.0.gir']:
         destination = root / relative
         if destination.exists():
@@ -294,6 +327,7 @@ def prepare(request):
         if target == TARGET:
             relocate_windows_pkgconfig(staging, owners)
             complete_windows_typelibs(staging, prepared)
+            omit_windows_git_shim(staging, prepared)
         if target != TARGET:
             provided = {Path(path).stem for e in prepared for path in e['files'] if path.endswith('.pc')}
             required = set()
