@@ -3,6 +3,7 @@ import hashlib
 import importlib.util
 import io
 import json
+import os
 import struct
 import shutil
 import subprocess
@@ -132,6 +133,36 @@ class Provider(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'dependency not found: absent'):
             self.prepare()
         self.assertFalse(Path(self.request['root']).exists())
+
+    @unittest.skipUnless(shutil.which('pkg-config'), 'pkg-config required')
+    def test_absolute_pkgconfig_paths_relocate_and_replay(self):
+        self.package('reloc', {'mingw64/share/pkgconfig/reloc.pc': b'''prefix=/mingw64
+exec_prefix=/mingw64
+libdir=/mingw64/lib
+includedir=/mingw64/include
+Name: reloc
+Description: absolute prefix regression
+Version: 1
+Libs: -L${libdir} -lreloc
+Cflags: -I${includedir}
+'''})
+        self.index()
+        self.request['packages'] = ['reloc']
+        result = self.prepare()
+        root = Path(self.request['root'])
+        pc = root / 'mingw64/share/pkgconfig/reloc.pc'
+        before = pc.read_bytes()
+        env = dict(os.environ, PKG_CONFIG_PATH='', PKG_CONFIG_SYSROOT_DIR='',
+                   PKG_CONFIG_LIBDIR=str(pc.parent), PKG_CONFIG_ALLOW_SYSTEM_CFLAGS='1')
+        output = subprocess.check_output(['pkg-config', '--define-prefix', '--cflags', '--libs', 'reloc'],
+                                         env=env, text=True).replace('\\', '/')
+        prefix = (root / 'mingw64').as_posix()
+        self.assertIn('-I' + prefix + '/include', output)
+        self.assertIn('-L' + prefix + '/lib', output)
+        self.assertNotIn('-I/mingw64', output)
+        self.request.update(locked=result['packages'], download=False)
+        self.assertEqual(self.prepare(), result)
+        self.assertEqual(pc.read_bytes(), before)
 
     def test_corrupt_cache_keeps_previous_sysroot(self):
         self.prepare()

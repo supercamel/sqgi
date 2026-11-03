@@ -217,6 +217,23 @@ def extract(archive, root, owners, package, target=TARGET):
     return paths
 
 
+def relocate_windows_pkgconfig(root, paths):
+    # pkgconf relocates prefix on Windows, but cannot relocate independent
+    # absolute variables in packages such as zlib and libjpeg. Keep the target
+    # prefix for cross compilation and express other paths relative to it.
+    for name in paths:
+        if not name.endswith('.pc'):
+            continue
+        path = root / name
+        text = path.read_text(encoding='utf-8')
+        lines = [line if re.match(r'^\s*prefix\s*=', line) else
+                 re.sub(r'/mingw64(?=/|\s|$)', '${prefix}', line)
+                 for line in text.splitlines(keepends=True)]
+        relocated = ''.join(lines)
+        if relocated != text:
+            path.write_text(relocated, encoding='utf-8')
+
+
 def prepare(request):
     target = request.get('target', TARGET)
     repo = Repository(request['repository'], request['cache'], request['download'], request['refresh'], target)
@@ -252,6 +269,8 @@ def prepare(request):
             prepared.append({'repository': repo.url, 'target': target, 'metadata': entry,
                              'sha256': entry.get('sha256'), 'files': paths})
         result = {'packages': prepared, 'runtime_packages': [e['name'] for e in runtime]}
+        if target == TARGET:
+            relocate_windows_pkgconfig(staging, owners)
         if target != TARGET:
             provided = {Path(path).stem for e in prepared for path in e['files'] if path.endswith('.pc')}
             required = set()
