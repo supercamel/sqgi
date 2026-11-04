@@ -1,5 +1,27 @@
 # Windows LLVM JIT and kernel validation
 
+## Wine loader timeout: 2026-11-04
+
+The [master CI run](https://github.com/supercamel/sqgi/actions/runs/41589281796)
+cross-compiled successfully and passed native Windows validation, but
+`sqgi_test_cairo_pixels` timed out under Ubuntu 24.04's Wine 9.0. Local repeats
+reproduced the hang while importing GDK, before any pixel assertions. Wine's
+`+sync` trace reported a thread waiting on `dlls/ntdll/loader.c: loader_section`,
+held by another thread during GTK loading. A shared Xvfb session alone did not
+prevent the hang.
+
+CI now pins WineHQ 11.0 (`11.0.0.0~noble-1`) and keeps prefix initialization
+and all test groups inside one Xvfb session. Wine only executes the Windows
+binaries; Ubuntu's MinGW compiler performs the cross-build. The pixel test
+also runs 30 consecutive times with `--repeat until-fail`, so a failure is
+reported immediately rather than retried away. The Wine wrapper forwards
+output while a test runs, and failure annotations retain JUnit timeout reasons
+even when the test produces no output.
+
+With the same cross-compiled binary and Ooblerg SDK, local Wine 11 validation
+passed all 62 selected JIT/kernel tests, all seven selected runtime tests, and
+100 consecutive pixel-test runs without import tracing or extra delays.
+
 ## Ooblerg migration: 2026-11-03
 
 The current Windows dependency source is Ooblerg. Build with
@@ -62,8 +84,8 @@ CI builds LLVM 18.1.8 and its headers with its own toolchain.
 3. **False matrix timeout:** the script printed its success message and SQGI
    exited, but Wine's `explorer.exe` retained CTest's stderr pipe. The pipe was
    observed in both processes' `/proc` descriptors. The Wine runner captures
-   output in a temporary file and forwards it when the foreground executable
-   exits, so a background Wine service cannot keep CTest waiting.
+   output in a temporary file and forwards it while the foreground executable
+   runs, so a background Wine service cannot keep CTest waiting.
 
 LLVM 18's C API cannot enable the custom object layer's automatic claiming of
 codegen-created COFF symbols. On Windows the helper therefore emits a complete
@@ -139,7 +161,9 @@ an Xvfb session. Set `WINEPATH` to the semicolon-separated **Windows** paths of
 the LLVM and sysroot `bin` directories, and `GI_TYPELIB_PATH` to the Windows
 path of the sysroot's `lib/girepository-1.0`. `winepath -w` converts host paths.
 The runner assumes the isolated prefix's default `Z:` filesystem mapping.
-Keep the Wine server warm with `wineserver -p` before the suite.
+Start a persistent Wine server with `wineserver -p` before `wineboot`, and keep
+prefix initialization and the suite in the same display session. CI uses
+`WINEDLLOVERRIDES='mscoree,mshtml='` to suppress unused Mono/Gecko installer dialogs.
 
 ```sh
 cmake -S . -B build-windows-llvm-wine -G Ninja \

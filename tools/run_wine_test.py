@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 
 
 def main():
@@ -28,13 +29,22 @@ def main():
             if Path(arg).exists() else arg for arg in sys.argv[1:]]
     # Wine desktop/services may outlive the executable and inherit stderr.
     # Giving them CTest's pipe keeps it open after a successful test, causing a
-    # false timeout. Capture in a file and forward output on foreground exit.
-    with tempfile.TemporaryFile() as output:
-        result = subprocess.run(["wine", *args], env=env,
-                                stdout=output, stderr=subprocess.STDOUT)
-        output.seek(0)
-        shutil.copyfileobj(output, sys.stdout.buffer)
-    return result.returncode
+    # false timeout. Use independent file handles so output can be forwarded
+    # while the foreground process runs, including before a CTest timeout.
+    with tempfile.TemporaryDirectory(prefix="sqgi-wine-output-") as directory:
+        path = Path(directory) / "output.log"
+        with path.open("wb") as output, path.open("rb") as reader:
+            process = subprocess.Popen(["wine", *args], env=env,
+                                       stdout=output, stderr=subprocess.STDOUT)
+            while process.poll() is None:
+                shutil.copyfileobj(reader, sys.stdout.buffer)
+                sys.stdout.buffer.flush()
+                time.sleep(0.05)
+            shutil.copyfileobj(reader, sys.stdout.buffer)
+            sys.stdout.buffer.flush()
+    if process.returncode:
+        print(f"Wine exited with status {process.returncode}", file=sys.stderr)
+    return process.returncode
 
 
 if __name__ == "__main__":

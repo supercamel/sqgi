@@ -13,13 +13,24 @@ jobs:
       - name: Install Ubuntu cross-build and execution tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake ninja-build meson pkg-config gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64 gobject-introspection libgirepository1.0-dev wine64 xvfb
+          sudo apt-get install -y cmake ninja-build meson pkg-config gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64 gobject-introspection libgirepository1.0-dev xvfb
+      - name: Install Wine 11
+        run: |
+          # Ubuntu's Wine 9 can deadlock in the loader while importing GDK.
+          sudo dpkg --add-architecture i386
+          sudo mkdir -p /etc/apt/keyrings
+          curl -fsSL https://dl.winehq.org/wine-builds/winehq.key | sudo tee /etc/apt/keyrings/winehq-archive.key > /dev/null
+          sudo curl -fsSL -o /etc/apt/sources.list.d/winehq-noble.sources https://dl.winehq.org/wine-builds/ubuntu/dists/noble/winehq-noble.sources
+          sudo apt-get update
+          sudo apt-get install -y --install-recommends winehq-stable=11.0.0.0~noble-1
+          wine --version
       - name: Prepare Ooblerg target dependencies
         run: python3 tools/prepare-windows-sdk.py --cross --root "$RUNNER_TEMP/ooblerg" --cache "$RUNNER_TEMP/ooblerg-cache"
       - name: Verify package provider and Linux SDK exports
         run: |
           python3 tools/sqgipkg_tests/test_ooblerg.py
           python3 tools/sqgipkg_tests/test_native_sdk.py
+          python3 test/test_wine_tools.py
       - name: Cross-build SQGI with LLVM and kernels
         run: |
           cmake -S . -B build-cross -G Ninja -DCMAKE_BUILD_TYPE=Release \
@@ -30,18 +41,28 @@ jobs:
             -DCMAKE_CROSSCOMPILING_EMULATOR="$GITHUB_WORKSPACE/tools/run_wine_test.py"
           cmake --build build-cross --parallel 4
       - name: Run Windows LLVM regressions under Wine
+        shell: xvfb-run -a bash --noprofile --norc -e -o pipefail {0}
         run: |
           export WINEPREFIX="$RUNNER_TEMP/sqgi-wine" WINEDEBUG=-all
+          # SQGI does not need Mono or Gecko; suppress their installer dialogs.
+          export WINEDLLOVERRIDES='mscoree,mshtml='
           mkdir -p "$WINEPREFIX"
-          xvfb-run -a wineboot -u
+          trap 'wineserver -k || true' EXIT
+          wineserver -p
+          wineboot -u
           export WINEPATH="Z:$RUNNER_TEMP/ooblerg/mingw64/bin;Z:$GITHUB_WORKSPACE/build-cross"
           export GI_TYPELIB_PATH="Z:$RUNNER_TEMP/ooblerg/mingw64/lib/girepository-1.0"
-          xvfb-run -a ctest --test-dir build-cross -L 'jit|kernel' -E kernel_packaging --output-on-failure --timeout 60 --no-tests=error --parallel 2 --output-junit "$GITHUB_WORKSPACE/build-cross/wine-tests.xml" || {
+          ctest --test-dir build-cross -L 'jit|kernel' -E kernel_packaging --output-on-failure --timeout 60 --no-tests=error --parallel 2 --output-junit "$GITHUB_WORKSPACE/build-cross/wine-tests.xml" || {
             python3 tools/report_ci_failure.py build-cross/wine-tests.xml
             exit 1
           }
-          xvfb-run -a ctest --test-dir build-cross -R '^sqgi_test_(cairo|cairo_runtime|cairo_pixels|c_cairo|callback_async_lifetime|cpp_sqgicheck|system_module)$' --output-on-failure --timeout 60 --no-tests=error --parallel 2 --output-junit "$GITHUB_WORKSPACE/build-cross/runtime-tests.xml" || {
+          ctest --test-dir build-cross -R '^sqgi_test_(cairo|cairo_runtime|cairo_pixels|c_cairo|callback_async_lifetime|cpp_sqgicheck|system_module)$' --output-on-failure --timeout 60 --no-tests=error --parallel 2 --output-junit "$GITHUB_WORKSPACE/build-cross/runtime-tests.xml" || {
             python3 tools/report_ci_failure.py build-cross/runtime-tests.xml
+            exit 1
+          }
+          # The GDK import hang was intermittent across fresh processes.
+          ctest --test-dir build-cross -R '^sqgi_test_cairo_pixels$' --repeat until-fail:30 --output-on-failure --no-tests=error --output-junit "$GITHUB_WORKSPACE/build-cross/runtime-repeat-tests.xml" || {
+            python3 tools/report_ci_failure.py build-cross/runtime-repeat-tests.xml
             exit 1
           }
       - name: Save cross-build diagnostics
