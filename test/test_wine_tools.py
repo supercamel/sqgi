@@ -70,7 +70,7 @@ class WineRunner(unittest.TestCase):
         result = subprocess.run([sys.executable, str(TOOLS / 'run_wine_test.py'), str(script), 'argument with spaces'],
                                 env=self.env, capture_output=True, text=True, timeout=3)
         self.assertEqual(result.returncode, 23)
-        self.assertEqual(json.loads(result.stdout), ['Z:' + str(script).replace('/', '\\'), 'argument with spaces'])
+        self.assertEqual(json.loads(result.stdout), ['start', '/exec', 'Z:' + str(script).replace('/', '\\'), 'argument with spaces'])
         self.assertIn('status 23', result.stderr)
 
 

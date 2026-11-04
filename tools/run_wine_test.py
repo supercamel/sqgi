@@ -34,7 +34,10 @@ def main():
     with tempfile.TemporaryDirectory(prefix="sqgi-wine-output-") as directory:
         path = Path(directory) / "output.log"
         with path.open("wb") as output, path.open("rb") as reader:
-            process = subprocess.Popen(["wine", *args], env=env,
+            # /exec inherits the console, waits for the Windows process, and
+            # returns GetExitCodeProcess. Direct Wine invocation can instead
+            # report SIGKILL when wineserver reaps an already-exited process.
+            process = subprocess.Popen(["wine", "start", "/exec", *args], env=env,
                                        stdout=output, stderr=subprocess.STDOUT)
             while process.poll() is None:
                 shutil.copyfileobj(reader, sys.stdout.buffer)

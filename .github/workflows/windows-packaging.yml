@@ -60,8 +60,8 @@ jobs:
             python3 tools/report_ci_failure.py build-cross/runtime-tests.xml
             exit 1
           }
-          # The GDK import hang was intermittent across fresh processes.
-          ctest --test-dir build-cross -R '^sqgi_test_cairo_pixels$' --repeat until-fail:30 --output-on-failure --no-tests=error --output-junit "$GITHUB_WORKSPACE/build-cross/runtime-repeat-tests.xml" || {
+          # GDK imports and Wine process shutdown failed intermittently.
+          ctest --test-dir build-cross -R '^(sqgi_test_cairo_pixels|sqgi_demo_kernel_typed_objects|sqgi_test_cpp_sqjit_virtual_array)$' --repeat until-fail:30 --parallel 2 --output-on-failure --no-tests=error --output-junit "$GITHUB_WORKSPACE/build-cross/runtime-repeat-tests.xml" || {
             python3 tools/report_ci_failure.py build-cross/runtime-repeat-tests.xml
             exit 1
           }

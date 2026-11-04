@@ -29,6 +29,14 @@ metadata as well as the older opaque-only declarations. The supplied files
 remain recorded in the package lock, and repository-provided typelibs are
 preserved when no GIR is shipped.
 
+Further stress testing caught Wine returning Unix `SIGKILL` during process
+teardown, including after a test had printed its success message. The runner
+now uses Wine's [`start /exec`](https://github.com/wine-mirror/wine/blob/wine-11.0/programs/start/start.c)
+to inherit the console, wait for the Windows process, and return its
+`GetExitCodeProcess` result. All 62 JIT/kernel tests passed five consecutive
+runs each through this launcher. CI also repeats the typed-object and virtual
+array tests 30 times alongside the pixel test.
+
 ## Ooblerg migration: 2026-11-03
 
 The current Windows dependency source is Ooblerg. Build with
