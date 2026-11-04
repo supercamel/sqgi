@@ -22,6 +22,13 @@ With the same cross-compiled binary and Ooblerg SDK, local Wine 11 validation
 passed all 62 selected JIT/kernel tests, all seven selected runtime tests, and
 100 consecutive pixel-test runs without import tracing or extra delays.
 
+Candidate validation also exposed an independent repository update: Ooblerg's
+`cairo` package changed from `1.18.0-3build1` to `1.18.0-3build1+ooblerg1`,
+removing both Cairo metadata files. SDK preparation now supplements absent
+metadata as well as the older opaque-only declarations. The supplied files
+remain recorded in the package lock, and repository-provided typelibs are
+preserved when no GIR is shipped.
+
 ## Ooblerg migration: 2026-11-03
 
 The current Windows dependency source is Ooblerg. Build with

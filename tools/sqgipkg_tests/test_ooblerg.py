@@ -183,6 +183,28 @@ class Provider(unittest.TestCase):
         self.assertEqual((root / typelib).read_bytes(), b'richer repository metadata')
         self.assertNotIn('compatibility_files', result['packages'][0])
 
+    def test_cairo_missing_metadata_is_staged_and_locked(self):
+        gir = 'mingw64/share/gir-1.0/cairo-1.0.gir'
+        typelib = 'mingw64/lib/girepository-1.0/cairo-1.0.typelib'
+        self.package('cairo', {'mingw64/bin/libcairo-2.dll': b'cairo'})
+        self.index()
+        self.request['packages'] = ['cairo']
+        result = self.prepare()
+        root = Path(self.request['root'])
+        record = result['packages'][0]
+        for relative in [gir, typelib]:
+            self.assertIn(relative, record['files'])
+            self.assertEqual(record['compatibility_files'][relative], provider.digest(root / relative))
+        self.assertEqual(record['compatibility_originals'], {})
+        self.request.update(locked=result['packages'], download=False)
+        self.assertEqual(self.prepare(), result)
+        self.package('cairo-metadata', {typelib: b'repository-provided'})
+        self.index()
+        self.request.update(packages=['cairo', 'cairo-metadata'], locked=None, download=True, refresh=True)
+        result = self.prepare()
+        self.assertEqual((root / typelib).read_bytes(), b'repository-provided')
+        self.assertNotIn('compatibility_files', result['packages'][0])
+
     def test_bundled_git_uses_real_executable_instead_of_argument_losing_shim(self):
         shim = 'mingw64/bin/git.exe'
         real = 'mingw64/opt/git/cmd/git.exe'
