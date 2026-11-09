@@ -2,8 +2,7 @@
 
 `import("cairo")` provides native `Context`, `Surface` and `Pattern` classes.
 Enums such as `Format.argb32` and `Extend.pad` come from the Cairo typelib.
-The runtime and static checker share the method declarations in
-[`src/sqgi_cairo_api.def`](../../src/sqgi_cairo_api.def).
+Use `sqgicheck` to check Cairo method names and arguments before running a script.
 
 ```squirrel
 local C = import("cairo")
@@ -37,19 +36,3 @@ exception, including Cairo arguments passed through GI (for example,
 arguments. Integer arguments reject floats and booleans; surface dimensions
 must be nonnegative and fit a native signed integer. Invalid extension values
 are rejected before changing the pattern.
-
-## Regression tests
-
-Run `ctest --test-dir build -R 'cairo|sqgicheck' --output-on-failure` after
-building. Tests cover wrong wrapper types, argument validation, source sharing,
-native reference counts, all four extension modes with distinct pixel colors,
-GdkPixbuf scaling/alpha/clipping, Cairo boxed values, and checker diagnostics.
-The GTK draw callback test is registered when `xvfb-run` is available; it
-requires GTK 4 and asserts that at least two callbacks complete.
-
-The standard and ASan shell runners include Cairo tests. Sanitizer builds can
-also run these CTest cases directly. The tests use unique temporary paths.
-The GTK test suppresses Fontconfig's process-lifetime `FcInit` allocations;
-the native Cairo reference-count and pixel tests have no leak suppressions.
-Both compact and legacy explicit callback-registration forms are exercised;
-unused legacy destroy-callback wrappers are released when registration returns.

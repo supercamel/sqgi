@@ -9,13 +9,16 @@ function matches(package, query) {
     if ("tags" in package) foreach (tag in package.tags) text += " " + tag
     return text.tolower().find(strip(query).tolower()) != null
 }
-function open(parent, directory, widgets, selected, context = "Add a dependency to the Windows package. Linux dependencies are configured separately.", target = "x86_64-w64-mingw32") {
+function open(parent, directory, widgets, selected, context = "Add a dependency to the Windows package. Linux dependencies are configured separately.", target = "x86_64-w64-mingw32", manifest = "") {
     local dialog = Gtk.Dialog.new(); dialog.set_title("Find Ooblerg packages")
     dialog.set_transient_for(parent); dialog.set_modal(true); dialog.set_default_size(680, 640)
     local body = W.padded(W.box()); dialog.get_content_area().append(body)
     local platform = target == "x86_64-w64-mingw32" ? "Windows x86_64" : (target == "aarch64-linux-gnu" ? "Linux aarch64 · Ubuntu 24.04" : "Linux x86_64 · Ubuntu 24.04")
+    local android = target == "aarch64-linux-android" || target == "x86_64-linux-android"
+    if (android) platform = "Android " + (target == "aarch64-linux-android" ? "arm64-v8a" : "x86_64") + " · pinned Ubuntu 24.04 sources"
     body.append(W.heading("Ooblerg · " + platform)); body.append(W.label(context))
-    if (target != "x86_64-w64-mingw32") body.append(W.label("This catalog is for the CPU shown above. Ubuntu supplies ordinary dependencies."))
+    if (android) body.append(W.label("This module catalog uses the SDK release and repository in your current manifest. Building checks compatibility for every selected ABI."))
+    else if (target != "x86_64-w64-mingw32") body.append(W.label("This catalog is for the CPU shown above. Ubuntu supplies ordinary dependencies."))
     local search = W.entry(), label = W.label("Search by name or description")
     search.set_placeholder_text("For example: serial, 3D, video, GTK")
     label.set_mnemonic_widget(search); body.append(label); body.append(search)
@@ -60,7 +63,7 @@ function open(parent, directory, widgets, selected, context = "Add a dependency 
     local load = function(force) {
         refresh.set_sensitive(false); search.set_sensitive(false); loaded = false
         packages = []; render(); status.set_text("Loading package catalog… No packages are being installed.")
-        job.run("packages", "", directory, force, target).then(function(result) {
+        job.run("packages", manifest, directory, force, target).then(function(result) {
             if (!alive) return
             refresh.set_sensitive(true); search.set_sensitive(true)
             if (!result.ok) { status.set_text("Could not load the catalog: " + result.diagnostics[0].message + "\nUse Refresh to retry."); return }

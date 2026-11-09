@@ -1,8 +1,8 @@
 local GLib = import("GLib")
 local Gio = import("Gio")
-local Base = import("doctor.nut")
+local Base = import("android.nut")
 
-class SqgiPkgBuild extends Base.SqgiPkgDoctor {
+class SqgiPkgBuild extends Base.SqgiPkgAndroid {
     build_result_path = null
     build_result = null
     build_output_before = null
@@ -26,7 +26,7 @@ class SqgiPkgBuild extends Base.SqgiPkgDoctor {
     function report_build_progress(opts, phase) {
         if (build_result == null) return
         build_result.progress <- { target = opts.target,
-            architecture = this.starts_with(opts.target, "win-") ? "x86_64" : opts.appimage_arch,
+            architecture = this.is_android(opts) ? opts.android.abi : this.starts_with(opts.target, "win-") ? "x86_64" : opts.appimage_arch,
             phase = phase, completed = build_result.artifacts.len() }
         this.finish_build_result("running")
     }
@@ -49,15 +49,16 @@ class SqgiPkgBuild extends Base.SqgiPkgDoctor {
             this.fail("Build tool did not replace the previous output: " + file.get_path())
         if (info.get_file_type() != (directory ? Gio.FileType.directory : Gio.FileType.regular) || (!directory && info.get_size() <= 0))
             this.fail("Build did not produce the expected output: " + file.get_path())
-        build_result.artifacts.push({ target = opts.target, architecture = this.starts_with(opts.target, "win-") ? "x86_64" : opts.appimage_arch,
+        build_result.artifacts.push({ target = opts.target, architecture = this.is_android(opts) ? opts.android.abi : this.starts_with(opts.target, "win-") ? "x86_64" : opts.appimage_arch,
             kind = kind, path = file.get_path(), size = directory ? null : info.get_size() })
         this.report_build_progress(opts, "complete")
     }
 
     function selected_configurations(opts) {
+        if (this.is_android(opts)) return this.android_configurations(opts)
         if (this.starts_with(opts.target, "win-")) { this.resolve_native_recipe_entry(opts); return [opts] }
         local out = [], matrix = opts.target == "all" || opts.target == "appimage-all"
-        foreach (config in this.effective_linux_arches(opts)) {
+        if (opts.target != "all" || opts.platform_enabled.linux) foreach (config in this.effective_linux_arches(opts)) {
             if (matrix || config.arch == opts.appimage_arch) {
                 local output = matrix ? (config.output != "" ? config.output : opts.output_dir + "-linux-" + this.linux_arch_display_suffix(config.arch)) : opts.output_dir
                 local selected = this.clone_opts_for_linux_arch(opts, config, output)
@@ -65,7 +66,7 @@ class SqgiPkgBuild extends Base.SqgiPkgDoctor {
                 out.push(selected)
             }
         }
-        if (out.len() == 0) {
+        if (out.len() == 0 && (opts.target != "all" || opts.platform_enabled.linux)) {
             local linux = clone opts
             if (matrix) { linux.target = "appimage"; linux.output_dir += "-linux-" + opts.appimage_arch }
             out.push(linux)
@@ -75,9 +76,16 @@ class SqgiPkgBuild extends Base.SqgiPkgDoctor {
             windows.target = opts.windows_format == "directory" ? "win-dir" : "win-nsis"
             windows.output_dir = opts.output_dir + "-windows-x86_64"
             windows.report = this.new_report()
-            out.push(windows)
+            if (opts.platform_enabled.windows) out.push(windows)
+            if (opts.android.declared && opts.platform_enabled.android) {
+                local android = clone opts
+                android.target = "android-" + opts.android.format
+                android.output_dir = opts.output_dir + "-android"
+                foreach (config in this.android_configurations(android)) out.push(config)
+            }
         }
-        foreach (selected in out) this.resolve_native_recipe_entry(selected)
+        if (!out.len()) this.fail("No platforms are enabled for target all")
+        foreach (selected in out) if (!this.is_android(selected)) this.resolve_native_recipe_entry(selected)
         return out
     }
 
@@ -495,6 +503,7 @@ class SqgiPkgBuild extends Base.SqgiPkgDoctor {
             if (config.target == "appimage") this.build_appimage(config)
             else if (config.target == "win-dir") this.build_windows_dir(config)
             else if (config.target == "win-nsis") this.build_windows_nsis(config)
+            else if (this.is_android(config)) this.build_android(config)
             else this.fail("unsupported matrix output: " + config.target)
         }
     }

@@ -44,15 +44,15 @@ class SqgiPkgWindowsStaging extends Base.SqgiPkgWindowsOoblerg {
         if (opts.script != "") {
             main_script_abs = this.abs_path(opts.script)
             if (!this.path_exists(main_script_abs)) this.fail("script not found: " + opts.script)
-            local app_root = this.app_script_root_rel(opts)
+            local app_root = this.app_script_root_rel(opts), layout = this.script_entry_layout(opts)
             entry_rel = this.stage_script_file(
                 opts,
                 appdir,
                 main_script_abs,
-                GLib.build_filenamev([app_root, "main.nut"]),
+                GLib.build_filenamev([app_root, layout.entry]),
                 "main script",
                 staged_scripts,
-                this.dirname(main_script_abs),
+                layout.source,
                 app_root
             )
         }
@@ -67,32 +67,7 @@ class SqgiPkgWindowsStaging extends Base.SqgiPkgWindowsOoblerg {
     }
 
     function stage_windows_scripts(opts, windir, staged_scripts) {
-        local main_script_abs = ""
-        local entry_rel = null
-
-        if (opts.script != "") {
-            main_script_abs = this.abs_path(opts.script)
-            if (!this.path_exists(main_script_abs)) this.fail("script not found: " + opts.script)
-            local app_root = this.app_script_root_rel(opts)
-            entry_rel = this.stage_script_file(
-                opts,
-                windir,
-                main_script_abs,
-                GLib.build_filenamev([app_root, "main.nut"]),
-                "main script",
-                staged_scripts,
-                this.dirname(main_script_abs),
-                app_root
-            )
-        }
-
-        foreach (spec in opts.scripts)
-            this.add_script_spec(opts, windir, spec, staged_scripts)
-
-        foreach (dir in opts.script_dirs)
-            this.add_script_dir(opts, windir, dir, main_script_abs, staged_scripts)
-
-        return entry_rel
+        return this.stage_app_scripts(opts, windir, staged_scripts)
     }
 
     function windows_batch_set(name, value) {

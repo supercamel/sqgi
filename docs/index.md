@@ -3,7 +3,7 @@
 SQGI is a small Squirrel runtime for building native cross-platform
 applications. It connects Squirrel scripts to GLib/GObject libraries through
 GObject Introspection, adds async/await, and includes `sqgipkg` for shipping
-apps as AppImages, Windows directories, and NSIS installers. Built-in modules
+apps as AppImages, Windows directories, NSIS installers, and Android APKs/App Bundles. Built-in modules
 such as `system` provide a small stable surface for runtime and environment
 information.
 
@@ -21,6 +21,9 @@ information.
   GStreamer, libsoup, and GdkPixbuf.
 * [Packaging tutorials](packaging/README.md): package scripts, resources,
   native modules, GTK data, AppImages, Windows installers, and cross builds.
+* [Android apps](packaging/android.md): set up the toolchain and emulator,
+  build an app, and deploy source updates from your desktop.
+* [Typed kernels](kernels/README.md): call compiled numerical code from Squirrel.
 
 ## Quick Start On Windows
 
@@ -89,7 +92,7 @@ git clone https://github.com/supercamel/sqgi.git
 cd sqgi
 
 sudo apt install cmake build-essential pkg-config \
-  libglib2.0-dev libgirepository1.0-dev libffi-dev libcairo2-dev
+  libglib2.0-dev libgirepository1.0-dev libffi-dev libcairo2-dev llvm-18-dev
 ```
 
 Build SQGI:
@@ -101,6 +104,17 @@ cmake --build build -j"$(nproc)"
 build/sqgi --version
 build/sqgicheck --version
 ```
+
+Install the runtime and packaging tools for your user:
+
+```sh
+cmake --install build --prefix "$HOME/.local"
+export PATH="$HOME/.local/bin:$PATH"
+hash -r
+```
+
+For a system-wide installation, use
+`sudo cmake --install build --prefix /usr/local` instead.
 
 Run a script from the source checkout:
 

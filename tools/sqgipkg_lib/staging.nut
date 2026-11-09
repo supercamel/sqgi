@@ -125,6 +125,15 @@ class SqgiPkgStaging extends Base.SqgiPkgRecipes {
             : GLib.build_filenamev(["usr", "share", "sqgi", "app"])
     }
 
+    function script_entry_layout(opts) {
+        local script = this.abs_path(opts.script), source = opts.script_source_root
+        if (source == "") return { source = this.dirname(script), entry = "main.nut" }
+        source = this.abs_path(source)
+        local relative = Gio.File.new_for_path(source).get_relative_path(Gio.File.new_for_path(script))
+        if (relative == null || relative == "") this.fail("entry script must be inside entry.source_root")
+        return { source = source, entry = this.relative_dest(relative) }
+    }
+
     function add_script_spec(opts, appdir, spec, staged) {
         local parts = this.split_once(spec, "=")
         local src = parts[0]
@@ -323,7 +332,7 @@ class SqgiPkgStaging extends Base.SqgiPkgRecipes {
         return out
     }
 
-    function expand_file_rule(rule) {
+    function expand_file_rule(rule, structured = false) {
         local out = []
         foreach (src in this.list_file_rule_sources(rule)) {
             local rel = this.file_rule_relative_path(rule, src)
@@ -336,7 +345,8 @@ class SqgiPkgStaging extends Base.SqgiPkgRecipes {
             local dest = rule.dest == null
                 ? GLib.build_filenamev([rule.to, rel])
                 : this.file_rule_render_template(rule, rule.dest, rel, captures)
-            out.push(src + "=" + this.relative_dest(dest))
+            dest = this.relative_dest(dest)
+            out.push(structured ? { kind = "file_pair", source = src, destination = dest } : src + "=" + dest)
         }
 
         if (out.len() == 0 && !rule.optional)
@@ -346,12 +356,12 @@ class SqgiPkgStaging extends Base.SqgiPkgRecipes {
 
     function copy_file_spec(opts, spec, appdir) {
         if (this.file_spec_is_rule(spec)) {
-            foreach (expanded in this.expand_file_rule(spec))
+            foreach (expanded in this.expand_file_rule(spec, true))
                 this.copy_file_spec(opts, expanded, appdir)
             return
         }
 
-        local parts = this.split_once(spec, "=")
+        local parts = typeof(spec) == "table" && this.table_get(spec, "kind", "") == "file_pair" ? [spec.source, spec.destination] : this.split_once(spec, "=")
         local src = parts[0]
         local dest = parts[1]
         if (dest == null) this.fail("--file requires PATH=DEST")

@@ -41,6 +41,19 @@ check(typeof(system.runtime.squirrel_version_number) == "integer",
       "system.runtime.squirrel_version_number")
 check(typeof(system.runtime.jit) == "bool", "system.runtime.jit bool")
 check(typeof(system.runtime.debug) == "bool", "system.runtime.debug bool")
+check(typeof(system.runtime.kernels) == "bool", "system.runtime.kernels bool")
+check(system.runtime.kernels == ("kernel" in sqgi), "system.runtime.kernels matches VM capability")
+
+if (system.os.name == "android") {
+    check(system.os.family == "unix" && system.os.id == "android", "Android OS identity")
+    check(system.os.pretty_name.find("Android") == 0, "Android readable name")
+    check(typeof(system.android) == "table", "Android platform metadata")
+    check(system.android.api_level == null || typeof(system.android.api_level) == "integer", "Android device API")
+    check(typeof(system.android.min_api_level) == "integer", "Android build minimum API")
+    local abis = { aarch64 = "arm64-v8a", x86_64 = "x86_64", armv7 = "armeabi-v7a", i686 = "x86" }
+    check(system.cpu.arch in abis && system.android.abi == abis[system.cpu.arch], "Android process ABI")
+    check(!system.runtime.jit && !system.runtime.kernels, "Android interpreter capabilities")
+} else check(system.android == null, "Non-Android process has no Android platform metadata")
 
 check(typeof(system.paths) == "table", "system.paths table")
 check(is_string_or_null(system.paths.home), "system.paths.home string/null")
@@ -77,6 +90,8 @@ GLib.unsetenv(key)
 check(!system.env.has(key), "system.env.has after unsetenv")
 check(system.env.get(key) == null, "system.env.get missing returns null")
 
+local original_share = system.env.get("SQGI_APP_SHARE")
+local original_resources = system.env.get("SQGI_APP_RESOURCES")
 GLib.setenv("SQGI_APP_SHARE", "/tmp/sqgi-app-share-test", true)
 GLib.setenv("SQGI_APP_RESOURCES", "/tmp/sqgi-app-resources-test", true)
 local packaged = import("system")
@@ -85,6 +100,10 @@ check(packaged.paths.app_share == "/tmp/sqgi-app-share-test",
       "system.paths.app_share from env")
 check(packaged.paths.app_resources == "/tmp/sqgi-app-resources-test",
       "system.paths.app_resources from env")
+if (original_share == null) GLib.unsetenv("SQGI_APP_SHARE")
+else GLib.setenv("SQGI_APP_SHARE", original_share, true)
+if (original_resources == null) GLib.unsetenv("SQGI_APP_RESOURCES")
+else GLib.setenv("SQGI_APP_RESOURCES", original_resources, true)
 
 print("[OK] test_system_module passed\n")
 

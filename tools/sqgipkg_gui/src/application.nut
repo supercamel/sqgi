@@ -319,8 +319,11 @@ class Application {
             content.append(summary)
             widgets["review.output." + output_index] <- summary
             local output_details = W.box()
-            output_details.append(W.label(plan.name + "\nStarts: " + plan.entry))
-            output_details.append(W.label(native_app ? "Starts a native executable; no SQGI runtime is needed." :
+            local android = "android" in plan
+            local entry = android && plan.entry_type == "native" ? plan.entry.library + " → " + plan.entry.symbol : plan.entry
+            output_details.append(W.label(plan.name + "\nStarts: " + entry))
+            output_details.append(W.label(android ? "Android SDK: " + plan.android.sdk + " · minimum API " + plan.android.min_sdk + " · " + plan.android.variant +
+                (plan.runtime.recipe ? "\nRuntime: selected SQGI sources with pinned GNOME libraries; JIT and typed kernels disabled." : "\nRuntime: pinned SQGI/GNOME packages; JIT and typed kernels disabled.") : native_app ? "Starts a native executable; no SQGI runtime is needed." :
                 (plan.runtime.recipe ? "Runtime: build SQGI from the selected source/revision. Revision: " + plan.runtime.revision :
                 ("package" in plan.runtime && plan.runtime.package != null ? "Runtime: prebuilt SQGI from Ooblerg. Binary capabilities have not been verified." :
                 "Runtime: existing build or installed SQGI. Binary capabilities have not been verified."))))
@@ -492,6 +495,12 @@ class Application {
                     if (!GLib.path_is_absolute(directory.get_text()) || Gio.File.new_for_path(directory.get_text()).query_file_type(Gio.FileQueryInfoFlags.none, null) != Gio.FileType.directory)
                         throw "Choose an existing absolute project directory"
                     candidate = D.Document(D.pretty(self.capabilities.templates[names[template.get_selected()]]))
+                    local android_template = names[template.get_selected()] == "android-gtk4"
+                    if (android_template) {
+                        entry.set_text("src/main.nut")
+                        foreach (key in ["x86_64", "aarch64", "windows"]) target_control.checks[key].set_active(false)
+                        foreach (key in ["android_arm64", "android_x86_64"]) target_control.checks[key].set_active(true)
+                    }
                 }
                 if (step == 1) {
                     if (name.get_text() == "") throw "Enter an application name"
@@ -499,7 +508,8 @@ class Application {
                     if (native_app()) candidate.set([], N.write(candidate.get([]), executable_control.input.get_text(), ".", build_system.get_selected() == 0 ? "meson" : "cmake"))
                     else {
                         if (entry.get_text() == "") throw "Enter a main script"
-                        candidate.set(["entry"], entry.get_text())
+                        if (candidate.has(["entry", "source_root"])) candidate.set(["entry", "script"], entry.get_text())
+                        else candidate.set(["entry"], entry.get_text())
                     }
                 }
                 if (step == 2) {

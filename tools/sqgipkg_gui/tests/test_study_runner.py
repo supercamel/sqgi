@@ -16,6 +16,16 @@ from runner_support import accepted, crash_diagnostics, host_unwind_file, utf8_l
 
 
 class StudyRunner(unittest.TestCase):
+    def require_bubblewrap_namespaces(self):
+        """An installed bwrap can still be restricted by the host/container."""
+        result = subprocess.run(['bwrap', '--unshare-all', '--die-with-parent',
+            '--ro-bind', '/', '/', '--proc', '/proc', '--dev', '/dev', '--', '/usr/bin/true'],
+            capture_output=True, text=True, timeout=10)
+        if result.returncode and any(reason in result.stderr for reason in
+                ('Operation not permitted', 'Permission denied', 'No permissions to create new namespace')):
+            self.skipTest('Host cannot create Bubblewrap namespaces: ' + result.stderr.strip())
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_gui_capture_preserves_existing_evidence_before_session_access(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -52,6 +62,7 @@ class StudyRunner(unittest.TestCase):
 
     @unittest.skipUnless(sys.platform == 'linux' and shutil.which('bwrap'), 'Linux Bubblewrap required')
     def test_scene_peer_requires_images_and_terrain(self):
+        self.require_bubblewrap_namespaces()
         helper = Path(__file__).parent / 'study/scene_http_peer.py'
         with tempfile.TemporaryDirectory(prefix='study-scene-peer-') as directory:
             root = Path(directory)
@@ -99,6 +110,7 @@ Path(os.environ['SQGI_STUDY_READY']).write_text('ready')
     @unittest.skipUnless(sys.platform == 'linux' and shutil.which('bwrap') and platform.machine() in ['aarch64', 'x86_64'],
                          'Linux Bubblewrap on a supported study architecture required')
     def test_network_peer_checks_actual_bytes(self):
+        self.require_bubblewrap_namespaces()
         with tempfile.TemporaryDirectory(prefix='study-network-') as directory:
             root = Path(directory); app = root / 'app'; app.mkdir()
             for name, message, expected_status in [('valid', 'line-test', 0), ('wrong', 'wrong-test', 1)]:
@@ -134,6 +146,7 @@ PY
     @unittest.skipUnless(sys.platform == 'linux' and shutil.which('bwrap') and shutil.which('cc'),
                          'Linux Bubblewrap and a native C compiler required')
     def test_private_runner_unicode_filename_conversion(self):
+        self.require_bubblewrap_namespaces()
         with tempfile.TemporaryDirectory(prefix='study-unicode-') as directory:
             root = Path(directory)
             source = root / 'locale.c'
@@ -182,6 +195,7 @@ int main(void) {
     @unittest.skipUnless(sys.platform == 'linux' and shutil.which('bwrap') and shutil.which('cc'),
                          'Linux Bubblewrap and a native C compiler required')
     def test_private_runner_pthread_shutdown(self):
+        self.require_bubblewrap_namespaces()
         with tempfile.TemporaryDirectory(prefix='study-thread-exit-') as directory:
             root = Path(directory)
             source = root / 'thread.c'

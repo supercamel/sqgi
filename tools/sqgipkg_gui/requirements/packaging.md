@@ -8,8 +8,8 @@ Parent: [product requirements](README.md). Derived contract: [packaging](../cont
 | R-PKG-02 | A versioned machine interface exposes capabilities, diagnostics, and resolved plans without parsing human log text. Existing text CLI output remains supported. |
 | R-PKG-03 | Inspection is local and does not execute application/hooks or fetch/build. Unsaved preview uses the manifest's base directory. |
 | R-PKG-04 | Plans show selected targets, entrypoints, runtime source, packages, native build commands, outputs, and available file inclusion evidence. Plans are labelled as resolution, separately from validation. Declared feature flags are not presented as proof of detected imports. Unresolved/generated content and unavailable provenance are identified honestly. |
-| R-PKG-05 | Linux supports AppImage and Windows outputs; Windows supports native Windows outputs. Sysroot targets are documented as advanced CLI operations. Reserved appdir/tarball targets are not build choices. |
-| R-PKG-06 | Standard runtime recipes explicitly configure LLVM JIT and typed kernels even with an existing CMake cache. An authored runtime.jit override is preserved as an explicit exception. |
+| R-PKG-05 | Linux supports AppImage, Windows and Android APK/App Bundle outputs; Windows supports native Windows outputs. Sysroot targets are documented as advanced CLI operations. Reserved appdir/tarball targets are not build choices. |
+| R-PKG-06 | Standard desktop runtime recipes explicitly configure LLVM JIT and typed kernels even with an existing CMake cache. Android uses its pinned GNOME/SQGI SDK with JIT and typed kernels disabled. An authored runtime.jit override is preserved as an explicit exception. |
 | R-PKG-07 | Runtime diagnostics distinguish the GUI's runtime from the packaged runtime. Missing required dependencies or nonstandard existing runtimes are identified without assuming binary capabilities from source defaults. |
 | R-PKG-08 | Per-run flags, cache operations, locks and smoke tests stay out of the manifest unless the CLI already defines a corresponding field. |
 | R-PKG-09 | Legacy manifests retain their accepted semantics. Strict version-2 errors do not cause unknown fields to be deleted. |
@@ -29,7 +29,7 @@ must not enter the application payload merely because another recipe used them.
 
 The multi-output selector must produce an ordinary manifest that `sqgipkg build`
 can execute without GUI-specific command overrides. `all` selects the configured
-Linux matrix plus the declared Windows format. A shared CLI `appimage-all` target
+Linux matrix plus the declared Windows format and any declared Android outputs. Optional platforms.<name>.enabled booleans restrict this matrix; omitted values retain existing behavior. Explicit platform targets remain usable independently of these matrix switches. A shared CLI `appimage-all` target
 selects only the Linux matrix; Check, Explain, and Build use the same selection and
 per-architecture output paths. Existing single-target and `all` behavior stays
 compatible. This extension is needed for the two-AppImage-only choice.

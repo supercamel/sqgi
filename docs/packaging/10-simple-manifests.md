@@ -160,13 +160,12 @@ source, arbitrary build hooks, or the entire operating system. It is not a
 promise of bit-for-bit reproducibility. `sqgipkg-build.json` records the completed
 artifact and captured inputs. A file artifact also receives a SHA-256 digest.
 
-## Application migration examples
+## Complete application examples
 
-The [examples directory](examples/README.md) contains compact candidates derived
-from RFDTool, FoamCutter and StlViewer. They preserve explicit package/payload
-choices while replacing runtime and native build command arrays. RouteTastic's
-custom launcher, file rules and provenance remain explicit. These are migration
-candidates, not claims of release-artifact equivalence.
+The [examples directory](examples/README.md) contains complete manifests for
+RFDTool, FoamCutter, StlViewer and RouteTastic. They show native module recipes,
+runtime selection, resource mappings and installer settings. Adapt the paths
+and dependencies to your own application before building.
 
 ## Migrating old MSYS2 manifests
 

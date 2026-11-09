@@ -302,3 +302,13 @@ errors preserve user state and offer retry. Save/reopen retains choices.
 C-EDIT-06 package panels use the representable output selection to show the
 active platforms. Inactive platforms show a short Targets hint without mutating
 saved settings. Custom/automatic output configurations retain both panels.
+
+C-EDIT-06 Android output controls share Outputs with setup. Every supported
+nonempty combination of the five CPU/platform choices produces a normal CLI
+manifest. An AAB is one output with its selected ABI list; APKs are separate
+outputs. Turning platforms off preserves their settings. Common Android edits
+validate all proposed values before one Document.set; malformed representations
+stay in Advanced. Catalog browsing passes the unsaved manifest through stdin and
+uses Android target triplets, labels and module release. Native-entry ownership
+includes entry.android.project, preventing removal as an ordinary library.
+Acceptance: EDIT-output-matrix, Android Studio settings/catalog/real bundle build.

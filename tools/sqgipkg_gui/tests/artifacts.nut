@@ -27,6 +27,17 @@ local digest = pkg.file_sha256(manifest), result = A.read_result(report, digest)
 require(result.complete && result.outputs.len() == 1, "complete report")
 require(result.outputs[0].label.find("aarch64") != null && result.outputs[0].folder == dir, "friendly output and folder")
 local valid_report = sqgi.json.parse(Gio.File.new_for_path(report).load_contents(null)[0])
+foreach (target in ["android-apk", "android-aab"]) foreach (abi in ["arm64-v8a", "x86_64", "multi", "aarch64"]) {
+    local mobile = sqgi.json.parse(sqgi.json.stringify(valid_report))
+    mobile.artifacts[0].kind = target; mobile.artifacts[0].target = target; mobile.artifacts[0].architecture = abi
+    write(report, sqgi.json.stringify(mobile))
+    local accepted = false
+    try { accepted = A.read_result(report, digest).outputs[0].label.find("Android") == 0 } catch (_) {}
+    require(accepted == (abi == "arm64-v8a" || abi == "x86_64" || abi == "multi" && target == "android-aab"), "Android output ABI validation")
+    mobile.status = "running"; mobile.progress = {target=target, architecture=abi, phase="packaging", completed=0}
+    write(report, sqgi.json.stringify(mobile))
+    require((A.read_progress(report, digest) != null) == accepted, "Android progress ABI validation")
+}
 function rejected(value) {
     write(report, sqgi.json.stringify(value))
     local failed = false

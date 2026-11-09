@@ -712,6 +712,92 @@ app.connect("activate", function() {
         function() {
             require(editor.build_dialog == null && editor.window.get_visible(), "finished Build closes back to editor")
             print("PASS JOB-gui-artifacts\n")
+            editor.new_project()
+        },
+        function() {
+            editor.widgets["wizard.directory"].set_text(directory + "/android-app")
+            foreach (i, template in G.templates) if (template.key == "android-gtk4") editor.widgets["wizard.template"].set_selected(i)
+            editor.widgets["wizard.next"].activate()
+        },
+        function() {
+            require(editor.widgets["wizard.entry"].get_text() == "src/main.nut", "Android setup starts in src/")
+            editor.widgets["wizard.name"].set_text("Android GTK test")
+            editor.widgets["wizard.entry"].set_text("src/nested/main.nut")
+            editor.widgets["wizard.next"].activate()
+        },
+        function() {
+            foreach (key in ["x86_64", "aarch64", "windows"]) require(!editor.widgets["wizard.output." + key].get_active(), "Android template disables desktop output initially")
+            foreach (key in ["android_arm64", "android_x86_64"]) require(editor.widgets["wizard.output." + key].get_active(), "Android setup selects both ABIs")
+            editor.widgets["wizard.next"].activate()
+        },
+        function() {
+            require(editor.widgets["wizard.summary"].get_text().find("src/nested/main.nut") != null, "Android setup review preserves nested entry")
+            editor.widgets["wizard.next"].activate()
+        },
+        function() {
+            require(editor.document.path == directory + "/android-app/sqgipkg.json", "Android setup saved")
+            local saved = D.open_document(editor.document.path)
+            require(saved.get(["entry", "script"]) == "src/nested/main.nut" && saved.get(["entry", "source_root"]) == "src", "Android setup preserves source root")
+            require(saved.get(["target"]) == "android-apk", "Android setup selects APKs")
+            editor.widgets.explain.activate()
+        },
+        function() {
+            require(editor.results.explain.result.ok && editor.results.explain.result.configurations.len() == 2, "GUI Android manifest resolves both APKs")
+            foreach (plan in editor.results.explain.result.configurations) require(plan.target == "android-apk", "Android wizard resolves Android output")
+            print("PASS EDIT-android-setup\n")
+            editor.navigate("Runtime/native code")
+        },
+        function() {
+            require(editor.widgets["common.runtime.mode"].get_selected() == 0, "Android defaults to pinned runtime")
+            editor.widgets["common.runtime.mode"].set_selected(1)
+            editor.widgets["common.runtime.value"].set_text("runtime source café")
+            editor.widgets["common.runtime.apply"].activate()
+        },
+        function() {
+            require(editor.document.get(["runtime", "source"]) == "runtime source café", "Android source selector writes shared runtime")
+            editor.navigate("Review")
+            editor.widgets.explain.activate()
+        },
+        function() {
+            require(editor.results.explain.result.ok, "Android selected runtime resolves without building")
+            foreach (plan in editor.results.explain.result.configurations)
+                require(plan.runtime.recipe && !plan.runtime.requested.jit && !plan.runtime.requested.kernels, "Android source runtime disables native compilers: " + sqgi.json.stringify(plan.runtime))
+            editor.navigate("Targets")
+        },
+        function() {
+            require(editor.widgets["android.runtime"].get_selected() == 0, "Android inherits shared runtime initially")
+            editor.widgets["android.runtime"].set_selected(1)
+            editor.widgets["android.permissions"].set_text("android.permission.INTERNET")
+            editor.widgets["android.packages"].set_text("gobject-introspection-tools")
+            editor.widgets["android.profile"].set_selected(4)
+            editor.widgets["android.icon"].set_text("art/android.svg")
+            editor.widgets["android.apply"].activate()
+        },
+        function() {
+            require(editor.document.get(["platforms", "android", "runtime"]) == "package", "Android can override shared runtime")
+            require(editor.document.get(["runtime", "source"]) == "runtime source café", "Android override preserves desktop source choice")
+            require(editor.document.get(["platforms", "android", "permissions"])[0] == "android.permission.INTERNET", "Android permission control writes the manifest")
+            require(editor.document.get(["platforms", "android", "packages"])[0] == "gobject-introspection-tools" && editor.document.get(["platforms", "android", "profile"]) == "complete", "Android package/profile controls write the manifest")
+            require(editor.document.get(["platforms", "android", "icon"]) == "art/android.svg", "Android icon control writes the manifest")
+            editor.navigate("Review")
+            editor.widgets.explain.activate()
+        },
+        function() {
+            require(editor.results.explain.result.ok, "Android pinned override resolves")
+            foreach (plan in editor.results.explain.result.configurations) require(!plan.runtime.recipe, "Android uses requested prebuilt runtime")
+            editor.navigate("Targets")
+            editor.widgets["android.runtime"].set_selected(0)
+            editor.widgets["android.apply"].activate()
+        },
+        function() {
+            require(!editor.document.has(["platforms", "android", "runtime"]), "Follow shared runtime removes override")
+            editor.save()
+        },
+        function() {
+            local saved = D.open_document(editor.document.path)
+            require(saved.get(["runtime", "source"]) == "runtime source café" && !saved.has(["platforms", "android", "runtime"]), "Android runtime survives save")
+            require(saved.get(["platforms", "android", "icon"]) == "art/android.svg" && saved.get(["platforms", "android", "permissions"])[0] == "android.permission.INTERNET", "Android resources survive save")
+            print("PASS EDIT-android-runtime\n")
             editor.window.close()
         }
     ]

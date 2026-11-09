@@ -33,7 +33,7 @@ class Inspection {
         busy = true; cancelled = false
         try {
             local argv = [runtime, cli, action, "--json"]
-            if (action == "check" || action == "explain") foreach (arg in ["--manifest", "-", "--base-dir", base_dir]) argv.push(arg)
+            if (action == "check" || action == "explain" || action == "packages" && text != "") foreach (arg in ["--manifest", "-", "--base-dir", base_dir]) argv.push(arg)
             if (action == "packages" && package_target != null) { argv.push("--package-target"); argv.push(package_target) }
             if (action == "packages" && refresh) argv.push("--refresh-packages")
             local launcher = Gio.SubprocessLauncher.new(Gio.SubprocessFlags.stdin_pipe | Gio.SubprocessFlags.stdout_pipe | Gio.SubprocessFlags.stderr_pipe)

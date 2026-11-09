@@ -5,7 +5,7 @@ isn't already covered by the [Gio](gio.md) or [GTK 4](gtk4.md) cookbooks:
 the main loop, time, `GBytes`, `GVariant`, INI files, hashing, regex,
 paths, and environment helpers.
 
-Read [docs/language/](../language/) chapters 9–11 for the async model and
+Read [docs/language/](../language/00-chapter-map.md) chapters 9–11 for the async model and
 skim [docs/api/README.md](../api/README.md) for the `sqgi.*` surface
 first.
 
@@ -114,7 +114,7 @@ while (some_condition) {
 strict non-blocking drain (returns immediately if nothing is ready), or
 `true` to block until at least one source fires.
 
-See [demo/glib/idle_drain.nut](../../demo/glib/idle_drain.nut).
+See [demo/glib/idle_drain.nut](https://github.com/supercamel/sqgi/blob/master/demo/glib/idle_drain.nut).
 
 ---
 
@@ -154,7 +154,7 @@ local span_us = later.difference(dt)        // microseconds between two times
 
 `new_now_utc()` / `new_now_local()` give "now" in the appropriate zone.
 
-See [demo/glib/datetime.nut](../../demo/glib/datetime.nut).
+See [demo/glib/datetime.nut](https://github.com/supercamel/sqgi/blob/master/demo/glib/datetime.nut).
 
 ---
 
@@ -181,7 +181,7 @@ print(b.equal(GLib.Bytes.new("hello")) + "\n")      // true
 You'll see `GLib.Bytes.new(payload)` everywhere a GIO/libsoup async write
 needs raw bytes — see the [Gio](gio.md) and [Soup](soup.md) cookbooks.
 
-See [demo/glib/bytes_checksum.nut](../../demo/glib/bytes_checksum.nut).
+See [demo/glib/bytes_checksum.nut](https://github.com/supercamel/sqgi/blob/master/demo/glib/bytes_checksum.nut).
 
 ---
 
@@ -258,7 +258,7 @@ if (d.contains("count")) {
 > Treat it as the underlying Squirrel value. Test the type before
 > dereferencing if you want to be defensive.
 
-See [demo/glib/variant.nut](../../demo/glib/variant.nut).
+See [demo/glib/variant.nut](https://github.com/supercamel/sqgi/blob/master/demo/glib/variant.nut).
 
 ---
 
@@ -285,7 +285,7 @@ Verified outputs for `"abc"`:
 For streaming a large file: construct `GLib.Checksum.new(type)`, call
 `.update(data, len)` repeatedly, then `.get_string()` once at the end.
 
-See [demo/glib/bytes_checksum.nut](../../demo/glib/bytes_checksum.nut).
+See [demo/glib/bytes_checksum.nut](https://github.com/supercamel/sqgi/blob/master/demo/glib/bytes_checksum.nut).
 
 ---
 
@@ -362,7 +362,7 @@ foreach (g in kf.get_groups()[0]) print(g + "\n")
 | `keep_comments` | preserve `#` comments when re-rendering |
 | `keep_translations` | preserve locale-tagged keys like `name[de]` |
 
-See [demo/glib/keyfile.nut](../../demo/glib/keyfile.nut).
+See [demo/glib/keyfile.nut](https://github.com/supercamel/sqgi/blob/master/demo/glib/keyfile.nut).
 
 ---
 
@@ -422,7 +422,7 @@ Portable, pure-string path manipulation that doesn't touch the disk:
 
 ```squirrel
 print(GLib.get_tmp_dir()                     + "\n")  // /tmp
-print(GLib.get_home_dir()                    + "\n")  // /home/sam
+print(GLib.get_home_dir()                    + "\n")  // /home/alex
 print(GLib.get_current_dir()                 + "\n")  // process cwd
 print(GLib.get_user_name()                   + "\n")  // sam
 print(GLib.get_host_name()                   + "\n")  // hostname
@@ -440,7 +440,7 @@ XDG-style user directories: `get_user_config_dir`, `get_user_data_dir`,
 `get_user_cache_dir`, `get_user_runtime_dir` (when available in your
 GLib build).
 
-See [demo/glib/paths_env.nut](../../demo/glib/paths_env.nut).
+See [demo/glib/paths_env.nut](https://github.com/supercamel/sqgi/blob/master/demo/glib/paths_env.nut).
 
 ---
 
@@ -482,10 +482,10 @@ across GTK / GIO calls that read the same variables.
 
 ## Further reading
 
-- [demo/glib/](../../demo/glib/) — six runnable scripts mirroring the recipes
+- [demo/glib/](https://github.com/supercamel/sqgi/tree/master/demo/glib) — six runnable scripts mirroring the recipes
   here (`mainloop_timer`, `datetime`, `bytes_checksum`, `variant`,
   `keyfile`, `paths_env`, `idle_drain`).
-- [test/test_glib_recipes.nut](../../test/test_glib_recipes.nut) — 70-check
+- [test/test_glib_recipes.nut](https://github.com/supercamel/sqgi/blob/master/test/test_glib_recipes.nut) — 70-check
   behavioural test that pins down every API used here.
 - [docs/recipes/gio.md](gio.md) — picks up where this leaves off: files,
   streams, sockets, applications.

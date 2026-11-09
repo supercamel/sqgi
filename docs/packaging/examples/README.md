@@ -1,26 +1,25 @@
-# Application migration candidates
+# Application manifest examples
 
-These manifests use the current recipe interface. Copy each into its application
-root; asset and source paths are relative to that directory. They are also
-available as `sqgipkg.v2.json` beside the local application manifests used in this
-review, so they can be exercised with `sqgipkg --manifest sqgipkg.v2.json`.
+These complete manifests show how SQGI applications combine native modules,
+resources and platform settings. Their paths, icons, source revisions and
+package choices belong to the named applications; adapt them to your project.
 
-| Application | Previous lines | Candidate lines | Shell build commands in candidate |
-| --- | ---: | ---: | ---: |
-| RFDTool | 164 | 61 | 0 |
-| FoamCutter | 231 | 117 | 0 |
-| StlViewer | 153 | 69 | 0 |
-| RouteTastic | 147 | 148 | 1 |
+| Example | Features to look at |
+| --- | --- |
+| [RFDTool](RFDTool.sqgipkg.json) | GTK and a native GSerial module with host GI metadata |
+| [FoamCutter](FoamCutter.sqgipkg.json) | Native libraries, resources and platform-specific settings |
+| [StlViewer](StlViewer.sqgipkg.json) | A GTK application with a native module and Windows installer options |
+| [RouteTastic](RouteTastic.sqgipkg.json) | Explicit runtime selection and custom build commands |
 
-The script applications retain their original SQGI revision and explicitly
-selected extra packages, icons and installer options. RFDTool and StlViewer use
-the host-GI recipe instead of patch scripts. RouteTastic only opts into strict
-schema validation: its application-specific runtime/provenance pipeline is
-intentional, and remains intact.
+Copy a manifest to your application's root as `sqgipkg.json`, update its paths
+and dependencies, then inspect it before building:
 
-All candidates pass configuration resolution with the current tool. Validate
-all release architectures and application smoke tests before replacing an
-existing release manifest. The gserial and StlViewer native recipes have been exercised as Linux to
-Windows cross builds including host-GIR conversion. The gscenegraph recipe
-also produced its Windows DLL and typelib. These component checks do not
-establish full release-artifact equivalence.
+```sh
+sqgipkg check
+sqgipkg explain
+sqgipkg build --write-lock
+```
+
+For a smaller starting point, use `sqgipkg init` or follow
+[Package one script](../01-package-one-script.md). Check your app on each
+selected target before distributing its packages.

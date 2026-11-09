@@ -18,7 +18,7 @@ publishes GI metadata. There is no generated binding layer for every API.
 When ordinary scripting is not fast enough, SQGI provides an **LLVM JIT** for
 eligible Squirrel code and **typed LLVM kernels** for compute-heavy hot paths.
 When the application is ready to ship, `sqgipkg` can turn it into Linux
-AppImages and Windows installers with the runtime and native dependencies
+AppImages, Windows installers and Android APKs/App Bundles with the runtime and native dependencies
 bundled alongside it.
 
 The idea is simple:
@@ -48,7 +48,7 @@ application in C or C++.
   GObject Introspection and import it like any other library.
 - **Embeddable** — use SQGI as an interpreter or embed it into a native program.
 - **Deployment is built in** — package scripts, typelibs, native libraries,
-  plugins, themes, runtime data, AppImages, and Windows NSIS installers with
+  plugins, themes, runtime data, AppImages, Windows NSIS installers, and Android APKs/App Bundles with
   `sqgipkg`.
 
 SQGI is a good fit for desktop tools, media software, engineering applications,
@@ -197,9 +197,9 @@ arrays, with `std::unordered_map` for dynamic string-key workloads.
 
 Raw data and reproduction material:
 
-- [JIT / native comparison](docs/benchmark-results/readme-native-comparison-2026-09-18.json)
-- [Vector comparison](docs/benchmark-results/llvm-kernel-vector-2026-09-18.json)
-- [Matrix comparison](docs/benchmark-results/llvm-kernel-matrix-2026-09-18.json)
+- [JIT / native comparison](demo/benchmarks/results/readme-native-comparison-2026-09-18.json)
+- [Vector comparison](demo/benchmarks/results/llvm-kernel-vector-2026-09-18.json)
+- [Matrix comparison](demo/benchmarks/results/llvm-kernel-matrix-2026-09-18.json)
 - [Full kernel benchmark suite](demo/benchmarks/kernels/README.md)
 
 </details>
@@ -487,6 +487,38 @@ Install system-wide:
 sudo cmake --install build --prefix /usr/local
 ```
 
+Or install for your user without sudo:
+
+```sh
+cmake --install build --prefix "$HOME/.local"
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+This also installs `sqgipkg` and its Android setup/build backend. If an existing
+terminal still resolves an older installation, run `hash -r` and check
+`command -v sqgi sqgipkg`.
+
+### Android applications
+
+Android setup and packaging are included with SQGI. On a Linux x86-64 host
+with a full JDK 21 installed:
+
+```sh
+sqgipkg setup --platform android --emulator --accept-licenses
+sqgipkg emulator
+mkdir MyApp
+cd MyApp
+sqgipkg init android-gtk4 --app-id org.example.myapp --name "My App"
+sqgipkg deploy --platform android --arch x86_64 --serial emulator-5564
+```
+
+SQGI downloads Ubuntu 24.04-pinned Android libraries from Ooblerg. No separate
+SqgiAndroid checkout is needed. ARM64 and x86_64 are supported, with Android
+12/API 31 as the minimum. Use `sqgipkg setup --platform android --check` to
+diagnose the toolchain, and `sqgipkg watch --platform android --serial emulator-5564`
+to update app sources. See the [Android guide](docs/packaging/android.md) for
+host prerequisites, SDK licence acceptance, native modules and release signing.
+
 ### Build Windows from source with Ooblerg
 
 Use PowerShell, Git, and Python 3. The SDK helper downloads verified Ooblerg
@@ -657,7 +689,7 @@ ctest --test-dir build --output-on-failure
 ```
 
 For Windows LLVM execution tests from Linux, see the
-[Wine validation guide](docs/windows-llvm-wine.md).
+[Wine validation guide](devdocs/docs/windows-llvm-wine.md).
 
 AddressSanitizer build:
 

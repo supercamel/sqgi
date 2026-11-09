@@ -1,6 +1,6 @@
 # Product requirements
 
-Version: 5. Status: guided manifest authoring and Linux CLI-backed builds (2026-09-27).
+Version: 6. Status: guided manifest authoring and Linux-hosted desktop/Android builds (2026-11-09).
 
 The primary user wants to create, understand, edit, and save a useful sqgipkg
 manifest without memorizing its schema. Experienced users need the full CLI's
@@ -11,7 +11,7 @@ configuration power and existing projects must retain their behavior.
 | R-SCOPE-01 | A native SQGI/GTK 4 application under `tools` creates, opens, edits, checks and saves ordinary sqgipkg manifests. |
 | R-SCOPE-02 | A short setup assistant and direct section navigation serve first-time and returning users using the same document. |
 | R-SCOPE-03 | Creating a useful manifest does not require JSON/schema knowledge. Task-specific common controls explain choices; every supported field remains reachable in an explicitly advanced editor, and CLI options remain documented. |
-| R-SCOPE-04 | LLVM JIT and typed kernels are standard for new runtime builds; users do not need feature opt-in steps. |
+| R-SCOPE-04 | LLVM JIT and typed kernels are standard for new desktop runtime builds; users do not need feature opt-in steps. Android uses its pinned SQGI/GNOME SDK with both disabled. |
 | R-SCOPE-05 | Existing CLI behavior and headless use remain available without GTK. |
 | R-SCOPE-06 | Requirements, contracts, code, and acceptance tests are traceable by stable IDs. Verified platform claims name actual evidence. |
 

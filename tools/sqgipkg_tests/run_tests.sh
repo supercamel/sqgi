@@ -222,7 +222,10 @@ export SQGI_SOURCE_DIR="${ROOT_DIR}"
 HELP_OUT="${WORK_DIR}/help.out"
 run_sqgipkg --help-all >"${HELP_OUT}"
 assert_contains "${HELP_OUT}" "Usage:"
-assert_contains "${HELP_OUT}" "sqgipkg [build|check|init|explain|clean] [options] [script]"
+assert_contains "${HELP_OUT}" "sqgipkg COMMAND [options] [script]"
+assert_contains "${HELP_OUT}" "--platform OS"
+assert_contains "${HELP_OUT}" "--migrate-android"
+assert_contains "${HELP_OUT}" "--from-sqgi FILE"
 assert_contains "${HELP_OUT}" "Options:"
 assert_contains "${HELP_OUT}" "--help-all"
 assert_not_contains "${HELP_OUT}" "--help-gapplication"
@@ -617,6 +620,7 @@ LINUX_PKG_ROOT="${WORK_DIR}/linux-pkg-root"
 LINUX_PKG_BIN="${WORK_DIR}/linux-pkg-bin"
 mkdir -p "${LINUX_PKG_PROJECT}" \
   "${LINUX_PKG_ROOT}/usr/lib/${HOST_LINUX_TRIPLET}" \
+  "${LINUX_PKG_ROOT}/usr/lib/${HOST_LINUX_TRIPLET}/girepository-1.0" \
   "${LINUX_PKG_ROOT}/usr/share/fakepkg" \
   "${LINUX_PKG_ROOT}/usr/include" \
   "${LINUX_PKG_BIN}"
@@ -626,6 +630,12 @@ EOF
 printf 'fake shared library\n' >"${LINUX_PKG_ROOT}/usr/lib/${HOST_LINUX_TRIPLET}/libfakepkg.so.1"
 printf 'fake data\n' >"${LINUX_PKG_ROOT}/usr/share/fakepkg/data.txt"
 printf 'not runtime\n' >"${LINUX_PKG_ROOT}/usr/include/fakepkg.h"
+# SQGI entries include the base GLib metadata package automatically. Model its
+# real payload as well as the synthetic package in this isolated sysroot.
+for namespace in GLib GObject Gio; do
+  cp "/usr/lib/${HOST_LINUX_TRIPLET}/girepository-1.0/${namespace}-2.0.typelib" \
+    "${LINUX_PKG_ROOT}/usr/lib/${HOST_LINUX_TRIPLET}/girepository-1.0/"
+done
 cat >"${LINUX_PKG_BIN}/dpkg-query" <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
@@ -634,6 +644,12 @@ if [[ "\${1:-}" == "-L" && "\${2:-}" == "fakepkg:${HOST_DEB_ARCH}" ]]; then
     "/usr/lib/${HOST_LINUX_TRIPLET}/libfakepkg.so.1" \\
     "/usr/share/fakepkg/data.txt" \\
     "/usr/include/fakepkg.h"
+  exit 0
+fi
+if [[ "\${1:-}" == "-L" && "\${2:-}" == "gir1.2-glib-2.0:${HOST_DEB_ARCH}" ]]; then
+  for namespace in GLib GObject Gio; do
+    printf '%s\n' "/usr/lib/${HOST_LINUX_TRIPLET}/girepository-1.0/\${namespace}-2.0.typelib"
+  done
   exit 0
 fi
 exit 1
@@ -652,6 +668,7 @@ PATH="${LINUX_PKG_BIN}:${PATH}" run_sqgipkg \
   >"${WORK_DIR}/linux-pkg-package.out"
 assert_file "${LINUX_PKG_OUT}/LinuxPkg.AppDir/usr/lib/libfakepkg.so.1"
 assert_file "${LINUX_PKG_OUT}/LinuxPkg.AppDir/usr/share/fakepkg/data.txt"
+assert_file "${LINUX_PKG_OUT}/LinuxPkg.AppDir/usr/lib/girepository-1.0/GLib-2.0.typelib"
 assert_not_file "${LINUX_PKG_OUT}/LinuxPkg.AppDir/usr/include/fakepkg.h"
 assert_elf_arch "${LINUX_PKG_OUT}/LinuxPkg.AppImage" "${HOST_APPIMAGE_ARCH}"
 assert_appdir_elf_arches "${LINUX_PKG_OUT}/LinuxPkg.AppDir" "${HOST_APPIMAGE_ARCH}"

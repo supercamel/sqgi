@@ -1,6 +1,6 @@
 # Implementation contracts
 
-Version: 4 (guided manifest authoring and multiple outputs). These contracts derive from the [requirements](../requirements/README.md).
+Version: 5 (guided manifest authoring and desktop/Android outputs). These contracts derive from the [requirements](../requirements/README.md).
 
 | Contract | Boundary | Implementation |
 | --- | --- | --- |

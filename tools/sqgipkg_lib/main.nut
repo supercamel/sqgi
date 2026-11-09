@@ -1,5 +1,6 @@
 local GLib = import("GLib")
 local Base = import("protocol.nut")
+local AndroidSetup = import("android/setup.nut"), AndroidEmulator = import("android/emulator.nut")
 
 class SqgiPkg extends Base.SqgiPkgProtocol {
     option_entries = null
@@ -10,6 +11,33 @@ class SqgiPkg extends Base.SqgiPkgProtocol {
         this.option_entries = []
         this.long_options = {}
         this.short_options = {}
+
+        this.add_option("platform", 0, GLib.OptionArg.string, "Target platform: linux, windows or android", "OS")
+        this.add_option("arch", 0, GLib.OptionArg.string, "Target architecture or Android ABI", "ARCH")
+        this.add_option("migrate-android", 0, GLib.OptionArg.none, "Convert legacy sqgi.json to a new sqgipkg manifest without changing sources", null)
+        this.add_option("from-sqgi", 0, GLib.OptionArg.string, "Legacy sqgi.json input for migrate (default: sqgi.json)", "FILE")
+        this.add_option("android-sdk", 0, GLib.OptionArg.string, "Exported Android dependency SDK directory", "DIR")
+        this.add_option("android-ndk", 0, GLib.OptionArg.string, "Pinned Android NDK directory", "DIR")
+        this.add_option("android-repository", 0, GLib.OptionArg.string, "Ooblerg origin containing Android SDK releases", "URL")
+        this.add_option("no-android-download", 0, GLib.OptionArg.none, "Use cached Android packages and offline Gradle dependencies", null)
+        this.add_option("refresh-android-packages", 0, GLib.OptionArg.none, "Refresh the Android SDK catalog", null)
+        this.add_option("android-runner", 0, GLib.OptionArg.string, "Android GI runner: auto, qemu or adb", "RUNNER")
+        this.add_option("android-inspection", 0, GLib.OptionArg.string, "Prepared per-ABI Android inspection runtime", "DIR")
+        this.add_option("android-serial", 0, GLib.OptionArg.string, "ADB device serial for deployment and target GI execution", "SERIAL")
+        this.add_option("serial", 0, GLib.OptionArg.string, "Alias for --android-serial", "SERIAL")
+        this.add_option("command", 0, GLib.OptionArg.string, "Action: setup, emulator, preview, install, deploy, run, logs, sync, watch, reset", "ACTION")
+        this.add_option("check", 0, GLib.OptionArg.none, "With setup: inspect host tools without downloading or changing files", null)
+        this.add_option("emulator", 0, GLib.OptionArg.none, "With setup: prepare/check the pinned Android 16 emulator", null)
+        this.add_option("native-tools", 0, GLib.OptionArg.none, "With setup: also check Ubuntu 24.04 native-module build tools", null)
+        this.add_option("accept-licenses", 0, GLib.OptionArg.none, "With setup: accept Google's Android SDK terms for requested downloads", null)
+        this.add_option("android-sdk-root", 0, GLib.OptionArg.string, "With setup: Google Android SDK location (distinct from --android-sdk)", "DIR")
+        this.add_option("java-home", 0, GLib.OptionArg.string, "With setup: full JDK 17/21 directory, saved for subsequent builds", "DIR")
+        this.add_option("headless", 0, GLib.OptionArg.none, "With emulator: run without a desktop window", null)
+        this.add_option("port", 0, GLib.OptionArg.string, "With emulator: even emulator port (default: 5564)", "PORT")
+        this.add_option("stop", 0, GLib.OptionArg.none, "With emulator: stop only the selected SQGI-managed emulator", null)
+        this.add_option("logs-once", 0, GLib.OptionArg.none, "Print current application logs and exit", null)
+        this.add_option("artifact", 0, GLib.OptionArg.string, "APK or AAB to install instead of the current output path", "FILE")
+        this.add_option("android-variant", 0, GLib.OptionArg.string, "Android debug or externally signed release build", "VARIANT")
 
         this.add_option("build-result", 0, GLib.OptionArg.string, "Write versioned build outputs to a new JSON file", "FILE")
         this.add_option("json", 0, GLib.OptionArg.none, "Versioned JSON inspection output", null)
@@ -23,7 +51,7 @@ class SqgiPkg extends Base.SqgiPkgProtocol {
         this.add_option("manifest", 'm', GLib.OptionArg.string,
             "Distribution manifest JSON file", "FILE")
         this.add_option("target", 't', GLib.OptionArg.string,
-            "Package target: appimage, appimage-all, linux-sysroot, win-dir, win-nsis, win-sysroot, all", "TARGET")
+            "Package target: appimage, appimage-all, linux-sysroot, win-dir, win-nsis, win-sysroot, android-apk, android-aab, all", "TARGET")
         this.add_option("build-dir", 0, GLib.OptionArg.string,
             "SQGI build directory", "DIR")
         this.add_option("output", 'o', GLib.OptionArg.string,
@@ -93,7 +121,7 @@ class SqgiPkg extends Base.SqgiPkgProtocol {
         this.add_option("smoke-test-isolated", 0, GLib.OptionArg.none,
             "Run smoke test with host GStreamer plugin discovery disabled", null)
         this.add_option("init", 0, GLib.OptionArg.string,
-            "Write a starter manifest: simple, gtk4, gtk4-gstreamer, native-gobject, native-vala, native-application", "TEMPLATE")
+            "Write a starter manifest: simple, gtk4, gtk4-gstreamer, native-gobject, native-vala, native-application, android-gtk4", "TEMPLATE")
         this.add_option("no-compile-scripts", 0, GLib.OptionArg.none,
             "Copy .nut scripts as source instead of compiling bytecode", null)
         this.add_option("script", 0, GLib.OptionArg.string_array,
@@ -210,6 +238,51 @@ class SqgiPkg extends Base.SqgiPkgProtocol {
     }
 
     function execute_options(args, option_dict) {
+        if (this.option_present(option_dict, "migrate-android")) return this.migrate_android_project(args, option_dict)
+        if (this.option_present(option_dict, "from-sqgi")) this.fail("--from-sqgi requires migrate")
+        local action = this.option_value(option_dict, "command")
+        if (action == "setup" || action == "emulator") {
+            local allowed = action == "setup" ?
+                ["command", "platform", "check", "emulator", "native-tools", "accept-licenses", "android-sdk-root", "java-home", "android-ndk", "no-android-download", "json"] :
+                ["command", "platform", "port", "headless", "stop"]
+            foreach (name, unused in this.long_options)
+                if (this.option_present(option_dict, name) && allowed.find(name) == null) this.fail(action + " cannot use --" + name)
+            if (args.len() != 1 || args[0] != "--") this.fail(action + " does not take positional arguments")
+            local platform = this.option_value(option_dict, "platform")
+            if ((action == "setup" && platform != "android") || (platform != null && platform != "android"))
+                this.fail(action + " currently supports --platform android")
+            if (action == "emulator") {
+                local port = this.option_value(option_dict, "port")
+                AndroidEmulator.run(port == null ? AndroidEmulator.default_port : port,
+                    this.option_present(option_dict, "headless"), this.option_present(option_dict, "stop"))
+                return 0
+            }
+            local check = this.option_present(option_dict, "check"), json = this.option_present(option_dict, "json")
+            if (json && !check) this.fail("setup --json requires --check")
+            if (check && this.option_present(option_dict, "accept-licenses")) this.fail("setup --check cannot use --accept-licenses")
+            local options = { check = check, json = json, emulator = this.option_present(option_dict, "emulator"),
+                native = this.option_present(option_dict, "native-tools"), accept = this.option_present(option_dict, "accept-licenses"),
+                offline = this.option_present(option_dict, "no-android-download") }
+            foreach (pair in [["android-sdk-root", "android_sdk"], ["java-home", "java"], ["android-ndk", "ndk"]]) {
+                local value = this.option_value(option_dict, pair[0]); if (value != null) options[pair[1]] <- value
+            }
+            return AndroidSetup.run(options)
+        }
+        foreach (name in ["check", "emulator", "native-tools", "accept-licenses", "android-sdk-root", "java-home", "headless", "port", "stop"])
+            if (this.option_present(option_dict, name)) this.fail("--" + name + " requires setup or emulator")
+        if (this.option_present(option_dict, "serial")) {
+            if (this.option_present(option_dict, "android-serial") && option_dict.serial != option_dict["android-serial"])
+                this.fail("--serial and --android-serial disagree")
+            option_dict["android-serial"] <- option_dict.serial
+        }
+        if (action != null) {
+            if (["preview", "install", "deploy", "run", "logs", "sync", "watch", "reset"].find(action) == null) this.fail("Unknown development command: " + action)
+            foreach (flag in ["json", "describe", "packages", "doctor", "clean", "init", "explain", "build-result"])
+                if (this.option_present(option_dict, flag)) this.fail(action + " cannot use --" + flag)
+            local opts = this.parse_args(args, option_dict)
+            return this.development_action(opts, action, option_dict, function() { return SqgiPkg(args).parse_args(args, option_dict) })
+        }
+        foreach (flag in ["artifact", "logs-once"]) if (this.option_present(option_dict, flag)) this.fail("--" + flag + " requires a development command")
         if (this.option_present(option_dict, "json") || this.option_present(option_dict, "describe") || this.option_present(option_dict, "packages"))
             return this.execute_json(args, option_dict)
         try {
@@ -217,11 +290,11 @@ class SqgiPkg extends Base.SqgiPkgProtocol {
             local opts = this.parse_args(args, option_dict)
             local result_path = this.option_value(option_dict, "build-result")
             if (result_path != null && (opts.doctor || opts.clean || opts.init_template != "" ||
-                this.option_present(option_dict, "explain") || ["appimage", "appimage-all", "all", "win-dir", "win-nsis"].find(opts.target) == null))
+                this.option_present(option_dict, "explain") || ["appimage", "appimage-all", "all", "win-dir", "win-nsis", "android-apk", "android-aab"].find(opts.target) == null))
                 this.fail("--build-result is only available for package builds")
 
             if (opts.init_template != "") {
-                this.init_manifest(opts.init_template)
+                this.init_manifest(opts.init_template, opts)
                 return 0
             }
 
@@ -240,6 +313,8 @@ class SqgiPkg extends Base.SqgiPkgProtocol {
 
             if (opts.clean || opts.target == "clean") {
                 this.clean_project(opts)
+            } else if (this.is_android(opts)) {
+                foreach (config in this.selected_configurations(opts)) this.build_android(config)
             } else if (opts.target == "appimage") {
                 this.build_selected_appimage(opts)
             } else if (opts.target == "win-dir") {
@@ -278,7 +353,7 @@ class SqgiPkg extends Base.SqgiPkgProtocol {
     }
 
     function print_option_help() {
-        print("Usage: sqgipkg [build|check|init|explain|clean] [options] [script]\n\nOptions:\n")
+        print("Usage: sqgipkg COMMAND [options] [script]\n\nOptions:\n")
         print("  -h, --help-all  Show this full reference\n")
         foreach (entry in this.option_entries) {
             local label = "--" + entry.name

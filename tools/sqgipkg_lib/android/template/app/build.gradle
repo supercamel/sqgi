@@ -1,0 +1,65 @@
+plugins { id 'com.android.application' }
+
+def runtimeAbis = providers.gradleProperty('runtimeAbis').getOrElse('x86_64').split(',') as List
+def runtimeInput = file(providers.gradleProperty('runtimeInput').getOrElse(
+    rootProject.file('../input').toString()))
+def manifestFile = new File(runtimeInput, 'project.json')
+def projectConfig = manifestFile.exists() ? new groovy.json.JsonSlurper().parse(manifestFile) :
+    [application_id: 'org.sqgi.android.demo', name: 'SQGI Android', version_code: 1, version_name: '0.1.0-dev']
+
+android {
+    namespace 'org.sqgi.android'
+    compileSdk 35
+    buildToolsVersion '35.0.0'
+    defaultConfig {
+        applicationId projectConfig.application_id
+        minSdk projectConfig.min_sdk
+        targetSdk 35
+        versionCode projectConfig.version_code
+        versionName projectConfig.version_name
+        resValue 'string', 'sqgi_app_label', '"' + projectConfig.name.replace('\\', '\\\\').replace('"', '\\"') + '"'
+        ndk { abiFilters.addAll(runtimeAbis) }
+    }
+    signingConfigs {
+        if (System.getenv('SQGI_ANDROID_KEYSTORE')) {
+            external {
+                storeFile file(System.getenv('SQGI_ANDROID_KEYSTORE'))
+                storePassword System.getenv('SQGI_ANDROID_STORE_PASSWORD')
+                keyAlias System.getenv('SQGI_ANDROID_KEY_ALIAS')
+                keyPassword System.getenv('SQGI_ANDROID_KEY_PASSWORD')
+            }
+        }
+    }
+    buildTypes {
+        debug {
+            if (System.getenv('SQGI_ANDROID_KEYSTORE')) signingConfig signingConfigs.external
+        }
+        release {
+            debuggable false
+            minifyEnabled false
+            if (System.getenv('SQGI_ANDROID_KEYSTORE')) signingConfig signingConfigs.external
+        }
+    }
+    sourceSets.main {
+        manifest.srcFile new File(runtimeInput, 'AndroidManifest.xml')
+        res.srcDirs += [new File(runtimeInput, 'res')]
+        assets.srcDirs = [new File(runtimeInput, 'assets')]
+        jniLibs.srcDirs = [new File(runtimeInput, 'jniLibs')]
+        java.srcDirs += [new File(runtimeInput, 'java')]
+    }
+    packaging.jniLibs.useLegacyPackaging = true
+    packaging.jniLibs.keepDebugSymbols += ['**/*.so']
+    buildFeatures { buildConfig true }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+tasks.named('preBuild') {
+    doFirst {
+        if (!manifestFile.isFile()) throw new GradleException('Prepare the application with sqgipkg first')
+    }
+}
+
+dependencies { implementation 'androidx.annotation:annotation:1.3.0' }

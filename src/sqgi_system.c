@@ -5,6 +5,10 @@
 #include <string.h>
 #include <errno.h>
 #include <glib/gstdio.h>
+#ifdef __ANDROID__
+#include <android/api-level.h>
+#include <sys/system_properties.h>
+#endif
 #ifdef G_OS_WIN32
 #include <windows.h>
 #else
@@ -61,6 +65,8 @@ static const char *sqgi_os_name(void)
     return "windows";
 #elif defined(__APPLE__)
     return "macos";
+#elif defined(__ANDROID__)
+    return "android";
 #elif defined(__linux__)
     return "linux";
 #elif defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__) || defined(__DragonFly__)
@@ -76,7 +82,7 @@ static const char *sqgi_os_family(void)
 {
 #if defined(G_OS_WIN32)
     return "windows";
-#elif defined(__unix__) || defined(__APPLE__)
+#elif defined(__unix__) || defined(__APPLE__) || defined(__ANDROID__)
     return "unix";
 #else
     return "unknown";
@@ -108,6 +114,7 @@ static const char *sqgi_endian_name(void)
 #endif
 }
 
+#ifndef __ANDROID__
 static char *sqgi_os_info_first(const char *first, const char *second)
 {
     char *value = NULL;
@@ -118,6 +125,7 @@ static char *sqgi_os_info_first(const char *first, const char *second)
     }
     return value;
 }
+#endif
 
 static SQInteger sqgi_system_env_get(HSQUIRRELVM v)
 {
@@ -284,9 +292,17 @@ static void sqgi_system_push_env(HSQUIRRELVM v)
 
 static void sqgi_system_push_os(HSQUIRRELVM v)
 {
+#ifdef __ANDROID__
+    char release[PROP_VALUE_MAX] = {0};
+    __system_property_get("ro.build.version.release", release);
+    char *version = release[0] ? g_strdup(release) : NULL;
+    char *pretty_name = version ? g_strdup_printf("Android %s", version) : g_strdup("Android");
+    char *id = g_strdup("android");
+#else
     char *pretty_name = sqgi_os_info_first(G_OS_INFO_KEY_PRETTY_NAME, G_OS_INFO_KEY_NAME);
     char *version = sqgi_os_info_first(G_OS_INFO_KEY_VERSION_ID, G_OS_INFO_KEY_VERSION);
     char *id = g_get_os_info(G_OS_INFO_KEY_ID);
+#endif
 
     sqgi_push_k_table(v, "os");
     sqgi_push_k_string(v, "name", sqgi_os_name());
@@ -320,12 +336,44 @@ static void sqgi_system_push_runtime(HSQUIRRELVM v)
 #else
     sqgi_push_k_bool(v, "jit", SQFalse);
 #endif
+#ifdef SQGI_ENABLE_KERNELS
+    sqgi_push_k_bool(v, "kernels", SQTrue);
+#else
+    sqgi_push_k_bool(v, "kernels", SQFalse);
+#endif
 #ifdef NDEBUG
     sqgi_push_k_bool(v, "debug", SQFalse);
 #else
     sqgi_push_k_bool(v, "debug", SQTrue);
 #endif
     sqgi_newslot_table(v);
+}
+
+static void sqgi_system_push_android(HSQUIRRELVM v)
+{
+#ifdef __ANDROID__
+    /* Describe this binary's ABI, including when Android translates it on a
+     * different host CPU. Device API and compiler minimum are distinct. */
+    const char *abi = NULL;
+#if defined(__aarch64__)
+    abi = "arm64-v8a";
+#elif defined(__x86_64__)
+    abi = "x86_64";
+#elif defined(__arm__)
+    abi = "armeabi-v7a";
+#elif defined(__i386__)
+    abi = "x86";
+#endif
+    int api_level = android_get_device_api_level();
+    sqgi_push_k_table(v, "android");
+    sqgi_push_k_string(v, "abi", abi);
+    if (api_level > 0) sqgi_push_k_int(v, "api_level", api_level);
+    else sqgi_push_k_string(v, "api_level", NULL);
+    sqgi_push_k_int(v, "min_api_level", __ANDROID_API__);
+    sqgi_newslot_table(v);
+#else
+    sqgi_push_k_string(v, "android", NULL);
+#endif
 }
 
 static void sqgi_system_push_paths(HSQUIRRELVM v)
@@ -368,6 +416,7 @@ SQRESULT sqgi_system_push_module(HSQUIRRELVM v)
     sqgi_system_push_os(v);
     sqgi_system_push_cpu(v);
     sqgi_system_push_runtime(v);
+    sqgi_system_push_android(v);
     sqgi_system_push_env(v);
     sqgi_system_push_paths(v);
     sqgi_system_push_package(v);

@@ -470,12 +470,12 @@ label the difference between a native kernel boundary and an inlinable JS call.
 `tiny_calls.nut` compares equivalent interpreter and LLVM whole-caller loops for
 integer exports and scalar controller methods. `node_tiny_calls.js` supplies the
 matching Node cases (`integer_export` and `scalar_method`, one per process).
-See [tiny-call changes and measurements](../../../docs/kernels/tiny-calls.md).
+See [tiny-call changes and measurements](../../../devdocs/docs/kernels/tiny-calls.md).
 
 `compare_inline_calls.py` runs `inline_calls.nut` against `node_inline_calls.js`
 in fresh processes and reversed order. It checks complete checksums for three
 pure integer kernels whose calls can be inlined into the ordinary Squirrel loop.
-See [supported regions, guards and results](../../../docs/kernels/inlined-calls.md).
+See [supported regions, guards and results](../../../devdocs/docs/kernels/inlined-calls.md).
 
 `compare_hot_loops.py` reruns the five ordinary loops against Node/GJS/Python and
 both tiny-call loops against Node in fresh processes with reversed launch order.

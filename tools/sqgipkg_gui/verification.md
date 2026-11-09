@@ -1,5 +1,37 @@
 # Verification record
 
+## Android project templates and relocation — 2026-11-09
+
+The Android setup template selects both ABIs and preserves `entry.source_root`
+when choosing a nested script. Save As rebases that root and Android SDK/inspection
+directories together. All 14 contracts and the complete GTK workflow pass,
+including actual setup/save/Explain for the nested Android entry. The CLI's
+generated starter and migrated Gallery also execute on both emulator ABIs;
+evidence is `.sqgipkg/validation/android-project-report.json`.
+
+## Android targets and installed acceptance — 2026-11-09
+
+The output model now covers all 31 nonempty combinations of Linux x86_64/ARM64,
+Windows x86_64 and Android ARM64/x86_64. APK/App Bundle selection, platform
+enabled switches and common SDK/version settings preserve unrelated data.
+Catalog/schema/CLI coverage includes the Android fields and actions.
+
+| Check | Result |
+| --- | --- |
+| `python3 tools/sqgipkg_gui/tests/test_contracts.py build/sqgi` | 14 passed, including every output combination through real Check/Explain, typed Android edits, native-entry ownership and platform replacement preservation |
+| `python3 tools/sqgipkg_gui/tests/test_artifacts.py build/sqgi` | 3 passed, including APK/AAB ABI validation and progress |
+| `xvfb-run -a python3 tools/sqgipkg_gui/tests/test_gtk.py build/sqgi` | Existing editor, catalog, failure/cancellation and artifact workflows passed |
+| `python3 tools/sqgipkg_tests/test_android.py build/sqgi` | 72 tests; success with four environment-dependent skips |
+| Installed `tests/android_acceptance.py` under Xvfb | Real controls, unsaved Android module catalog, inspection and two-ABI Gallery AAB build passed with producer/source/Python paths denied |
+| Installed CLI on that exact AAB | Both emulator ABIs passed install/run and source update/watch/logs/reset, preserving private data and APK paths |
+
+Durable report: `sqgi/.sqgipkg/validation/android-studio-report.json`. Demo captures
+25–29 show Studio and the resulting app. The emulator is x86_64/API34 with ARM64
+native translation and 4 KB runtime pages. This does not establish physical ARM64
+or 16 KB runtime execution. Existing Ooblerg, native-SDK and CLI regression groups
+also pass. Source-runtime selection, migration/templates and other remaining
+Android integration work are tracked in `devdocs/docs/packaging/android-progress.md`.
+
 ## Multiple outputs and default set — 2026-09-25
 
 Requirements version 4 and the updated editor/packaging contracts precede this

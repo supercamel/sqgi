@@ -1,16 +1,22 @@
 // C-JOB-03: validate CLI result metadata and existing outputs, not runtime behavior.
 local GLib = import("GLib")
 local Gio = import("Gio")
+local function valid_architecture(target, arch) {
+    if (target == "android-apk") return ["x86_64", "arm64-v8a"].find(arch) != null
+    if (target == "android-aab") return ["x86_64", "arm64-v8a", "multi"].find(arch) != null
+    return arch == "x86_64" || target == "appimage" && arch == "aarch64"
+}
 function inspect_output(item) {
     local formats = { appimage = ["appimage", "Linux AppImage"],
         ["windows-directory"] = ["win-dir", "Windows folder"],
         ["nsis-installer"] = ["win-nsis", "Windows installer"],
-        ["nsis-script"] = ["win-nsis", "NSIS script — not an installer"] }
+        ["nsis-script"] = ["win-nsis", "NSIS script — not an installer"],
+        ["android-apk"] = ["android-apk", "Android APK"], ["android-aab"] = ["android-aab", "Android App Bundle"] }
     if (typeof(item) != "table") throw "Invalid output record"
     foreach (key in ["kind", "target", "architecture", "path"])
         if (!(key in item) || typeof(item[key]) != "string") throw "Invalid output " + key
     if (!(item.kind in formats) || item.target != formats[item.kind][0]) throw "Unknown output format"
-    if (["x86_64", "aarch64"].find(item.architecture) == null || item.target != "appimage" && item.architecture != "x86_64")
+    if (!valid_architecture(item.target, item.architecture))
         throw "Unknown output architecture"
     if (!GLib.path_is_absolute(item.path) || !("size" in item)) throw "Invalid output path or size"
     local file = Gio.File.new_for_path(item.path)
@@ -56,11 +62,11 @@ local function read_progress(path, digest) {
         !("expected_outputs" in value) || typeof(value.expected_outputs) != "integer" || value.expected_outputs <= 0 || !("progress" in value)) return null
     local p = value.progress, phases = { preparing = "Preparing dependencies", building = "Building application and libraries",
         collecting = "Collecting package files", packaging = "Creating package", verifying = "Checking output", complete = "Output ready" },
-        targets = { appimage = "Linux AppImage", ["win-dir"] = "Windows folder", ["win-nsis"] = "Windows installer" }
+        targets = { appimage = "Linux AppImage", ["win-dir"] = "Windows folder", ["win-nsis"] = "Windows installer",
+            ["android-apk"] = "Android APK", ["android-aab"] = "Android App Bundle" }
     if (typeof(p) != "table") return null
     foreach (key in ["phase", "target", "architecture"]) if (!(key in p) || typeof(p[key]) != "string") return null
-    if (!(p.phase in phases) || !(p.target in targets) || ["x86_64", "aarch64"].find(p.architecture) == null ||
-        p.target != "appimage" && p.architecture != "x86_64" || !("completed" in p) || typeof(p.completed) != "integer" ||
+    if (!(p.phase in phases) || !(p.target in targets) || !valid_architecture(p.target, p.architecture) || !("completed" in p) || typeof(p.completed) != "integer" ||
         p.completed < 0 || p.completed > value.expected_outputs || p.phase == "complete" && p.completed == 0 ||
         p.phase != "complete" && p.completed == value.expected_outputs) return null
     local ordinal = p.completed + (p.phase == "complete" ? 0 : 1)

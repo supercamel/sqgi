@@ -1,0 +1,44 @@
+name: Linux Android tooling and documentation
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install host dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build build-essential pkg-config \
+            libglib2.0-dev libgirepository1.0-dev libffi-dev libcairo2-dev \
+            llvm-18-dev libxml2-utils gir1.2-gtk-4.0 python3-venv
+      - name: Build the default runtime and host tools
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DPython3_EXECUTABLE=/usr/bin/python3
+          cmake --build build --parallel 4
+      - name: Check Android tooling and shared packaging contracts
+        run: |
+          ctest --test-dir build --output-on-failure --no-tests=error \
+            -R '^sqgi_test_(sqgipkg_android|android_setup|sqgipkg_ergonomics|system_module|manifest_contracts|manifest_delivery)$' \
+            --output-junit "$GITHUB_WORKSPACE/build/host-tools-tests.xml"
+      - name: Build user documentation
+        run: |
+          python3 -m venv "$RUNNER_TEMP/docs-venv"
+          "$RUNNER_TEMP/docs-venv/bin/pip" install -r tools/docs-requirements.txt
+          "$RUNNER_TEMP/docs-venv/bin/mkdocs" build --strict
+      - name: Save diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-host-tools-test-logs
+          path: |
+            build/CMakeCache.txt
+            build/*tests.xml
+            build/Testing/Temporary/

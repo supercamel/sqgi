@@ -8,7 +8,7 @@ sources, compositing video, transcoding, and the bookkeeping that keeps
 everything from leaking.
 
 Every snippet uses the [`Gst`](https://gstreamer.freedesktop.org/documentation/)
-namespace. Read [docs/language/](../language/) chapters 9–11 if you need
+namespace. Read [docs/language/](../language/00-chapter-map.md) chapters 9–11 if you need
 a refresher on async/await, and skim the [GLib](glib.md) and
 [Gio](gio.md) cookbooks for the main-loop and I/O primitives that
 GStreamer demos plug into.
@@ -27,7 +27,7 @@ Working scripts for each section live under `demo/gstreamer/`.
 - [2. `parse_launch` one-liners](#2-parse_launch-one-liners)
 - [3. Building pipelines by hand](#3-building-pipelines-by-hand)
 - [4. The bus and message types](#4-the-bus-and-message-types)
-- [5. State machine: NULL → READY → PAUSED → PLAYING](#5-state-machine-null--ready--paused--playing)
+- [5. State machine: NULL → READY → PAUSED → PLAYING](#5-state-machine-null-ready-paused-playing)
 - [6. Element properties](#6-element-properties)
 - [7. Pads, caps, and capsfilter](#7-pads-caps-and-capsfilter)
 - [8. URI playback with `playbin`](#8-uri-playback-with-playbin)
@@ -35,7 +35,7 @@ Working scripts for each section live under `demo/gstreamer/`.
 - [10. Webcam capture (`v4l2src`)](#10-webcam-capture-v4l2src)
 - [11. Drawing on live video with Cairo](#11-drawing-on-live-video-with-cairo)
 - [12. Multiple audio streams with `audiomixer`](#12-multiple-audio-streams-with-audiomixer)
-- [13. Video compositing / picture-in-picture](#13-video-compositing--picture-in-picture)
+- [13. Video compositing / picture-in-picture](#13-video-compositing-picture-in-picture)
 - [14. Tags and metadata](#14-tags-and-metadata)
 - [15. Position, duration, and seeking](#15-position-duration-and-seeking)
 - [16. Encoding audio to a file](#16-encoding-audio-to-a-file)
@@ -59,7 +59,7 @@ Gst.init(null)
 print(Gst.version_string() + "\n")    // → "GStreamer 1.24.2"
 ```
 
-Demo: [demo/gstreamer/info.nut](../../demo/gstreamer/info.nut).
+Demo: [demo/gstreamer/info.nut](https://github.com/supercamel/sqgi/blob/master/demo/gstreamer/info.nut).
 
 ## 2. `parse_launch` one-liners
 
@@ -113,7 +113,7 @@ if (!src.link(conv) || !conv.link(sink)) {
 `Pipeline.add` takes one element at a time. `Element.link(other)` returns
 a bool — always check it because pad mismatches fail silently otherwise.
 
-Demo: [demo/gstreamer/tones.nut](../../demo/gstreamer/tones.nut).
+Demo: [demo/gstreamer/tones.nut](https://github.com/supercamel/sqgi/blob/master/demo/gstreamer/tones.nut).
 
 ## 4. The bus and message types
 
@@ -156,7 +156,7 @@ Message accessors used above:
 | `msg.parse_buffering()`   | percentage (integer 0–100)       |
 | `msg.parse_tag()`         | a `Gst.TagList`                  |
 
-Demo: [demo/gstreamer/play.nut](../../demo/gstreamer/play.nut).
+Demo: [demo/gstreamer/play.nut](https://github.com/supercamel/sqgi/blob/master/demo/gstreamer/play.nut).
 
 ## 5. State machine: NULL → READY → PAUSED → PLAYING
 
@@ -233,7 +233,7 @@ pipe.set_state(Gst.State["null"])
 `Gst.filename_to_uri(path)` builds a properly-escaped `file://` URI from
 an absolute path.
 
-Demo: [demo/gstreamer/play.nut](../../demo/gstreamer/play.nut).
+Demo: [demo/gstreamer/play.nut](https://github.com/supercamel/sqgi/blob/master/demo/gstreamer/play.nut).
 
 ## 9. Streaming video over HTTP
 
@@ -261,7 +261,7 @@ pipe.set_property("video-sink", Gst.ElementFactory.make("fakesink", "v"))
 pipe.set_property("audio-sink", Gst.ElementFactory.make("fakesink", "a"))
 ```
 
-Demo: [demo/gstreamer/http_stream.nut](../../demo/gstreamer/http_stream.nut).
+Demo: [demo/gstreamer/http_stream.nut](https://github.com/supercamel/sqgi/blob/master/demo/gstreamer/http_stream.nut).
 
 ## 10. Webcam capture (`v4l2src`)
 
@@ -286,7 +286,7 @@ while (true) {
 en.close(null)
 ```
 
-Demo: [demo/gstreamer/webcam.nut](../../demo/gstreamer/webcam.nut).
+Demo: [demo/gstreamer/webcam.nut](https://github.com/supercamel/sqgi/blob/master/demo/gstreamer/webcam.nut).
 
 ## 11. Drawing on live video with Cairo
 
@@ -329,7 +329,7 @@ while (ctx.iteration(false)) {}                                 // drain
 Otherwise the bus pop blocks the VM thread and the idle sources never
 run.
 
-Demo: [demo/gstreamer/cairo_overlay.nut](../../demo/gstreamer/cairo_overlay.nut).
+Demo: [demo/gstreamer/cairo_overlay.nut](https://github.com/supercamel/sqgi/blob/master/demo/gstreamer/cairo_overlay.nut).
 
 ## 12. Multiple audio streams with `audiomixer`
 
@@ -348,7 +348,7 @@ Use `volume` elements per branch for independent gain. `audioconvert` +
 `audioresample` after the mixer normalise format and rate before the
 sink.
 
-Demo: [demo/gstreamer/audio_mix.nut](../../demo/gstreamer/audio_mix.nut).
+Demo: [demo/gstreamer/audio_mix.nut](https://github.com/supercamel/sqgi/blob/master/demo/gstreamer/audio_mix.nut).
 
 ## 13. Video compositing / picture-in-picture
 
@@ -367,7 +367,7 @@ local desc =
 Per-pad properties use the `sinkN::prop=value` syntax. Common compositor
 pad properties: `xpos`, `ypos`, `alpha`, `zorder`, `width`, `height`.
 
-Demo: [demo/gstreamer/compositor_pip.nut](../../demo/gstreamer/compositor_pip.nut).
+Demo: [demo/gstreamer/compositor_pip.nut](https://github.com/supercamel/sqgi/blob/master/demo/gstreamer/compositor_pip.nut).
 
 ## 14. Tags and metadata
 
@@ -392,7 +392,7 @@ while (true) {
 `TagList.to_string()` returns a single-line, structured representation.
 `n_tags()` returns the count.
 
-Demo: [demo/gstreamer/tags.nut](../../demo/gstreamer/tags.nut).
+Demo: [demo/gstreamer/tags.nut](https://github.com/supercamel/sqgi/blob/master/demo/gstreamer/tags.nut).
 
 ## 15. Position, duration, and seeking
 
@@ -424,7 +424,7 @@ Useful flag combinations:
 - `flush + accurate`           — frame-accurate (slower)
 - `flush + key_unit + segment` — segment seek; emits `segment-done` instead of `eos`
 
-Demo: [demo/gstreamer/seek.nut](../../demo/gstreamer/seek.nut).
+Demo: [demo/gstreamer/seek.nut](https://github.com/supercamel/sqgi/blob/master/demo/gstreamer/seek.nut).
 
 ## 16. Encoding audio to a file
 
@@ -451,7 +451,7 @@ Common encoders / muxers:
 | MP3 (lame)       | `audioconvert ! lamemp3enc`          |
 | AAC in MP4       | `audioconvert ! avenc_aac ! mp4mux`  |
 
-Demo: [demo/gstreamer/record.nut](../../demo/gstreamer/record.nut).
+Demo: [demo/gstreamer/record.nut](https://github.com/supercamel/sqgi/blob/master/demo/gstreamer/record.nut).
 
 ## 17. Transcoding
 
@@ -469,7 +469,7 @@ sniffs the container. Always insert `audioconvert ! audioresample`
 between the decoder and the encoder so format negotiation has room to
 work.
 
-Demo: [demo/gstreamer/transcode.nut](../../demo/gstreamer/transcode.nut).
+Demo: [demo/gstreamer/transcode.nut](https://github.com/supercamel/sqgi/blob/master/demo/gstreamer/transcode.nut).
 
 ## 18. `tee`: one source, many sinks
 
@@ -487,7 +487,7 @@ local pipe = Gst.parse_launch(desc)
 
 Without the `queue` elements `tee` will deadlock when one sink blocks.
 
-Demo: [demo/gstreamer/tee_split.nut](../../demo/gstreamer/tee_split.nut).
+Demo: [demo/gstreamer/tee_split.nut](https://github.com/supercamel/sqgi/blob/master/demo/gstreamer/tee_split.nut).
 
 ## 19. Video filters (flip, crop, scale, rate)
 
@@ -505,7 +505,7 @@ local pipe = Gst.parse_launch(desc)
 framerate (useful for slow-mo or recording at a different fps than the
 source).
 
-Demo: [demo/gstreamer/video_filters.nut](../../demo/gstreamer/video_filters.nut).
+Demo: [demo/gstreamer/video_filters.nut](https://github.com/supercamel/sqgi/blob/master/demo/gstreamer/video_filters.nut).
 
 ## 20. Registry introspection
 
@@ -527,7 +527,7 @@ print(fact.get_metadata("description") + "\n")
 
 Useful metadata keys: `long-name`, `klass`, `description`, `author`.
 
-Demo: [demo/gstreamer/info.nut](../../demo/gstreamer/info.nut).
+Demo: [demo/gstreamer/info.nut](https://github.com/supercamel/sqgi/blob/master/demo/gstreamer/info.nut).
 
 ## 21. Pitfalls
 
@@ -550,6 +550,6 @@ Demo: [demo/gstreamer/info.nut](../../demo/gstreamer/info.nut).
 - [`gst-launch-1.0`](https://gstreamer.freedesktop.org/documentation/tools/gst-launch.html)
   syntax cheatsheet — same syntax as `Gst.parse_launch`.
 - [Plugin reference](https://gstreamer.freedesktop.org/documentation/plugins_doc.html).
-- [Cairo cookbook in SQGI](gtk4.md#drawing-with-cairo) for drawing primitives.
+- [Cairo cookbook in SQGI](gtk4.md#9-custom-drawing-with-cairo) for drawing primitives.
 - [GLib cookbook](glib.md) — main-loop and timing helpers used here.
 - [Gio cookbook](gio.md) — file I/O, network primitives, and URI helpers.

@@ -25,7 +25,7 @@ class SqgiPkgDoctor extends Base.SqgiPkgTemplates {
     function doctor_file_spec(errors, warnings, spec, label, outputs_may_be_missing) {
         if (this.file_spec_is_rule(spec)) {
             try {
-                foreach (expanded in this.expand_file_rule(spec))
+                foreach (expanded in this.expand_file_rule(spec, true))
                     errors = this.doctor_file_spec(errors, warnings, expanded, label, outputs_may_be_missing)
             } catch (e) {
                 local message = "" + e
@@ -41,7 +41,7 @@ class SqgiPkgDoctor extends Base.SqgiPkgTemplates {
             return errors
         }
 
-        local parts = this.split_once(spec, "=")
+        local parts = typeof(spec) == "table" && this.table_get(spec, "kind", "") == "file_pair" ? [spec.source, spec.destination] : this.split_once(spec, "=")
         if (outputs_may_be_missing) {
             if (this.path_exists(parts[0])) this.diagnostic("info", label + " output: " + parts[0], this.source_path(parts[0]), "generated_output", parts[0])
             else warnings.push(label + " output not found yet: " + parts[0])

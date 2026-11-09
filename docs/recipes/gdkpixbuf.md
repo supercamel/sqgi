@@ -12,7 +12,7 @@ All examples are runnable with:
 ./build/sqgi path/to/script.nut
 ```
 
-The full source for every snippet lives in [`demo/gdkpixbuf/`](../../demo/gdkpixbuf/).
+The full source for every snippet lives in [`demo/gdkpixbuf/`](https://github.com/supercamel/sqgi/tree/master/demo/gdkpixbuf).
 
 ## Contents
 
@@ -118,7 +118,7 @@ as 256×192. Pass `false` to force exact dimensions (stretches the image).
 There's also `new_from_file_at_size(path, w, h)` which always preserves
 aspect (equivalent to passing `true` above).
 
-Demo: [demo/gdkpixbuf/thumbnail.nut](../../demo/gdkpixbuf/thumbnail.nut).
+Demo: [demo/gdkpixbuf/thumbnail.nut](https://github.com/supercamel/sqgi/blob/master/demo/gdkpixbuf/thumbnail.nut).
 
 ## 5. Saving to a file
 
@@ -202,7 +202,7 @@ foreach (f in Pb.Pixbuf.get_formats()) {
 On a typical Linux box this lists ~17 loaders. The exact set depends on
 which `gdk-pixbuf-loader-*` packages are installed.
 
-Demo: [demo/gdkpixbuf/inspect.nut](../../demo/gdkpixbuf/inspect.nut).
+Demo: [demo/gdkpixbuf/inspect.nut](https://github.com/supercamel/sqgi/blob/master/demo/gdkpixbuf/inspect.nut).
 
 ## 10. Geometric transforms: rotate, flip, scale
 
@@ -266,7 +266,7 @@ src.composite(canvas,
               Pb.InterpType.nearest, 255)
 ```
 
-Demo: [demo/gdkpixbuf/mosaic.nut](../../demo/gdkpixbuf/mosaic.nut) builds
+Demo: [demo/gdkpixbuf/mosaic.nut](https://github.com/supercamel/sqgi/blob/master/demo/gdkpixbuf/mosaic.nut) builds
 a grid of tiles with this pattern.
 
 ## 13. Colour adjustments (`saturate_and_pixelate`)
@@ -288,7 +288,7 @@ src.saturate_and_pixelate(out, 1.0, true)    // pixelated
 The destination must be allocated by you and have identical dimensions to
 the source.
 
-Demo: [demo/gdkpixbuf/transform.nut](../../demo/gdkpixbuf/transform.nut)
+Demo: [demo/gdkpixbuf/transform.nut](https://github.com/supercamel/sqgi/blob/master/demo/gdkpixbuf/transform.nut)
 covers every transform in one script.
 
 ## 14. Raw pixel access
@@ -348,7 +348,7 @@ Three signals are emitted in order:
    filled (a progress bar can start reading rows now).
 3. `closed()` — fired on `.close()`.
 
-Demo: [demo/gdkpixbuf/loader_pipeline.nut](../../demo/gdkpixbuf/loader_pipeline.nut).
+Demo: [demo/gdkpixbuf/loader_pipeline.nut](https://github.com/supercamel/sqgi/blob/master/demo/gdkpixbuf/loader_pipeline.nut).
 
 ## 16. Loading from a stream (`new_from_stream`)
 
@@ -391,7 +391,7 @@ session.send_async(msg, GLib.PRIORITY_DEFAULT, null, function (s, res) {
 The full demo spins up a local Soup server, serves a generated PNG, and
 fetches it back — completely hermetic, no network access required.
 
-Demo: [demo/gdkpixbuf/from_http.nut](../../demo/gdkpixbuf/from_http.nut).
+Demo: [demo/gdkpixbuf/from_http.nut](https://github.com/supercamel/sqgi/blob/master/demo/gdkpixbuf/from_http.nut).
 
 ## 18. Common pitfalls
 

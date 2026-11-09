@@ -16,6 +16,22 @@ spec = importlib.util.spec_from_file_location('native_sdk', HELPER)
 sdk = importlib.util.module_from_spec(spec); spec.loader.exec_module(sdk)
 
 class NativeSDK(unittest.TestCase):
+    def test_batch_collision_is_rejected_before_writing_and_preserves_owners(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);base=root/'base';base.mkdir();overlay=root/'sdk'
+            (base/'usr/include').mkdir(parents=True)
+            original=base/'usr/include/base.h';original.write_text('original')
+            sdk.initialize(base,overlay)
+            a=root/'a';a.write_text('first');b=root/'b';b.write_text('second')
+            with self.assertRaisesRegex(ValueError,'Conflicting'):
+                sdk.export_files(overlay,'broken',{str(a):'/usr/include/new.h',str(b):'/usr/include/new.h'})
+            self.assertFalse((overlay/'usr/include/new.h').exists())
+            sdk.export_files(overlay,'first',{str(a):'/usr/include/new.h',str(original):'/usr/include/base.h'})
+            sdk.export_files(overlay,'second',{str(a):'/usr/include/new.h'})
+            owners=json.loads((overlay/sdk.MARKER).read_text())['exports']
+            self.assertNotIn('usr/include/base.h',owners)
+            self.assertEqual(owners['usr/include/new.h']['recipe'],'first')
+
     def test_ooblerg_overlay_preserves_base_and_rejects_collisions(self):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp);base=root/'base';base.mkdir();overlay=root/'sdk';sdk.initialize(base,overlay)

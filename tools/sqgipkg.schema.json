@@ -865,6 +865,13 @@
         },
         "windows": {
           "type": "string"
+        },
+        "android": {
+          "$ref": "#/$defs/android_native_entry"
+        },
+        "source_root": {
+          "type": "string",
+          "description": "Preserve the script path relative to this source directory in the application payload. Applies to SQGI entries on every platform."
         }
       },
       "additionalProperties": false
@@ -1137,7 +1144,12 @@
           "type": "boolean"
         },
         "build_system": {
-          "type": "string"
+          "type": "string",
+          "enum": [
+            "meson",
+            "cmake",
+            "custom"
+          ]
         },
         "options": {
           "type": "object",
@@ -1166,6 +1178,18 @@
           "type": "string",
           "minLength": 1,
           "description": "Optional Linux-only Ooblerg replacement; omit to build the retained local/Git recipe."
+        },
+        "depends_on": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        },
+        "android_package": {
+          "type": "string",
+          "minLength": 1
         }
       },
       "additionalProperties": false
@@ -1654,7 +1678,12 @@
       "type": "object",
       "properties": {
         "strategy": {
-          "type": "string"
+          "type": "string",
+          "enum": [
+            "host",
+            "target",
+            "auto"
+          ]
         },
         "namespace": {
           "type": "string"
@@ -1691,6 +1720,9 @@
         },
         "windows": {
           "$ref": "#/$defs/platform_windows"
+        },
+        "android": {
+          "$ref": "#/$defs/platform_android"
         }
       },
       "additionalProperties": false
@@ -1706,6 +1738,10 @@
         },
         "baseline": {
           "type": "string"
+        },
+        "enabled": {
+          "type": "boolean",
+          "description": "Include this platform in target all. Defaults to true. Explicit platform targets still work."
         }
       },
       "additionalProperties": false
@@ -1721,8 +1757,181 @@
         },
         "format": {
           "type": "string"
+        },
+        "enabled": {
+          "type": "boolean",
+          "description": "Include this platform in target all. Defaults to true. Explicit platform targets still work."
         }
       },
+      "additionalProperties": false
+    },
+    "platform_android": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "native": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/native_projects"
+          },
+          "description": "Partial overrides for existing named native recipes. Names must be unique and already declared in native/native_projects. Options and GI maps merge by key; other provided fields replace the shared value."
+        },
+        "permissions": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z][A-Za-z0-9_]*)+$"
+          },
+          "description": "Additional Android manifest permissions. Runtime permission requests remain application code."
+        },
+        "icon": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Launcher icon image, relative to this manifest. Overrides the shared icon/desktop_icon. Converted to PNG with host GdkPixbuf."
+        },
+        "variant": {
+          "enum": [
+            "debug",
+            "release"
+          ],
+          "default": "debug"
+        },
+        "module_set": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9.+-]*$",
+          "default": "applications-r1"
+        },
+        "architectures": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "arm64-v8a",
+              "x86_64",
+              "aarch64",
+              "arm64"
+            ]
+          }
+        },
+        "format": {
+          "enum": [
+            "apk",
+            "aab"
+          ]
+        },
+        "min_sdk": {
+          "type": "integer",
+          "minimum": 31
+        },
+        "version_code": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2100000000
+        },
+        "version_name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sdk": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sdk_path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "runtime": {
+          "enum": [
+            "package",
+            "source"
+          ],
+          "description": "Omitted: follow runtime.source/runtime.sqgi when present, otherwise use the SDK package. Explicit package overrides a shared desktop source recipe. Source builds use the pinned GNOME SDK with JIT and typed kernels disabled."
+        },
+        "namespaces": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*-[0-9]+(?:\\.[0-9]+)*$"
+          }
+        },
+        "repository": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Ooblerg origin; releases live under /android/<sdk>/<target>/v1"
+        },
+        "download": {
+          "type": "boolean",
+          "default": true
+        },
+        "runner": {
+          "enum": [
+            "auto",
+            "qemu",
+            "adb"
+          ]
+        },
+        "inspection_root": {
+          "type": "string",
+          "minLength": 1
+        },
+        "serial": {
+          "type": "string",
+          "minLength": 1
+        },
+        "enabled": {
+          "type": "boolean",
+          "description": "Include this platform in target all. Defaults to true. Explicit platform targets still work."
+        },
+        "packages": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9+.\\-]*$"
+          },
+          "uniqueItems": true,
+          "description": "Additional packages from the pinned Android catalog. Selects a validated SDK profile containing their dependency closure."
+        },
+        "profile": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "runtime",
+            "sdk",
+            "tools",
+            "complete"
+          ],
+          "description": "Minimum SDK profile. Auto chooses the profile required by native and runtime recipes."
+        }
+      }
+    },
+    "android_native_entry": {
+      "type": "object",
+      "properties": {
+        "project": {
+          "type": "string",
+          "minLength": 1
+        },
+        "library": {
+          "type": "string",
+          "minLength": 1
+        },
+        "symbol": {
+          "type": "string",
+          "minLength": 1
+        },
+        "shutdown": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "project",
+        "library",
+        "symbol"
+      ],
       "additionalProperties": false
     }
   }

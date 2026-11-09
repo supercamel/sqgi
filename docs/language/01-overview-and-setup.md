@@ -64,6 +64,8 @@ Required packages (Debian/Ubuntu names):
 - `libglib2.0-dev`
 - `libgirepository1.0-dev`
 - `libffi-dev`
+- `libcairo2-dev`
+- `llvm-18-dev` for the default JIT and typed kernel backends
 - `pkg-config`
 
 From the project root:

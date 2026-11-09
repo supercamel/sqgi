@@ -17,9 +17,9 @@ expectations in tests independent of implementation internals. Do not weaken a
 contract simply to make a test pass. A genuine scope change must be recorded in
 the requirement and its rationale.
 
-The earlier [GUI plan](../../docs/packaging/gui-plan.md) is design context. This
+The earlier [GUI plan](../../devdocs/docs/packaging/gui-plan.md) is design context. This
 requirements tree is the implementation authority. JIT and typed kernels are
-standard runtime capabilities; the setup flow assumes them.
+standard desktop runtime capabilities. Android uses the pinned SQGI/GNOME SDK with both disabled.
 
 ## Project layout
 
@@ -150,3 +150,18 @@ bundles use Ubuntu 24.04 (`noble`), alongside normal Ubuntu dependencies.
 Each native library also has separate optional Linux and Windows prebuilt
 choices. Leaving either blank keeps that platform's local/Git source build;
 selecting a package preserves the source recipe for later use.
+
+## Android
+
+Targets includes Android ARM64 and x86_64, APK/App Bundle format, application
+versions and pinned SDK/module releases. Android can be combined with desktop
+outputs in the same manifest. Review builds the saved selection and lists the
+verified APK/AAB. Deploy it with `sqgipkg deploy --platform android --serial SERIAL`.
+The native library form offers an independent Android Ooblerg replacement; its
+picker reads the current draft's repository and module release.
+
+The optional `tests/android_acceptance.py` uses an installed prefix and a prepared
+Gallery project, exercises real GTK controls/catalog/inspection, then builds a
+real multi-ABI bundle. Run it under Xvfb with cached Android tool/SDK inputs;
+`--deny` proves selected producer/source/Python paths are not read. The Python
+file is an external acceptance harness. Production GUI/backend code is SQGI.

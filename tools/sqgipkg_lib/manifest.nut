@@ -344,6 +344,13 @@ class SqgiPkgManifest extends Base.SqgiPkgSchema {
             this.fail("manifest entry.type must be sqgi or native")
 
         opts.entry_type = entry_type
+        if ("source_root" in entry) {
+            this.current_error_path = ["entry", "source_root"]
+            if (entry_type != "sqgi" || typeof(entry.source_root) != "string" || entry.source_root == "")
+                this.fail("entry.source_root requires a nonempty directory and entry.type sqgi")
+            opts.script_source_root = this.manifest_path(base_dir, entry.source_root)
+            this.current_error_path = []
+        }
 
         if ("project" in entry || "executable" in entry) {
             this.current_error_path = ["entry"]
@@ -372,6 +379,13 @@ class SqgiPkgManifest extends Base.SqgiPkgSchema {
             if (path == null) path = this.table_get(entry, "script")
             if (opts.script == "" && path != null)
                 opts.script = this.manifest_path(base_dir, path)
+            if (opts.script_source_root != "") {
+                this.current_error_path = ["entry", "source_root"]
+                local root = Gio.File.new_for_path(GLib.canonicalize_filename(opts.script_source_root, null))
+                local script = Gio.File.new_for_path(GLib.canonicalize_filename(opts.script, null))
+                if (opts.script == "" || !script.has_prefix(root)) this.fail("entry script must be inside entry.source_root")
+                this.current_error_path = []
+            }
             return
         }
 
@@ -709,6 +723,8 @@ class SqgiPkgManifest extends Base.SqgiPkgSchema {
                 gi = this.table_get(item, "gi", null),
                 windows_package = this.table_get(item, "windows_package", ""),
                 linux_package = this.table_get(item, "linux_package", ""),
+                android_package = this.table_get(item, "android_package", ""),
+                depends_on = this.table_get(item, "depends_on", []),
                 targets = this.table_get(item, "targets", []),
                 options = this.table_get(item, "options", {}),
                 dir = project_dir,

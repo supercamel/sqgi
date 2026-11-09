@@ -2,12 +2,16 @@
 
 This tutorial series teaches `sqgipkg` by building up one packaging problem at a
 time. It starts with one Squirrel file and ends with native modules, GTK runtime
-data, themes, AppImages, Windows staging, and multi-architecture builds.
+data, themes, AppImages, Windows staging, Android packages, and multi-architecture builds.
 
 Use these pages when you want a guided path. Use `tools/README.md` in the source
 tree when you need the complete field reference.
 
 For the shortest configuration path, start with [simple manifests and native Windows packaging](10-simple-manifests.md).
+
+For Android, start with the [setup and first-app guide](android.md#first-app-on-ubuntu-2404).
+Installed SQGI prepares the toolchain and emulator, downloads pinned Ooblerg
+libraries, and builds/deploys apps without a SqgiAndroid checkout.
 
 ## Tutorial Path
 

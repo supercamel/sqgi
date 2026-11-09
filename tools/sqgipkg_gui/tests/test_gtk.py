@@ -16,6 +16,8 @@ with tempfile.TemporaryDirectory(prefix='sqgi GTK café ') as temp:
     (directory / 'main.nut').write_text('print("Hello from the test project\\n")\n', encoding='utf8')
     (directory / 'native-app').mkdir()
     (directory / 'native-app/meson.build').write_text("project('native-app', 'c')\n")
+    (directory / 'android-app/src/nested').mkdir(parents=True)
+    (directory / 'android-app/src/nested/main.nut').write_text('local Gtk = import("Gtk", "4.0")\n')
     (directory / 'reveal.py').write_text('import pathlib,sys\npathlib.Path(sys.argv[1]).write_text(sys.argv[2])\n')
     cache = directory / 'cache'
     repo = cache / 'sqgipkg/ooblerg' / hashlib.sha256(b'https://ooblerg.xyz/v1').hexdigest()[:20]
@@ -78,7 +80,7 @@ with tempfile.TemporaryDirectory(prefix='sqgi GTK café ') as temp:
     print(result.stdout)
     print(result.stderr, file=sys.stderr)
     assert result.returncode == 0, 'GTK contract workflow failed'
-    for name in ['guidance', 'structured-values', 'navigation', 'actions', 'feedback', 'common-tasks', 'review-states', 'runtime-choice', 'native-application', 'native-library', 'script-folders', 'windows-provider', 'package-search', 'linux-package-search']:
+    for name in ['guidance', 'structured-values', 'navigation', 'actions', 'feedback', 'common-tasks', 'review-states', 'runtime-choice', 'native-application', 'native-library', 'script-folders', 'windows-provider', 'package-search', 'linux-package-search', 'android-setup', 'android-runtime']:
         assert 'PASS EDIT-' + name in result.stdout, name
 
     if (runtime.parent / 'sqgipkg-runner').is_file():

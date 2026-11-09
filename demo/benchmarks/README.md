@@ -75,7 +75,7 @@ For changes shared with the interpreter, add `--jit 0` to
 disabled. The default remains `--jit 1`; the saved result records this setting.
 Run on an otherwise idle machine. The historical
 `object_member_write_fallback` kernel name is retained for comparison. Its private
-table and arrays now use [LLVM object-graph elimination](../../docs/llvm-local-graphs.md),
+table and arrays now use [LLVM object-graph elimination](../../devdocs/docs/llvm-local-graphs.md),
 including reference swaps and string lengths. Shared transfers retain the boxed
 native loop path.
 
@@ -93,17 +93,17 @@ process. Results use medians, exact integer checksums and tight double-result
 checks. The JSON contains executable identities, versions, build settings,
 commands, samples and raw output. The runner requires all requested runtimes.
 Add `--jit 0` to measure the SQGI interpreter with native execution disabled.
-The [interpreter performance report](../../docs/interpreter-performance.md)
+The [interpreter performance report](../../devdocs/docs/interpreter-performance.md)
 documents the optional threaded-dispatch experiment and its tradeoffs.
-The [private-table compilation report](../../docs/llvm-local-objects.md) describes
+The [private-table compilation report](../../devdocs/docs/llvm-local-objects.md) describes
 the LLVM optimization for the unchanged dynamic-key workload, its correctness
 constraints, and before/after results against Node, GJS and Python.
-The [modern Node comparison](../../docs/modern-node-benchmarks.md) reruns the
+The [modern Node comparison](../../devdocs/docs/modern-node-benchmarks.md) reruns the
 runtime suite and typed numerical kernels against Node 24 LTS and Node 26 Current.
-The [ordinary-Squirrel Node parity report](../../docs/llvm-node-parity.md) records
+The [ordinary-Squirrel Node parity report](../../devdocs/docs/llvm-node-parity.md) records
 the subsequent improvements to vectors, mixed classes, append, math and matrix
 loops, with a complete five-runtime comparison and raw measurements.
-The [LLVM shared-object loop report](../../docs/llvm-boxed-loops.md) covers native
+The [LLVM shared-object loop report](../../devdocs/docs/llvm-boxed-loops.md) covers native
 reference-valued field updates and precise exits after committed writes.
 
 Node and GJS execute the **same** `node_jit_kernels.js` file. GJS uses ES module

@@ -1,6 +1,6 @@
 # JSON benchmarks
 
-[Latest optimization results](../../../docs/json-optimization.md).
+[Latest optimization results](../../../devdocs/docs/json-optimization.md).
 
 Compare SQGI's `sqgi.json`, Node/GJS `JSON`, and Python's standard `json` module
 on the same generated JSON documents. Run from any directory:

@@ -292,3 +292,11 @@ C-PKG-03: Ooblerg SDK overlay normalizes pkg-config `Cflags` entries of the form
 The shipped GWorldScene metadata uses this source-relative form. Original
 archives/prepared roots stay unchanged. Record source and normalized digests
 and the reason in the private SDK marker. Other flags are preserved.
+
+C-PKG Android uses the same installed SQGI CLI for inspection and build. Its
+resolved plan provides the common GUI fields plus ABI, SDK and native-entry
+metadata. packages --package-target accepts Android triplets and the current
+manifest; it fetches only module catalog metadata and checks target/release
+identity. Build performs full SDK/module compatibility and artifact validation.
+The installed GUI acceptance builds a real multi-ABI Gallery AAB with cached
+packages and producer trees, source backend and Python executables unreadable.

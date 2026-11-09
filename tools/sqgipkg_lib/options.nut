@@ -13,6 +13,7 @@ class SqgiPkgOptions extends Base.SqgiPkgCore {
             runtime_jit = true,
             features = [],
             script = "",
+            script_source_root = "",
             entry_type = "sqgi",
             entry_linux = "",
             entry_windows = "",

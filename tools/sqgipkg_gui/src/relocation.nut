@@ -5,7 +5,7 @@ local Gio = import("Gio")
 local module_dir = GLib.path_get_dirname(GLib.canonicalize_filename(__FILE__, null))
 local schema_file = GLib.build_filenamev([module_dir, "..", "..", "sqgipkg.schema.json"])
 local schema = sqgi.json.parse(Gio.File.new_for_path(schema_file).load_contents(null)[0])
-local path_keys = ["script", "script_dirs", "scripts", "build_dir", "output", "desktop_icon", "icon", "appimagetool_cache",
+local path_keys = ["script", "source_root", "sdk_path", "inspection_root", "script_dirs", "scripts", "build_dir", "output", "desktop_icon", "icon", "appimagetool_cache",
     "resources", "libraries", "typelibs", "gstreamer_plugins", "gsettings_schemas", "gtk_data", "gio_modules", "gdk_pixbuf_loaders",
     "library_dirs", "sysroot", "package_cache", "cache", "cache_dir", "deb_package_cache", "deb_sysroot_cache", "sysroot_cache",
     "sysroot", "cmake_toolchain", "meson_cross_file", "entry_linux", "license", "header_image", "welcome_image", "welcome_finish_image"]
@@ -67,6 +67,8 @@ function relocate(value, old_dir, new_dir) {
             } else if (key == "sqgi_source") {
                 if (typeof(item) == "string") object[key] = rebase(item)
                 else walk(item, "sqgi_source", native_local)
+            } else if (def == "entry" && key == "android") {
+                walk(item, "android_native_entry", native_local)
             } else if (key == "platforms") walk(item, "platforms", native_local)
             else if (def == "platforms") walk(item, "platform_" + key, native_local)
             else if (typeof(item) == "table" && (key == "linux" || key == "windows" || key == "runtime" || key == "deb" || key == "nsis_options" || key == "gi")) walk(item, key, native_local)

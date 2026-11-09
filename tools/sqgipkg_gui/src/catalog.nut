@@ -61,7 +61,7 @@ function is_input_path(path) {
     if (is_plugin_path(path)) return true
     if (!path.len() || typeof(path.top()) != "string") return false
     // Conservative: commands, destinations, names and arbitrary strings never get pickers.
-    return ["path", "dir", "source", "desktop_icon", "icon", "entry", "script", "output", "build_dir", "sysroot", "license", "header_image", "welcome_image"].find(path.top()) != null
+    return ["path", "dir", "source", "source_root", "sdk_path", "inspection_root", "desktop_icon", "icon", "entry", "script", "output", "build_dir", "sysroot", "license", "header_image", "welcome_image"].find(path.top()) != null
 }
 function path_schema(path) {
     local spec = { ["$ref"] = "#/$defs/manifest" }

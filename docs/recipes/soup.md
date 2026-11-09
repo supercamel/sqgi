@@ -24,7 +24,7 @@ See `demo/soup/` for fuller working scripts (`http_get.nut`, `vget.nut`).
 - [3. Status codes and errors](#3-status-codes-and-errors)
 - [4. Request and response headers](#4-request-and-response-headers)
 - [5. Query strings and URL building](#5-query-strings-and-url-building)
-- [6. POST / PUT / DELETE with a request body](#6-post--put--delete-with-a-request-body)
+- [6. POST / PUT / DELETE with a request body](#6-post-put-delete-with-a-request-body)
 - [7. JSON: GET and parse, build and POST](#7-json-get-and-parse-build-and-post)
 - [8. Form submissions (application/x-www-form-urlencoded)](#8-form-submissions-applicationx-www-form-urlencoded)
 - [9. File downloads (streaming to disk)](#9-file-downloads-streaming-to-disk)
@@ -734,7 +734,7 @@ connections.
 - `demo/soup/vget.nut` — full CLI download tool with progress.
 - `docs/api/README.md` — auto-async wrappers, `sqgi.json.*`, `sqgi.bytes_*`,
   `sqgi.Task`, `sqgi.all`, `sqgi.race`.
-- `docs/language/09-async.md` and `10-tasks.md` for the async model these
+- [Async, Tasks and Cancellation](../language/09-async-tasks-and-cancellation.md) for the async model these
   recipes lean on.
 - Upstream libsoup 3 API reference:
   <https://libsoup.gnome.org/libsoup-3.0/>.

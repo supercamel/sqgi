@@ -54,14 +54,14 @@ def initialize(base, root):
 def export_files(root, owner, installed, fallback=None, build=None):
     root = root.resolve(strict=True)
     data = json.loads((root / MARKER).read_text())
-    prepared = []
+    prepared, destinations = [], {}
     for source, destination in installed.items():
         source = Path(source)
         target = PurePosixPath(destination)
         if not target.is_absolute() or '..' in target.parts:
             raise ValueError('Invalid native install destination: '+str(target))
         relative = Path(*target.parts[1:])
-        if relative.parts[0] != 'usr':
+        if not relative.parts or relative.parts[0] != 'usr' or len(relative.parts) < 2:
             raise ValueError('Native development exports must install below /usr: '+str(target))
         # Meson reports versioned-library aliases as basenames. Host-GI recipes
         # emit target GIR/typelib files at the build root, not the Meson subdir.
@@ -84,6 +84,9 @@ def export_files(root, owner, installed, fallback=None, build=None):
         if not destination.parent.resolve().is_relative_to(root):
             raise ValueError('Native export escapes SDK through a directory symlink: '+str(relative))
         checksum = digest(source)
+        if relative in destinations and destinations[relative] != checksum:
+            raise ValueError('Conflicting native SDK export in one recipe: '+str(relative))
+        destinations[relative] = checksum
         if destination.exists() or destination.is_symlink():
             if not destination.is_file() or digest(destination) != checksum:
                 raise ValueError('Conflicting native SDK export: '+str(relative))
@@ -93,7 +96,10 @@ def export_files(root, owner, installed, fallback=None, build=None):
             destination.parent.mkdir(parents=True, exist_ok=True)
             # Copy to a new inode: never truncate a file hard-linked from the base.
             shutil.copy2(source, destination)
-        data['exports'][str(relative)] = {'recipe': owner, 'sha256': checksum}
+        # A recipe cannot claim a file already supplied by the base or another
+        # recipe simply by installing identical bytes again.
+        if str(relative) not in data['exports'] and not (Path(data['base']) / relative).exists():
+            data['exports'][str(relative)] = {'recipe': owner, 'sha256': checksum}
     save(root, data)
     print(f'sqgipkg: exported {len(prepared)} native development files for {owner}')
 

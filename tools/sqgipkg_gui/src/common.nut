@@ -13,6 +13,7 @@ local P = import("package_picker.nut")
 local Appearance = import("appearance.nut")
 local NativeGuide = import("native_guide.nut")
 local Desktop = import("desktop_metadata.nut")
+local Android = import("android.nut")
 
 function text_control(parent, title, help, value, path_kind = null, directory = null) {
     local body = W.box(), input = W.entry(value), label = W.heading(title)
@@ -30,23 +31,33 @@ function text_control(parent, title, help, value, path_kind = null, directory = 
 function target_control(capabilities, selected) {
     local body = W.box(), checks = {}, format = W.dropdown(["NSIS installer", "Portable folder"])
     body.append(W.heading("Which packages do you want to produce?"))
-    body.append(W.label("Select one, both AppImages, or all three outputs. Each package is built for its selected operating system and CPU."))
+    selected = O.normalize(selected)
+    body.append(W.label("Choose the operating systems and CPUs to build from this manifest."))
     foreach (item in [["x86_64", "Linux AppImage — x86_64 (Intel / AMD 64-bit)"],
                       ["aarch64", "Linux AppImage — aarch64 (ARM 64-bit)"],
-                      ["windows", "Windows — x86_64 (Intel / AMD 64-bit)"]]) {
+                      ["windows", "Windows — x86_64 (Intel / AMD 64-bit)"],
+                      ["android_arm64", "Android — arm64-v8a (phones and tablets)"],
+                      ["android_x86_64", "Android — x86_64 (emulator)"]]) {
         local key = item[0], check = Gtk.CheckButton.new_with_label(item[1])
         check.set_active(selected[key]); checks[key] <- check; body.append(check)
-        if (key != "windows") check.set_sensitive(capabilities.targets.find("appimage") != null)
+        if (key != "windows") check.set_sensitive(capabilities.targets.find(key.find("android_") == 0 ? "android-apk" : "appimage") != null)
     }
     if (capabilities.targets.find("appimage") == null) body.append(W.label("Linux AppImages require a Linux build host. You can create Windows packages on this host."))
     local label = W.heading("Windows package format"); label.set_mnemonic_widget(format)
     body.append(label); body.append(format); format.set_selected(selected.format == "directory" ? 1 : 0)
     format.set_sensitive(checks.windows.get_active())
     checks.windows.connect("toggled", function() { format.set_sensitive(checks.windows.get_active()) })
+    local android_format = W.dropdown(["APK — installable package per ABI", "App Bundle — one bundle for selected ABIs"])
+    local android_label = W.heading("Android package format"); android_label.set_mnemonic_widget(android_format)
+    body.append(android_label); body.append(android_format); android_format.set_selected(selected.android_format == "aab" ? 1 : 0)
+    local android_changed = function() { android_format.set_sensitive(checks.android_arm64.get_active() || checks.android_x86_64.get_active()) }
+    checks.android_arm64.connect("toggled", android_changed); checks.android_x86_64.connect("toggled", android_changed); android_changed()
+    body.append(W.label("Android uses the pinned NDK and GNOME SDK. Set its application ID, versions and repository below; deployment uses sqgipkg deploy --platform android."))
     body.append(W.label("NSIS produces a Windows installer and needs makensis when building. AppImages for another CPU need a matching runtime and dependencies. Check project reports missing inputs before you package."))
     local selection = function() { return { x86_64 = checks.x86_64.get_active(), aarch64 = checks.aarch64.get_active(),
-        windows = checks.windows.get_active(), format = format.get_selected() == 0 ? "installer" : "directory" } }
-    return { body = body, checks = checks, format = format, selection = selection }
+        windows = checks.windows.get_active(), format = format.get_selected() == 0 ? "installer" : "directory",
+        android_arm64 = checks.android_arm64.get_active(), android_x86_64 = checks.android_x86_64.get_active(), android_format = android_format.get_selected() == 0 ? "apk" : "aab" } }
+    return { body = body, checks = checks, format = format, android_format = android_format, selection = selection }
 }
 
 class Common {
@@ -134,7 +145,9 @@ class Common {
             control.body.append(apply); e.content.append(control.body)
             foreach (key, check in control.checks) e.widgets["common.output." + key] <- check
             e.widgets["common.output.format"] <- control.format; e.widgets["common.target.apply"] <- apply
+            e.widgets["common.output.android_format"] <- control.android_format
         }
+        Android.render(e)
         e.content.append(W.label("Review lists the exact outputs and package folders. Advanced retains custom build recipes and platform settings."))
         this.scalar("output", "Save packages in", "Base folder for your packages. Multiple outputs get separate platform and architecture folders.", "folder")
     }
@@ -204,7 +217,7 @@ class Common {
     }
     function library_dialog(index = null) {
         local e = editor, self = this
-        local choice = index == null ? { name = "", dir = "native", source = "local", repo = "", ref = "", build_system = "meson", introspection = false, ns = "", version = "1.0", library = "", windows_package = "", linux_package = "" }
+        local choice = index == null ? { name = "", dir = "native", source = "local", repo = "", ref = "", build_system = "meson", introspection = false, ns = "", version = "1.0", library = "", windows_package = "", linux_package = "", android_package = "" }
             : L.read(e.document.get(["native", index]))
         local dialog = Gtk.Dialog.new(); dialog.set_title(index == null ? "Add native library" : "Edit native library")
         dialog.set_transient_for(e.window); dialog.set_modal(true); dialog.set_default_size(680, 700)
@@ -245,6 +258,15 @@ class Common {
             linux_cpu.get_selected() == 0 ? "x86_64-linux-gnu" : "aarch64-linux-gnu") })
         linux_package.body.append(linux_browse); body.append(linux_package.body)
         e.widgets["library.linux_package"] <- linux_package.input; e.widgets["library.linux_search"] <- linux_browse; e.widgets["library.linux_cpu"] <- linux_cpu
+        local android_package = text_control(dialog, "Prebuilt Android library (optional)",
+            "Choose an application module from the Android SDK's module catalog. Leave blank to build this source with the NDK.", choice.android_package)
+        local android_cpu = W.dropdown(["Browse Android arm64-v8a", "Browse Android x86_64"])
+        android_package.body.append(android_cpu)
+        local android_browse = W.button("Find Android Ooblerg package…", function() { P.open(dialog, e.base_dir, e.widgets,
+            function(name) { android_package.input.set_text(name) }, "Select an Android module compatible with the SDK and module release in Targets.",
+            android_cpu.get_selected() == 0 ? "aarch64-linux-android" : "x86_64-linux-android", e.document.text) })
+        android_package.body.append(android_browse); body.append(android_package.body)
+        e.widgets["library.android_package"] <- android_package.input; e.widgets["library.android_search"] <- android_browse; e.widgets["library.android_cpu"] <- android_cpu
         local gi = Gtk.CheckButton.new_with_label("Generate GObject metadata when building from source")
         gi.set_active(choice.introspection); body.append(gi)
         body.append(W.label("Used by Squirrel imports such as import(\"GSerial\", \"1.0\"). Some libraries also generate Vala bindings from this metadata. Ordinary C/C++ dependencies do not need it. Prebuilt bundles supply their own published metadata."))
@@ -253,7 +275,7 @@ class Common {
         local version = text_control(dialog, "API version", "The introspection version, for example 1.0. This can differ from the release version.", choice.version)
         local library = text_control(dialog, "Meson library target", "The target Meson builds, for example gserial-1.0 or study-native; omit lib and .so/.dll.", choice.library)
         details.append(ns.body); details.append(version.body); details.append(library.body)
-        details.append(W.label("Cross builds generate metadata using a separate host build, then pair it with the target library. This needs Meson, host development dependencies and the same API on both platforms. Test the packaged imports on every target; metadata conversion does not verify compatibility."))
+        details.append(W.label("New recipes use automatic metadata generation: desktop cross builds use host metadata, while Android runs target probes under QEMU or an explicitly selected device. Existing strategies are preserved; a desktop host-only strategy needs updating in Advanced for Android."))
         details.set_visible(gi.get_active()); gi.connect("toggled", function() { details.set_visible(gi.get_active()) })
         body.append(details)
         body.append(W.label("Options, custom outputs and development dependency installation remain in Advanced. Existing overrides are preserved."))
@@ -266,7 +288,7 @@ class Common {
                 local value = L.write(e.document.get([]), index, { name = name.input.get_text(), source = source.get_selected() == 1 ? "git" : "local",
                     repo = repo.input.get_text(), ref = revision.input.get_text(), dir = source.get_selected() == 1 ? checkout.input.get_text() : directory.input.get_text(),
                     build_system = system.get_selected() == 0 ? "meson" : "cmake", introspection = gi.get_active(),
-                    ns = ns.input.get_text(), version = version.input.get_text(), library = library.input.get_text(), windows_package = strip(package.input.get_text()), linux_package = strip(linux_package.input.get_text()) })
+                    ns = ns.input.get_text(), version = version.input.get_text(), library = library.input.get_text(), windows_package = strip(package.input.get_text()), linux_package = strip(linux_package.input.get_text()), android_package = strip(android_package.input.get_text()) })
                 e.document.set([], value); dialog.destroy(); e.refresh()
             } catch (problem) { error.set_text(problem.tostring()); error.set_focusable(true); error.grab_focus() }
         })
@@ -298,8 +320,9 @@ class Common {
             local row = W.box(false), text = L.effective_name(recipe) + " — " + source_path + " (" + choice.build_system + ")"
             if (choice.linux_package != "") text += "\nLinux: Ooblerg package " + choice.linux_package + " (Ubuntu 24.04)"
             if (choice.windows_package != "") text += "\nWindows: Ooblerg package " + choice.windows_package
+            if (choice.android_package != "") text += "\nAndroid: Ooblerg module " + choice.android_package
             if (choice.introspection) text += "\nSource metadata: " + choice.ns + " " + choice.version + "; target " + choice.library
-            else if (choice.linux_package != "" || choice.windows_package != "") text += "\nPrebuilt bundles supply their published metadata."
+            else if (choice.linux_package != "" || choice.windows_package != "" || choice.android_package != "") text += "\nPrebuilt bundles supply their published metadata."
             else text += "\nNo GObject import configured"
             if (choice.source == "git") text += "\nGit: " + choice.repo + " @ " + choice.ref
             local label = W.label(text); label.set_hexpand(true); row.append(label)
@@ -380,6 +403,17 @@ class Common {
     }
     function runtime() {
         local e = editor, self = this, value = e.document.get([]), choice = R.read(value)
+        local outputs = O.read(value).selection
+        local android_selected = outputs != null && (outputs.android_arm64 || outputs.android_x86_64)
+        local android_only = android_selected && !outputs.x86_64 && !outputs.aarch64 && !outputs.windows
+        if (android_selected) {
+            e.content.append(W.heading("SQGI for Android"))
+            e.content.append(W.label("Android uses the pinned GNOME SDK and either its packaged SQGI or your selected SQGI sources. JIT and typed kernels are disabled on Android. Targets can override the shared choice with the SDK package."))
+            if (choice.mode == "native") {
+                this.expert("runtime", "A native Android entry may embed SQGI. Its SDK runtime can be replaced using runtime.source or runtime.sqgi; edit that selector here and resolve the plan.")
+                return
+            }
+        }
         if (choice.mode == "native") {
             e.content.append(W.label("This application starts a native executable, so it does not need a SQGI runtime. Its native build recipes and dependencies are configured below."))
             return
@@ -390,7 +424,7 @@ class Common {
             "SQGI runs your Squirrel scripts. Every selected platform and CPU needs a matching runtime. A source recipe builds it for each output using that target's compiler and dependencies."))
         if (choice.mode == null) { this.expert(choice.key, choice.reason); return }
         local modes = ["existing", "local", "revision"]
-        local mode = W.dropdown(["Use existing runtime binaries", "Build from a local source checkout", "Build a version, tag or commit"])
+        local mode = W.dropdown([android_only ? "Use pinned SDK runtime" : "Use existing runtime binaries", "Build from a local source checkout", "Build a version, tag or commit"])
         mode.set_selected(modes.find(choice.mode)); e.content.append(mode)
         local details = W.box(), input = null
         local local_value = choice.mode == "local" ? choice.value : ""
@@ -403,7 +437,7 @@ class Common {
             }
             W.clear(details); input = null
             local selected = modes[mode.get_selected()]; previous_mode = selected
-            if (selected == "existing") details.append(W.label("Use runtime binaries you have already built or installed. Advanced has per-platform build folders. Check project reports missing inputs; an installed runtime for this computer does not supply binaries for other CPUs or Windows."))
+            if (selected == "existing") details.append(W.label(android_only ? "Use the SQGI package from the Android SDK selected in Targets." : "Use runtime binaries you have already built or installed. Advanced has per-platform build folders. Check project reports missing inputs; an installed runtime for this computer does not supply binaries for other CPUs or Windows. Android uses its SDK package."))
             else {
                 local local_source = selected == "local"
                 local control = text_control(e.window,
@@ -413,7 +447,7 @@ class Common {
                     local_source ? local_value : revision_value, local_source ? "folder" : null, e.base_dir)
                 input = control.input; details.append(control.body)
                 e.widgets["common.runtime.value"] <- input
-                details.append(W.label("New runtime recipes enable LLVM JIT and typed kernels. Building requires the selected target's development dependencies and compiler."))
+                details.append(W.label(android_selected ? "Android compiles SQGI with the pinned NDK and GNOME SDK, with JIT and typed kernels disabled. Desktop builds retain their compiler-feature defaults. An explicit JIT request must be disabled for Android source builds." : "New runtime recipes enable LLVM JIT and typed kernels. Building requires the selected target's development dependencies and compiler."))
             }
         }
         redraw(); mode.connect("notify::selected", function(_, ...) { redraw() }); e.content.append(details)

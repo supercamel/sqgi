@@ -328,7 +328,7 @@ class SqgiPkgScripts extends Base.SqgiPkgManifest {
 
         if (opts.script != "") {
             local script_abs = this.abs_path(opts.script)
-            this.scan_script_import_tree(opts, script_abs, visited, this.dirname(script_abs))
+            this.scan_script_import_tree(opts, script_abs, visited, opts.script_source_root == "" ? this.dirname(script_abs) : opts.script_source_root)
         }
 
         foreach (spec in opts.scripts) {

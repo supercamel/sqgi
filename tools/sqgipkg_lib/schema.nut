@@ -7,9 +7,10 @@ class SqgiPkgSchema extends Base.SqgiPkgOptions {
             linux = ["ooblerg_packages", "ooblerg_repository", "arches", "build", "copy_dependencies", "deb", "deb_download", "deb_package_cache", "deb_packages", "deb_refresh", "deb_suite", "deb_sysroot_cache", "download_packages", "library_dirs", "package_cache", "packages", "refresh_packages", "suite", "sysroot", "sysroot_cache"],
             windows = ["package_source", "runtime", "auto_packages", "build", "build_dependencies", "build_dir", "build_packages", "cmake_toolchain", "console", "download_packages", "files", "fonts", "gdk_backend", "gtk_font_name", "gtk_icon_theme", "gtk_prefer_dark", "gtk_theme", "libraries", "meson_cross_file", "sysroot", "native_dependencies", "native_projects", "nsis", "nsis_options", "package_cache", "packages", "refresh_packages", "repo_url", "typelibs"],
             sqgi_source = ["branch", "cache", "cache_dir", "commit", "dir", "git", "path", "ref", "repo", "shallow", "submodules", "tag", "update"],
-            entry = ["executable", "linux", "path", "project", "script", "type", "windows"],
+            entry = ["executable", "linux", "path", "project", "script", "source_root", "type", "windows", "android"],
+            entry_android = ["project", "library", "symbol", "shutdown"],
             nsis_options = ["autostart", "desktop_shortcut", "header_image", "icon", "install_dir", "installer_name", "license", "request_execution_level", "start_menu_folder", "start_menu_shortcut", "uninstall_registry", "welcome_finish_image", "welcome_image"],
-            native_projects = ["linux_package", "windows_package", "branch", "build", "commit", "dir", "files", "git", "install", "libraries", "name", "ref", "repo", "shallow", "stage", "submodules", "tag", "typelibs", "update", "build_system", "options", "gi", "targets"],
+            native_projects = ["linux_package", "windows_package", "android_package", "depends_on", "branch", "build", "commit", "dir", "files", "git", "install", "libraries", "name", "ref", "repo", "shallow", "stage", "submodules", "tag", "typelibs", "update", "build_system", "options", "gi", "targets"],
             arches = ["appimage_arch", "arch", "build", "build_dir", "cmake_toolchain", "copy_dependencies", "deb", "deb_download", "deb_package_cache", "deb_packages", "deb_refresh", "deb_suite", "deb_sysroot_cache", "download_packages", "entry_linux", "files", "gdk_pixbuf_loaders", "gio_modules", "gsettings_schemas", "gstreamer_plugins", "gtk_data", "inherit_native_projects", "libraries", "library_dirs", "meson_cross_file", "native_projects", "output", "package_arch", "package_cache", "packages", "refresh_packages", "resources", "suite", "sysroot", "sysroot_cache", "typelibs"],
             deb = ["download", "package_cache", "packages", "refresh", "suite", "sysroot_cache"],
             files = ["path", "src", "dest", "from", "dir", "to", "include", "includes", "glob", "globs", "exclude", "excludes", "match", "regex", "optional"],
@@ -101,7 +102,7 @@ class SqgiPkgSchema extends Base.SqgiPkgOptions {
             if (item == null) continue
             if (kind == "windows" && key == "package_source" && item != "ooblerg") this.fail(label + " must be ooblerg; MSYS2 support has been removed")
             if (kind == "windows" && key == "runtime" && item != "inherit" && item != "package") this.fail(label + " must be inherit or package")
-            if ((key == "windows_package" || key == "linux_package") && (typeof(item) != "string" || item == "")) this.fail(label + " requires a nonempty Ooblerg package name")
+            if ((key == "windows_package" || key == "linux_package" || key == "android_package") && (typeof(item) != "string" || item == "")) this.fail(label + " requires a nonempty Ooblerg package name")
             if (key == "windows_package" && this.starts_with(item, "mingw-w64-") && item != "mingw-w64-runtime")
                 this.fail(label + ": MSYS2 package names are no longer supported; select an Ooblerg catalog name")
             if (kind == "linux" && key == "ooblerg_packages") {
@@ -110,8 +111,8 @@ class SqgiPkgSchema extends Base.SqgiPkgOptions {
             }
             if (kind == "linux" && key == "ooblerg_repository" && (typeof(item) != "string" || item == ""))
                 this.fail(label + " must be a nonempty repository origin")
-            if (key == "build_system" && item != "meson" && item != "cmake") this.fail(label + " must be meson or cmake")
-            if (key == "strategy" && item != "host") this.fail(label + " must be host")
+            if (key == "build_system" && item != "meson" && item != "cmake" && item != "custom") this.fail(label + " must be meson, cmake or custom")
+            if (key == "strategy" && item != "host" && item != "target" && item != "auto") this.fail(label + " must be host, target or auto")
             if (key == "gi") {
                 if (typeof(item) != "table") this.fail(label + " must be an object")
                 foreach (field in ["namespace", "version", "library"])
@@ -122,7 +123,7 @@ class SqgiPkgSchema extends Base.SqgiPkgOptions {
                 foreach (option, setting in item)
                     if (!this.array_contains(["string", "integer", "float", "bool"], typeof(setting))) this.fail(label + "." + option + " must be scalar")
             }
-            if (this.array_contains(["features", "architectures", "targets"], key)) {
+            if (this.array_contains(["features", "architectures", "targets", "depends_on"], key)) {
                 if (typeof(item) != "array") this.fail(label + " must be an array")
                 foreach (entry in item) if (typeof(entry) != "string") this.fail(label + " entries must be strings")
             }
@@ -143,12 +144,13 @@ class SqgiPkgSchema extends Base.SqgiPkgOptions {
             if (kind == "windows" && key == "runtime") continue
             local child = key
             if (kind == "platforms") child = "platform_" + key
+            if (kind == "entry" && key == "android") child = "entry_android"
             if (key == "native" || key == "native_dependencies") child = "native_projects"
             if (key == "linux_arches") child = "arches"
             local nested = (kind == "manifest" && this.array_contains(["linux", "windows", "entry", "sqgi_source", "native_projects", "native", "linux_arches", "runtime", "platforms"], key)) ||
                 (kind == "linux" && (key == "deb" || key == "arches")) ||
                 (kind == "windows" && this.array_contains(["native_projects", "native_dependencies", "build_dependencies", "nsis_options"], key)) ||
-                (kind == "arches" && (key == "deb" || key == "native_projects")) || (kind == "native_projects" && key == "gi") || kind == "platforms"
+                (kind == "arches" && (key == "deb" || key == "native_projects")) || (kind == "native_projects" && key == "gi") || kind == "platforms" || (kind == "entry" && key == "android")
             if (key == "build_dependencies") child = "native_projects"
             if (key == "files" || key == "fonts") nested = true
             if (nested && child in fields) {

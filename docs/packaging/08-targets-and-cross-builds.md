@@ -25,7 +25,7 @@ Windows-native build tools because Ubuntu supplies the compiler. SQGI's normal
 LLVM JIT and typed kernels remain enabled. `sqgipkg` source runtime recipes
 prepare the equivalent SDK and generate CMake/Meson cross files automatically.
 Native Windows builds use the same helper without `--cross`; see the
-[Windows source-build instructions](../../README.md#build-windows-from-source-with-ooblerg).
+[Windows source-build instructions](https://github.com/supercamel/sqgi/blob/master/README.md#build-windows-from-source-with-ooblerg).
 
 ## Common Targets
 

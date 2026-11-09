@@ -9,6 +9,12 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 include(GNUInstallDirs)
 
+set(SQGI_COMPILER_FEATURES_DEFAULT ON)
+if(ANDROID)
+    set(SQGI_COMPILER_FEATURES_DEFAULT OFF)
+endif()
+option(SQGI_RUNTIME_ONLY "Build and install only the embeddable runtime" ${ANDROID})
+
 option(SQGI_ENABLE_LTO "Optimize across translation units in Release builds" OFF)
 if(SQGI_ENABLE_LTO)
     include(CheckIPOSupported)
@@ -67,9 +73,12 @@ endif()
 #
 # LLVM powers the default JIT and typed kernel compiler. Explicitly disabling
 # the bytecode JIT leaves ordinary Squirrel execution to the interpreter.
-option(SQ_ENABLE_JIT "Build experimental Squirrel bytecode JIT support" ON)
+option(SQ_ENABLE_JIT "Build experimental Squirrel bytecode JIT support" ${SQGI_COMPILER_FEATURES_DEFAULT})
 option(SQGI_THREADED_DISPATCH "Use experimental GCC/Clang threaded interpreter dispatch" OFF)
-option(SQGI_ENABLE_KERNELS "Build experimental typed kernel compiler" ON)
+option(SQGI_ENABLE_KERNELS "Build experimental typed kernel compiler" ${SQGI_COMPILER_FEATURES_DEFAULT})
+if(ANDROID AND (SQ_ENABLE_JIT OR SQGI_ENABLE_KERNELS))
+    message(FATAL_ERROR "Android SQGI currently requires SQ_ENABLE_JIT=OFF and SQGI_ENABLE_KERNELS=OFF")
+endif()
 set(SQGI_KERNEL_BACKEND "LLVM" CACHE STRING "Kernel compiler backend: LLVM or NATIVE")
 set_property(CACHE SQGI_KERNEL_BACKEND PROPERTY STRINGS LLVM NATIVE)
 set(SQGI_BYTECODE_JIT_BACKEND "LLVM" CACHE STRING "Bytecode compiler: AUTO or LLVM")
@@ -105,7 +114,11 @@ endif()
 # ── Bundled Squirrel3 ─────────────────────────────────────────────────────────
 set(DISABLE_STATIC ON CACHE BOOL "" FORCE)
 set(SQ_DISABLE_INSTALLER ON CACHE BOOL "" FORCE)
-add_subdirectory(Squirrel3)
+if(SQGI_RUNTIME_ONLY)
+    add_subdirectory(Squirrel3 EXCLUDE_FROM_ALL)
+else()
+    add_subdirectory(Squirrel3)
+endif()
 add_library(sqgi-runtime-config INTERFACE)
 if(SQGI_THREADED_DISPATCH)
     if(NOT CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
@@ -339,11 +352,12 @@ add_library(sqgi SHARED $<TARGET_OBJECTS:sqgi-core>)
 # The binary64 C API is incompatible with the original float32 ABI. Keep
 # shared-library ABI versioning separate from the application release number.
 set(SQGI_ABI_VERSION 1)
-set_target_properties(sqgi PROPERTIES
-    VERSION   ${SQGI_ABI_VERSION}.0.0
-    SOVERSION ${SQGI_ABI_VERSION}
-    LINKER_LANGUAGE CXX
-)
+set_target_properties(sqgi PROPERTIES LINKER_LANGUAGE CXX)
+if(NOT ANDROID)
+    set_target_properties(sqgi PROPERTIES
+        VERSION ${SQGI_ABI_VERSION}.0.0
+        SOVERSION ${SQGI_ABI_VERSION})
+endif()
 target_include_directories(sqgi
     PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/src
@@ -356,6 +370,46 @@ if(SQGI_MINGW_RUNTIME_LINK_OPTIONS)
     # _Unwind_Resume makes C++ clients import it while also linking their own
     # libgcc_eh, producing a duplicate definition (including the JIT tests).
     target_link_options(sqgi PRIVATE "LINKER:--exclude-libs,libgcc_eh.a")
+endif()
+
+# Public C headers consumed by external embedders. The vm header is the
+# canonical entry point; the marshal/async/signal/object headers are exposed
+# as a public surface so out-of-tree extensions can use the same helpers.
+set(SQGI_PUBLIC_HEADERS
+    Squirrel3/include/squirrel.h
+    Squirrel3/include/sqconfig.h
+    Squirrel3/include/sqstdaux.h
+    Squirrel3/include/sqstdio.h
+    Squirrel3/include/sqstdmath.h
+    Squirrel3/include/sqstdstring.h
+    Squirrel3/include/sqstdblob.h
+    Squirrel3/include/sqstdsystem.h
+    src/sqgi_vm.h
+    src/sqgi_marshal.h
+    src/sqgi_async.h
+    src/sqgi_signal.h
+    src/sqgi_gi.h
+    src/sqgi_gi_object.h
+    src/sqgi_import.h
+    src/sqgi_gerror.h
+    src/sqgi_subclass.h
+    src/sqgi_json.h
+    tools/sqgipkg_lib/android/sqgi_android_entry.h
+)
+
+
+# Android embedders do not build host tools or desktop test executables.
+if(SQGI_RUNTIME_ONLY)
+    install(TARGETS sqgi
+        LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+        ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
+    install(FILES ${SQGI_PUBLIC_HEADERS}
+        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/sqgi)
+    configure_file(sqgi.pc.in ${CMAKE_CURRENT_BINARY_DIR}/sqgi.pc @ONLY)
+    install(FILES ${CMAKE_CURRENT_BINARY_DIR}/sqgi.pc
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig)
+    return()
 endif()
 
 # ── sqgicheck static-analysis engine and executable ─────────────────────────
@@ -947,6 +1001,16 @@ if(Python3_Interpreter_FOUND)
     set_tests_properties(sqgi_test_native_sdk PROPERTIES LABELS "packaging" TIMEOUT 60)
     add_test(NAME sqgi_test_sqgipkg_ergonomics
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/sqgipkg_tests/test_ergonomics.py $<TARGET_FILE:sqgi-bin>)
+    # Android build/provisioning fixtures require the supported Linux host.
+    # Shared manifest/GUI resolution remains in the cross-platform suites.
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND NOT CMAKE_CROSSCOMPILING)
+        add_test(NAME sqgi_test_sqgipkg_android
+            COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/sqgipkg_tests/test_android.py $<TARGET_FILE:sqgi-bin>)
+        set_tests_properties(sqgi_test_sqgipkg_android PROPERTIES LABELS "packaging;android" TIMEOUT 180)
+        add_test(NAME sqgi_test_android_setup
+            COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/sqgipkg_tests/test_android_setup.py $<TARGET_FILE:sqgi-bin>)
+        set_tests_properties(sqgi_test_android_setup PROPERTIES LABELS "packaging;android" TIMEOUT 60)
+    endif()
     set_tests_properties(sqgi_test_sqgipkg_ergonomics PROPERTIES
         LABELS "packaging" TIMEOUT 180 ENVIRONMENT "${SQGI_TEST_ENV}")
     if(SQGI_ENABLE_KERNELS)
@@ -1246,29 +1310,6 @@ if(SQGI_NODE_EXECUTABLE)
 endif()
 
 # ── Install ───────────────────────────────────────────────────────────────────
-# Public C headers consumed by external embedders. The vm header is the
-# canonical entry point; the marshal/async/signal/object headers are exposed
-# as a public surface so out-of-tree extensions can use the same helpers.
-set(SQGI_PUBLIC_HEADERS
-    Squirrel3/include/squirrel.h
-    Squirrel3/include/sqconfig.h
-    Squirrel3/include/sqstdaux.h
-    Squirrel3/include/sqstdio.h
-    Squirrel3/include/sqstdmath.h
-    Squirrel3/include/sqstdstring.h
-    Squirrel3/include/sqstdblob.h
-    Squirrel3/include/sqstdsystem.h
-    src/sqgi_vm.h
-    src/sqgi_marshal.h
-    src/sqgi_async.h
-    src/sqgi_signal.h
-    src/sqgi_gi.h
-    src/sqgi_gi_object.h
-    src/sqgi_import.h
-    src/sqgi_gerror.h
-    src/sqgi_subclass.h
-    src/sqgi_json.h
-)
 
 install(TARGETS sqgi
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
@@ -1300,6 +1341,9 @@ install(PROGRAMS tools/sqgipkg
 install(DIRECTORY tools/sqgipkg_lib
     DESTINATION ${CMAKE_INSTALL_DATADIR}/sqgi
     PATTERN "__pycache__" EXCLUDE
+    # Android packaging is implemented in SQGI. These Python modules remain
+    # in the source tree only as behavioral references for regression tests.
+    REGEX "/android/[^/]*\\.py$" EXCLUDE
 )
 
 install(FILES tools/sqgipkg.schema.json DESTINATION ${CMAKE_INSTALL_DATADIR}/sqgi)

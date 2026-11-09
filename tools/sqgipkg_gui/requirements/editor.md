@@ -16,7 +16,7 @@ Parent: [product requirements](README.md). Derived contract: [editor](../contrac
 | R-EDIT-10 | Keyboard navigation, labels, resizing/high-DPI layout, and responsive large-list/log handling remain usable. |
 | R-EDIT-11 | Naming the app, choosing its script/icon/output folder, selecting a supported package format, declaring known features, and adding/removing extra files or folders require no JSON type selection. File pickers occur only on path controls. Shared controls serve setup and later editing where those tasks overlap. |
 | R-EDIT-12 | Common controls preserve existing alternate forms and aliases. Complex entrypoints, custom file rules, unknown features, and target overlays are visibly identified and remain editable without silently migrating or replacing their representation. |
-| R-EDIT-13 | Setup and Targets allow multiple outputs: x86_64 AppImage, aarch64 AppImage, and Windows x86_64, with an installer/folder choice for Windows. New projects on Linux default to both AppImages and the Windows NSIS installer; Windows hosts default to their supported Windows installer and explain why Linux outputs need a Linux host. Any nonempty supported subset is selectable, including both AppImages without Windows. Setup review and resolved Review enumerate the selected outputs. Existing manifests retain their selection on open; automatic, unknown, or complex legacy selections are identified rather than silently replaced. Per-architecture build overrides remain preserved and use the advanced editor when the common controls cannot safely represent them. |
+| R-EDIT-13 | Setup and Targets allow multiple outputs: x86_64 AppImage, aarch64 AppImage, Windows x86_64 with an installer/folder choice, and Android arm64-v8a/x86_64 with APK/App Bundle selection. Android is opt-in and uses its pinned NDK/GNOME SDK. New projects on Linux default to both AppImages and the Windows NSIS installer; Windows hosts default to their supported Windows installer and explain why Linux outputs need a Linux host. Any nonempty supported subset is selectable, including both AppImages without Windows. Setup review and resolved Review enumerate the selected outputs. Existing manifests retain their selection on open; automatic, unknown, or complex legacy selections are identified rather than silently replaced. Per-architecture build overrides remain preserved and use the advanced editor when the common controls cannot safely represent them. |
 | R-EDIT-14 | Review separately reports Not checked, Checks passed, Checks passed with warnings, Needs attention, Plan resolved, and Changed since inspection. Explain success never implies Check success. Each result retains its action, draft and base directory. A failed or cancelled attempt cannot look like a newly successful inspection. |
 | R-EDIT-15 | Setup ends with a readable launch/output/template summary and saves to Review with an explicit Check project next step. Semantic errors do not prevent draft saves. Review shows issues before technical details, distinguishes declarations from import evidence, and offers a packaging command only for a saved, unchanged valid document. Saving and inspection do not claim package execution success. |
 
@@ -188,3 +188,13 @@ universally available. No catalog request installs packages or starts a build.
 Platform package controls should follow the selected outputs: do not show a full
 Windows package form for a Linux-only project (or vice versa). Preserve inactive
 platform settings and explain that Targets enables the other platform.
+
+R-EDIT-03/R-EDIT-13 Android Targets controls edit minimum API, application version,
+SDK release, repository, module release, GI namespaces and debug/release variant.
+Preserve unrelated desktop, native-entry and advanced Android settings. Unsupported
+representations stay editable in Advanced. Android native-package browsing uses
+the current draft repository and module release for the selected ABI. It does not
+install packages. Review and job results identify Android formats and ABI lists;
+JIT/kernel assumptions for desktop must not be applied to Android. Native library
+forms preserve independent platform replacements and authored GI strategies; new
+automatic strategies select target execution for Android.

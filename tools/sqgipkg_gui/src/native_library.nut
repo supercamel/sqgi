@@ -2,8 +2,9 @@
 local D = import("document.nut")
 local GLib = import("GLib")
 function application_recipe(value, recipe) {
-    return "entry" in value && typeof(value.entry) == "table" &&
-        "project" in value.entry && "name" in recipe && recipe.name == value.entry.project
+    if (!("entry" in value) || typeof(value.entry) != "table" || !("name" in recipe)) return false
+    return "project" in value.entry && recipe.name == value.entry.project ||
+        "android" in value.entry && typeof(value.entry.android) == "table" && "project" in value.entry.android && recipe.name == value.entry.android.project
 }
 local function pinned_commit(value) {
     if (typeof(value) != "string" || (value.len() != 40 && value.len() != 64)) return false
@@ -21,14 +22,15 @@ function read(recipe) {
     if ("name" in recipe && typeof(recipe.name) != "string") return null
     if ("windows_package" in recipe && typeof(recipe.windows_package) != "string") return null
     if ("linux_package" in recipe && typeof(recipe.linux_package) != "string") return null
+    if ("android_package" in recipe && typeof(recipe.android_package) != "string") return null
     local gi = "gi" in recipe ? recipe.gi : null
     if (gi != null) {
         if (typeof(gi) != "table" || recipe.build_system != "meson") return null
         foreach (key in ["strategy", "namespace", "version", "library"])
             if (!(key in gi) || typeof(gi[key]) != "string") return null
-        if (gi.strategy != "host" || gi.len() != 4) return null
+        if (["host", "auto", "target"].find(gi.strategy) == null || gi.len() != 4) return null
     }
-    return { linux_package = "linux_package" in recipe ? recipe.linux_package : "", windows_package = "windows_package" in recipe ? recipe.windows_package : "", name = "name" in recipe ? recipe.name : "", source = remote ? "git" : "local", repo = remote ? recipe.repo : "", ref = remote ? recipe.ref : "", dir = "dir" in recipe ? recipe.dir : "", build_system = recipe.build_system,
+    return { android_package = "android_package" in recipe ? recipe.android_package : "", linux_package = "linux_package" in recipe ? recipe.linux_package : "", windows_package = "windows_package" in recipe ? recipe.windows_package : "", name = "name" in recipe ? recipe.name : "", source = remote ? "git" : "local", repo = remote ? recipe.repo : "", ref = remote ? recipe.ref : "", dir = "dir" in recipe ? recipe.dir : "", build_system = recipe.build_system,
         introspection = gi != null, ns = gi == null ? "" : gi.namespace,
         version = gi == null ? "" : gi.version, library = gi == null ? "" : gi.library }
 }
@@ -56,6 +58,10 @@ function write(value, index, fields) {
     local next = D.copy_value(value), recipe = index == null ? {} : next.native[index]
     if (fields.name != "") recipe.name <- fields.name
     else if ("name" in recipe) delete recipe.name
+    if ("android_package" in fields) {
+        if (fields.android_package != "") recipe.android_package <- fields.android_package
+        else if ("android_package" in recipe) delete recipe.android_package
+    }
     if ("linux_package" in fields) {
         if (fields.linux_package != "") recipe.linux_package <- fields.linux_package
         else if ("linux_package" in recipe) delete recipe.linux_package
@@ -69,7 +75,7 @@ function write(value, index, fields) {
     if (remote && fields.dir == "") { if ("dir" in recipe) delete recipe.dir }
     else recipe.dir <- fields.dir
     recipe.build_system <- fields.build_system
-    if (fields.introspection) recipe.gi <- { strategy = "host", namespace = fields.ns, version = fields.version, library = fields.library }
+    if (fields.introspection) recipe.gi <- { strategy = "gi" in recipe && recipe.gi != null ? recipe.gi.strategy : "auto", namespace = fields.ns, version = fields.version, library = fields.library }
     else if ("gi" in recipe && recipe.gi != null) delete recipe.gi
     local name = effective_name(recipe).tolower()
     foreach (i, other in recipes) {

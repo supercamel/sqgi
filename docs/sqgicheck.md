@@ -326,17 +326,3 @@ Run with `--summary`. If the relevant value is unknown, the checker
 intentionally avoids a speculative diagnostic. Prefer literal imports and
 member names, and return sealed top-level module tables when practical, to
 make more of the program statically visible.
-
-## Testing And Coverage
-
-Run the checker unit, CLI, corpus, and staged-install tests with:
-
-```sh
-ctest --test-dir build -R sqgicheck --output-on-failure
-```
-
-The [full-coverage standard](sqgicheck-coverage.md) documents the failure-mode
-matrix, exact coverage gate, sanitizer suite, mutation tests, and justified
-platform exclusions. The release gate requires 100% eligible function and line
-coverage, at least 95% eligible branch coverage, and a source-anchored rationale
-for every raw uncovered outcome.

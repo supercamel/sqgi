@@ -3,6 +3,29 @@ local Base = import("scripts.nut")
 local sdk_helper = GLib.path_get_dirname(GLib.canonicalize_filename(__FILE__, null)) + "/native_sdk.py"
 
 class SqgiPkgRecipes extends Base.SqgiPkgScripts {
+    function order_native_projects(projects, available = []) {
+        local names = {}, state = {}, result = []
+        foreach (project in projects) {
+            if (project.name in names) this.fail("duplicate native recipe name: " + project.name)
+            names[project.name] <- project
+        }
+        local visit = null
+        visit = function(name) {
+            if (!(name in names)) {
+                foreach (project in available) if (project.name == name) return
+                this.fail("unknown native recipe dependency: " + name)
+            }
+            if (name in state) {
+                if (state[name] == 1) this.fail("native recipe dependency cycle: " + name)
+                return
+            }
+            state[name] <- 1
+            foreach (dependency in this.table_get(names[name], "depends_on", [])) visit(dependency)
+            result.push(names[name]); state[name] = 2
+        }.bindenv(this)
+        foreach (project in projects) visit(project.name)
+        return result
+    }
     function native_sdk_command() {
         local python = this.executable_path("python3")
         if (python == null) this.fail("Native development export requires Python 3")
@@ -103,6 +126,7 @@ class SqgiPkgRecipes extends Base.SqgiPkgScripts {
     }
 
     function recipe_commands(opts, project, source) {
+        if (project.build_system == "custom") return []
         local dir = this.recipe_build_dir(opts, project)
         local cmake = project.build_system == "cmake"
         local cross = this.recipe_cross_file(opts, cmake)
@@ -141,7 +165,7 @@ class SqgiPkgRecipes extends Base.SqgiPkgScripts {
     }
 
     function run_native_recipe(opts, project) {
-        if (this.table_get(project, "build_system", "") == "") return
+        if (["", "custom"].find(this.table_get(project, "build_system", "")) != null) return
         if (!("recipe_auto_libraries" in project)) project.recipe_auto_libraries <- project.libraries.len() == 0
         if (!("recipe_auto_typelibs" in project)) project.recipe_auto_typelibs <- project.typelibs.len() == 0
         if (project.recipe_auto_libraries) project.libraries = []
@@ -172,8 +196,10 @@ class SqgiPkgRecipes extends Base.SqgiPkgScripts {
 
     function recipe_uses_host_gi(opts, project) {
         if (this.table_get(project, "gi", null) == null) return false
-        if (this.starts_with(opts.target, "win-")) return !this.host_windows()
-        return this.linux_current_is_cross(opts)
+        local cross = this.starts_with(opts.target, "win-") ? !this.host_windows() : this.linux_current_is_cross(opts)
+        if (cross && this.table_get(project.gi, "strategy", "auto") == "target")
+            this.fail("gi.strategy target requires a target execution adapter; desktop cross recipes currently support host or auto")
+        return cross
     }
 
     function target_gi_libraries(declared, available) {

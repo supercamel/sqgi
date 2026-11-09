@@ -4,7 +4,9 @@ local targets = [
     { key = "win-dir", label = "Windows folder (x86_64)", help = "A folder for 64-bit Intel/AMD Windows containing the application and its dependencies. Share the whole folder." },
     { key = "win-nsis", label = "Windows installer (x86_64)", help = "An installer for 64-bit Intel/AMD Windows, built with NSIS. Building requires makensis; you can save a draft before installing it." },
     { key = "appimage-all", label = "Linux AppImages", help = "Builds the selected Linux architectures without a Windows package." },
-    { key = "all", label = "Linux and Windows", help = "Builds the selected Linux AppImages and Windows x86_64 output. Select the combination in Targets." }
+    { key = "android-apk", label = "Android APK", help = "An installable Android package for each selected ABI." },
+    { key = "android-aab", label = "Android App Bundle", help = "One Android bundle containing all selected ABIs; deployment generates device-specific APKs." },
+    { key = "all", label = "Selected platforms", help = "Builds the enabled Linux, Windows and Android outputs. Select the combination in Targets." }
 ]
 local templates = [
     { key = "simple", label = "Squirrel application", help = "Start with your script. Literal local imports are followed automatically. Add folders in Files for scripts selected dynamically." },
@@ -12,7 +14,8 @@ local templates = [
     { key = "gtk4-gstreamer", label = "GTK 4 with audio or video", help = "Declares GTK 4 and GStreamer for a desktop application using multimedia." },
     { key = "native-gobject", label = "Squirrel with a native GObject library", help = "Adds a Meson library project in native/. Choose this only when your project contains that source directory." },
     { key = "native-vala", label = "Squirrel with a Vala library", help = "Adds a Meson library project in native/. Your main Squirrel script remains the entry point." },
-    { key = "native-application", label = "Native application (Vala / C / C++)", help = "Builds an existing Meson or CMake application for each selected CPU and operating system. Your executable starts directly; no Squirrel script or SQGI runtime is needed." }
+    { key = "native-application", label = "Native application (Vala / C / C++)", help = "Builds an existing Meson or CMake application for each selected CPU and operating system. Your executable starts directly; no Squirrel script or SQGI runtime is needed." },
+    { key = "android-gtk4", label = "GTK 4 Android application", help = "Configures existing sources in src/ with the pinned Android GNOME/SQGI SDK. For a new app, run sqgipkg init android-gtk4 in an empty folder, then open its manifest here." }
 ]
 function target_label(key) {
     foreach (choice in targets) if (choice.key == key) return choice.label

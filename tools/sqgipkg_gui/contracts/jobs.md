@@ -123,3 +123,10 @@ Progress cannot override cancellation or final exit/report outcome. Missing or
 malformed progress falls back to the log rather than fabricating a stage.
 Acceptance covers progress with no stdout, invalid fields, matrix count advance,
 and retaining cancellation/final outcomes.
+
+C-JOB-03 Android artifact kinds/targets are android-apk and android-aab. APK ABI
+is x86_64 or arm64-v8a; AAB also permits multi. Reject desktop aarch64 spelling
+in these artifact records. Progress uses the same target/ABI validation. Actual
+file size/type and manifest digest checks remain mandatory; file extensions or
+ELF format must not imply Linux. Optional Android Studio acceptance exercises
+the real supervisor and bundle artifact, followed by separate emulator evidence.

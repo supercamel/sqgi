@@ -36,7 +36,7 @@ enum AppendArrayType {
     AAT_BOOL = 4
 };
 
-enum SQOpcode
+enum SQOpcode : int
 {
     _OP_LINE=               0x00,
     _OP_LOAD=               0x01,

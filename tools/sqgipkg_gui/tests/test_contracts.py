@@ -187,6 +187,11 @@ class Contracts(unittest.TestCase):
             self.assertEqual(template['schema_version'], 2, name)
             self.assertNotIn('runtime', template)
 
+    def test_android_settings_preserve_other_platforms_and_native_entry(self):
+        proc = subprocess.run([str(SQGI), str(GUI / 'tests/android_fields.nut')], text=True, capture_output=True, timeout=20)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertIn('PASS EDIT-android-settings', proc.stdout)
+
     @unittest.skipIf(os.name == 'nt', 'Linux matrix requires a Linux host')
     def test_native_library_preservation(self):
         proc = subprocess.run([str(SQGI), str(GUI / 'tests/native_library.nut')],

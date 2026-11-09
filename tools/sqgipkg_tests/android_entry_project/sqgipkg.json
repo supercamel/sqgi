@@ -1,0 +1,16 @@
+{
+  "schema_version": 2,
+  "name": "Native Entry + SQGI",
+  "app_id": "org.sqgi.android.nativeentry",
+  "script": "main.nut",
+  "compile_scripts": false,
+  "features": ["gtk4"],
+  "entry": {
+    "type": "native", "project": "application", "executable": "native-entry",
+    "android": {"project": "application", "library": "libnative-entry.so",
+      "symbol": "sqgi_android_main", "shutdown": "sqgi_android_shutdown"}
+  },
+  "native": [{"name": "application", "dir": "native", "build_system": "meson"}],
+  "platforms": {"android": {"architectures": ["x86_64", "arm64-v8a"], "format": "aab",
+    "min_sdk": 31, "namespaces": ["Gtk-4.0"]}}
+}

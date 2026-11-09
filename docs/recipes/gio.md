@@ -5,7 +5,7 @@ Practical recipes for GIO — files, streams, subprocesses, sockets, and the
 you'll touch day-to-day; almost everything in the libsoup, GTK 4, and
 GStreamer cookbooks builds on it.
 
-Read [docs/language/](../language/) chapters 9–11 (async / Tasks) and skim
+Read [docs/language/](../language/00-chapter-map.md) chapters 9–11 (async / Tasks) and skim
 [docs/api/README.md](../api/README.md) first.
 
 All examples are runnable with:
@@ -223,7 +223,7 @@ out.close_sync(null)
 `Gio.OutputStream.splice_async` is the canonical idiom for "let GIO drive
 both sides of the pipe". It works regardless of whether the streams are
 backed by files, sockets, pipes, or remote GVFS resources. From
-[demo/gio/stream_copy.nut](../../demo/gio/stream_copy.nut):
+[demo/gio/stream_copy.nut](https://github.com/supercamel/sqgi/blob/master/demo/gio/stream_copy.nut):
 
 ```squirrel
 async function copy(src_path, dst_path) {
@@ -287,7 +287,7 @@ Other useful converters: `Gio.ZlibCompressor` (gzip/deflate output),
 
 `Gio.File.enumerate_children_async` returns a `Gio.FileEnumerator` that you
 page through with `next_files_async`. From
-[demo/gio/ls.nut](../../demo/gio/ls.nut):
+[demo/gio/ls.nut](https://github.com/supercamel/sqgi/blob/master/demo/gio/ls.nut):
 
 ```squirrel
 async function ls(path) {
@@ -345,7 +345,7 @@ async function stat(path) {
 
 `Gio.FileInfo` exposes typed getters per attribute. The dispatch on
 `info.get_attribute_type(attr)` from
-[demo/gio/stat.nut](../../demo/gio/stat.nut) is worth memorising:
+[demo/gio/stat.nut](https://github.com/supercamel/sqgi/blob/master/demo/gio/stat.nut) is worth memorising:
 
 ```squirrel
 function fmt_attr(info, attr) {
@@ -380,7 +380,7 @@ info.get_modification_date_time()  // time::modified → GLib.DateTime
 
 `Gio.File.monitor_directory` returns a `Gio.FileMonitor` that fires its
 `changed` signal for every event. From
-[demo/gio/watch.nut](../../demo/gio/watch.nut):
+[demo/gio/watch.nut](https://github.com/supercamel/sqgi/blob/master/demo/gio/watch.nut):
 
 ```squirrel
 local mon = Gio.File.new_for_path(".").monitor_directory(
@@ -504,7 +504,7 @@ them to keep the app alive while async work is in flight, then release.
 
 If you set `handles_command_line`, you get argv in a `command-line` signal
 handler. Register options with `add_main_option` first. From
-[demo/gio/argp.nut](../../demo/gio/argp.nut):
+[demo/gio/argp.nut](https://github.com/supercamel/sqgi/blob/master/demo/gio/argp.nut):
 
 ```squirrel
 app.add_main_option("verbose", 'v', 0, GLib.OptionArg.none,
@@ -549,7 +549,7 @@ Notes:
 
 Actions are named, optionally-parameterised commands. They show up in
 menus, can be invoked from the command line via D-Bus, and decouple the UI
-from the implementation. From [demo/gio/actions.nut](../../demo/gio/actions.nut):
+from the implementation. From [demo/gio/actions.nut](https://github.com/supercamel/sqgi/blob/master/demo/gio/actions.nut):
 
 ```squirrel
 // Parameterless action
@@ -659,7 +659,7 @@ if (data.len() == 0) { /* EOF */ }
 ## 16. TCP server (`Gio.SocketService`)
 
 A `Gio.SocketService` accepts connections and fires `incoming` per accept.
-From [demo/gio/tcp_echo.nut](../../demo/gio/tcp_echo.nut):
+From [demo/gio/tcp_echo.nut](https://github.com/supercamel/sqgi/blob/master/demo/gio/tcp_echo.nut):
 
 ```squirrel
 local service = Gio.SocketService.new()
@@ -705,7 +705,7 @@ off async work and return.
 
 `SocketClient.set_tls(true)` transparently wraps the connection in a
 `Gio.TlsClientConnection`. From
-[demo/gio/tls_get.nut](../../demo/gio/tls_get.nut):
+[demo/gio/tls_get.nut](https://github.com/supercamel/sqgi/blob/master/demo/gio/tls_get.nut):
 
 ```squirrel
 local client = Gio.SocketClient.new()
@@ -727,7 +727,7 @@ The raw socket path is for non-HTTP TLS protocols.
 
 UDP doesn't have GIO's async pair. Instead, set the socket non-blocking
 and use `sqgi.socket_add_watch` to attach a readiness callback. From
-[demo/gio/udp_echo.nut](../../demo/gio/udp_echo.nut):
+[demo/gio/udp_echo.nut](https://github.com/supercamel/sqgi/blob/master/demo/gio/udp_echo.nut):
 
 ```squirrel
 local s = Gio.Socket.new(Gio.SocketFamily.ipv4,
@@ -754,7 +754,7 @@ sqgi.socket_add_watch(s, GLib.IOCondition.in, function(sock, cond) {
 returns the number of bytes sent.
 
 Multicast: `s.join_multicast_group(addr, source_specific, iface)`. See
-[demo/gio/udp_multicast.nut](../../demo/gio/udp_multicast.nut).
+[demo/gio/udp_multicast.nut](https://github.com/supercamel/sqgi/blob/master/demo/gio/udp_multicast.nut).
 
 ---
 
@@ -762,7 +762,7 @@ Multicast: `s.join_multicast_group(addr, source_specific, iface)`. See
 
 Every auto-async wrapper allocates a `Gio.Cancellable` and binds it to its
 Task — so `task.cancel()` aborts the in-flight C call. From
-[demo/gio/cancel.nut](../../demo/gio/cancel.nut):
+[demo/gio/cancel.nut](https://github.com/supercamel/sqgi/blob/master/demo/gio/cancel.nut):
 
 ```squirrel
 async function slow_get(host) {
@@ -809,7 +809,7 @@ cancel a sync call from another fiber/source.
 ## 20. Parallel I/O
 
 `sqgi.all` runs N awaitables concurrently and returns their results in the
-same order. From [demo/gio/tasks_all.nut](../../demo/gio/tasks_all.nut):
+same order. From [demo/gio/tasks_all.nut](https://github.com/supercamel/sqgi/blob/master/demo/gio/tasks_all.nut):
 
 ```squirrel
 async function load_one(p) {
@@ -833,7 +833,7 @@ failure, catch inside each task (as above) and return an `[err, value]`
 tuple, or use `sqgi.race` for "first one wins" semantics.
 
 For DNS, the same trick fans out N lookups in parallel — see
-[demo/gio/resolver.nut](../../demo/gio/resolver.nut).
+[demo/gio/resolver.nut](https://github.com/supercamel/sqgi/blob/master/demo/gio/resolver.nut).
 
 ---
 
@@ -858,12 +858,12 @@ For DNS, the same trick fans out N lookups in parallel — see
 
 ## Further reading
 
-- [demo/gio/](../../demo/gio/) — 19 runnable examples covering every recipe
+- [demo/gio/](https://github.com/supercamel/sqgi/tree/master/demo/gio) — 19 runnable examples covering every recipe
   here.
 - [docs/api/README.md](../api/README.md) — `sqgi.gio_async`,
   `sqgi.socket_add_watch`, `sqgi.bytes_to_array`, `sqgi.Task`, `sqgi.all`,
   `sqgi.race`.
-- [docs/language/](../language/) — chapters 9–11 cover the async model
+- [docs/language/](../language/00-chapter-map.md) — chapters 9–11 cover the async model
   these recipes lean on.
 - [docs/recipes/soup.md](soup.md) and [docs/recipes/gtk4.md](gtk4.md) — both
   build on the patterns here.

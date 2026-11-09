@@ -1,6 +1,6 @@
 # SQGI API Reference
 
-This is a flat reference for every runtime function and helper SQGI exposes on top of vanilla Squirrel. For tutorial-style introductions, see the [language tutorial](../language/).
+This is a flat reference for every runtime function and helper SQGI exposes on top of vanilla Squirrel. For tutorial-style introductions, see the [language tutorial](../language/00-chapter-map.md).
 
 Conventions in this document:
 
@@ -8,7 +8,7 @@ Conventions in this document:
 - **Returns** describes the value placed on the stack on success.
 - **Throws** lists exception conditions. Anything not listed propagates from inner calls.
 - **Calling context**: most functions must run on the main thread that owns the VM. Cross-thread calls into Squirrel are not supported and will crash.
-- "Task" means an awaitable object created by `sqgi.Task` or one of the wrappers; see [Tasks](#tasks).
+- "Task" means an awaitable object created by `sqgi.Task` or one of the wrappers; see [Tasks](#sqgitask).
 
 ## Contents
 
@@ -100,7 +100,7 @@ Shape:
 
 ```squirrel
 system.os = {
-    name = "linux",          // "linux", "windows", "macos", "bsd", ...
+    name = "linux",          // "linux", "android", "windows", "macos", "bsd", ...
     family = "unix",         // "unix", "windows", or "unknown"
     pretty_name = "...",     // human-readable OS name when available
     version = "...",         // OS version string or null
@@ -117,8 +117,13 @@ system.runtime = {
     squirrel_version = "Squirrel 3.2 stable",
     squirrel_version_number = 320,
     jit = false,
+    kernels = false,
     debug = false
 }
+
+system.android = null        // non-Android builds
+// Android builds instead expose:
+// { abi = "arm64-v8a", api_level = 34, min_api_level = 31 }
 
 system.paths = {
     home = "...",
@@ -150,6 +155,14 @@ system.env.all()      // table of current environment variables
 reflect changes made through GLib such as `GLib.setenv` and `GLib.unsetenv`.
 The snapshot tables such as `paths` and `package` are rebuilt each time
 `import("system")` is called.
+
+On Android, `os.name` and `os.id` are `"android"`, `os.family` is `"unix"`,
+and the OS version comes from Android's release property. `android.api_level`
+is the running device's API level (or null when unavailable), while
+`android.min_api_level` is the minimum API used to compile this SQGI runtime.
+`android.abi` and `cpu.arch` describe the running binary, including under native
+translation: an ARM64 binary reports `"arm64-v8a"` and `"aarch64"` on an x86-64
+emulator. JIT and typed kernels remain disabled in the Android runtime.
 
 Examples:
 
@@ -701,7 +714,7 @@ The original C-level method is still accessible as `foo_async_raw` if you need t
 
 ## See also
 
-- [Language tutorial](../language/) — narrative tutorial.
+- [Language tutorial](../language/00-chapter-map.md) — narrative tutorial.
 - `demo/` — runnable examples per GI namespace.
 - `test/` — exhaustive behavior tests.
 - Source of truth: `src/sqgi_async.c`, `src/sqgi_gi_object.c`, `src/sqgi_subclass.c`, `src/sqgi_gerror.c`, `src/sqgi_json.c`, `src/sqgi_import.c`.

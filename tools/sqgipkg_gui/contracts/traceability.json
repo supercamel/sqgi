@@ -1,5 +1,5 @@
 {
-  "version": 4,
+  "version": 5,
   "requirements": {
     "R-DEL-01": {
       "status": "active",
@@ -330,12 +330,18 @@
         "tools/sqgipkg_lib/main.nut",
         "tools/sqgipkg_lib/manifest.nut",
         "tools/sqgipkg",
-        "tools/sqgipkg_gui/src/outputs.nut"
+        "tools/sqgipkg_gui/src/outputs.nut",
+        "tools/sqgipkg_gui/src/android.nut",
+        "tools/sqgipkg_gui/tests/android.nut",
+        "tools/sqgipkg_gui/tests/android_acceptance.py",
+        "tools/sqgipkg_lib/android.nut"
       ],
       "tests": [
         "PKG-operations",
         "PKG-matrix-build",
-        "EDIT-output-matrix"
+        "EDIT-output-matrix",
+        "EDIT-android-settings",
+        "EDIT-android-build"
       ]
     },
     "R-PKG-06": {
@@ -797,12 +803,18 @@
         "tools/sqgipkg_gui/src/artifacts.nut",
         "tools/sqgipkg_gui/src/jobs.nut",
         "tools/sqgipkg_lib/build.nut",
-        "tools/sqgipkg_lib/main.nut"
+        "tools/sqgipkg_lib/main.nut",
+        "tools/sqgipkg_gui/src/android.nut",
+        "tools/sqgipkg_gui/tests/android.nut",
+        "tools/sqgipkg_gui/tests/android_acceptance.py",
+        "tools/sqgipkg_lib/android.nut"
       ],
       "tests": [
         "JOB-artifact-results",
         "JOB-gui-artifacts",
-        "JOB-quiet-progress"
+        "JOB-quiet-progress",
+        "EDIT-android-settings",
+        "EDIT-android-build"
       ],
       "limits": "Structured final outputs and file presence/type/size are checked. Structured live phases, target runtime certification and Windows-host supervision remain outstanding.",
       "contracts": [
@@ -964,12 +976,18 @@
         "tools/sqgipkg_gui/src/fields.nut",
         "tools/sqgipkg_gui/catalog.json",
         "tools/sqgipkg_gui/src/widgets.nut",
-        "tools/sqgipkg_gui/src/outputs.nut"
+        "tools/sqgipkg_gui/src/outputs.nut",
+        "tools/sqgipkg_gui/src/android.nut",
+        "tools/sqgipkg_gui/tests/android.nut",
+        "tools/sqgipkg_gui/tests/android_acceptance.py",
+        "tools/sqgipkg_lib/android.nut"
       ],
       "tests": [
         "EDIT-common-tasks",
         "EDIT-architecture",
-        "EDIT-output-matrix"
+        "EDIT-output-matrix",
+        "EDIT-android-settings",
+        "EDIT-android-build"
       ]
     },
     "R-EDIT-14": {
@@ -1783,6 +1801,15 @@
     "DEL-windows-ci-guard": {
       "file": "test/test_windows_ci_guard.py",
       "anchor": "class WindowsCIGuard("
+    },
+    "EDIT-android-settings": {
+      "file": "tools/sqgipkg_gui/tests/test_contracts.py",
+      "anchor": "def test_android_settings_preserve_other_platforms_and_native_entry("
+    },
+    "EDIT-android-build": {
+      "kind": "manual",
+      "file": "tools/sqgipkg_gui/tests/android.nut",
+      "anchor": "PASS Android Studio settings, catalog, inspection and real bundle build"
     }
   }
 }

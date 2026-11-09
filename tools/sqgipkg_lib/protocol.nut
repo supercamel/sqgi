@@ -1,12 +1,12 @@
 // C-PKG: structured access uses the same resolver and recipes as human output.
 local GLib = import("GLib")
-local Base = import("build.nut")
+local Base = import("development.nut")
 local data_dir = GLib.path_get_dirname(GLib.path_get_dirname(GLib.canonicalize_filename(__FILE__, null)))
 
-class SqgiPkgProtocol extends Base.SqgiPkgBuild {
+class SqgiPkgProtocol extends Base.SqgiPkgDevelopment {
     function describe() {
         local templates = {}
-        foreach (name in ["simple", "gtk4", "gtk4-gstreamer", "native-gobject", "native-vala", "native-application"])
+        foreach (name in ["simple", "gtk4", "gtk4-gstreamer", "native-gobject", "native-vala", "native-application", "android-gtk4"])
             templates[name] <- sqgi.json.parse(this.template_manifest(name))
         local options = []
         foreach (entry in this.option_entries) options.push({ name = entry.name,
@@ -18,8 +18,10 @@ class SqgiPkgProtocol extends Base.SqgiPkgBuild {
         return { protocol_version = 1, ok = true,
             schema = sqgi.json.parse(this.read_file(GLib.build_filenamev([data_dir, "sqgipkg.schema.json"]))),
             templates = templates, options = options, runtime = runtime,
+            android_onboarding = { setup = true, setup_check_json = true, emulator = true, emulator_port = 5564,
+                saved_toolchain = true, emulator_angle = true },
             host = this.host_windows() ? "windows" : "linux",
-            targets = this.host_windows() ? ["win-dir", "win-nsis", "win-sysroot"] : ["appimage", "appimage-all", "linux-sysroot", "win-dir", "win-nsis", "win-sysroot", "all"] }
+            targets = this.host_windows() ? ["win-dir", "win-nsis", "win-sysroot"] : ["appimage", "appimage-all", "linux-sysroot", "win-dir", "win-nsis", "win-sysroot", "android-apk", "android-aab", "all"] }
     }
 
     function stdin_manifest() {
@@ -43,8 +45,15 @@ class SqgiPkgProtocol extends Base.SqgiPkgBuild {
         local result = { protocol_version = 1, ok = false, diagnostics = diagnostics, configurations = [] }
         try {
             if (this.option_present(options, "build-result")) this.fail("inspection cannot use --build-result")
+            if (this.option_value(options, "manifest") == "-") {
+                local base_dir = this.option_value(options, "base-dir")
+                if (base_dir == null || !GLib.path_is_absolute(base_dir)) this.fail("stdin inspection requires an absolute --base-dir")
+                authored_base_dir = base_dir; authored_manifest = this.stdin_manifest()
+            }
             if (this.option_present(options, "packages")) {
-                local catalog = this.ooblerg_catalog(this.option_present(options, "refresh-packages"), this.option_value(options, "package-target"))
+                local target = this.option_value(options, "package-target")
+                local catalog = ["x86_64-linux-android", "aarch64-linux-android"].find(target) != null ?
+                    this.android_catalog(args, options, target) : this.ooblerg_catalog(this.option_present(options, "refresh-packages"), target)
                 print(sqgi.json.stringify(catalog) + "\n")
                 return catalog.ok ? 0 : 1
             }
@@ -57,11 +66,6 @@ class SqgiPkgProtocol extends Base.SqgiPkgBuild {
                 this.fail("--json requires check, explain or describe")
             foreach (flag in ["clean", "init", "write-lock", "locked"])
                 if (this.option_present(options, flag)) this.fail("inspection cannot use --" + flag)
-            if (this.option_value(options, "manifest") == "-") {
-                local base_dir = this.option_value(options, "base-dir")
-                if (base_dir == null || !GLib.path_is_absolute(base_dir)) this.fail("stdin inspection requires an absolute --base-dir")
-                authored_base_dir = base_dir; authored_manifest = this.stdin_manifest()
-            }
             local opts = this.parse_args(args, options)
             foreach (config in this.selected_configurations(opts)) {
                 diagnostic_target = config.target + ":" + config.appimage_arch

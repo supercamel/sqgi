@@ -22,7 +22,8 @@ import xml.etree.ElementTree as ET
 TARGET = 'x86_64-w64-mingw32'
 DEFAULT_REPOSITORY = 'https://ooblerg.xyz/v1'
 MARKER = '.sqgipkg-ooblerg.json'
-TARGETS = {TARGET: ('mingw64', None), 'x86_64-linux-gnu': ('usr', 62), 'aarch64-linux-gnu': ('usr', 183)}
+TARGETS = {TARGET: ('mingw64', None), 'x86_64-linux-gnu': ('usr', 62), 'aarch64-linux-gnu': ('usr', 183),
+           'x86_64-linux-android': ('usr', 62), 'aarch64-linux-android': ('usr', 183)}
 
 
 def digest(path):
@@ -296,7 +297,7 @@ def complete_windows_typelibs(root, packages):
         owner['compatibility_files'][relative] = digest(destination)
 
 
-def prepare(request):
+def prepare(request, validate=None):
     target = request.get('target', TARGET)
     repo = Repository(request['repository'], request['cache'], request['download'], request['refresh'], target)
     locked = request.get('locked')
@@ -349,6 +350,8 @@ def prepare(request):
                         if line.startswith('Libs.private:'):
                             required.update(re.findall(r'(?:^|\s)-l([A-Za-z_][A-Za-z0-9_.+-]*)', line))
             result['required_modules'] = sorted(required - provided - {'m', 'dl', 'pthread'})
+        if validate is not None:
+            validate(staging, result)
         (staging / MARKER).write_text(json.dumps(result), encoding='utf8')
         backup = None
         if root.exists():

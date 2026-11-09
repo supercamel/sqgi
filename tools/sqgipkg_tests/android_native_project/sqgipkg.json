@@ -1,0 +1,22 @@
+{
+  "schema_version": 2,
+  "name": "Android Native Modules",
+  "app_id": "org.sqgi.android.nativefixture",
+  "script": "main.nut",
+  "scripts": ["checks.nut"],
+  "compile_scripts": false,
+  "features": ["gtk4"],
+  "native": [
+    {"name": "cpp", "dir": "cpp", "build_system": "cmake", "depends_on": ["base"],
+     "gi": {"strategy": "target", "namespace": "SqMobileCpp", "version": "1.0", "library": "sqmobile-cpp"}},
+    {"name": "base", "dir": "base", "stage": false,
+     "gi": {"strategy": "target", "namespace": "SqMobile", "version": "1.0", "library": "sqmobile-1.0"}},
+    {"name": "vala", "dir": "vala", "depends_on": ["base"],
+     "gi": {"strategy": "auto", "namespace": "SqMobileVala", "version": "1.0", "library": "sqmobile-vala"}},
+    {"name": "rust", "dir": "rust", "build_system": "custom", "depends_on": ["base"],
+     "build": [{"argv": ["${SQGI}", "build.nut"]}],
+     "gi": {"strategy": "target", "namespace": "SqMobileRust", "version": "1.0", "library": "sqmobile-rust"}}
+  ],
+  "platforms": {"android": {"architectures": ["x86_64", "arm64-v8a"], "min_sdk": 31,
+    "namespaces": ["Gtk-4.0", "SqMobile-1.0"]}}
+}

@@ -68,3 +68,13 @@ require(!("linux_package" in restored.native[0]) && restored.native[0].windows_p
 alternate = L.read(restored.native[0]); alternate.windows_package = ""
 require(D.pretty(L.write(restored, 0, alternate)) == D.pretty(original_source), "clearing alternatives restores original source recipe exactly")
 print("PASS EDIT-linux-native-source-preservation\n")
+alternate = L.read(original_source.native[0]); alternate.android_package = "sqentry-application"
+local mobile = L.write(original_source, 0, alternate)
+require(mobile.native[0].android_package == "sqentry-application" && mobile.native[0].repo == original_source.native[0].repo, "Android replacement preserves source")
+alternate = L.read(mobile.native[0]); alternate.android_package = ""
+require(D.pretty(L.write(mobile, 0, alternate)) == D.pretty(original_source), "clearing Android replacement restores recipe")
+local android_entry = {entry={type="native",android={project=L.effective_name(mobile.native[0]),library="libentry.so",symbol="entry"}},native=mobile.native}
+rejected = false
+try { L.remove(android_entry, 0) } catch (_) { rejected = true }
+require(rejected, "Android application recipe cannot be removed as a dependency")
+print("PASS EDIT-android-native-source-preservation\n")
