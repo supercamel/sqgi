@@ -16,7 +16,7 @@ jobs:
       - name: Install host dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake ninja-build build-essential pkg-config \
+          sudo apt-get install -y cmake ninja-build meson build-essential pkg-config nsis \
             libglib2.0-dev libgirepository1.0-dev libffi-dev libcairo2-dev \
             llvm-18-dev libxml2-utils gir1.2-gtk-4.0 python3-venv
       - name: Build the default runtime and host tools
@@ -27,7 +27,10 @@ jobs:
         run: |
           ctest --test-dir build --output-on-failure --no-tests=error \
             -R '^sqgi_test_(sqgipkg_android|android_setup|sqgipkg_ergonomics|system_module|manifest_contracts|manifest_delivery)$' \
-            --output-junit "$GITHUB_WORKSPACE/build/host-tools-tests.xml"
+            --output-junit "$GITHUB_WORKSPACE/build/host-tools-tests.xml" || {
+              python3 tools/report_ci_failure.py build/host-tools-tests.xml
+              exit 1
+            }
       - name: Build user documentation
         run: |
           python3 -m venv "$RUNNER_TEMP/docs-venv"
