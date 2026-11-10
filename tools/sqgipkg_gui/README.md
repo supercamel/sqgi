@@ -154,11 +154,12 @@ selecting a package preserves the source recipe for later use.
 ## Android
 
 Targets includes Android ARM64 and x86_64, APK/App Bundle format, application
-versions and pinned SDK/module releases. Android can be combined with desktop
+versions and the pinned SDK release. Android can be combined with desktop
 outputs in the same manifest. Review builds the saved selection and lists the
 verified APK/AAB. Deploy it with `sqgipkg deploy --platform android --serial SERIAL`.
 The native library form offers an independent Android Ooblerg replacement; its
-picker reads the current draft's repository and module release.
+picker reads the current draft's repository and SDK release, and shows the
+prebuilt libraries available in its Android catalog.
 
 The optional `tests/android_acceptance.py` uses an installed prefix and a prepared
 Gallery project, exercises real GTK controls/catalog/inspection, then builds a

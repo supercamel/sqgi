@@ -23,6 +23,14 @@ if mode == 'error':
     print(json.dumps({'protocol_version': 1, 'ok': False, 'diagnostics': [{'message': 'Fixture catalog connection failed'}]}))
     sys.exit(1)
 if mode == 'slow': time.sleep(3)
+if mode == 'android':
+    print(json.dumps({'protocol_version': 1, 'ok': True, 'cached': False, 'packages': [
+        {'name': 'sqgi-android-runtime', 'version': 'r4', 'dependencies': []},
+        {'name': 'glib-runtime', 'version': '2.80', 'dependencies': []},
+        {'name': 'media-gst-plugins-bad', 'version': '1.24', 'dependencies': ['glib-runtime'], 'module': {}},
+        {'name': 'extras-gworldscene', 'version': '1', 'dependencies': ['glib-runtime'], 'module': {}}
+    ]}))
+    sys.exit(0)
 print(json.dumps({'protocol_version': 1, 'ok': True, 'cached': False, 'packages': [
     {'name': 'gserial', 'version': 'test-1', 'summary': 'Serial ports', 'dependencies': ['glib']},
     {'name': 'gworldscene', 'version': 'test-2', 'summary': 'World scenes', 'dependencies': ['gtk4']}
@@ -37,7 +45,9 @@ print(json.dumps({'protocol_version': 1, 'ok': True, 'cached': False, 'packages'
     assert result.returncode == 0, 'package picker failure/retry workflow failed'
     assert 'PASS EDIT-package-search-retry' in result.stdout
     assert 'PASS EDIT-package-search-cancel-fetch' in result.stdout
+    assert 'PASS EDIT-android-native-packages' in result.stdout
     requests = [json.loads(line) for line in (root / 'requests.jsonl').read_text().splitlines()]
-    assert len(requests) == 4, requests
+    assert len(requests) == 5, requests
     assert '--refresh-packages' in requests[1], requests
+    assert 'x86_64-linux-android' in requests[-1], requests
     print('PASS explicit refresh crossed the subprocess boundary')

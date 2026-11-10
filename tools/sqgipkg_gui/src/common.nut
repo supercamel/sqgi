@@ -259,12 +259,12 @@ class Common {
         linux_package.body.append(linux_browse); body.append(linux_package.body)
         e.widgets["library.linux_package"] <- linux_package.input; e.widgets["library.linux_search"] <- linux_browse; e.widgets["library.linux_cpu"] <- linux_cpu
         local android_package = text_control(dialog, "Prebuilt Android library (optional)",
-            "Choose an application module from the Android SDK's module catalog. Leave blank to build this source with the NDK.", choice.android_package)
+            "Choose a library from the Android package catalog. Leave blank to build this source with the NDK.", choice.android_package)
         local android_cpu = W.dropdown(["Browse Android arm64-v8a", "Browse Android x86_64"])
         android_package.body.append(android_cpu)
         local android_browse = W.button("Find Android Ooblerg package…", function() { P.open(dialog, e.base_dir, e.widgets,
-            function(name) { android_package.input.set_text(name) }, "Select an Android module compatible with the SDK and module release in Targets.",
-            android_cpu.get_selected() == 0 ? "aarch64-linux-android" : "x86_64-linux-android", e.document.text) })
+            function(name) { android_package.input.set_text(name) }, "Select a prebuilt Android library for the SDK release in Targets.",
+            android_cpu.get_selected() == 0 ? "aarch64-linux-android" : "x86_64-linux-android", e.document.text, true) })
         android_package.body.append(android_browse); body.append(android_package.body)
         e.widgets["library.android_package"] <- android_package.input; e.widgets["library.android_search"] <- android_browse; e.widgets["library.android_cpu"] <- android_cpu
         local gi = Gtk.CheckButton.new_with_label("Generate GObject metadata when building from source")

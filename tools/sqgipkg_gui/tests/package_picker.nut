@@ -50,7 +50,22 @@ app.connect("activate", function() {
         function() { widgets["packages.add"].activate() },
         function() {
             require(added.len() == 2 && added[1] == "gworldscene", "cancelled request cannot add stale package")
-            print("PASS EDIT-package-search-cancel-fetch\n"); app.quit()
+            print("PASS EDIT-package-search-cancel-fetch\n")
+            mode("android"); widgets = {}
+            dialog = Picker.open(window, directory, widgets, function(name) { added.push(name) },
+                "Choose a prebuilt Android library.", "x86_64-linux-android", "", true)
+        },
+        function() {
+            if (widgets["packages.status"].get_text().find("Loading") != null) { step--; return }
+            require(widgets["packages.status"].get_text().find("2 package") != null, "native picker shows both module families")
+            require(!("packages.result.sqgi-android-runtime" in widgets) && !("packages.result.glib-runtime" in widgets), "SDK packages cannot replace a native library")
+            require("packages.result.extras-gworldscene" in widgets, "GI extras are available")
+            widgets["packages.result.media-gst-plugins-bad"].activate()
+        },
+        function() { widgets["packages.add"].activate() },
+        function() {
+            require(added.len() == 3 && added[2] == "media-gst-plugins-bad", "Android native package selected")
+            print("PASS EDIT-android-native-packages\n"); app.quit()
         }
     ]
     sqgi.timeout_add(400, function() {
