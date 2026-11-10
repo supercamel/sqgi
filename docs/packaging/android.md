@@ -33,7 +33,7 @@ sqgipkg build --platform android --arch arm64-v8a
 `--accept-licenses` authorizes acceptance of Google's
 [Android SDK terms](https://developer.android.com/studio/terms) for the requested
 tools. Setup downloads the pinned command-line tools and installs platform 35,
-build-tools 35.0.0 and, on x86_64, platform-tools. ARM64 setup also downloads
+build-tools 35.0.0 and platform-tools. ARM64 setup also downloads
 checksum-pinned native AAPT2 and zipalign from Ooblerg; it uses Ubuntu's `adb`
 for deployment. Gradle 8.9 is downloaded and verified automatically. Setup uses
 an existing compatible toolchain when one is available. JDK installation stays

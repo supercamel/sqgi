@@ -5,9 +5,10 @@ local M = {}
 M.components <- function(paths, native = false) {
     local result = [
         { id = "platform", package = "platforms;android-35", path = paths.android_sdk + "/platforms/android-35/android.jar" },
-        { id = "build-tools", package = "build-tools;35.0.0", path = paths.android_sdk + "/build-tools/35.0.0/apksigner" }
+        { id = "build-tools", package = "build-tools;35.0.0", path = paths.android_sdk + "/build-tools/35.0.0/apksigner" },
+        // AGP expects this SDK component even when deployment uses native ADB.
+        { id = "platform-tools", package = "platform-tools", path = paths.android_sdk + "/platform-tools/adb" }
     ]
-    if (E.host_arch() == "x86_64") result.push({ id = "platform-tools", package = "platform-tools", path = paths.android_sdk + "/platform-tools/adb" })
     if (native) result.push({ id = "ndk", package = "ndk;28.2.13676358", path = paths.ndk + "/toolchains/llvm/prebuilt/linux-x86_64/bin/clang" })
     return result
 }

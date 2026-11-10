@@ -2,6 +2,7 @@
 import hashlib
 import json
 import os
+import platform
 from pathlib import Path
 import subprocess
 import sys
@@ -97,6 +98,13 @@ class AndroidSetup(unittest.TestCase):
         self.assertFalse(result["ok"])
         self.assertIn("setup --platform android", result["error"])
 
+    @unittest.skipUnless(platform.machine() == "aarch64", "ARM host diagnostic")
+    def test_arm_emulator_command_explains_host_requirement(self):
+        result = self.cli("emulator")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("requires Linux x86_64", result.stdout)
+        self.assertFalse(self.sdk.exists())
+
     def test_saved_paths_work_without_environment_and_explicit_overrides_win(self):
         config = self.root / "config/sqgipkg/android.json"
         config.parent.mkdir(parents=True)
@@ -181,6 +189,7 @@ class AndroidSetup(unittest.TestCase):
         self.assertFalse(stale.exists())
         self.assertEqual(source.read_text(), "source stays intact")
 
+    @unittest.skipUnless(platform.machine() == "x86_64", "bundled emulator requires x86_64")
     def test_emulator_stop_refuses_an_unrelated_device(self):
         log = self.root / "adb.log"
         self.program(self.sdk / "platform-tools/adb",
@@ -198,6 +207,7 @@ class AndroidSetup(unittest.TestCase):
         self.assertIn("-no-window", result)
         self.assertEqual(result[-3:], ["-qemu", "-cpu", "host"])
 
+    @unittest.skipUnless(platform.machine() == "x86_64", "bundled emulator requires x86_64")
     def test_stop_waits_for_adb_to_drop_the_stopped_device(self):
         marker, count = self.root / "stopped", self.root / "polls"
         self.program(self.sdk / "platform-tools/adb",
