@@ -12,8 +12,12 @@ jobs:
   android-arm64:
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
     env:
       JAVA_HOME: /usr/lib/jvm/java-21-openjdk-arm64
+      GRADLE_HOME: ""
       ANDROID_HOME: /tmp/sqgi-android-sdk
       ANDROID_SDK_ROOT: /tmp/sqgi-android-sdk
       ANDROID_NDK_HOME: /tmp/sqgi-no-ndk
@@ -52,12 +56,15 @@ jobs:
           trap 'python3 tools/report_ci_failure.py "$arm_log"' ERR
           build/sqgi tools/sqgipkg build --manifest demo/gtk-gallery-android/sqgipkg.json \
             --platform android --arch arm64-v8a --write-lock 2>&1 | tee "$arm_log"
+          test -s demo/gtk-gallery-android/dist-android/org.sqgi.demo.widgets-arm64-v8a-debug.apk
           arm_log=build/alpine-arm.log
           build/sqgi tools/sqgipkg build --manifest demo/gworldscene-android/sqgipkg.json \
             --platform android --arch arm64-v8a --write-lock 2>&1 | tee "$arm_log"
+          test -s demo/gworldscene-android/dist-android/org.sqgi.demo.alpine-arm64-v8a-debug.apk
           arm_log=build/bundle-arm.log
           build/sqgi tools/sqgipkg build --manifest demo/gtk-gallery-android/sqgipkg.json \
             --target android-aab --write-lock 2>&1 | tee "$arm_log"
+          test -s demo/gtk-gallery-android/dist-android/org.sqgi.demo.widgets-multi-debug.aab
           test ! -e "$ANDROID_SDK_ROOT/ndk"
           test ! -e "$ANDROID_NDK_HOME"
       - name: Save ARM packaging artifacts
