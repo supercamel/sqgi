@@ -187,8 +187,10 @@ A `file://` repository origin is supported for locally supplied catalogs.
 `platforms.android.repository` and `download` persist the origin/download policy;
 `sdk` selects the immutable release ID. `--refresh-android-packages` refreshes an
 unlocked catalog. `--android-sdk /path/to/export` selects local files instead.
-`check` and `explain` do not download packages. Builds without native recipes
-select `sqgi-android-runtime`, which excludes headers, GIR and target executables.
+`check` and `explain` do not download packages. Apps using only SDK runtime
+libraries select `sqgi-android-runtime`, which excludes headers, GIR and target
+executables. Prebuilt application libraries and native recipes select development
+files as needed.
 
 The APK is `dist-android/org.example.myapp-x86_64-debug.apk`. Builds use private
 application directories under `.sqgipkg/android/`; `sqgipkg-build.json` records
@@ -473,6 +475,8 @@ package selectors. Source recipes can depend on these named recipes through
 `--locked --no-android-download` replays cached SDK and library packages offline.
 Older manifests with `module_set` and their existing catalog locks remain
 supported; new projects select packages from the combined catalog.
+To migrate an older app, remove `module_set`, select `noble-android-r4`, and
+rebuild with `--write-lock`.
 
 ## Native application entry
 
