@@ -7,6 +7,7 @@ local AndroidPackages = import("android/packages.nut")
 local AndroidCommon = import("android/common.nut")
 local AndroidSource = import("android/source.nut")
 local AndroidEntry = import("android/entry.nut")
+local AndroidCatalog = import("android/catalog.nut")
 local AndroidRepository = import("android/repository.nut")
 local AndroidProject = import("android/project.nut")
 local AndroidRuntime = import("android/runtime.nut")
@@ -30,6 +31,15 @@ class SqgiPkgAndroid extends Base.SqgiPkgDoctor {
     function android_catalog(args, options, target) {
         local opts = this.new_options()
         this.apply_option_dict(opts, options); this.apply_default_manifest(opts); this.apply_manifest(opts)
+        if (opts.android.module_set == "") {
+            local abi = target == "aarch64-linux-android" ? "arm64-v8a" : "x86_64"
+            local loaded = AndroidCatalog.load({ repository = opts.android.repository, sdk_id = opts.android.sdk, abi = abi,
+                cache = GLib.get_user_cache_dir() + "/sqgipkg/ooblerg", download = opts.android.download,
+                refresh = this.option_present(options, "refresh-packages") })
+            local packages = []; foreach (name in AndroidCommon.keys(loaded.entries)) packages.push(loaded.entries[name])
+            return { protocol_version = 1, ok = true, diagnostics = [], target = target, repository = loaded.repo.url,
+                sdk = opts.android.sdk, cached = loaded.cached, packages = packages }
+        }
         local origin = opts.android.repository
         while (AndroidCommon.ends(origin, "/")) origin = origin.slice(0, origin.len() - 1)
         local url = origin + "/android/modules/" + opts.android.sdk + "/" + opts.android.module_set + "/" + target + "/v1"
@@ -63,7 +73,7 @@ class SqgiPkgAndroid extends Base.SqgiPkgDoctor {
         opts.android <- { declared = false, architectures = ["arm64-v8a"], format = "apk",
             sdk_path = "", ndk = "", sdk = "noble-android-r4", min_sdk = 31,
             repository = "https://ooblerg.xyz", download = true, refresh = false,
-            runner = "auto", inspection_root = "", serial = "", module_set = "applications-r1", variant = "debug",
+            runner = "auto", inspection_root = "", serial = "", module_set = "", variant = "debug",
             version_code = 1, version_name = "0.1.0", namespaces = ["Gtk-4.0"], runtime = "package",
             permissions = [], icon = "", native = [], packages = [], profile = "auto" }
         return opts
@@ -159,7 +169,7 @@ class SqgiPkgAndroid extends Base.SqgiPkgDoctor {
         if (opts.android.format != "apk" && opts.android.format != "aab") this.fail("Android format must be apk or aab")
         if (["package", "source"].find(opts.android.runtime) == null) this.fail("Android runtime must be package or source")
         if (!regexp("^[a-z0-9][a-z0-9.\\-]*$").match(opts.android.sdk)) this.fail("Invalid Android SDK release name")
-        if (!regexp("^[a-z0-9][a-z0-9.+\\-]*$").match(opts.android.module_set)) this.fail("Invalid Android module release name")
+        if (opts.android.module_set != "" && !regexp("^[a-z0-9][a-z0-9.+\\-]*$").match(opts.android.module_set)) this.fail("Invalid Android module release name")
         if (opts.android.min_sdk < 31) this.fail("The pinned GTK Android SDK requires min_sdk >= 31")
         if (opts.android.version_code > 2100000000) this.fail("Android version_code exceeds 2100000000")
         local abis = []
@@ -319,6 +329,8 @@ class SqgiPkgAndroid extends Base.SqgiPkgDoctor {
             if (project.android_package != "" && !regexp("^[A-Za-z0-9][A-Za-z0-9+_.\\-]*$").match(project.android_package))
                 this.fail("Invalid Android native package name: " + project.android_package)
         }
+        if (opts.android.sdk_path != "" && opts.android.packages.len())
+            this.fail("Android packages require a repository SDK; use native.android_package for libraries with a local SDK")
         current_error_path = null
     }
     function validate_options(opts) {
@@ -544,10 +556,11 @@ class SqgiPkgAndroid extends Base.SqgiPkgDoctor {
         local work = GLib.build_filenamev([opts.manifest_dir, ".sqgipkg", "android", opts.android.abi])
         local job = work + "/jobs/" + GLib.uuid_string_random()
         this.mkdir_p(job)
-        local sdk = opts.android.sdk_path
+        local sdk = opts.android.sdk_path, catalog_lock = null, module_packages = []
         if (sdk == "") {
             local request = { protocol_version = 1, operation = "resolve-sdk", abi = opts.android.abi,
                 sdk_id = opts.android.sdk, min_api = opts.android.min_sdk, profile = this.android_sdk_profile(opts), packages = opts.android.packages,
+                module_set = opts.android.module_set,
                 repository = opts.android.repository, download = opts.android.download, refresh = opts.android.refresh,
                 cache = GLib.build_filenamev([GLib.get_user_cache_dir(), "sqgipkg", "ooblerg"]),
                 root = job + "/sdk", locked = null }
@@ -555,7 +568,11 @@ class SqgiPkgAndroid extends Base.SqgiPkgDoctor {
                 if (!("android-catalog" in this.locked_inputs)) this.fail("lockfile has no Android catalog")
                 request.locked = this.locked_inputs["android-catalog"]
             }
+            request.native_packages <- []
+            foreach (project in opts.native_projects) if (project.android_package != "") request.native_packages.push(project.android_package)
             local result = this.android_request(request, job)
+            catalog_lock = result.lock
+            module_packages = result.module_packages
             sdk = result.sdk
             this.record_input("android-catalog", result.lock)
         } else if (!this.path_exists(sdk + "/sqgi-android-sdk.json")) sdk += "/" + opts.android.abi
@@ -571,6 +588,7 @@ class SqgiPkgAndroid extends Base.SqgiPkgDoctor {
             source_excludes = opts.android_source_excludes,
             inspection_root = opts.android.inspection_root,
             sdk_id = opts.android.sdk, module_set = opts.android.module_set, repository = opts.android.repository,
+            catalog_lock = catalog_lock, module_packages = module_packages,
             refresh = opts.android.refresh, cache = GLib.build_filenamev([GLib.get_user_cache_dir(), "sqgipkg", "ooblerg"]),
             application = config, format = opts.android.format, artifact = artifact, variant = opts.android.variant,
             runtime_source = runtime_source, icon = this.android_icon(opts),
@@ -583,18 +601,20 @@ class SqgiPkgAndroid extends Base.SqgiPkgDoctor {
         if (prepare_only) request.prepared <- job + "/input"
         else this.begin_build_output(artifact)
         this.report_build_progress(opts, prepare_only ? "preparing" : "packaging")
-        if (this.locked_inputs != null && opts.native_projects.len()) {
+        local has_native = opts.native_projects.len() || module_packages.len()
+        if (this.locked_inputs != null && has_native) {
             if (!("android-inspection" in this.locked_inputs)) this.fail("lockfile has no Android inspection input")
             request.inspection_sha256 <- this.locked_inputs["android-inspection"].sha256
-            foreach (project in opts.native_projects) if (project.android_package != "") {
+            local prebuilt = module_packages.len() != 0
+            foreach (project in opts.native_projects) if (project.android_package != "") prebuilt = true
+            if (prebuilt) {
                 if (!("android-modules" in this.locked_inputs)) this.fail("lockfile has no Android module catalog input")
                 request.modules_lock <- this.locked_inputs["android-modules"]
-                break
             }
         }
         local result = this.android_request(request, job)
-        if (opts.native_projects.len()) this.record_input("android-inspection", { sha256 = result.native.inspection_sha256 })
-        if (opts.native_projects.len() && result.native.modules_lock != null) this.record_input("android-modules", result.native.modules_lock)
+        if (has_native) this.record_input("android-inspection", { sha256 = result.native.inspection_sha256 })
+        if (has_native && result.native.modules_lock != null) this.record_input("android-modules", result.native.modules_lock)
         this.mkdir_p(opts.output_dir)
         this.finish_inputs(opts, prepare_only ? result.prepared : artifact)
         if (!prepare_only) {

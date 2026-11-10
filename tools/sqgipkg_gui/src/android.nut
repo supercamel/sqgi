@@ -1,7 +1,7 @@
 // Common Android settings; the CLI owns SDK resolution and compatibility checks.
 local W = import("widgets.nut"), D = import("document.nut")
-local defaults = { min_sdk = 31, version_code = 1, version_name = "0.1.0", sdk = "noble-android-r2",
-    repository = "https://ooblerg.xyz", module_set = "applications-r1", namespaces = ["Gtk-4.0"], variant = "debug", runtime = "auto",
+local defaults = { min_sdk = 31, version_code = 1, version_name = "0.1.0", sdk = "noble-android-r4",
+    repository = "https://ooblerg.xyz", module_set = "", namespaces = ["Gtk-4.0"], variant = "debug", runtime = "auto",
     permissions = [], icon = "", packages = [], profile = "auto" }
 local function read(value) {
     local settings = "platforms" in value && "android" in value.platforms ? value.platforms.android : {}
@@ -43,7 +43,7 @@ local function write(value, fields) {
                 if (name in seen) throw "Duplicate Android permission: " + name
                 seen[name] <- true
             }
-        } else if (key == "icon" && strip(setting) == "") {
+        } else if ((key == "icon" || key == "module_set") && strip(setting) == "") {
             if ("icon" in settings) delete settings.icon
             continue
         } else if (key == "namespaces") {
@@ -75,8 +75,8 @@ local function render(editor) {
     body.append(W.heading("Android application and SDK"))
     body.append(W.label("Application ID is shared with desktop in Application. API 31 is the minimum for this pinned GTK stack. Signing credentials come from your build environment."))
     foreach (item in [["min_sdk", "Minimum Android API"], ["version_code", "Version code"], ["version_name", "Version name"],
-                     ["sdk", "Pinned SDK release"], ["repository", "Ooblerg repository"], ["module_set", "Application module release"], ["namespaces", "GI namespaces (comma-separated)"],
-                     ["packages", "Additional SDK packages (comma-separated)"],
+                     ["sdk", "Pinned SDK release"], ["repository", "Ooblerg repository"], ["namespaces", "GI namespaces (comma-separated)"],
+                     ["packages", "Android packages (comma-separated)"],
                      ["permissions", "Additional permissions (comma-separated)"], ["icon", "Android icon image (blank uses the shared icon)"]]) {
         local key = item[0], text = settings[key].tostring()
         if (key == "namespaces" || key == "permissions" || key == "packages") { text = ""; foreach (name in settings[key]) text += (text == "" ? "" : ", ") + name }

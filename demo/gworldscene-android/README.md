@@ -72,7 +72,7 @@ sqgipkg watch --platform android --serial YOUR_DEVICE_SERIAL
 ```
 
 APKs and App Bundles are written under `dist-android*/`. The manifest selects
-Ooblerg's `noble-android-r2` SDK and `git-extras-r1` native modules for ARM64 and
+Ooblerg's `noble-android-r4` SDK and native packages for ARM64 and
 x86_64. Edit `src/main.nut` for the interface, `src/world.nut` for viewpoints
 and imagery, and `assets/style.css` for styling.
 

@@ -23,7 +23,8 @@ app.connect("activate", function() {
                 editor.widgets["common.target.apply"].activate(); stage++
             } else if (stage == 1) {
                 require(editor.document.get(["target"]) == "android-aab", "Android output choice was not applied: " + editor.status.get_text())
-                editor.widgets["android.module_set"].set_text("native-entry-r1")
+                editor.document.set(["platforms", "android", "module_set"], "native-entry-r1")
+                editor.refresh()
                 editor.widgets["android.version_name"].set_text("0.1.0-studio")
                 editor.widgets["android.apply"].activate(); stage++
             } else if (stage == 2) {

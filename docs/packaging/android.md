@@ -177,8 +177,8 @@ sqgipkg build --platform android --arch x86_64 --locked --no-android-download
 
 The default SDK release is `noble-android-r4` from `https://ooblerg.xyz`.
 Its package catalogs are available for
-[ARM64](https://ooblerg.xyz/android/noble-android-r4/aarch64-linux-android/v1/index.json)
-and [x86_64](https://ooblerg.xyz/android/noble-android-r4/x86_64-linux-android/v1/index.json),
+[ARM64](https://ooblerg.xyz/android/noble-android-r4/aarch64-linux-android/v2/index.json)
+and [x86_64](https://ooblerg.xyz/android/noble-android-r4/x86_64-linux-android/v2/index.json),
 alongside a [corresponding-source index](https://ooblerg.xyz/android/noble-android-r4/sources/index.json).
 For an application using an older SDK release, update `platforms.android.sdk`
 and rebuild with `--write-lock`. Existing locks are not silently upgraded.
@@ -213,10 +213,11 @@ services used by custom hooks. Icon decoding uses the host's GdkPixbuf loaders.
 `runtime`, `sdk`, `tools` or `complete`. Automatic selection accounts for native
 and runtime source recipes; an explicitly insufficient profile fails.
 `platforms.android.packages` requests additional package names from the same
-immutable catalog. The resolver selects the smallest published profile at or
-above that minimum containing their full dependency closure, and locks that
-selection. Unknown packages or a closure outside published profiles fail.
-Application module catalogs remain selected with each recipe's `android_package`.
+immutable catalog, including prebuilt application libraries. The resolver selects
+the smallest published SDK profile that supplies their base dependencies, then
+installs the application libraries alongside it. Unknown packages or missing
+dependencies fail before packaging. Named native recipes can also select a
+prebuilt library with `android_package`.
 Manifest Studio exposes the profile and additional packages in Targets.
 
 `--target android-aab` builds one debug bundle containing all declared Android
@@ -428,38 +429,50 @@ are recorded in the input lock.
 
 ## Prebuilt application modules
 
-Use `android_package` to select a prebuilt native module from Ooblerg and
-`platforms.android.module_set` to select its release:
+The Android catalog contains the SDK, GStreamer, GSceneGraph, GWorldScene,
+GSerial, GJoystick and their dependencies. List the available packages with:
+
+```sh
+sqgipkg packages --package-target aarch64-linux-android
+```
+
+Add prebuilt libraries to `platforms.android.packages`. Packages from different
+library families can be used together:
 
 ```json
 {
-  "native": [
-    {"name": "gscenegraph", "android_package": "extras-gscenegraph"},
-    {"name": "gworldscene", "android_package": "extras-gworldscene"}
-  ],
   "platforms": {
     "android": {
       "architectures": ["x86_64", "arm64-v8a"],
-      "sdk": "noble-android-r2",
-      "repository": "https://ooblerg.xyz",
-      "module_set": "git-extras-r1"
+      "sdk": "noble-android-r4",
+      "packages": ["extras-gworldscene", "media-gst-plugins-bad"]
     }
   }
 }
 ```
 
-The `git-extras-r1` catalog includes GSceneGraph, GWorldScene, GSerial and
-GJoystick. Dependencies install automatically. Each package includes its runtime and
-development exports, with file hashes, source/recipe provenance, minimum API,
-GI graph and exact SDK compatibility. Wrong ABI, SDK generation, source
-baseline, NDK, missing dependencies or a newer required API fail before use.
-The lock pins the module catalog and therefore each selected archive.
+Dependencies install automatically. The build includes the selected libraries,
+GI typelibs and Android callback classes. One catalog checksum pins the SDK and
+native packages together. ABI, SDK generation, Ubuntu baseline, NDK, minimum API,
+file ownership and GI dependencies are checked before installation.
 
-When every native recipe is prebuilt, builds use the core `sdk` profile and
-the JDK, Android SDK and NDK prepared during setup. If a source recipe uses a
-prebuilt module, declare that relationship with `depends_on`.
-`--locked --no-android-download` replays cached module packages with the same
-offline behavior as core SDK packages.
+For a shared native recipe, use `android_package` alongside its Linux and Windows
+package selectors. Source recipes can depend on these named recipes through
+`depends_on`:
+
+```json
+{
+  "native": [
+    {"name": "gscenegraph", "android_package": "extras-gscenegraph"},
+    {"name": "viewer", "dir": "native/viewer", "build_system": "meson",
+     "depends_on": ["gscenegraph"]}
+  ]
+}
+```
+
+`--locked --no-android-download` replays cached SDK and library packages offline.
+Older manifests with `module_set` and their existing catalog locks remain
+supported; new projects select packages from the combined catalog.
 
 ## Native application entry
 
@@ -517,15 +530,14 @@ Native-entry desktop preview requires a desktop build of the executable.
 
 ## GStreamer and the phone camera
 
-Select the `media-r1` module release and add the GStreamer package you need:
+Add the GStreamer package and camera permission to the Android settings:
 
 ```json
 {
-  "native": [{"name": "gstreamer", "android_package": "media-gst-plugins-bad"}],
   "platforms": {
     "android": {
-      "sdk": "noble-android-r2",
-      "module_set": "media-r1",
+      "sdk": "noble-android-r4",
+      "packages": ["media-gst-plugins-bad"],
       "permissions": ["android.permission.CAMERA"]
     }
   }
@@ -576,11 +588,11 @@ without fetching or compiling it.
 
 Manifest Studio's Targets page selects Linux, Windows and Android outputs from
 one manifest. Android offers per-ABI APKs or one App Bundle, plus minimum API,
-application versions, SDK/repository/module release, namespaces and build variant.
+application versions, SDK release, repository, namespaces and build variant.
 Review resolves and builds through the installed CLI; its output list recognizes
 Android formats and ABIs. Native-library forms offer an independent Android
 Ooblerg replacement. The package picker reads the current unsaved manifest's
-repository and module release without installing packages.
+repository and SDK release without installing packages.
 
 The setup dialog's Android GTK template configures an existing `src/` project
 and initially selects both Android ABIs. It preserves `entry.source_root` when

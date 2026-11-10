@@ -1,6 +1,7 @@
 // Application packages belong to one immutable Android SDK generation.
 local C = import("common.nut"), R = import("repository.nut"), E = import("elf.nut"), G = import("gir.nut")
 local GLib = import("GLib"), Gio = import("Gio"), M = {}
+local Catalog = import("catalog.nut")
 M.compatibility <- function(sdk_base, sdk_id) {
     return { sdk_id = sdk_id, target = sdk_base.metadata.target, source_lock_sha256 = sdk_base.metadata.source_lock_sha256,
         producer_descriptor_sha256 = C.get(sdk_base.metadata, "producer_descriptor_sha256", sdk_base.sha256) }
@@ -58,12 +59,57 @@ M.validate_payload <- function(root, prepared, sdk_base, abi, readelf) {
         foreach (library in definition.libraries) if (library.find("/") != null || !("usr/lib/" + library in available)) throw "Missing Android module GI backing library: " + name
     }
 }
+M.resolve_unified <- function(request, sdk_base, work, readelf, seeds, loaded) {
+    local index = loaded.index, identity = M.compatibility(sdk_base, request.sdk_id), all = loaded.entries
+    if (index.schema != 2 || !C.equal(index.android_module, identity)) throw "Android module catalog is incompatible with selected SDK/ABI/NDK/baseline"
+    local selected = R.closure(all, seeds), catalog = {}, base_packages = null
+    if ("profile" in sdk_base.metadata) {
+        base_packages = {}
+        foreach (entry in R.closure(all, [index.sdk_profiles[sdk_base.metadata.profile].package])) base_packages[entry.name] <- true
+    }
+    foreach (entry in selected) {
+        if (!("module" in entry)) {
+            if (base_packages != null && C.get(entry, "kind") != "meta" && !(entry.name in base_packages)) throw "Android module dependency is absent from SDK profile: " + entry.name
+            continue
+        }
+        local api = C.get(entry.module, "min_api")
+        if (typeof(api) != "integer" || api < sdk_base.metadata.target.min_api || api > request.application.min_sdk)
+            throw "Android module minimum API is missing or incompatible with application: " + entry.name
+        // The base SDK is already validated and installed separately. Keep
+        // module edges here so native composition does not export SDK files twice.
+        local package = clone entry; package.dependencies = []
+        foreach (dependency in entry.dependencies) if ("module" in all[dependency]) package.dependencies.push(dependency)
+        catalog[entry.name] <- package
+    }
+    foreach (name in seeds) if (!(name in catalog)) throw "Expected an Android application module package: " + name
+    local pin = { repository = loaded.repo.url, target = index.target, sdk_id = request.sdk_id, packages = seeds, sha256 = loaded.sha256 }
+    local locked = C.get(request, "modules_lock")
+    if (locked != null && !C.equal(locked, pin)) throw "Android module catalog differs from locked input"
+    local entries = []
+    foreach (entry in R.closure(catalog, seeds)) entries.push({ repository = pin.repository, target = pin.target, metadata = entry, sha256 = entry.sha256 })
+    local root = work + "/module-packages"
+    local prepared = R.prepare({ repository = pin.repository, cache = request.cache, root = root, target = pin.target,
+        download = !C.get(request, "offline", false), refresh = false, packages = seeds, build_packages = [], locked = entries },
+        function(directory, packages) { M.validate_payload(directory, packages, sdk_base, request.abi, readelf) })
+    local packages = {}; foreach (package in prepared.packages) packages[package.metadata.name] <- package
+    return { root = root, packages = packages, catalog = catalog, lock = pin }
+}
 M.resolve <- function(request, sdk_base, work, readelf) {
     local seed_set = {}
     foreach (project in request.native) if (C.get(project, "android_package", "") != "") seed_set[project.android_package] <- true
     local seeds = C.keys(seed_set)
     if (!seeds.len()) return null
-    local release = C.get(request, "module_set", "applications-r1"), sdk_id = request.sdk_id, identifiers = clone seeds
+    local catalog_lock = C.get(request, "catalog_lock"), module_lock = C.get(request, "modules_lock")
+    local unified = catalog_lock != null ? C.ends(catalog_lock.repository, "/v2") : C.get(request, "module_set", "") == ""
+    if (unified) {
+        if (catalog_lock != null && module_lock != null && (catalog_lock.repository != module_lock.repository || catalog_lock.sha256 != module_lock.sha256))
+            throw "Android SDK and modules must use the same locked catalog"
+        local loaded = Catalog.load({ abi = request.abi, sdk_id = request.sdk_id, repository = request.repository, cache = request.cache,
+            download = !C.get(request, "offline", false), refresh = C.get(request, "refresh", false), locked = catalog_lock == null ? module_lock : catalog_lock })
+        if (loaded.index.schema == 2) return M.resolve_unified(request, sdk_base, work, readelf, seeds, loaded)
+    }
+    local release = C.get(request, "module_set", ""), sdk_id = request.sdk_id, identifiers = clone seeds
+    if (release == "") release = "applications-r1"
     identifiers.extend([release, sdk_id])
     foreach (name in identifiers) if (!regexp("^[A-Za-z0-9][A-Za-z0-9+_.\\-]*$").match(name)) throw "Invalid Android module/package identifier"
     local target = sdk_base.metadata.target.triplet, origin = request.repository

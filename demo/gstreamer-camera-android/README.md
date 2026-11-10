@@ -30,7 +30,7 @@ camera hardware; the app never substitutes a test pattern.
 
 ## How it works
 
-The manifest selects Ooblerg's Ubuntu 24.04 GStreamer packages from `media-r1`.
+The manifest selects Ooblerg's Ubuntu 24.04 GStreamer packages from the Android catalog.
 `sqgipkg` downloads their Android libraries, typelibs and required callback
 classes for the selected ABI. It builds the shared [SqAndroid helper](../android-support/README.md)
 for camera enumeration and permission requests.

@@ -1092,6 +1092,111 @@ class SquirrelApplicationModules(ApplicationModules):
         self.assertTrue((result['root'] / 'usr/lib/libtest.so').is_file())
 
 
+class UnifiedAndroidCatalog(unittest.TestCase):
+    publish = AndroidPackages.publish
+    def setUp(self):
+        AndroidPackages.setUp(self)
+        self.catalog = self.catalog.with_name('v2')
+        self.catalog.mkdir()
+        self.metadata.update(producer_descriptor_sha256='c'*64, namespaces={})
+        AndroidPackages.publish(self)
+        self.index.update(schema=2, android_module=dict(sdk_id='noble-android-r1',
+            target=self.metadata['target'], source_lock_sha256='a'*64, producer_descriptor_sha256='c'*64))
+        descriptor = self.catalog/'sdk.json'
+        descriptor.write_bytes(encoded(dict(self.metadata,profile='sdk')))
+        self.index['sdk_profiles']['sdk'] = dict(artifact='sdk.json',sha256=file_hash(descriptor),package='sqgi-android-sdk')
+        self.index['packages'].append(dict(name='sqgi-android-sdk',version='1',kind='meta',dependencies=['fixture-runtime'],android=self.identity))
+        self.add_module('media-fixture', 'media', ['sqgi-android-runtime'])
+        self.add_module('extras-fixture', 'extras', ['media-fixture'])
+        self.save_index()
+        self.base = SimpleNamespace(metadata=self.metadata, sha256=file_hash(self.catalog/'runtime.json'))
+        self.module_request = dict(abi='x86_64', sdk_id='noble-android-r1', repository=self.origin.as_uri(),
+            cache=self.request['cache'], application={'min_sdk':31}, native=[{'name':'extra','android_package':'extras-fixture'}])
+
+    save = SDKIntegrity.save
+    save_index = AndroidPackages.save_index
+
+    def add_module(self, name, library, dependencies):
+        source = self.root/(library+'.c'); source.write_text('int answer(void) {return 42;}')
+        binary = self.root/('lib'+library+'.so')
+        subprocess.run(['cc','-shared','-fPIC','-nostdlib',str(source),'-o',str(binary),
+            '-Wl,-soname,'+binary.name,'-Wl,-z,max-page-size=16384'], check=True)
+        archive = self.catalog/(name+'.tar.gz')
+        filename = 'usr/lib/'+binary.name
+        with tarfile.open(archive,'w:gz') as tar: tar.add(binary,arcname=filename)
+        self.index['packages'].append(dict(name=name,version='1',kind='package',artifact=archive.name,
+            sha256=file_hash(archive),dependencies=dependencies,android=self.identity,
+            android_module=self.index['android_module'],module=dict(files={filename:{'sha256':file_hash(binary)}},
+                libraries=[binary.name],namespaces={},source={},min_api=31)))
+
+    def resolve_sdk(self, **changes):
+        return squirrel_backend('resolve-sdk',request=dict(self.request,**changes))
+
+    def resolve_modules(self, **changes):
+        return squirrel_backend('resolve-modules',request=dict(self.module_request,**changes),
+            sdk_base=vars(self.base),work=str(self.root/'work'))
+
+    def test_sdk_media_and_extras_share_one_catalog_and_offline_pin(self):
+        sdk = self.resolve_sdk(packages=['extras-fixture'])
+        self.assertEqual(sdk['module_packages'],['extras-fixture'])
+        self.assertNotIn('extras-fixture',sdk['packages'])
+        modules = self.resolve_modules(catalog_lock=sdk['lock'])
+        self.assertEqual(set(modules['packages']),{'media-fixture','extras-fixture'})
+        self.assertEqual(modules['lock']['repository'],sdk['lock']['repository'])
+        self.assertEqual(modules['lock']['sha256'],sdk['lock']['sha256'])
+        self.assertEqual(ctypes.CDLL(str(Path(modules['root'])/'usr/lib/libextras.so')).answer(),42)
+        self.origin.rename(self.root/'unavailable')
+        self.resolve_sdk(packages=['extras-fixture'],locked=sdk['lock'],download=False)
+        replay = self.resolve_modules(catalog_lock=sdk['lock'],modules_lock=modules['lock'],offline=True)
+        self.assertEqual(replay['lock'],modules['lock'])
+
+    def test_explicit_legacy_module_release_keeps_its_sdk_catalog(self):
+        sdk = self.resolve_sdk(module_set='custom-legacy-r1')
+        self.assertTrue(sdk['lock']['repository'].endswith('/v1'))
+        self.assertEqual(sdk['module_packages'],[])
+
+    def test_catalog_browser_lists_sdk_and_both_module_families(self):
+        manifest = self.root/'sqgipkg.json'
+        manifest.write_text(json.dumps({'schema_version':2,'name':'Mixed catalog','app_id':'org.sqgi.test',
+            'platforms':{'android':{'sdk':'noble-android-r1','repository':self.origin.as_uri()}}}))
+        result = subprocess.run([SQGI,ROOT/'tools/sqgipkg','packages','--manifest',manifest,
+            '--package-target','x86_64-linux-android','--json'],capture_output=True,text=True)
+        self.assertEqual(result.returncode,0,result.stdout+result.stderr)
+        names = {p['name'] for p in json.loads(result.stdout)['packages']}
+        self.assertTrue({'fixture-runtime','media-fixture','extras-fixture'} <= names)
+
+    def test_bad_unified_catalog_never_falls_back_to_valid_legacy(self):
+        (self.catalog/'index.json').write_text('{broken')
+        with self.assertRaises(ValueError): self.resolve_sdk()
+        self.assertFalse(Path(self.request['root']).exists())
+
+    def test_different_sdk_and_module_locks_are_rejected(self):
+        sdk = self.resolve_sdk()
+        modules = self.resolve_modules(catalog_lock=sdk['lock'])
+        pin = dict(modules['lock'],sha256='f'*64)
+        with self.assertRaisesRegex(ValueError,'same locked catalog'):
+            self.resolve_modules(catalog_lock=sdk['lock'],modules_lock=pin)
+
+    def test_mixed_sdk_and_missing_cross_family_dependency_are_rejected(self):
+        self.index['packages'][-1]['android_module'] = dict(self.index['android_module'],sdk_id='wrong')
+        self.save_index()
+        with self.assertRaisesRegex(ValueError,'Mixed SDK'): self.resolve_sdk()
+        self.index['packages'][-1]['android_module'] = self.index['android_module']
+        self.index['packages'][-1]['dependencies'] = ['missing-family']
+        self.save_index()
+        with self.assertRaisesRegex(ValueError,'dependency not found'):
+            self.resolve_sdk(refresh=True)
+
+    def test_cross_family_file_collision_preserves_previous_install(self):
+        first = self.resolve_modules()
+        marker = Path(first['root'])/'.sqgipkg-ooblerg.json'; before = marker.read_bytes()
+        self.index['packages'][-1]['module']['files'] = self.index['packages'][-2]['module']['files']
+        self.save_index()
+        with self.assertRaisesRegex(ValueError,'inventory differs|conflicts'):
+            self.resolve_modules(refresh=True)
+        self.assertEqual(marker.read_bytes(),before)
+
+
 class SquirrelNativeExports(unittest.TestCase):
     def test_private_copy_batch_validation_ownership_and_reset(self):
         with tempfile.TemporaryDirectory() as directory:

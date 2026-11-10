@@ -24,7 +24,13 @@ M.ordered <- function(projects) {
 M.build <- function(request, sdk_base, work, tools) {
     request = clone request
     if (C.get(request, "adb", "") == "") request.adb <- tools.android_sdk + "/platform-tools/adb"
-    local projects = M.ordered(C.get(request, "native", []))
+    local authored = C.get(request, "native", []), recipes = [], selected = {}
+    foreach (recipe in authored) if (C.get(recipe, "android_package", "") != "") selected[recipe.android_package] <- true
+    foreach (package in C.get(request, "module_packages", [])) if (!(package in selected))
+        recipes.push({ name = "ooblerg-" + package, android_package = package, gi = null, depends_on = [], stage = true })
+    recipes.extend(authored)
+    local projects = M.ordered(recipes)
+    request.native <- projects
     if (!projects.len()) return { sdk = sdk_base, libraries = [], namespaces = [], evidence = {} }
     foreach (project in projects) {
         if (C.get(project, "files", []).len()) throw "Android native files rules are not yet supported; install SDK exports under /usr and use application files for assets: " + project.name
