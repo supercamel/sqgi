@@ -28,25 +28,36 @@ jobs:
             gir1.2-gdkpixbuf-2.0 librsvg2-common openjdk-21-jdk curl unzip binutils adb
       - name: Build the ARM packaging runtime
         run: |
+          mkdir -p build
+          arm_log=build/configure-arm.log
+          trap 'python3 tools/report_ci_failure.py "$arm_log"' ERR
           test "$(uname -m)" = aarch64
-          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
-            -DSQ_ENABLE_JIT=OFF -DSQGI_ENABLE_KERNELS=OFF
-          cmake --build build --target sqgi-bin --parallel 4
-          python3 tools/sqgipkg_tests/test_android_setup.py build/sqgi
+          /usr/bin/cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DSQ_ENABLE_JIT=OFF -DSQGI_ENABLE_KERNELS=OFF 2>&1 | tee "$arm_log"
+          arm_log=build/build-arm.log
+          /usr/bin/cmake --build build --target sqgi-bin --parallel 4 2>&1 | tee "$arm_log"
+          arm_log=build/setup-tests-arm.log
+          /usr/bin/python3 tools/sqgipkg_tests/test_android_setup.py build/sqgi 2>&1 | tee "$arm_log"
       - name: Prepare Android packaging without an NDK
         run: |
-          build/sqgi tools/sqgipkg setup --platform android --accept-licenses
+          arm_log=build/setup-arm.log
+          trap 'python3 tools/report_ci_failure.py "$arm_log"' ERR
+          build/sqgi tools/sqgipkg setup --platform android --accept-licenses 2>&1 | tee "$arm_log"
           build/sqgi tools/sqgipkg setup --platform android --check
           test ! -e "$ANDROID_SDK_ROOT/ndk"
           test ! -e "$ANDROID_NDK_HOME"
       - name: Build APKs and an App Bundle from public packages
         run: |
+          arm_log=build/gallery-arm.log
+          trap 'python3 tools/report_ci_failure.py "$arm_log"' ERR
           build/sqgi tools/sqgipkg build --manifest demo/gtk-gallery-android/sqgipkg.json \
-            --platform android --arch arm64-v8a --write-lock
+            --platform android --arch arm64-v8a --write-lock 2>&1 | tee "$arm_log"
+          arm_log=build/alpine-arm.log
           build/sqgi tools/sqgipkg build --manifest demo/gworldscene-android/sqgipkg.json \
-            --platform android --arch arm64-v8a --write-lock
+            --platform android --arch arm64-v8a --write-lock 2>&1 | tee "$arm_log"
+          arm_log=build/bundle-arm.log
           build/sqgi tools/sqgipkg build --manifest demo/gtk-gallery-android/sqgipkg.json \
-            --target android-aab --write-lock
+            --target android-aab --write-lock 2>&1 | tee "$arm_log"
           test ! -e "$ANDROID_SDK_ROOT/ndk"
           test ! -e "$ANDROID_NDK_HOME"
       - name: Save ARM packaging artifacts
@@ -60,6 +71,8 @@ jobs:
             demo/gtk-gallery-android/sqgipkg.lock.json
             demo/gworldscene-android/sqgipkg.lock.json
             build/Testing/Temporary/
+            build/*arm.log
+            build/CMakeCache.txt
   linux:
     runs-on: ubuntu-24.04
     steps:
