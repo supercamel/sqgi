@@ -1,6 +1,45 @@
 // Shared host discovery; setup preferences never depend on a producer checkout.
 local C = import("common.nut"), GLib = import("GLib")
 local M = {}
+local P = import("provision.nut")
+M.host_arch <- function() {
+    local host = split(strip(C.process(["uname", "-sm"])), " ")
+    return host.len() == 2 && host[0] == "Linux" ? host[1] : "unsupported"
+}
+M.native_tool <- function(name) {
+    local override = GLib.getenv("SQGI_ANDROID_" + name.toupper())
+    if (override != null && override != "") {
+        if (!C.is_file(override)) throw "SQGI_ANDROID_" + name.toupper() + " must identify an executable file"
+        return C.absolute(override)
+    }
+    if (M.host_arch() != "aarch64") return null
+    local input = C.get(P.lock(), "arm64_tools")
+    return input != null && P.ready(input) ? P.root() + "/tools/" + input.directory + "/bin/" + name : null
+}
+M.aapt2 <- function() { return M.native_tool("aapt2") }
+M.packaging_tool <- function(name, android) {
+    local path = M.native_tool(name)
+    if (path != null && C.is_file(path)) return path
+    if (M.host_arch() == "aarch64") throw "ARM64 Android packaging needs native " + name + "; run sqgipkg setup --platform android --accept-licenses"
+    return android + "/build-tools/35.0.0/" + name
+}
+M.tool_identity_root <- function(path) {
+    local input = C.get(P.lock(), "arm64_tools")
+    if (input != null) {
+        local root = P.root() + "/tools/" + input.directory
+        if (C.within(path, root)) return root
+    }
+    return C.realpath(path)
+}
+M.adb <- function() {
+    local override = GLib.getenv("ADB")
+    if (override != null && override != "") return C.absolute(override)
+    if (M.host_arch() == "aarch64") {
+        return GLib.find_program_in_path("adb")
+    }
+    local path = M.paths().android_sdk + "/platform-tools/adb"
+    return C.is_file(path) ? path : GLib.find_program_in_path("adb")
+}
 M.config_path <- function() { return GLib.get_user_config_dir() + "/sqgipkg/android.json" }
 M.saved <- function() {
     if (!C.exists(M.config_path())) return {}

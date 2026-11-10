@@ -497,22 +497,22 @@ run `hash -r` and check
 
 ### Android applications
 
-Android setup and packaging are included with SQGI. On a Linux x86-64 host
-with a full JDK 21 installed:
+Android setup and packaging are included with SQGI. Linux x86_64 and ARM64 hosts
+can build APKs using Ooblerg's prebuilt libraries, without an NDK. With a full
+JDK 21 installed:
 
 ```sh
-sqgipkg setup --platform android --emulator --accept-licenses
-sqgipkg emulator
+sqgipkg setup --platform android --accept-licenses
 mkdir MyApp
 cd MyApp
 sqgipkg init android-gtk4 --app-id org.example.myapp --name "My App"
-sqgipkg deploy --platform android --arch x86_64 --serial emulator-5564
+sqgipkg build --platform android --arch arm64-v8a
 ```
 
 SQGI downloads Ubuntu 24.04-pinned Android libraries from Ooblerg. ARM64 and
 x86_64 are supported, with Android 12/API 31 as the minimum.
 Use `sqgipkg setup --platform android --check` to
-diagnose the toolchain, and `sqgipkg watch --platform android --serial emulator-5564`
+diagnose the toolchain, and `sqgipkg watch --platform android --serial DEVICE_SERIAL`
 to update app sources. See the [Android guide](docs/packaging/android.md) for
 host prerequisites, SDK licence acceptance, native modules and release signing.
 

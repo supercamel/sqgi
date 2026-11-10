@@ -50,6 +50,7 @@ M.command <- function(paths, port, headless) {
     return result
 }
 M.run <- function(port, headless, stop) {
+    if (E.host_arch() != "x86_64") throw "The bundled Android emulator requires Linux x86_64; deploy to a phone from ARM64"
     port = M.port(port)
     local paths = M.paths(), sdk = E.paths().android_sdk, adb = sdk + "/platform-tools/adb", serial = "emulator-" + port
     if (!C.is_file(adb)) throw "Missing Android platform-tools; run sqgipkg setup --platform android"

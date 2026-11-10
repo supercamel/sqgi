@@ -376,7 +376,9 @@ class SqgiPkgAndroid extends Base.SqgiPkgDoctor {
             if (!errors) {
                 try {
                     AndroidSdk.SDK(root, opts.android.abi, opts.android.min_sdk).validate()
-                    AndroidToolchain.resolve({ ndk = opts.android.ndk })
+                    AndroidToolchain.resolve({ ndk = opts.android.ndk, sdk = root,
+                        native = opts.native_projects, native_build = this.android_source_runtime(opts),
+                        application = { native_entry = opts.entry_type == "native" ? opts.android_entry : null } })
                 } catch (error) {
                     this.diagnostic("error", error.tostring(), ["platforms", "android"], "android_backend")
                     errors++
@@ -550,9 +552,6 @@ class SqgiPkgAndroid extends Base.SqgiPkgDoctor {
             local identity = AndroidSource.source_provenance(project, AndroidCommon.resolve_path(project.dir), opts.android_source_excludes)
             this.record_input("android-native:" + project.name, identity)
         }
-        // Reject a changed compiler/JDK/SDK before assembling or replacing outputs.
-        this.record_input("android-host-tools", AndroidToolchain.identity({ ndk = opts.android.ndk,
-            offline = !opts.android.download, native = opts.native_projects, runtime_source = runtime_source }))
         local work = GLib.build_filenamev([opts.manifest_dir, ".sqgipkg", "android", opts.android.abi])
         local job = work + "/jobs/" + GLib.uuid_string_random()
         this.mkdir_p(job)
@@ -582,6 +581,10 @@ class SqgiPkgAndroid extends Base.SqgiPkgDoctor {
         local application = this.android_stage_application(opts, staged)
         local artifact = GLib.build_filenamev([this.abs_path(opts.output_dir), opts.app_id + "-" + opts.android.abi + "-" + opts.android.variant + "." + opts.android.format])
         local config = application.project
+        // Resolve the SDK first: current prebuilt wrappers need no NDK. A legacy
+        // SDK or authored native sources still identify their compiler in locks.
+        this.record_input("android-host-tools", AndroidToolchain.identity({ ndk = opts.android.ndk, sdk = sdk,
+            application = config, offline = !opts.android.download, native = opts.native_projects, runtime_source = runtime_source }))
         local request = { protocol_version = 1, operation = prepare_only ? "prepare" : "build", abi = opts.android.abi,
             sdk = sdk, ndk = opts.android.ndk, work = work, source = application.source,
             native = opts.native_projects, runner = opts.android.runner, serial = opts.android.serial,

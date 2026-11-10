@@ -5,6 +5,7 @@ local N = import("native.nut")
 local Entry = import("entry.nut")
 local Runtime = import("runtime.nut")
 local Resources = import("resources.nut")
+local Wrapper = import("wrapper.nut")
 local HERE = GLib.path_get_dirname(GLib.canonicalize_filename(__FILE__, null))
 local M = {}
 M.native_java <- function(sdk, destination) {
@@ -49,9 +50,12 @@ M.prepare <- function(request, sdk, work, tools) {
     }
     if (entry != null) { C.copy(entry.path, native + "/libsqgi-entry.so"); libraries["libsqgi-entry.so"] <- entry.record }
     local platform = native + "/libsqgi-platform.so"
-    local compiler = tools.ndk + "/toolchains/llvm/prebuilt/linux-x86_64/bin/" + S.TARGETS[abi] + config.min_sdk + "-clang"
-    C.process([compiler, "-shared", "-fPIC", "-O2", "-Wl,-soname,libsqgi-platform.so", "-Wl,-z,max-page-size=16384",
-        "-Wl,-z,common-page-size=16384", "-Wl,-z,global", HERE + "/platform.c", "-ldl", "-llog", "-o", platform])
+    if (Wrapper.available(sdk.metadata, "platform")) C.copy(sdk.prefix + "/lib/libsqgi-platform.so", platform)
+    else {
+        local compiler = tools.ndk + "/toolchains/llvm/prebuilt/linux-x86_64/bin/" + S.TARGETS[abi] + config.min_sdk + "-clang"
+        C.process([compiler, "-shared", "-fPIC", "-O2", "-Wl,-soname,libsqgi-platform.so", "-Wl,-z,max-page-size=16384",
+            "-Wl,-z,common-page-size=16384", "-Wl,-z,global", HERE + "/platform.c", "-ldl", "-llog", "-o", platform])
+    }
     libraries["libsqgi-platform.so"] <- E.inspect(platform, abi, tools.readelf)
     foreach (namespace in metadata.namespaces)
         C.copy(sdk.prefix + "/lib/girepository-1.0/" + namespace + ".typelib", assets + "/typelib/" + namespace + ".typelib")
@@ -105,6 +109,7 @@ M.package <- function(request, prepared, work, abis, tools = null) {
     env.ANDROID_HOME <- tools.android_sdk; env.ANDROID_SDK_ROOT <- tools.android_sdk; env.PATH <- java + "/bin:/usr/bin:/bin"
     local task = (request.format == "apk" ? "assemble" : "bundle") + (variant == "debug" ? "Debug" : "Release")
     local command = [T.gradle(C.get(request, "offline", false)), "--no-daemon", "--console=plain", "--no-configuration-cache", "--dependency-verification=strict"]
+    if (tools.aapt2 != null) command.push("-Pandroid.aapt2FromMavenOverride=" + tools.aapt2)
     if (C.get(request, "offline", false)) command.push("--offline")
     command.extend(["-p", project, "-PruntimeAbis=" + C.concat(abis), "-PruntimeInput=" + prepared, ":app:" + task])
     C.process(command, env, false)

@@ -1,7 +1,8 @@
 // One catalog covers the SDK and all prebuilt application libraries.
 local C = import("common.nut"), R = import("repository.nut"), S = import("sdk.nut"), GLib = import("GLib")
 local M = {}
-M.url <- function(origin, sdk_id, target, version = 2) {
+local Wrapper = import("wrapper.nut")
+M.url <- function(origin, sdk_id, target, version = 3) {
     while (C.ends(origin, "/")) origin = origin.slice(0, origin.len() - 1)
     if (!regexp("^[a-z0-9][a-z0-9.\\-]*$").match(sdk_id) || !(target in R.TARGETS)) throw "Invalid Android catalog identity"
     return origin + "/android/" + sdk_id + "/" + target + "/v" + version
@@ -28,11 +29,11 @@ M.probe <- function(repo) {
 }
 M.validate <- function(index, abi, sdk_id) {
     local target = S.TARGETS[abi], identity = C.get(index, "android", {}), schema = C.get(index, "schema")
-    if ([1, 2].find(schema) == null || C.get(index, "target") != target || C.get(index, "prefix") != "/usr") throw "Android catalog target/prefix mismatch"
+    if ([1, 2, 3].find(schema) == null || C.get(index, "target") != target || C.get(index, "prefix") != "/usr") throw "Android catalog target/prefix mismatch"
     foreach (key, value in { abi = abi, triplet = target, libc = "bionic", ndk = S.NDK_REVISION, baseline = "ubuntu-24.04", min_api = 31, sdk_id = sdk_id })
         if (C.get(identity, key) != value) throw "Incompatible Android catalog baseline/NDK/API/ABI"
     local contract = C.get(index, "android_module"), entries = {}
-    if (schema == 2) {
+    if (schema >= 2) {
         local expected_target = clone identity; delete expected_target.sdk_id; delete expected_target.source_lock_sha256
         if (C.get(contract, "sdk_id") != sdk_id || !C.equal(C.get(contract, "target"), expected_target) ||
             C.get(contract, "source_lock_sha256") != C.get(identity, "source_lock_sha256") ||
@@ -42,21 +43,32 @@ M.validate <- function(index, abi, sdk_id) {
         local entry = R.validate_entry(raw)
         if (entry.name in entries || !C.equal(C.get(entry, "android"), identity)) throw "Mixed target/release or duplicate Android package: " + entry.name
         if ("module" in entry) {
-            if (schema != 2 || C.get(entry, "kind") == "meta" || !C.equal(C.get(entry, "android_module"), contract)) throw "Mixed SDK in Android module package: " + entry.name
+            if (schema < 2 || C.get(entry, "kind") == "meta" || !C.equal(C.get(entry, "android_module"), contract)) throw "Mixed SDK in Android module package: " + entry.name
             if (typeof(C.get(entry.module, "files")) != "table" || !entry.module.files.len()) throw "Android module has no file inventory"
         } else if ("android_module" in entry) throw "Android module package has no payload inventory"
         entries[entry.name] <- entry
     }
     R.closure(entries, C.keys(entries))
+    if (schema == 3) {
+        local wrapper = Wrapper.validate(C.get(index, "application_wrapper"))
+        if (!(wrapper.package in entries) || "module" in entries[wrapper.package] || C.get(entries[wrapper.package], "kind") == "meta")
+            throw "Android catalog is missing its application wrapper package"
+        foreach (name, profile in index.sdk_profiles) {
+            local found = false
+            foreach (entry in R.closure(entries, [profile.package])) if (entry.name == wrapper.package) found = true
+            if (!found) throw "Android SDK profile is missing the application wrapper: " + name
+        }
+    }
     return entries
 }
 M.load <- function(request) {
     local target = S.TARGETS[request.abi], locked = C.get(request, "locked"), origin = request.repository
-    local url = M.url(origin, request.sdk_id, target), legacy = M.url(origin, request.sdk_id, target, 1)
+    local urls = [M.url(origin, request.sdk_id, target), M.url(origin, request.sdk_id, target, 2), M.url(origin, request.sdk_id, target, 1)]
     local explicit_legacy = C.get(request, "module_set", "") != ""
-    if (explicit_legacy) url = legacy
+    if (explicit_legacy) urls = [urls[2]]
+    local url = urls[0]
     if (locked != null) {
-        if ([url, legacy].find(C.get(locked, "repository")) == null || C.get(locked, "target") != target || C.get(locked, "sdk_id") != request.sdk_id)
+        if (urls.find(C.get(locked, "repository")) == null || C.get(locked, "target") != target || C.get(locked, "sdk_id") != request.sdk_id)
             throw "Android package lock differs: repository, target or SDK"
         url = locked.repository
     }
@@ -68,18 +80,20 @@ M.load <- function(request) {
         path = repo.cache + "/indexes/" + checksum + ".json"; repo.refresh = false
         repo.fetch("index.json", path, checksum)
     } else {
-        if (!M.probe(repo)) {
-            repo = R.Repository(legacy, request.cache, repo.download, repo.refresh, target)
+        local found = false
+        foreach (candidate in urls) {
+            repo = R.Repository(candidate, request.cache, repo.download, repo.refresh, target)
             cached = C.exists(repo.cache + "/index.json") && (!repo.refresh || !repo.download)
-            repo.index()
+            if (M.probe(repo)) { found = true; break }
         }
+        if (!found) repo.index()
         checksum = C.file_hash(repo.cache + "/index.json")
         path = repo.cache + "/indexes/" + checksum + ".json"
         if (!C.exists(path)) C.atomic_bytes(path, C.read(repo.cache + "/index.json"))
     }
     if (C.file_hash(path) != checksum) throw "Cached Android catalog checksum mismatch"
     local index = sqgi.json.parse(C.read(path)), entries = M.validate(index, request.abi, request.sdk_id)
-    if ((C.ends(repo.url, "/v2") ? 2 : 1) != index.schema) throw "Android catalog schema differs from repository version"
+    if (!C.ends(repo.url, "/v" + index.schema)) throw "Android catalog schema differs from repository version"
     return { repo = repo, index = index, entries = entries, sha256 = checksum, cached = cached }
 }
 return M

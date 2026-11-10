@@ -14,6 +14,13 @@ try {
         result = import("../sqgipkg_lib/android/provision.nut").prepare(request.input, request.offline)
     } else if (request.operation == "host-toolchain") {
         result = import("../sqgipkg_lib/android/toolchain.nut").identity(request)
+    } else if (request.operation == "resolve-toolchain") {
+        local environment = import("../sqgipkg_lib/android/environment.nut")
+        if ("host_arch" in request) environment.host_arch = function() { return request.host_arch }
+        result = import("../sqgipkg_lib/android/toolchain.nut").resolve(request)
+    } else if (request.operation == "wrapper") {
+        local wrapper = import("../sqgipkg_lib/android/wrapper.nut")
+        result = { platform = wrapper.available(request.metadata, "platform"), entry = wrapper.available(request.metadata, "entry") }
     } else if (request.operation == "host-inputs") {
         result = import("../sqgipkg_lib/android/host_inputs.nut").identify(request.roots)
     } else if (request.operation == "compat") {

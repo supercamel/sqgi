@@ -16,12 +16,7 @@ M.angle_selection <- function(packages, drivers, package) {
 }
 M.quote <- function(args) { local out = []; foreach (arg in args) out.push(GLib.shell_quote(arg.tostring())); return C.concat(out, " ") }
 M.adb <- function() {
-    local path = GLib.getenv("ADB")
-    if (path == null || path == "") {
-        local sdk = Environment.paths().android_sdk
-        path = sdk + "/platform-tools/adb"
-        if (!C.is_file(path)) path = GLib.find_program_in_path("adb")
-    }
+    local path = Environment.adb()
     if (path == null || !C.is_file(path)) throw "Android deployment needs adb; run sqgipkg setup --platform android"
     return C.absolute(path)
 }
@@ -169,7 +164,7 @@ class Device {
                 selected_spec.supportedAbis = [self.abi]; C.atomic_json(spec, selected_spec)
                 Signing.with_bundle_arguments(tools.java, function(arguments) {
                     local args = ["build-apks", "--bundle=" + path, "--output=" + apks, "--device-spec=" + spec,
-                        "--aapt2=" + tools.android_sdk + "/build-tools/35.0.0/aapt2"]
+                        "--aapt2=" + Environment.packaging_tool("aapt2", tools.android_sdk)]
                     args.extend(arguments); run(args)
                 })
                 run(["extract-apks", "--apks=" + apks, "--device-spec=" + spec, "--output-dir=" + selected])

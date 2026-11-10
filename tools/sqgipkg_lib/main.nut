@@ -28,7 +28,7 @@ class SqgiPkg extends Base.SqgiPkgProtocol {
         this.add_option("command", 0, GLib.OptionArg.string, "Action: setup, emulator, preview, install, deploy, run, logs, sync, watch, reset", "ACTION")
         this.add_option("check", 0, GLib.OptionArg.none, "With setup: inspect host tools without downloading or changing files", null)
         this.add_option("emulator", 0, GLib.OptionArg.none, "With setup: prepare/check the pinned Android 16 emulator", null)
-        this.add_option("native-tools", 0, GLib.OptionArg.none, "With setup: also check Ubuntu 24.04 native-module build tools", null)
+        this.add_option("native-tools", 0, GLib.OptionArg.none, "With setup: install the pinned NDK and check native-module build tools (x86_64)", null)
         this.add_option("accept-licenses", 0, GLib.OptionArg.none, "With setup: accept Google's Android SDK terms for requested downloads", null)
         this.add_option("android-sdk-root", 0, GLib.OptionArg.string, "With setup: Google Android SDK location (distinct from --android-sdk)", "DIR")
         this.add_option("java-home", 0, GLib.OptionArg.string, "With setup: full JDK 17/21 directory, saved for subsequent builds", "DIR")

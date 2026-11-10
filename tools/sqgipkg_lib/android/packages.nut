@@ -31,7 +31,7 @@ M.resolve <- function(request) {
     local requested_profile = profile, additional = clone C.get(request, "packages", [])
     C.sort_strings(additional)
     local seeds = clone additional
-    if (index.schema == 2) foreach (name in C.get(request, "native_packages", [])) seeds.push(name)
+    if (index.schema >= 2) foreach (name in C.get(request, "native_packages", [])) seeds.push(name)
     // Native composition validates the complete GIR graph, including the base
     // namespaces. The SDK profile supplies those GIR files and development data.
     foreach (entry in R.closure(catalog, seeds)) if ("module" in entry && profile == "runtime") profile = "sdk"
@@ -47,8 +47,10 @@ M.resolve <- function(request) {
     foreach (key, unused in expected) if (key != "sdk_id") expected_target[key] <- identity[key]
     if (C.get(metadata, "sdk_id") != sdk_id || C.get(metadata, "profile") != profile || !C.equal(C.get(metadata, "target"), expected_target) ||
         C.get(metadata, "source_lock_sha256") != C.get(identity, "source_lock_sha256")) throw "Android descriptor differs from catalog identity"
-    if (index.schema == 2 && C.get(metadata, "producer_descriptor_sha256", descriptor.sha256) != index.android_module.producer_descriptor_sha256)
+    if (index.schema >= 2 && C.get(metadata, "producer_descriptor_sha256", descriptor.sha256) != index.android_module.producer_descriptor_sha256)
         throw "Android SDK descriptor differs from module contract"
+    if (index.schema == 3 && !C.equal(C.get(metadata, "application_wrapper"), index.application_wrapper))
+        throw "Android SDK descriptor differs from application wrapper contract"
     local selection = R.closure(catalog, [descriptor.package])
     foreach (entry in selection) if ("module" in entry) throw "Android SDK profile contains an application module"
     local pin = { sha256 = checksum, repository = url, target = target, sdk_id = sdk_id, profile = profile, descriptor_sha256 = descriptor.sha256 }

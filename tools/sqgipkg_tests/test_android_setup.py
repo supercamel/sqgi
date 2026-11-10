@@ -19,7 +19,7 @@ class AndroidSetup(unittest.TestCase):
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
         self.env = dict(os.environ)
-        for name in ["JAVA_HOME", "ANDROID_SDK_ROOT", "ANDROID_HOME", "ANDROID_NDK_HOME", "ADB"]:
+        for name in ["JAVA_HOME", "ANDROID_SDK_ROOT", "ANDROID_HOME", "ANDROID_NDK_HOME", "ADB", "SQGI_ANDROID_AAPT2", "SQGI_ANDROID_ZIPALIGN"]:
             self.env.pop(name, None)
         for name, directory in [("XDG_CONFIG_HOME", "config"), ("XDG_DATA_HOME", "data"), ("XDG_CACHE_HOME", "cache")]:
             self.env[name] = str(self.root / directory)
@@ -54,9 +54,48 @@ class AndroidSetup(unittest.TestCase):
         self.assertFalse(report["ok"])
         checks = {c["id"]: c for c in report["checks"]}
         self.assertTrue(checks["jdk"]["ok"])
-        self.assertFalse(checks["ndk"]["ok"])
-        self.assertIn("accept-licenses", checks["ndk"]["remedy"])
+        self.assertNotIn("ndk", checks)
+        self.assertFalse(checks["platform"]["ok"])
+        self.assertIn("accept-licenses", checks["platform"]["remedy"])
         self.assertEqual(before, sorted(str(p) for p in self.root.rglob("*")))
+
+    def test_native_setup_explicitly_checks_the_ndk(self):
+        report = json.loads(self.cli("setup", "--platform", "android", "--native-tools", "--check", "--json").stdout)
+        check = next(c for c in report["checks"] if c["id"] == "ndk")
+        self.assertFalse(check["ok"])
+        self.assertIn("accept-licenses", check["remedy"])
+
+    def test_arm_prebuilt_packaging_needs_no_ndk_but_sources_do(self):
+        sdk = self.root / "runtime"
+        sdk.mkdir()
+        metadata = dict(application_wrapper=dict(schema=1, package="sqgi-android-wrapper", sources={
+            name: hashlib.sha256((ROOT / "tools/sqgipkg_lib/android" / name).read_bytes()).hexdigest()
+            for name in ["platform.c", "native_entry.c", "sqgi_android_entry.h"]}),
+            files={"usr/lib/libsqgi-platform.so": {}, "usr/lib/libsqgi-entry.so": {}})
+        (sdk / "sqgi-android-sdk.json").write_text(json.dumps(metadata))
+        for name in ["aapt2", "zipalign"]:
+            path = self.root / "host tools" / name
+            self.program(path, "exit 0\n")
+            self.env["SQGI_ANDROID_" + name.upper()] = str(path)
+        request = dict(host_arch="aarch64", sdk=str(sdk), ndk=str(self.root / "missing ndk"),
+                       application={"native_entry": {"library": "libapp.so"}},
+                       native=[{"android_package": "extras-fixture"}])
+        result = self.bridge("resolve-toolchain", **request)
+        self.assertTrue(result["ok"], result)
+        self.assertIsNone(result["result"]["ndk"])
+        for changes in [dict(native=[{}]), dict(runtime_source={})]:
+            result = self.bridge("resolve-toolchain", **dict(request, **changes))
+            self.assertFalse(result["ok"])
+            self.assertIn("prebuilt native packages", result["error"])
+        metadata["application_wrapper"]["sources"]["native_entry.c"] = "f" * 64
+        (sdk / "sqgi-android-sdk.json").write_text(json.dumps(metadata))
+        result = self.bridge("resolve-toolchain", **request)
+        self.assertIn("native compiler", result["error"])
+
+    def test_arm_missing_packaging_tools_has_setup_diagnostic(self):
+        result = self.bridge("resolve-toolchain", host_arch="aarch64")
+        self.assertFalse(result["ok"])
+        self.assertIn("setup --platform android", result["error"])
 
     def test_saved_paths_work_without_environment_and_explicit_overrides_win(self):
         config = self.root / "config/sqgipkg/android.json"

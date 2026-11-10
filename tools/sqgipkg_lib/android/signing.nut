@@ -1,5 +1,6 @@
 // Signing identity comes only from the environment; credentials never enter JSON.
 local C = import("common.nut"), GLib = import("GLib")
+local Environment = import("environment.nut")
 local M = { variables = ["SQGI_ANDROID_KEYSTORE", "SQGI_ANDROID_KEY_ALIAS", "SQGI_ANDROID_STORE_PASSWORD", "SQGI_ANDROID_KEY_PASSWORD"] }
 M.configured <- function(variant) {
     if (variant != "debug" && variant != "release") throw "Android variant must be debug or release"
@@ -64,7 +65,7 @@ M.verify_apk <- function(path, android, java, expected = null) {
         signers.push(strip(line.slice(line.find(":") + 1)).tolower())
     if (signers.len() != 1 || !regexp("^[0-9a-f]{64}$").match(signers[0]) || (expected != null && signers[0] != expected))
         throw "APK signing certificate differs from selected signing identity"
-    C.process([android + "/build-tools/35.0.0/zipalign", "-c", "-P", "16", "4", path], M.environment(java))
+    C.process([Environment.packaging_tool("zipalign", android), "-c", "-P", "16", "4", path], M.environment(java))
     return signers[0]
 }
 M.verify_aab <- function(path, java, expected = null) {

@@ -61,7 +61,7 @@ M.validate_payload <- function(root, prepared, sdk_base, abi, readelf) {
 }
 M.resolve_unified <- function(request, sdk_base, work, readelf, seeds, loaded) {
     local index = loaded.index, identity = M.compatibility(sdk_base, request.sdk_id), all = loaded.entries
-    if (index.schema != 2 || !C.equal(index.android_module, identity)) throw "Android module catalog is incompatible with selected SDK/ABI/NDK/baseline"
+    if (index.schema < 2 || !C.equal(index.android_module, identity)) throw "Android module catalog is incompatible with selected SDK/ABI/NDK/baseline"
     local selected = R.closure(all, seeds), catalog = {}, base_packages = null
     if ("profile" in sdk_base.metadata) {
         base_packages = {}
@@ -100,13 +100,13 @@ M.resolve <- function(request, sdk_base, work, readelf) {
     local seeds = C.keys(seed_set)
     if (!seeds.len()) return null
     local catalog_lock = C.get(request, "catalog_lock"), module_lock = C.get(request, "modules_lock")
-    local unified = catalog_lock != null ? C.ends(catalog_lock.repository, "/v2") : C.get(request, "module_set", "") == ""
+    local unified = catalog_lock != null ? (C.ends(catalog_lock.repository, "/v2") || C.ends(catalog_lock.repository, "/v3")) : C.get(request, "module_set", "") == ""
     if (unified) {
         if (catalog_lock != null && module_lock != null && (catalog_lock.repository != module_lock.repository || catalog_lock.sha256 != module_lock.sha256))
             throw "Android SDK and modules must use the same locked catalog"
         local loaded = Catalog.load({ abi = request.abi, sdk_id = request.sdk_id, repository = request.repository, cache = request.cache,
             download = !C.get(request, "offline", false), refresh = C.get(request, "refresh", false), locked = catalog_lock == null ? module_lock : catalog_lock })
-        if (loaded.index.schema == 2) return M.resolve_unified(request, sdk_base, work, readelf, seeds, loaded)
+        if (loaded.index.schema >= 2) return M.resolve_unified(request, sdk_base, work, readelf, seeds, loaded)
     }
     local release = C.get(request, "module_set", ""), sdk_id = request.sdk_id, identifiers = clone seeds
     if (release == "") release = "applications-r1"

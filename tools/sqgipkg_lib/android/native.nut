@@ -3,6 +3,7 @@ local C = import("common.nut"), S = import("sdk.nut"), R = import("repository.nu
 local Packages = import("modules.nut"), Exports = import("exports.nut"), GIR = import("gir.nut")
 local Source = import("source.nut"), Inspection = import("inspection.nut"), GLib = import("GLib")
 local M = {}
+local Environment = import("environment.nut")
 M.ordered <- function(projects) {
     local names = {}, result = [], state = {}, visit = null
     foreach (project in projects) {
@@ -23,7 +24,7 @@ M.ordered <- function(projects) {
 }
 M.build <- function(request, sdk_base, work, tools) {
     request = clone request
-    if (C.get(request, "adb", "") == "") request.adb <- tools.android_sdk + "/platform-tools/adb"
+    if (C.get(request, "adb", "") == "") request.adb <- Environment.adb()
     local authored = C.get(request, "native", []), recipes = [], selected = {}
     foreach (recipe in authored) if (C.get(recipe, "android_package", "") != "") selected[recipe.android_package] <- true
     foreach (package in C.get(request, "module_packages", [])) if (!(package in selected))

@@ -16,36 +16,41 @@ Install a current SQGI build, including its packaging tools, using the
 [normal installation instructions](../index.md#build-from-source-on-linux).
 An installation under `~/.local` works when `~/.local/bin` is on PATH.
 
-Install the host prerequisites, then let SQGI prepare Google's tools:
+Linux x86_64 and ARM64 hosts can package apps using prebuilt libraries. Install
+the host prerequisites, then prepare the packaging tools:
 
 ```sh
-sudo apt install openjdk-21-jdk curl unzip binutils libglib2.0-bin libxml2-utils
-sqgipkg setup --platform android --emulator --accept-licenses
-sqgipkg setup --platform android --check --emulator
-sqgipkg emulator
+sudo apt install openjdk-21-jdk curl unzip binutils libglib2.0-bin libxml2-utils adb
+sqgipkg setup --platform android --accept-licenses
+sqgipkg setup --platform android --check
 
 mkdir MyApp
 cd MyApp
 sqgipkg init android-gtk4 --app-id org.example.myapp --name "My App"
-sqgipkg deploy --platform android --arch x86_64 --serial emulator-5564
-sqgipkg watch --platform android --arch x86_64 --serial emulator-5564
+sqgipkg build --platform android --arch arm64-v8a
 ```
 
 `--accept-licenses` authorizes acceptance of Google's
 [Android SDK terms](https://developer.android.com/studio/terms) for the requested
 tools. Setup downloads the pinned command-line tools and installs platform 35,
-build-tools 35.0.0, platform-tools and NDK r28c. Gradle 8.9 is downloaded and
-verified automatically. Setup uses an existing compatible toolchain when one
-is available. JDK installation stays with the host package manager.
+build-tools 35.0.0 and, on x86_64, platform-tools. ARM64 setup also downloads
+checksum-pinned native AAPT2 and zipalign from Ooblerg; it uses Ubuntu's `adb`
+for deployment. Gradle 8.9 is downloaded and verified automatically. Setup uses
+an existing compatible toolchain when one is available. JDK installation stays
+with the host package manager. Packaging scripts and prebuilt native libraries
+does not require the NDK.
 
-The optional `--emulator` setup flag adds the hash-pinned emulator 37.2.13 and
+On an x86_64 host, the optional `--emulator` setup flag adds the hash-pinned emulator 37.2.13 and
 Android 16/API 36 Google APIs image. Its initial download is about 2.1 GiB;
 first boot can take a few minutes. Linux hardware virtualization and access
 to `/dev/kvm` are required. The AVD is named `SQGI_API_36`, retains its private
 application data between starts, and uses port 5564 by default:
 
 ```sh
+sqgipkg setup --platform android --emulator --accept-licenses
 sqgipkg emulator --headless
+sqgipkg deploy --platform android --arch x86_64 --serial emulator-5564
+sqgipkg watch --platform android --arch x86_64 --serial emulator-5564
 sqgipkg emulator --stop
 sqgipkg emulator --port 5566
 ```
@@ -88,8 +93,9 @@ sqgipkg setup --platform android --check --native-tools
 `--check` does not download, create directories, change configuration or need
 an application manifest. JSON reports include each requirement and a suggested
 fix; a missing requirement produces a nonzero exit status. `--native-tools`
-also checks the Ubuntu 24.04 tools used to compile application-native modules.
-Setup does not install those distribution packages. `--no-android-download`
+selects native source builds on Linux x86_64: setup installs NDK r28c and checks
+the Ubuntu 24.04 tools used to compile application-native modules. Setup does
+not install those distribution packages. `--no-android-download`
 allows reuse of prepared/cached tools and fails if an SDK component is missing.
 
 For C/GObject and Vala modules on Ubuntu 24.04, install:
@@ -97,6 +103,7 @@ For C/GObject and Vala modules on Ubuntu 24.04, install:
 ```sh
 sudo apt install build-essential cmake ninja-build meson pkg-config valac \
   gobject-introspection libgirepository1.0-dev python3 e2fsprogs
+sqgipkg setup --platform android --native-tools --accept-licenses
 ```
 
 Rust modules additionally need the Rust toolchain selected by their recipe.
@@ -108,9 +115,19 @@ its `sqgi-android-sdk.json` descriptor, or ABI subdirectories containing one.
 
 ## Toolchain reference
 
-Use a Linux x86-64 build host, `readelf`, a full JDK 17 or 21, Android SDK
-platform/build-tools 35, and NDK `28.2.13676358`. Setup remembers the selected
-paths; `JAVA_HOME` and `ANDROID_SDK_ROOT` can override them. `--android-ndk`
+Use Linux x86_64 or ARM64, `readelf`, a full JDK 17 or 21, and Android SDK
+platform/build-tools 35. Ubuntu 24.04 is the tested host baseline. On ARM64,
+setup supplies native resource and alignment tools compatible with API 35.
+`SQGI_ANDROID_AAPT2` and `SQGI_ANDROID_ZIPALIGN` can select custom tool executables;
+their content identities are included in build locks.
+
+Compiling C, Vala or Rust modules, rebuilding the SQGI runtime, and using an older
+SDK without matching prebuilt application bridges requires Linux x86_64 and
+NDK `28.2.13676358`. ARM64 hosts can consume prebuilt native modules from the
+same Ooblerg catalog, including GStreamer and GWorldScene.
+
+Setup remembers the selected paths; `JAVA_HOME` and `ANDROID_SDK_ROOT` can
+override them. `--android-ndk`
 overrides the NDK directory; otherwise `sqgipkg` uses `ANDROID_NDK_HOME`,
 the saved selection or the Android SDK's `ndk` directory.
 Gradle 8.9 is downloaded and checksum-verified, or can be selected
@@ -177,8 +194,8 @@ sqgipkg build --platform android --arch x86_64 --locked --no-android-download
 
 The default SDK release is `noble-android-r4` from `https://ooblerg.xyz`.
 Its package catalogs are available for
-[ARM64](https://ooblerg.xyz/android/noble-android-r4/aarch64-linux-android/v2/index.json)
-and [x86_64](https://ooblerg.xyz/android/noble-android-r4/x86_64-linux-android/v2/index.json),
+[ARM64](https://ooblerg.xyz/android/noble-android-r4/aarch64-linux-android/v3/index.json)
+and [x86_64](https://ooblerg.xyz/android/noble-android-r4/x86_64-linux-android/v3/index.json),
 alongside a [corresponding-source index](https://ooblerg.xyz/android/noble-android-r4/sources/index.json).
 For an application using an older SDK release, update `platforms.android.sdk`
 and rebuild with `--write-lock`. Existing locks are not silently upgraded.
@@ -198,7 +215,7 @@ the artifact and SDK input. `--locked` pins the catalog and descriptor checksums
 which pin every selected archive, target identity and installed file. It rejects
 a changed manifest, origin, profile or SDK descriptor. `--no-android-download`
 requires cached packages and passes `--offline` to Gradle; a missing cached input
-fails clearly. Locks also record content identities for the selected NDK, JDK,
+fails clearly. Locks also record content identities for the NDK when used, JDK,
 Gradle distribution, Android platform/build-tools, installed backend and host
 SQGI/GLib/GI runtime. Native builds additionally record the standard Ubuntu
 build tools and their data, and the selected Rust sysroot for custom recipes

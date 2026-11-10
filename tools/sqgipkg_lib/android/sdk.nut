@@ -1,5 +1,6 @@
 local C = import("common.nut"), E = import("elf.nut"), GIR = import("gir.nut"), GLib = import("GLib")
 local TARGETS = { ["arm64-v8a"] = "aarch64-linux-android", x86_64 = "x86_64-linux-android" }
+local Wrapper = import("wrapper.nut")
 local DESCRIPTOR = "sqgi-android-sdk.json", NDK_REVISION = "28.2.13676358"
 class SDK {
     root = null; prefix = null; metadata = null; sha256 = null; abi = null
@@ -30,6 +31,11 @@ class SDK {
     function validate() {
         local files = C.get(metadata, "files")
         if (typeof(files) != "table" || !files.len()) throw "Android SDK has no file inventory"
+        if ("application_wrapper" in metadata) {
+            Wrapper.validate(metadata.application_wrapper)
+            foreach (kind, library in Wrapper.libraries)
+                if (!("usr/lib/" + library in metadata.files)) throw "Android SDK is missing its declared application wrapper: " + library
+        }
         if (C.is_link(prefix)) throw "Android SDK prefix must not be a symlink"
         local actual = []; foreach (path in C.walk(prefix)) actual.push(path.slice(root.len() + 1))
         if (!C.equal(actual, C.keys(files))) throw "Android SDK file inventory differs from its descriptor"

@@ -1197,6 +1197,90 @@ class UnifiedAndroidCatalog(unittest.TestCase):
         self.assertEqual(marker.read_bytes(),before)
 
 
+class PrebuiltAndroidWrapper(unittest.TestCase):
+    save = SDKIntegrity.save
+    publish = AndroidPackages.publish
+    save_index = AndroidPackages.save_index
+    add_module = UnifiedAndroidCatalog.add_module
+    resolve_sdk = UnifiedAndroidCatalog.resolve_sdk
+
+    def setUp(self):
+        UnifiedAndroidCatalog.setUp(self)
+        self.legacy_lock = self.resolve_sdk()['lock']
+        self.catalog = self.catalog.with_name('v3')
+        shutil.copytree(self.catalog.with_name('v2'), self.catalog)
+        self.wrapper = dict(schema=1, package='sqgi-android-wrapper', sources={
+            name: file_hash(ROOT/'tools/sqgipkg_lib/android'/name)
+            for name in ['platform.c', 'native_entry.c', 'sqgi_android_entry.h']})
+        files = {}
+        archive = self.catalog/'wrapper.tar.gz'
+        with tarfile.open(archive, 'w:gz') as tar:
+            for kind in ['platform', 'entry']:
+                path = self.root/f'usr/lib/libsqgi-{kind}.so'
+                # Use the fixture's valid, dependency-free Android ELF.
+                shutil.copyfile(self.root/'usr/lib/libsqgi.so', path)
+                name = str(path.relative_to(self.root))
+                files[name] = dict(sha256=file_hash(path))
+                tar.add(path, arcname=name)
+        for profile in self.index['sdk_profiles'].values():
+            descriptor = self.catalog/profile['artifact']
+            metadata = json.loads(descriptor.read_text())
+            metadata.update(application_wrapper=self.wrapper)
+            metadata['files'].update(files)
+            metadata['file_owners'].update({name: self.wrapper['package'] for name in files})
+            descriptor.write_bytes(encoded(metadata))
+            profile['sha256'] = file_hash(descriptor)
+            for package in self.index['packages']:
+                if package['name'] == profile['package']:
+                    package['dependencies'].append(self.wrapper['package'])
+        self.index['packages'].append(dict(name=self.wrapper['package'],version='1',
+            artifact=archive.name,sha256=file_hash(archive),dependencies=[],android=self.identity))
+        self.index.update(schema=3, application_wrapper=self.wrapper)
+        self.save_index()
+
+    def test_selects_wrapper_catalog_and_preserves_older_locked_catalog(self):
+        sdk = self.resolve_sdk()
+        self.assertTrue(sdk['lock']['repository'].endswith('/v3'))
+        self.assertIn('sqgi-android-wrapper', sdk['packages'])
+        self.assertEqual(self.resolve_sdk(locked=self.legacy_lock)['lock'], self.legacy_lock)
+        self.origin.rename(self.root/'unavailable')
+        self.assertEqual(self.resolve_sdk(locked=sdk['lock'],download=False)['lock'], sdk['lock'])
+
+    def test_wrapper_contract_is_verified_and_never_falls_back(self):
+        self.index['application_wrapper'] = dict(self.wrapper, sources={})
+        self.save_index()
+        with self.assertRaisesRegex(ValueError, 'source identity'):
+            self.resolve_sdk()
+        self.assertEqual(self.resolve_sdk(locked=self.legacy_lock)['lock'], self.legacy_lock)
+
+    def test_missing_wrapper_dependency_is_rejected(self):
+        for package in self.index['packages']:
+            if package['name'] == 'sqgi-android-runtime':
+                package['dependencies'].remove(self.wrapper['package'])
+        self.save_index()
+        with self.assertRaisesRegex(ValueError, 'missing the application wrapper'):
+            self.resolve_sdk()
+
+    def test_descriptor_wrapper_mismatch_is_rejected(self):
+        descriptor = self.catalog/'runtime.json'
+        metadata = json.loads(descriptor.read_text())
+        metadata['application_wrapper']['sources']['platform.c'] = 'f'*64
+        descriptor.write_bytes(encoded(metadata))
+        self.index['sdk_profiles']['runtime']['sha256'] = file_hash(descriptor)
+        self.save_index()
+        with self.assertRaisesRegex(ValueError, 'wrapper contract'):
+            self.resolve_sdk()
+
+    def test_source_identity_controls_ndk_fallback(self):
+        sdk = self.resolve_sdk()
+        metadata = json.loads((Path(sdk['sdk'])/DESCRIPTOR).read_text())
+        self.assertEqual(squirrel_backend('wrapper',metadata=metadata), dict(platform=True,entry=True))
+        metadata['application_wrapper']['sources']['platform.c'] = 'f'*64
+        self.assertEqual(squirrel_backend('wrapper',metadata=metadata), dict(platform=False,entry=True))
+        metadata.pop('application_wrapper')
+        self.assertEqual(squirrel_backend('wrapper',metadata=metadata), dict(platform=False,entry=False))
+
+
 class SquirrelNativeExports(unittest.TestCase):
     def test_private_copy_batch_validation_ownership_and_reset(self):
         with tempfile.TemporaryDirectory() as directory:

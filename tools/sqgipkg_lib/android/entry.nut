@@ -1,5 +1,6 @@
 local C = import("common.nut"), E = import("elf.nut"), S = import("sdk.nut"), Source = import("source.nut"), GLib = import("GLib")
 local M = { directory = GLib.path_get_dirname(C.absolute(__FILE__)) }
+local Wrapper = import("wrapper.nut")
 M.validate <- function(entry) {
     if (typeof(entry) != "table") throw "entry.android must be a native entry object"
     foreach (key in ["project", "library", "symbol"]) if (typeof(C.get(entry, key)) != "string" || entry[key] == "") throw "entry.android requires " + key
@@ -32,6 +33,10 @@ M.prepare <- function(request, sdk, work, tools) {
     local entry = request.application.native_entry; M.validate(entry)
     M.owner(entry, request.native_evidence.projects)
     M.symbols(sdk.prefix + "/lib/" + entry.library, entry, tools.readelf)
+    if (Wrapper.available(sdk.metadata, "entry")) {
+        local path = sdk.prefix + "/lib/libsqgi-entry.so"
+        return { path = path, record = E.inspect(path, request.abi, tools.readelf) }
+    }
     local archive = sdk.prefix + "/lib/libsqgi-gtk-glue.a"
     if (!C.is_file(archive)) throw "Native entry requires the Android development SDK's GTK glue archive"
     local env = Source.clean_environment()

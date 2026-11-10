@@ -1,5 +1,6 @@
 // Multi-ABI composition and device split verification, orchestrated by SQGI.
 local C = import("common.nut"), P = import("payload.nut"), S = import("sdk.nut"), Signing = import("signing.nut"), GLib = import("GLib")
+local Environment = import("environment.nut")
 local M = { VERSION = "1.18.3", SHA256 = "a099cfa1543f55593bc2ed16a70a7c67fe54b1747bb7301f37fdfd6d91028e29" }
 M.tool <- function(offline = false) {
     local override = GLib.getenv("BUNDLETOOL_JAR")
@@ -27,7 +28,7 @@ M.verify <- function(path, abis, work, android, java, offline = false, signer = 
         C.atomic_json(spec, { supportedAbis = [abi], supportedLocales = ["en"], screenDensity = 420, sdkVersion = 35 })
         Signing.with_bundle_arguments(java, function(arguments) {
             local args = ["build-apks", "--bundle=" + path, "--output=" + apks, "--overwrite", "--device-spec=" + spec,
-                          "--aapt2=" + android + "/build-tools/35.0.0/aapt2"]
+                          "--aapt2=" + Environment.packaging_tool("aapt2", android)]
             args.extend(arguments); run(args)
         })
         local selected = root + "/" + abi; C.remove(selected)
