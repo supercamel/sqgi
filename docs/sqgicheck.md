@@ -9,11 +9,9 @@ It is installed alongside `sqgi` and `sqgipkg`.
 
 ## How It Works
 
-The checker compiles source with SQGI's bundled Squirrel compiler, then
-abstractly interprets the resulting bytecode. GI names, inheritance, methods,
-signatures, properties, and signals come from the same GObject Introspection
-typelibs used by the runtime. There is no separate parser or hand-maintained
-copy of library APIs.
+The checker uses SQGI's compiler to check language syntax and reads installed
+GI typelibs to check library names, inheritance, methods, signatures, properties
+and signals.
 
 Checking does **not** execute top-level statements, imported modules,
 initializers, callbacks, native functions, filesystem operations, subprocesses,

@@ -10,10 +10,8 @@ sqgipkg build
 sqgipkg build --platform windows
 ```
 
-`--help` shows the common workflow. `--help-all` contains the complete reference,
-including legacy switches, cache settings and installer presentation. Existing
-commands such as `--doctor`, `--init gtk4` and `--target win-dir` still work.
-`appdir` and `tarball` are unavailable targets and are not advertised.
+`--help` shows the common workflow. `--help-all` contains the complete option
+reference, including cache settings and installer presentation.
 
 ## Describe the application
 
@@ -33,15 +31,18 @@ The `gtk4` feature selects GUI defaults and the platform's GTK dependencies.
 Other features are `gstreamer`, `gdk-pixbuf` and `soup3`. Feature declarations
 supplement static import discovery; they are useful for dynamically loaded code.
 On Linux, features enable a private Ubuntu 24.04 dependency sysroot by default.
-Explicit legacy package/download settings still override these defaults.
+Explicit package and download settings override these defaults.
 
-The `native` list is shared by Linux and Windows. A native recipe can use a local
-`dir`, or a Git `repo` with an optional `ref`. Its default build system is Meson;
-CMake is also supported. Builds live under `.sqgipkg/build/<platform>/<name>`.
+The `native` list is shared by Linux, Windows and Android. A native recipe can
+use a local `dir`, or a Git `repo` with an optional `ref`. Its default build system
+is Meson; CMake is also supported. Linux and Windows builds live under
+`.sqgipkg/build/<platform>/<name>`.
 The tool configures the cross files, builds, and discovers shared libraries and
 typelibs. `options` passes build-system options and `targets` restricts the build.
-Explicit `libraries`, `typelibs` and `files` remain available for unusual layouts.
+On Linux and Windows, use explicit `libraries`, `typelibs` and `files` for unusual layouts.
 Use unique native project names; `sqgi` is reserved for the runtime recipe.
+See [Android native recipes](android.md#native-recipes) for Android build tools
+and GI metadata generation.
 
 To build SQGI itself, declare its revision:
 
@@ -60,17 +61,17 @@ To build SQGI itself, declare its revision:
 }
 ```
 
-Replace `<tag-or-commit>` with an actual SQGI revision. `runtime.source` or the
-existing `--sqgi-source-dir` override can select a local source checkout. Without
-`runtime`, packaging continues to use an existing build or installed runtime.
+Replace `<tag-or-commit>` with an actual SQGI revision. `runtime.source` or
+`--sqgi-source-dir` can select a local source checkout. Without `runtime`,
+packaging uses an existing build or installed runtime.
 The Linux baseline chooses the dependency suite (`ubuntu-22.04` or
 `ubuntu-24.04`) independently of the host distribution. Producing compatible
 binaries also requires an appropriate compiler/runtime; choosing a package
 suite alone does not certify compatibility with that distribution.
 
 `--platform windows` uses the declared Windows format; `--target win-dir` or
-`--target win-nsis` overrides it. `--target all` builds the Linux architecture
-matrix and the declared Windows format (installer by default).
+`--target win-nsis` overrides it. `--target all` builds the enabled Linux,
+Windows and Android targets with their declared architectures and formats.
 `explain` and `check` resolve the selected architecture overlays too. `explain`
 prints the chosen runtime, native recipes, commands and packages without
 fetching or building. `check` validates Windows payloads for Windows targets,
@@ -80,8 +81,8 @@ field types; unversioned legacy manifests warn about unknown keys.
 
 ## GI metadata when cross-compiling
 
-Some C GI libraries need a host build to generate their metadata. Instead of
-copying Meson commands and `sed` expressions into each architecture, declare:
+Some C GI libraries need a host build to generate their metadata. For Linux and
+Windows targets, select this with `gi.strategy: "host"`:
 
 ```json
 {
@@ -112,10 +113,10 @@ Windows dependency packages come exclusively from Ooblerg. Both native Windows
 and Ubuntu 24.04 cross builds use its `x86_64-w64-mingw32` catalog and `/mingw64`
 prefix. Source runtime recipes use the published LLVM 18 SDK.
 
-Python 3 downloads, verifies, and extracts the Ooblerg archives into an owned
-private sysroot. Standard native recipes prepare Ooblerg's `native-sdk` build
-tools on Windows; Ubuntu uses its MinGW cross compiler. No MSYS2 installation
-is used. Old MSYS2 settings must be migrated as described below.
+Windows package preparation requires Python 3. `sqgipkg` downloads, verifies,
+and extracts Ooblerg archives into a private sysroot. Standard native recipes
+prepare Ooblerg's `native-sdk` build tools on Windows; Ubuntu uses its MinGW
+cross compiler.
 
 ```powershell
 sqgipkg check
@@ -136,9 +137,7 @@ translated on Windows. Prefer recipes, or a portable process hook:
 ```
 
 `argv` is passed directly to the process; shell quoting and variable expansion
-do not occur. A native Windows CI workflow runs the CLI, native recipe tests,
-package execution and installer compilation from PowerShell. Windows-to-Linux
-AppImage production is not a native Windows backend; use a Linux build host.
+do not occur. Building Linux AppImages requires a Linux host.
 
 ## Record build inputs
 
@@ -169,14 +168,14 @@ and dependencies to your own application before building.
 
 ## Migrating old MSYS2 manifests
 
-Windows packaging now uses Ooblerg exclusively. Omit `windows.package_source`
+Windows packaging uses Ooblerg. Omit `windows.package_source`
 or set it to `"ooblerg"`. Remove `windows.msys2_prefix`; the target prefix is
 fixed at `/mingw64`. Remove `windows.msys2_root`, or replace it with
 `windows.sysroot` pointing to a new private Ooblerg directory. Existing unrelated
 roots are never overwritten. Regenerate package lockfiles with `--write-lock`
 after migrating; old MSYS2 provenance cannot replay against Ooblerg.
 
-Select actual Ooblerg catalog names rather than stripping prefixes blindly:
+Update package names to their Ooblerg equivalents:
 
 | Old package | Ooblerg package |
 | --- | --- |

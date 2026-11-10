@@ -245,16 +245,22 @@ class AndroidCLI(unittest.TestCase):
                 self.assertIn(message,result['diagnostics'][0]['message'])
 
 
-    def test_unsupported_features_and_bytecode_are_not_silently_ignored(self):
-        self.manifest['features'].append('gstreamer')
-        self.save()
-        result = self.run_pkg('explain', '--platform', 'android', '--json', success=False)
-        self.assertIn('GStreamer', result['diagnostics'][0]['message'])
-        self.manifest['features'] = ['gtk4']
+    def test_android_bytecode_is_not_silently_ignored(self):
         self.manifest['compile_scripts'] = True
         self.save()
         result = self.run_pkg('explain', '--platform', 'android', '--json', success=False)
         self.assertIn('bytecode', result['diagnostics'][0]['message'])
+
+    def test_gstreamer_can_be_provided_by_an_android_module(self):
+        (self.root / 'main.nut').write_text('local Gst = import("Gst", "1.0")\n')
+        self.manifest['native'] = [{'name': 'gstreamer', 'android_package': 'media-gst-plugins-bad'}]
+        self.manifest['platforms']['android']['module_set'] = 'media-r1'
+        self.save()
+        result = self.run_pkg('explain', '--platform', 'android', '--json')
+        self.assertTrue(result['ok'])
+        for config in result['configurations']:
+            self.assertIn('Gst-1.0', config['android']['namespaces'])
+            self.assertEqual(config['native'][0]['package'], 'media-gst-plugins-bad')
 
     def test_libsoup_can_be_provided_by_an_android_module(self):
         (self.root / 'main.nut').write_text('local Soup = import("Soup", "3.0")\n')
@@ -361,6 +367,30 @@ class AndroidCLI(unittest.TestCase):
             android.update(change); self.save()
             self.run_pkg('explain', '--platform', 'android', '--json', success=False)
             android.clear(); android.update(saved)
+
+
+class AndroidJavaExports(unittest.TestCase):
+    def test_only_inventoried_sources_are_copied_and_collisions_are_rejected(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / 'sdk'
+            destination = Path(temporary) / 'java'
+            prefix = 'usr/share/sqgi-android/java/'
+            relative = 'org/example/Callback.java'
+            source = root / prefix / relative
+            source.parent.mkdir(parents=True)
+            source.write_text('package org.example; public class Callback {}\n')
+            (source.parent / 'Untracked.java').write_text('not inventoried')
+            sdk = {'root': str(root), 'metadata': {'files': {prefix + relative: {}}}}
+            squirrel_backend('native-java', sdk=sdk, destination=str(destination))
+            self.assertEqual((destination / relative).read_bytes(), source.read_bytes())
+            self.assertFalse((destination / 'org/example/Untracked.java').exists())
+            with self.assertRaisesRegex(ValueError, 'conflicts'):
+                squirrel_backend('native-java', sdk=sdk, destination=str(destination))
+            for invalid in ['org/gtk/Override.java', 'org/sqgi/android/GtkApplication.java', 'org/example/Bytecode.class']:
+                with self.subTest(path=invalid):
+                    sdk['metadata']['files'] = {prefix + invalid: {}}
+                    with self.assertRaisesRegex(ValueError, 'reserved'):
+                        squirrel_backend('native-java', sdk=sdk, destination=str(destination))
 
 
 class AndroidHostInputs(unittest.TestCase):

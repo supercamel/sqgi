@@ -7,6 +7,18 @@ local Runtime = import("runtime.nut")
 local Resources = import("resources.nut")
 local HERE = GLib.path_get_dirname(GLib.canonicalize_filename(__FILE__, null))
 local M = {}
+M.native_java <- function(sdk, destination) {
+    // Compile only inventoried companion sources from native packages.
+    local prefix = "usr/share/sqgi-android/java/"
+    foreach (name, unused in sdk.metadata.files) if (C.starts(name, prefix)) {
+        local relative = C.relative(name.slice(prefix.len()))
+        if (!C.ends(relative, ".java") || C.starts(relative, "org/gtk/") || C.starts(relative, "org/sqgi/android/"))
+            throw "Invalid or reserved native Java export: " + name
+        local target = destination + "/" + relative
+        if (C.exists(target)) throw "Native Java export conflicts with a wrapper source: " + name
+        C.copy(sdk.root + "/" + name, target)
+    }
+}
 M.metadata_closure <- function(roots, catalog) {
     if (typeof(catalog) != "table") throw "Android SDK has no GI namespace catalog"
     local pending = clone roots, found = {}, libraries = []
@@ -39,7 +51,7 @@ M.prepare <- function(request, sdk, work, tools) {
     local platform = native + "/libsqgi-platform.so"
     local compiler = tools.ndk + "/toolchains/llvm/prebuilt/linux-x86_64/bin/" + S.TARGETS[abi] + config.min_sdk + "-clang"
     C.process([compiler, "-shared", "-fPIC", "-O2", "-Wl,-soname,libsqgi-platform.so", "-Wl,-z,max-page-size=16384",
-        "-Wl,-z,common-page-size=16384", HERE + "/platform.c", "-ldl", "-o", platform])
+        "-Wl,-z,common-page-size=16384", "-Wl,-z,global", HERE + "/platform.c", "-ldl", "-llog", "-o", platform])
     libraries["libsqgi-platform.so"] <- E.inspect(platform, abi, tools.readelf)
     foreach (namespace in metadata.namespaces)
         C.copy(sdk.prefix + "/lib/girepository-1.0/" + namespace + ".typelib", assets + "/typelib/" + namespace + ".typelib")
@@ -67,6 +79,7 @@ M.prepare <- function(request, sdk, work, tools) {
         C.copy(sdk.root + "/" + name, target)
     }
     C.copy_tree(sdk.prefix + "/share/gtk4/android/java", destination + "/java")
+    M.native_java(sdk, destination + "/java")
     local provenance = { schema = 2, abi = abi, profile = "gui", variant = C.get(request, "variant", "debug"),
         sdk_sha256 = sdk.sha256, sdk_target = sdk.metadata.target, base_sdk_sha256 = C.get(sdk.metadata, "base_sdk_sha256", sdk.sha256),
         native = C.get(request, "native_evidence", {}), libraries = libraries, typelibs = metadata.namespaces,

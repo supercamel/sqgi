@@ -355,11 +355,8 @@ tools/sqgipkg-gui                 # source checkout; uses build/sqgi
 sqgipkg-gui path/to/sqgipkg.json   # after installation
 ```
 
-The GTK 4 editor saves ordinary manifests and calls `sqgipkg` for Check/Explain.
-Run `sqgipkg` to produce packages. See the [editor guide and requirements](tools/sqgipkg_gui/README.md).
-
-`sqgipkg` is part of SQGI rather than an unrelated deployment system bolted on
-later.
+The GTK 4 editor lets you edit manifests, check settings, inspect build plans
+and build packages. See the [Manifest Studio guide](tools/sqgipkg_gui/README.md#run).
 
 From a directory containing `main.nut`:
 
@@ -494,8 +491,8 @@ cmake --install build --prefix "$HOME/.local"
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
-This also installs `sqgipkg` and its Android setup/build backend. If an existing
-terminal still resolves an older installation, run `hash -r` and check
+This also installs `sqgipkg`. If your terminal resolves an older installation,
+run `hash -r` and check
 `command -v sqgi sqgipkg`.
 
 ### Android applications
@@ -512,12 +509,15 @@ sqgipkg init android-gtk4 --app-id org.example.myapp --name "My App"
 sqgipkg deploy --platform android --arch x86_64 --serial emulator-5564
 ```
 
-SQGI downloads Ubuntu 24.04-pinned Android libraries from Ooblerg. No separate
-SqgiAndroid checkout is needed. ARM64 and x86_64 are supported, with Android
-12/API 31 as the minimum. Use `sqgipkg setup --platform android --check` to
+SQGI downloads Ubuntu 24.04-pinned Android libraries from Ooblerg. ARM64 and
+x86_64 are supported, with Android 12/API 31 as the minimum.
+Use `sqgipkg setup --platform android --check` to
 diagnose the toolchain, and `sqgipkg watch --platform android --serial emulator-5564`
 to update app sources. See the [Android guide](docs/packaging/android.md) for
 host prerequisites, SDK licence acceptance, native modules and release signing.
+
+Try [Alpine](demo/gworldscene-android/README.md), a GWorldScene demo with 3D
+Mont Blanc terrain, satellite imagery and touch controls.
 
 ### Build Windows from source with Ooblerg
 
@@ -544,7 +544,6 @@ cmake --install build-windows
 Windows dependencies use Ooblerg's fixed `/mingw64` target prefix on both hosts.
 For Ubuntu 24.04 cross compilation, use `prepare-windows-sdk.py --cross` with
 the host MinGW compiler; see the [cross-build guide](docs/packaging/08-targets-and-cross-builds.md).
-MSYS2 is no longer supported.
 
 The install includes the interpreter, packaging tool, static checker, embeddable
 library, headers, `pkg-config` metadata, and packaging runtime/templates.

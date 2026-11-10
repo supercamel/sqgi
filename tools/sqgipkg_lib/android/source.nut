@@ -213,7 +213,7 @@ M.build <- function(project, request, sdk_base, root, work, tools, inspection, s
     local native_libraries = {}, native_namespaces = {}, normalizations = {}
     foreach (original in C.keys(installed)) {
         local path = original, basename = GLib.path_get_basename(path)
-        if (basename.find(".so") != null) {
+        if (regexp("\\.so(\\.[0-9]+)*$").search(basename)) {
             local normalized = install + "/.normalized/" + basename, adjustment = E.remove_build_rpath(path, normalized, [directory, root], tools.readelf)
             if (adjustment != null) { installed[normalized] <- installed[path]; delete installed[path]; normalizations[basename] <- adjustment; path = normalized }
             local record = E.inspect(path, abi, tools.readelf)

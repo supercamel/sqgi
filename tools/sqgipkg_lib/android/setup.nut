@@ -49,7 +49,7 @@ M.report <- function(paths, emulator, native) {
     }
     local ok = true; foreach (item in checks) if (!item.ok) ok = false
     return { protocol_version = 1, ok = ok, platform = "android", paths = paths, checks = checks,
-        configuration = E.config_path(), sdk_release = "noble-android-r2", ndk_revision = "28.2.13676358" }
+        configuration = E.config_path(), sdk_release = "noble-android-r4", ndk_revision = "28.2.13676358" }
 }
 M.install <- function(paths, accept, emulator, offline) {
     local check = M.report(paths, false, false)

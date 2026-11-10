@@ -2,7 +2,10 @@
 local C = import("../sqgipkg_lib/android/common.nut")
 try {
     local request = sqgi.json.parse(C.read(vargv[0])), result = null
-    if (request.operation == "angle-selection") {
+    if (request.operation == "native-java") {
+        import("../sqgipkg_lib/android/assemble.nut").native_java(request.sdk, request.destination)
+        result = true
+    } else if (request.operation == "angle-selection") {
         result = import("../sqgipkg_lib/android/device.nut").angle_selection(request.packages, request.drivers, request.package)
     } else if (request.operation == "emulator-command") {
         local emulator = import("../sqgipkg_lib/android/emulator.nut")

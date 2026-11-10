@@ -78,10 +78,6 @@ Run it:
 sqgi hello_gtk.nut
 ```
 
-That is the normal Windows workflow: install SQGI and the native libraries you
-want, edit `.nut` files in a normal editor, and run them from a normal command
-line.
-
 ## Build From Source On Linux
 
 On Ubuntu/Debian-style systems, clone the repository and install the build
@@ -122,12 +118,6 @@ Run a script from the source checkout:
 build/sqgi my_script.nut
 ```
 
-Install system-wide:
-
-```sh
-sudo cmake --install build --prefix /usr/local
-```
-
 After installing, you can run scripts directly with:
 
 ```sh
@@ -159,7 +149,6 @@ cmake --install build-windows
 Windows dependencies use Ooblerg's fixed `/mingw64` target prefix on both hosts.
 For Ubuntu 24.04 cross compilation, use `prepare-windows-sdk.py --cross` with
 the host MinGW compiler; see the [cross-build guide](packaging/08-targets-and-cross-builds.md).
-MSYS2 is no longer supported.
 
 
 ## Tiny Async Example

@@ -1,20 +1,20 @@
 # Android application packaging
 
-Android application builds, setup and deployment are part of the installed
-`sqgipkg`. An app developer needs SQGI and the Android toolchain; neither a
-SqgiAndroid checkout nor an Ooblerg checkout is required. It uses the Ubuntu
-24.04-pinned Android libraries, API 31 minimum and NDK r28c. Native C GObject,
-C++, Vala and Rust C-ABI recipes and prebuilt application modules work for both
-ABIs. Multi-ABI AABs produce verified APK splits with ABI-specific GI metadata.
-The same CLI provides desktop preview, deployment and source updates.
+Use `sqgipkg` to build Android apps on your desktop, run them on an emulator or
+phone, and update them as you work. It supports ARM64 and x86_64, with Android
+12/API 31 as the minimum, and uses Ubuntu 24.04-pinned libraries from Ooblerg.
+You can package Squirrel scripts, native modules, or applications with a native
+entry point as APKs or App Bundles.
+
+For a complete app, try [Alpine](https://github.com/supercamel/sqgi/tree/master/demo/gworldscene-android),
+a GTK 4/GWorldScene demo with Mont Blanc terrain, live satellite imagery and
+touch controls. Its `run.sh` builds and deploys the app to an emulator or phone.
 
 ## First app on Ubuntu 24.04
 
 Install a current SQGI build, including its packaging tools, using the
 [normal installation instructions](../index.md#build-from-source-on-linux).
-An installation under `~/.local` works when `~/.local/bin` is on PATH. Check
-`sqgipkg --help`: it must list `setup` and `emulator`. These commands are
-included with SQGI; there is no separate Android plugin.
+An installation under `~/.local` works when `~/.local/bin` is on PATH.
 
 Install the host prerequisites, then let SQGI prepare Google's tools:
 
@@ -65,9 +65,11 @@ sqgipkg build --platform android --arch arm64-v8a --write-lock
 sqgipkg build --target android-aab --write-lock
 ```
 
-The starter selects both ABIs for an App Bundle. APKs go under `dist-android/`
-when one ABI is selected. Apps include their SQGI runtime, native libraries
-and GI metadata; Android does not need a separate SQGI installation.
+The starter creates `sqgipkg.json`, `src/main.nut` and `src/message.txt`, and
+selects both ABIs for an App Bundle. APKs go under `dist-android/` when one ABI
+is selected. Apps include their SQGI runtime, native libraries and GI metadata.
+Use `sqgipkg preview --platform android` to run the app with your desktop's GTK
+libraries before deploying it.
 
 ## Setup locations and diagnostics
 
@@ -99,140 +101,26 @@ sudo apt install build-essential cmake ninja-build meson pkg-config valac \
 
 Rust modules additionally need the Rust toolchain selected by their recipe.
 
-`--android-sdk-root` selects **Google's** SDK. The existing `--android-sdk`
-build option selects an exported **SQGI dependency SDK**, and is unnecessary
-for normal app builds. GNOME libraries and prebuilt native modules download
-from Ooblerg automatically. The `git-extras-r1` module set now publishes
-GSceneGraph, GWorldScene, GSerial, GJoystick and their dependencies for both ABIs.
-
-SQGI owns the application runtime, builder, setup and device commands.
-SqgiAndroid contains maintainer library patches/recipes, demos and regression
-tests. Ooblerg produces and serves the packages. Their build-time relationship
-does not create a checkout dependency for application developers.
+`--android-sdk-root` selects Google's Android SDK. SQGI downloads GNOME
+libraries and prebuilt native modules from Ooblerg automatically. To use a local
+SQGI dependency SDK, pass `--android-sdk /path/to/sdk`; the directory must contain
+its `sqgi-android-sdk.json` descriptor, or ABI subdirectories containing one.
 
 ## Toolchain reference
 
 Use a Linux x86-64 build host, `readelf`, a full JDK 17 or 21, Android SDK
 platform/build-tools 35, and NDK `28.2.13676358`. Setup remembers the selected
 paths; `JAVA_HOME` and `ANDROID_SDK_ROOT` can override them. `--android-ndk`
-overrides the NDK directory; otherwise the backend uses `ANDROID_NDK_HOME`,
+overrides the NDK directory; otherwise `sqgipkg` uses `ANDROID_NDK_HOME`,
 the saved selection or the Android SDK's `ndk` directory.
 Gradle 8.9 is downloaded and checksum-verified, or can be selected
 through `GRADLE_HOME` when already installed.
 
-Script-only apps and apps using prebuilt native modules do not need Python.
 Building native modules from source requires Python 3.12 for GI scanning and
 Meson. Native metadata checks use `xmllint` from Ubuntu's `libxml2-utils`;
 `SQGI_ANDROID_XMLLINT` can select an alternate installation.
 
-Set `platforms.android.permissions` to additional fully qualified permission
-names, for example `["android.permission.INTERNET"]`. The wrapper retains its
-`REORDER_TASKS` permission. These are [manifest declarations](https://developer.android.com/guide/topics/manifest/uses-permission-element);
-permissions requiring a runtime request still need that request in application
-code.
-
-The shared `icon`/`desktop_icon` supplies the launcher image. An optional
-`platforms.android.icon` overrides it with a path relative to the manifest.
-GdkPixbuf on the build host decodes the image and converts it to a PNG bounded by
-512 pixels, preserving its aspect ratio. SVG inputs require the host's SVG image
-loader. The result is an Android [drawable resource](https://developer.android.com/guide/topics/resources/drawable-resource).
-Manifest Studio exposes both permissions and the Android icon in Targets; blank
-icon restores the shared choice. Permission changes and icon byte changes reject
-`sync`/`watch` until the application is rebuilt and deployed. Icon inputs enter
-the build lock, and bundled ABI inputs must share identical manifest/resources.
-
-Start a GTK application in an empty project directory:
-
-```sh
-sqgipkg init android-gtk4 --app-id org.example.myapp --name 'My App'
-sqgipkg preview --platform android
-sqgipkg deploy --platform android --arch x86_64 --serial emulator-5564
-```
-
-This creates `sqgipkg.json`, `src/main.nut` and `src/message.txt`, with both
-Android ABIs selected. Existing source files are preserved; an existing manifest
-is never overwritten. The same entry and asset layout can be used with desktop
-targets. Desktop preview uses the host's GTK libraries; Android uses the pinned
-SDK. The default origin is `https://ooblerg.xyz`, with immutable release
-`noble-android-r2` published for both ABIs. A local origin or exported SDK can
-still be selected explicitly.
-
-Convert a prototype Android project's `sqgi.json` in its original directory:
-
-```sh
-sqgipkg migrate
-sqgipkg check --platform android
-```
-
-Migration preserves application identity, versions, GI namespaces, entry location
-and source/assets. It writes only a new manifest, leaving `sqgi.json` and source
-bytes untouched. Unknown legacy fields, symlinks, escaping paths or an existing
-destination are rejected. Use `--from-sqgi path/to/sqgi.json` for another input,
-or `--manifest converted.json` for an alternate output beside it. This is useful
-when both old and new manifests already exist; select the intended output
-explicitly instead of replacing a project configuration. Other build options
-are rejected during migration.
-
-The generated `entry.source_root` preserves the entry's path relative to the
-source directory on Linux, Windows and Android, including nested scripts and
-imports. Normal source directories use file rules that include later assets.
-Legacy `source_dir: "."` uses an explicit inventory instead, so new manifests and
-build outputs cannot enter the payload recursively; add subsequent assets to
-`files` and `windows.files` yourself. Path rules preserve Unicode, `=` and literal
-braces in filenames.
-
-To use an exported SQGI dependency SDK, select its ABI directory or the parent
-SDK directory with `--android-sdk /path/to/sdk`. The export must include its
-`sqgi-android-sdk.json` descriptor. Normal builds obtain the SDK from Ooblerg.
-
-## Selecting SQGI sources
-
-Android normally uses the SQGI library supplied by the selected SDK. A shared
-`"runtime": {"source": "/path/to/sqgi"}` or `runtime.sqgi` revision selects a
-source build instead. The checkout must include the integrated Android
-runtime-only CMake support. Android uses the SDK's pinned GNOME development
-files and the NDK to build only SQGI, in a private SDK copy. CMake and Ninja are
-required; GNOME libraries are not rebuilt.
-
-An omitted `platforms.android.runtime` follows this shared selection. Set it to
-`"package"` to use the Android SDK's SQGI while building SQGI from source for
-desktop outputs, or `"source"` to require a shared source selector. Android
-source builds disable JIT and typed kernels while preserving desktop defaults.
-An explicitly authored `runtime.jit: true` is rejected for Android source
-builds; remove the explicit setting or set it false.
-
-The replacement must retain the SDK's public SQGI/Squirrel C function exports,
-provide `libsqgi.so` with the correct ABI/SONAME and 16 KB alignment, and install
-only SQGI's library, headers and pkg-config file. Its complete source inventory
-is recorded in the lock and native-module provenance. Locked builds reject
-source changes, and source updates require an APK rebuild if the runtime changes.
-The public-export check is a compatibility check, not a proof of arbitrary
-source-level or C-structure ABI compatibility; validate your selected runtime
-with the application's native modules.
-
-Manifest Studio exposes the shared selector in Runtime/native code and the
-Android override in Targets. Resolve plan reports the selected mode and source
-without fetching or compiling it.
-
-## Android system information
-
-The integrated runtime exposes Android through `import("system")`:
-
-```squirrel
-local system = import("system")
-if (system.os.name == "android") {
-    print(system.android.abi + " on API " + system.android.api_level + "\n")
-}
-```
-
-`system.os` reports Android's release, and `system.android` distinguishes the
-device API from the runtime's compiled minimum API. CPU/ABI describe the binary,
-including ARM64 under native translation. `system.runtime.jit` and `.kernels`
-are false. The shared app wrapper supplies private HOME, cache/config/data and
-package resource paths before GTK starts, for both script and native entry and
-for development snapshots. These runtime fields require the integrated sources
-or `noble-android-r2`; the original local `noble-android-r1` runtime predates
-this addition. See the [system module API](../api/README.md#importsystem).
+## Application manifest
 
 A minimal application manifest is:
 
@@ -254,10 +142,30 @@ A minimal application manifest is:
 }
 ```
 
-`main.nut` is the default entry. Existing script selection and file staging rules
+`main.nut` is the default entry. The shared script selection and file staging rules
 apply. Resources go under `resources/` in the staged application; use an explicit
 `files` destination under `usr/share/sqgi/app/` for assets that the script opens
 directly from its working directory.
+
+## Application permissions and icon
+
+Set `platforms.android.permissions` to additional fully qualified permission
+names, for example `["android.permission.INTERNET"]`. The wrapper retains its
+`REORDER_TASKS` permission. These are [manifest declarations](https://developer.android.com/guide/topics/manifest/uses-permission-element);
+permissions requiring a runtime request still need that request in application
+code.
+
+The shared `icon`/`desktop_icon` supplies the launcher image. An optional
+`platforms.android.icon` overrides it with a path relative to the manifest.
+GdkPixbuf on the build host decodes the image and converts it to a PNG bounded by
+512 pixels, preserving its aspect ratio. SVG inputs require the host's SVG image
+loader. The result is an Android [drawable resource](https://developer.android.com/guide/topics/resources/drawable-resource).
+Manifest Studio exposes both permissions and the Android icon in Targets; blank
+icon restores the shared choice. Permission changes and icon byte changes reject
+`sync`/`watch` until the application is rebuilt and deployed. Icon inputs enter
+the build lock, and bundled ABI inputs must share identical manifest/resources.
+
+## Building and locking dependencies
 
 From the application directory:
 
@@ -267,11 +175,11 @@ sqgipkg build --platform android --arch x86_64 --write-lock
 sqgipkg build --platform android --arch x86_64 --locked --no-android-download
 ```
 
-The repository origin must contain
-`android/noble-android-r2/<target>/v1/index.json`. Public catalogs are available for
-[ARM64](https://ooblerg.xyz/android/noble-android-r2/aarch64-linux-android/v1/index.json)
-and [x86_64](https://ooblerg.xyz/android/noble-android-r2/x86_64-linux-android/v1/index.json),
-alongside a [corresponding-source index](https://ooblerg.xyz/android/noble-android-r2/sources/index.json).
+The default SDK release is `noble-android-r4` from `https://ooblerg.xyz`.
+Its package catalogs are available for
+[ARM64](https://ooblerg.xyz/android/noble-android-r4/aarch64-linux-android/v1/index.json)
+and [x86_64](https://ooblerg.xyz/android/noble-android-r4/x86_64-linux-android/v1/index.json),
+alongside a [corresponding-source index](https://ooblerg.xyz/android/noble-android-r4/sources/index.json).
 For an application using an older SDK release, update `platforms.android.sdk`
 and rebuild with `--write-lock`. Existing locks are not silently upgraded.
 A `file://` repository origin is supported for locally supplied catalogs.
@@ -294,14 +202,12 @@ SQGI/GLib/GI runtime. Native builds additionally record the standard Ubuntu
 build tools and their data, and the selected Rust sysroot for custom recipes
 when Rust is installed. Identical tool trees can move without changing these
 identities; changed bytes or executable permissions require a reviewed
-`--write-lock` build. Older locks need this explicit migration once.
+`--write-lock` build.
 
 The Gradle template verifies SHA-256 checksums for its plugin, Maven metadata
 and transitive artifacts in strict mode, including debug and release builds.
-An offline build still needs the verified artifacts already cached. These
-inputs are not a hermetic operating-system image: custom hooks remain responsible
-for declaring and pinning any additional programs/services they use, and icon
-decoding uses the host's GdkPixbuf loaders.
+An offline build needs these artifacts cached. Pin any additional programs or
+services used by custom hooks. Icon decoding uses the host's GdkPixbuf loaders.
 
 `platforms.android.profile` selects a minimum SDK profile: `auto` (default),
 `runtime`, `sdk`, `tools` or `complete`. Automatic selection accounts for native
@@ -317,8 +223,9 @@ Manifest Studio exposes the profile and additional packages in Targets.
 ABIs. `--arch x86_64` limits it to one ABI. APK builds still produce one APK per
 ABI. The multi-ABI output is `dist-android/<app-id>-multi-debug.aab`; JSON
 inspection reports one output with an explicit `architectures` array.
-Explicit bytecode packaging fails until a portable producer/consumer bytecode
-ABI is supported. Source-runtime overrides use the selected SQGI sources.
+Android packages contain Squirrel source files; set `compile_scripts` to `false`.
+
+## Deploying and updating an app
 
 Build, install and run on an emulator or phone from the same project directory:
 
@@ -354,20 +261,31 @@ snapshot (including deletions), and restarts the Android process. `watch` repeat
 that after stable source changes and reloads the manifest. Private app data is
 preserved. `reset` removes only source overrides and runs the packaged sources.
 Native source/recipe, runtime, namespace and application configuration changes
-require `deploy`. A build identity embedded in the APK enforces this boundary;
-APKs built before this identity was added need one rebuild before using `sync`.
-Release builds reject these commands and ignore source overrides. `logs` streams
+require `deploy`. Source updates are available in debug builds only. `logs` streams
 the current process's logcat entries; `--logs-once` prints the current buffer.
 
 Desktop `preview` uses host SQGI/GI and the same staged application, with private
 data/config/cache directories under `.sqgipkg/preview/<app-id>/`. Native imports
-need their desktop libraries/typelibs available on the host. Preview does not
-load Android native libraries into the desktop process. Android application
-`files` destinations must be under `usr/share/sqgi/app/`; unsupported destinations
-fail instead of being silently omitted.
+need their desktop libraries/typelibs available on the host. Android application
+`files` destinations must be under `usr/share/sqgi/app/`.
 
-Both reference demo launchers now use installed `sqgipkg` and its shared
-emulator. Their application manifests select public Ooblerg packages.
+## Android system information
+
+Read Android version and ABI information through `import("system")`:
+
+```squirrel
+local system = import("system")
+if (system.os.name == "android") {
+    print(system.android.abi + " on API " + system.android.api_level + "\n")
+}
+```
+
+`system.os` reports Android's release, and `system.android` distinguishes the
+device API from the runtime's compiled minimum API. CPU/ABI describe the binary,
+including ARM64 under native translation. `system.runtime.jit` and `.kernels`
+are false. The shared app wrapper supplies private HOME, cache/config/data and
+package resource paths before GTK starts, for both script and native entry and
+for development snapshots. See the [system module API](../api/README.md#importsystem).
 
 ## Bundles and ABI selection
 
@@ -400,9 +318,8 @@ adb -s emulator-5564 install-multiple -r \
 adb -s emulator-5564 shell am start -n org.example.myapp/org.sqgi.android.GtkActivity
 ```
 
-Debug packages use the local Android debug keystore by default. Debug AABs
-are explicitly JAR-signed because the pinned AGP skips signing debuggable
-bundles. The artifact report includes the verified public certificate digest.
+Debug packages use the local Android debug keystore by default. The artifact
+report includes the verified public certificate digest.
 
 For a release, supply all four environment variables through your shell or CI
 secret store, then select the release variant:
@@ -476,8 +393,8 @@ build context without shell evaluation. The context supplies NDK `CC`, `CXX`,
 `GI_COMPILER`, `GI_RUNNER` and the host `SQGI` executable. Custom recipes must
 honor these target settings. For Rust, pass target compiler arguments through
 Cargo's encoded flag list so paths containing spaces remain intact.
-Native `files` rules currently fail explicitly; install development exports
-and use top-level application `files` for app assets.
+Android native recipes use install rules for development exports and top-level
+application `files` for app assets. Recipe-level `files` rules are unsupported.
 
 `gi.strategy: auto` and `target` both generate target metadata on Android.
 `host` is rejected. The host scanner parses the headers, while compiled scanner
@@ -504,22 +421,15 @@ provenance, dependency ordering and the development rebuild contract.
 
 `--android-runner qemu` is the desktop default (`auto` selects it). To use an
 attached device for GI generation, select `--android-runner adb
---android-serial SERIAL`; the backend uses the Android SDK's `platform-tools/adb`.
+--android-serial SERIAL`; `sqgipkg` uses the Android SDK's `platform-tools/adb`.
 The device must have the requested native ABI: APK native translation does not
 provide a shell runner for GI probes. Its fingerprint/ABI/native-bridge properties
 are recorded in the input lock.
 
 ## Prebuilt application modules
 
-Ooblerg application-module catalogs are separate from the immutable core SDK:
-
-```text
-android/modules/<sdk-id>/<module-set>/<target>/v1/index.json
-```
-
-Select a published recipe with `android_package`, retaining `depends_on` for
-downstream source recipes. No source directory is required for the selected
-prebuilt recipe:
+Use `android_package` to select a prebuilt native module from Ooblerg and
+`platforms.android.module_set` to select its release:
 
 ```json
 {
@@ -538,18 +448,16 @@ prebuilt recipe:
 }
 ```
 
-The public `git-extras-r1` catalog includes GSceneGraph, GWorldScene, GSerial
-and GJoystick. Package
-dependencies install transitively. Each package includes its runtime and
+The `git-extras-r1` catalog includes GSceneGraph, GWorldScene, GSerial and
+GJoystick. Dependencies install automatically. Each package includes its runtime and
 development exports, with file hashes, source/recipe provenance, minimum API,
 GI graph and exact SDK compatibility. Wrong ABI, SDK generation, source
 baseline, NDK, missing dependencies or a newer required API fail before use.
 The lock pins the module catalog and therefore each selected archive.
 
-When every native recipe is prebuilt, `sqgipkg` selects the core `sdk` profile
-and does not rebuild application modules or need a GI scanner, Meson/CMake, QEMU
-or an inspection image. The normal JDK/Android SDK/NDK packaging tools remain
-required; the NDK compiler builds the small JNI/entry glue used by the wrapper.
+When every native recipe is prebuilt, builds use the core `sdk` profile and
+the JDK, Android SDK and NDK prepared during setup. If a source recipe uses a
+prebuilt module, declare that relationship with `depends_on`.
 `--locked --no-android-download` replays cached module packages with the same
 offline behavior as core SDK packages.
 
@@ -572,7 +480,7 @@ manifest:
 }
 ```
 
-The recipe must install the named unversioned library. The backend checks its
+The recipe must install the named unversioned library. `sqgipkg` checks its
 ownership, exported function symbols, target ELF and entry-interface identity.
 `shutdown` is optional. `script`, `scripts` and resources retain their normal
 staging rules; a script is optional for a native entry. The runnable
@@ -600,12 +508,69 @@ Libraries stay loaded through finalization so registered GTypes/callbacks remain
 valid. Source updates still restart the process.
 
 The header is installed with SQGI's public C headers and is supplied to Android
-native recipes by the installed backend (`SQGI_ANDROID_ENTRY_INCLUDE` is also
+native recipes by `sqgipkg` (`SQGI_ANDROID_ENTRY_INCLUDE` is also
 available to custom hooks). Its checksum is recorded in native source provenance.
 Prebuilt entry modules must carry the matching interface identity; republish them
 after an interface change. The wrapper links the pinned SDK's GTK glue archive;
 GNOME libraries and the packaged SQGI runtime keep their existing source pins.
 Native-entry desktop preview requires a desktop build of the executable.
+
+## GStreamer and the phone camera
+
+Select the `media-r1` module release and add the GStreamer package you need:
+
+```json
+{
+  "native": [{"name": "gstreamer", "android_package": "media-gst-plugins-bad"}],
+  "platforms": {
+    "android": {
+      "sdk": "noble-android-r2",
+      "module_set": "media-r1",
+      "permissions": ["android.permission.CAMERA"]
+    }
+  }
+}
+```
+
+The packages use Ubuntu 24.04's GStreamer 1.24.2 sources and provide ARM64 and
+x86_64 builds. `media-gstreamer` supplies the core; `media-gst-plugins-base` adds
+appsink, video conversion, test sources and other base plugins;
+`media-gst-plugins-bad` adds Android camera/media support and depends on both.
+The package names follow GStreamer's upstream plugin collections.
+
+`sqgipkg` includes the selected plugin libraries, GI typelibs and Android callback
+classes in the app. Camera access also needs a runtime permission request.
+The [Pocket Camera demo](https://github.com/supercamel/sqgi/tree/master/demo/gstreamer-camera-android) shows the
+complete flow from `ahcsrc` through `appsink` to a GTK preview.
+
+More runnable apps are listed in the [Android demos](https://github.com/supercamel/sqgi/tree/master/demo#android-apps),
+including a widget gallery, native phone sensors and an asynchronous IP scanner.
+
+## Selecting SQGI sources
+
+Android normally uses the SQGI library supplied by the selected SDK. A shared
+`"runtime": {"source": "/path/to/sqgi"}` or `runtime.sqgi` revision selects a
+source build. This requires CMake and Ninja and uses the NDK and the selected
+SDK's GNOME development files.
+
+An omitted `platforms.android.runtime` follows this shared selection. Set it to
+`"package"` to use the Android SDK's SQGI while building SQGI from source for
+desktop outputs, or `"source"` to require a shared source selector. Android
+source builds disable JIT and typed kernels while preserving desktop defaults.
+An explicitly authored `runtime.jit: true` is rejected for Android source
+builds; remove the explicit setting or set it false.
+
+The replacement must retain the SDK's public SQGI/Squirrel C function exports,
+provide `libsqgi.so` with the correct ABI/SONAME and 16 KB alignment, and install
+only SQGI's library, headers and pkg-config file. Its complete source inventory
+is recorded in the lock and native-module provenance. Locked builds reject
+source changes, and source updates require an APK rebuild if the runtime changes.
+Test a custom runtime with your application's native modules: matching exported
+function names alone does not guarantee ABI compatibility.
+
+Manifest Studio exposes the shared selector in Runtime/native code and the
+Android override in Targets. Resolve plan reports the selected mode and source
+without fetching or compiling it.
 
 ## Manifest Studio and shared output selection
 
@@ -644,3 +609,24 @@ and `--target` flags remain errors. To install an artifact already produced by
 Studio, use `sqgipkg install --platform android --artifact /path/to/app.aab`.
 Android-specific native-entry and advanced fields remain available in the
 structured editor and survive common target/settings edits.
+
+## Migrating a sqgi.json manifest
+
+If your application uses `sqgi.json`, convert it in the project directory:
+
+```sh
+sqgipkg migrate
+sqgipkg check --platform android
+```
+
+Migration creates `sqgipkg.json`, preserving application identity, versions, GI
+namespaces, entry location and source/assets. It leaves `sqgi.json` and source
+files untouched. Unknown fields, symlinks, escaping paths or an existing
+destination are rejected. Use `--from-sqgi path/to/sqgi.json` for another input,
+or `--manifest converted.json` for an alternate output beside it.
+
+The generated `entry.source_root` preserves nested script paths and imports on
+Linux, Windows and Android. Source directories use file rules that include later
+assets. Projects with `source_dir: "."` get an explicit file inventory to exclude
+new manifests and build outputs; add subsequent assets to `files` and
+`windows.files` yourself.

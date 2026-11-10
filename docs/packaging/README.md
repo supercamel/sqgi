@@ -10,8 +10,8 @@ tree when you need the complete field reference.
 For the shortest configuration path, start with [simple manifests and native Windows packaging](10-simple-manifests.md).
 
 For Android, start with the [setup and first-app guide](android.md#first-app-on-ubuntu-2404).
-Installed SQGI prepares the toolchain and emulator, downloads pinned Ooblerg
-libraries, and builds/deploys apps without a SqgiAndroid checkout.
+`sqgipkg` prepares the toolchain and emulator, downloads pinned Ooblerg
+libraries, and builds and deploys your app.
 
 ## Tutorial Path
 
@@ -52,9 +52,9 @@ dist-windows-x86_64/MyApp/
 dist-windows-x86_64/MyApp-Setup.exe
 ```
 
-The package contains the SQGI runtime, compiled `.cnut` payloads, compatibility
-`.nut` paths, resources, native shared libraries, GI typelibs, GTK/GStreamer
-runtime data, and launchers that set the expected runtime environment.
+Packages include the SQGI runtime, scripts, resources, native libraries, GI
+typelibs and launchers. Desktop targets compile scripts to `.cnut` bytecode by
+default; Android packages source files.
 
 ## Running From A Source Checkout
 

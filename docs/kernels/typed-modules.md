@@ -75,7 +75,7 @@ assert(counter.value == 28);
 
 ## Keeping a whole single-object workflow compiled
 
-Compiled code can now declare zero-initialized, call-local typed storage:
+Compiled code can declare zero-initialized, call-local typed storage:
 
 ```c
 Counter counter;        // Fields start at 0 / 0.0 / false.

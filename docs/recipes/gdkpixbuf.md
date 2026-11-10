@@ -1,9 +1,8 @@
 # GdkPixbuf Cookbook
 
 Practical recipes for **GdkPixbuf** — loading, saving, scaling, compositing
-and pixel-level manipulation of raster images. GdkPixbuf is GTK's
-historical image library, but it's perfectly happy to be used standalone
-and pairs naturally with cairo (for drawing), libsoup (for HTTP images),
+and pixel-level manipulation of raster images. GdkPixbuf works with
+cairo (for drawing), libsoup (for HTTP images),
 Gio (for streams) and GStreamer (for video snapshots).
 
 All examples are runnable with:

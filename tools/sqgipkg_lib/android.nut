@@ -61,7 +61,7 @@ class SqgiPkgAndroid extends Base.SqgiPkgDoctor {
         opts.android_overrides_applied <- false
         opts.android_source_excludes <- []
         opts.android <- { declared = false, architectures = ["arm64-v8a"], format = "apk",
-            sdk_path = "", ndk = "", sdk = "noble-android-r2", min_sdk = 31,
+            sdk_path = "", ndk = "", sdk = "noble-android-r4", min_sdk = 31,
             repository = "https://ooblerg.xyz", download = true, refresh = false,
             runner = "auto", inspection_root = "", serial = "", module_set = "applications-r1", variant = "debug",
             version_code = 1, version_name = "0.1.0", namespaces = ["Gtk-4.0"], runtime = "package",
@@ -309,7 +309,8 @@ class SqgiPkgAndroid extends Base.SqgiPkgDoctor {
         if (opts.app_id == "" || !regexp("^[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z][A-Za-z0-9_]*)+$").match(opts.app_id))
             this.fail("Android requires app_id such as org.example.myapp")
         this.scan_project_imports(opts)
-        if (opts.report.used_gst) this.fail("The initial Android SDK does not provide GStreamer")
+        if (opts.report.used_gst && opts.android.namespaces.find("Gst-1.0") == null)
+            opts.android.namespaces.push("Gst-1.0")
         if (["auto", "qemu", "adb"].find(opts.android.runner) == null) this.fail("Android GI runner must be auto, qemu or adb")
         if (["debug", "release"].find(opts.android.variant) == null) this.fail("Android variant must be debug or release")
         foreach (project in opts.native_projects) {

@@ -10,6 +10,20 @@ Typed native computation examples live in [kernels/](kernels/README.md), includi
 a BFS-verified A* demo. The [kernel benchmarks](benchmarks/kernels/README.md)
 compare both native backends, C++ models and Squirrel.
 
+## Android apps
+
+These complete apps include a manifest and a `run.sh` launcher. Follow the
+[Android setup guide](../docs/packaging/android.md), then run the script in a
+demo folder. Use `./run.sh --serial SERIAL` for a connected phone.
+
+| App | Demonstrates |
+| --- | --- |
+| [Alpine](gworldscene-android/README.md) | GWorldScene terrain and satellite imagery |
+| [GTK Widget Gallery](gtk-gallery-android/README.md) | Touch controls, forms and collections |
+| [Pocket Camera](gstreamer-camera-android/README.md) | The phone's camera through GStreamer |
+| [Phone Sensors](phone-sensors-android/README.md) | Native sensor GObjects, compass and foreground location |
+| [IP Scanner](ip-scanner-android/README.md) | Asynchronous Gio networking and cancellation |
+
 ## Layout
 
 | Folder         | Library       | Examples                                                          |

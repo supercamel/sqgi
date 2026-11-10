@@ -19,8 +19,9 @@ import org.gtk.android.GlueLibraryContext;
 
 public final class GtkApplication extends Application {
     private static native String runtimeAbi();
-    private static native void configurePaths(String home, String source, String runtime, String libraries);
+    private static native void configurePaths(Application application, String home, String source, String runtime, String libraries);
     private static native void loadGioModule(String filename);
+    private static native void loadGStreamerPlugin(String filename, String cache);
     private static native void configure(String runtime, String libraries, String cache,
                                          String source, String entry);
     private static native void configureNative(String runtime, String libraries, String cache,
@@ -94,7 +95,7 @@ public final class GtkApplication extends Application {
             String glue = nativeEntry == null ? "sqgi-gtk" : "sqgi-entry";
             // Set application paths before GLib caches process directories.
             // The same payload root is used for packaged and development code.
-            configurePaths(getFilesDir().getAbsolutePath(), source.getAbsolutePath(),
+            configurePaths(this, getFilesDir().getAbsolutePath(), source.getAbsolutePath(),
                            runtime.getAbsolutePath(), getApplicationInfo().nativeLibraryDir);
             System.loadLibrary(glue);
             File modules = new File(runtime, "share/gio-modules.list");
@@ -105,6 +106,23 @@ public final class GtkApplication extends Application {
                     if (!module.matches("lib[A-Za-z0-9_.-]+\\.so"))
                         throw new IOException("Invalid packaged GIO module name");
                     loadGioModule(new File(getApplicationInfo().nativeLibraryDir, module).getAbsolutePath());
+                }
+            }
+            File plugins = new File(runtime, "share/gstreamer-plugins");
+            File[] lists = plugins.listFiles();
+            if (lists != null) {
+                java.util.Arrays.sort(lists);
+                for (File list : lists) {
+                    if (!list.isFile() || !list.getName().endsWith(".list"))
+                        throw new IOException("Invalid GStreamer plugin list");
+                    for (String line : Files.readAllLines(list.toPath(), StandardCharsets.UTF_8)) {
+                        String plugin = line.trim();
+                        if (plugin.isEmpty()) continue;
+                        if (!plugin.matches("libgst[A-Za-z0-9_.+\\-]+\\.so"))
+                            throw new IOException("Invalid packaged GStreamer plugin name");
+                        loadGStreamerPlugin(new File(getApplicationInfo().nativeLibraryDir, plugin).getAbsolutePath(),
+                                            getCacheDir().getAbsolutePath());
+                    }
                 }
             }
             if (nativeEntry == null) {
