@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Offline CLI/recipe regressions, runnable from PowerShell or a POSIX terminal."""
 import ctypes
+from contextlib import contextmanager
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import lzma
 import os
@@ -12,11 +14,46 @@ import struct
 import tarfile
 import sys
 import tempfile
+import threading
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
 SQGI = Path(sys.argv.pop(1)).resolve()
 TOOL = ROOT / 'tools/sqgipkg'
+
+
+@contextmanager
+def download_server():
+    payload = bytes(range(256)) * 2049
+    requests = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, *args):
+            pass
+
+        def do_GET(self):
+            requests.append((self.path, self.headers.get('User-Agent')))
+            if self.path == '/redirect':
+                self.send_response(302)
+                self.send_header('Location', '/binary')
+                self.end_headers()
+            elif self.path in ('/binary', '/partial'):
+                self.send_response(200)
+                self.send_header('Content-Length', str(len(payload)))
+                self.end_headers()
+                self.wfile.write(payload if self.path == '/binary' else payload[:100])
+            else:
+                self.send_error(500 if self.path == '/error' else 404)
+
+    server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f'http://127.0.0.1:{server.server_port}', payload, requests
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join()
 
 
 class Ergonomics(unittest.TestCase):
@@ -39,6 +76,69 @@ class Ergonomics(unittest.TestCase):
 
     def manifest(self, data):
         (self.root / 'sqgipkg.json').write_text(json.dumps(data), encoding='utf8')
+
+    def test_download_binary_redirect_and_cache(self):
+        module = json.dumps((ROOT / 'tools/sqgipkg_lib/windows/packages.nut').as_posix())
+        destination = self.root / 'downloads' / 'archive with spaces.bin'
+        with download_server() as (url, payload, requests):
+            self.run_script(f'''
+local P = import({module}), pkg = P.SqgiPkgWindowsPackages()
+local dest = {json.dumps(destination.as_posix())}, url = {json.dumps(url)}
+pkg.download_file(url + "/redirect", dest, "binary fixture")
+pkg.download_file(url + "/missing", dest, "cached fixture")
+pkg.download_file(url + "/binary", dest, "refreshed fixture", true)
+''')
+        self.assertEqual(destination.read_bytes(), payload)
+        self.assertFalse(destination.with_name(destination.name + '.download').exists())
+        self.assertEqual(requests, [('/redirect', 'sqgipkg'), ('/binary', 'sqgipkg'), ('/binary', 'sqgipkg')])
+
+    def test_download_failures_preserve_cache_and_remove_partial_files(self):
+        module = json.dumps((ROOT / 'tools/sqgipkg_lib/core.nut').as_posix())
+        destination = self.root / 'cached.bin'
+        destination.write_bytes(b'previous cache')
+        with download_server() as (url, _, requests):
+            self.run_script(f'''
+local P = import({module}), pkg = P.SqgiPkgCore()
+local dest = {json.dumps(destination.as_posix())}, url = {json.dumps(url)}
+foreach (suffix in ["/missing", "/error", "/partial"]) {{
+    foreach (path in [dest, dest + ".absent"]) {{
+        local failed = false
+        try {{ pkg.download_file(url + suffix, path, "failing fixture", true) }}
+        catch (e) {{
+            failed = true
+            if (("" + e).find("failing fixture failed:") == null) throw e
+        }}
+        if (!failed) throw "download accepted " + suffix
+        if (pkg.path_exists(path + ".download")) throw "partial file left behind"
+    }}
+}}
+''')
+        self.assertEqual(len(requests), 6)
+        self.assertEqual(destination.read_bytes(), b'previous cache')
+        self.assertFalse(self.root.joinpath('cached.bin.absent').exists())
+
+    def test_download_file_url_refresh_and_timeout_validation(self):
+        module = json.dumps((ROOT / 'tools/sqgipkg_lib/core.nut').as_posix())
+        source, destination = self.root / 'source binary', self.root / 'copied binary'
+        source.write_bytes(bytes(range(256)) * 300)
+        destination.write_bytes(b'old contents')
+        self.run_script(f'''
+local P = import({module}), pkg = P.SqgiPkgCore(), GLib = import("GLib")
+pkg.download_file({json.dumps('file://' + source.as_posix())}, {json.dumps(destination.as_posix())}, "file fixture", true)
+GLib.unsetenv("SQGIPKG_DOWNLOAD_TIMEOUT")
+if (pkg.download_timeout_seconds() != 300) throw "default timeout"
+foreach (value in ["0", "1", "300", "4294967295"]) {{
+    GLib.setenv("SQGIPKG_DOWNLOAD_TIMEOUT", value, true)
+    if (pkg.download_timeout_seconds() != value.tointeger()) throw "timeout was changed"
+}}
+foreach (value in ["-1", "12oops", "1.5", "4294967296", "18446744073709551616"]) {{
+    GLib.setenv("SQGIPKG_DOWNLOAD_TIMEOUT", value, true)
+    local failed = false
+    try {{ pkg.download_timeout_seconds() }} catch (e) {{ failed = true }}
+    if (!failed) throw "invalid timeout accepted: " + value
+}}
+''')
+        self.assertEqual(destination.read_bytes(), source.read_bytes())
 
     @unittest.skipUnless(sys.platform.startswith('linux') and shutil.which('cc') and shutil.which('readelf'), 'Linux ELF compiler required')
     def test_native_sysroot_indirect_library_link(self):
@@ -552,9 +652,8 @@ shutil.copyfile(root / 'fixture.xz', sys.argv[2])
 local Linux = import({module})
 class Fixture extends Linux.SqgiPkgLinuxDeps {{
     function linux_repo_index_cache(opts) {{ return {json.dumps(str(self.root / 'indexes'))} }}
-    function downloader_command(url, output) {{
-        return this.shell_quote({json.dumps(sys.executable)}) + " " +
-            this.shell_quote({json.dumps(str(fetcher))}) + " " + this.shell_quote(url) + " " + this.shell_quote(output)
+    function download_url_to_file(url, output) {{
+        this.run_process([{json.dumps(sys.executable)}, {json.dumps(str(fetcher))}, url, output], "fixture download")
     }}
 }}
 local fixture = Fixture(), opts = fixture.new_options()

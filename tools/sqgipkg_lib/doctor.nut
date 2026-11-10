@@ -244,7 +244,7 @@ class SqgiPkgDoctor extends Base.SqgiPkgTemplates {
                 warnings.push("libsqgi.so.1 not found in build_dir yet: " + opts.build_dir)
         }
         if (!windows_target && this.executable_path(opts.appimagetool) == null)
-            warnings.push("appimagetool not found in PATH; build will download it if curl or wget is available")
+            warnings.push("appimagetool not found in PATH; build will download it with libsoup")
 
         if (windows_target && opts.windows.runtime != "package" && opts.entry_type == "sqgi" && !this.table_get(opts, "runtime_recipe", false) &&
                 !this.path_exists(GLib.build_filenamev([this.windows_build_dir(opts), "sqgi.exe"])) &&

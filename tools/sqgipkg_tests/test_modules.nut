@@ -50,6 +50,13 @@ core.write_file(chmod_fixture, "#!/bin/sh\nexit 0\n")
 core.chmod_exec(chmod_fixture)
 check("core chmod_exec makes file executable", core.run_shell_status("[ -x " + core.shell_quote(chmod_fixture) + " ]") == 0)
 remove(chmod_fixture)
+local core_download_src = GLib.build_filenamev([GLib.get_tmp_dir(), "sqgipkg-core-download-src-" + GLib.get_monotonic_time()])
+local core_download_dst = GLib.build_filenamev([GLib.get_tmp_dir(), "sqgipkg-core-download-dst-" + GLib.get_monotonic_time()])
+core.write_file(core_download_src, "download me")
+core.download_file("file://" + core_download_src, core_download_dst, "testing file download", true)
+check("core download_file copies file URLs", core.read_file(core_download_dst) == "download me")
+remove(core_download_src)
+remove(core_download_dst)
 local shell_arch = core.elf_appimage_arch("/bin/sh")
 check("core elf arch detects host shell", shell_arch == null || shell_arch == module_host_arch)
 if (shell_arch != null) {
@@ -1402,6 +1409,9 @@ nsis_gui_script_opts.windows.console = false
 check("nsis GUI script shortcuts target env launcher",
     nsis.nsis_shortcut_target(nsis_gui_script_opts, "WinSqurl", nsis_gui_script_dir) ==
     "WinSqurl.bat")
+nsis.write_file(GLib.build_filenamev([nsis_gui_script_dir, "WinSqurl.exe"]), "launcher")
+check("nsis GUI script shortcuts target GUI launcher when present",
+    nsis.nsis_shortcut_target(nsis_gui_script_opts, "WinSqurl", nsis_gui_script_dir) == "WinSqurl.exe")
 local nsis_gui_native_opts = nsis.new_options()
 nsis_gui_native_opts.entry_type = "native"
 nsis_gui_native_opts.entry_windows = "/tmp/native-entry.exe"

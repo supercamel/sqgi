@@ -956,6 +956,11 @@ Path to `appimagetool`.
 If not found, `sqgipkg` downloads the latest continuous AppImageTool build for
 the host architecture. This is the architecture of the tool that runs on the
 build machine, not necessarily the architecture of the AppImage being produced.
+AppImageTool, Linux repository files and NSIS downloads use libsoup 3.
+On Ubuntu, install `gir1.2-soup-3.0`, `glib-networking` and `ca-certificates`.
+Set `SQGIPKG_DOWNLOAD_TIMEOUT` to an integer number of seconds from `0` to
+`4294967295` to adjust the network timeout; the default is `300`, and `0`
+disables the timeout. Failed downloads leave existing cached files intact.
 
 #### `appimage_arch`
 

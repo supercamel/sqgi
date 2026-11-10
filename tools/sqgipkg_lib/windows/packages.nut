@@ -15,17 +15,6 @@ class SqgiPkgWindowsPackages extends Base.SqgiPkgWindowsEnv {
         return parts.len() == 0 ? url : parts[parts.len() - 1]
     }
 
-    function download_file(url, dest, description, force = false) {
-        if (force && this.path_exists(dest)) remove(dest)
-        if (this.path_exists(dest)) return
-        this.mkdir_p(this.dirname(dest))
-        local tmp = dest + ".download"
-        if (this.path_exists(tmp)) remove(tmp)
-        this.info("downloading " + url)
-        this.download_to(url, tmp, description)
-        rename(tmp, dest)
-    }
-
     function normalize_package_entry(entry) {
         local changed = true
         while (changed) {

@@ -25,7 +25,7 @@ def main():
         'repository': args.repository, 'download': not args.offline,
         'refresh': args.refresh,
         'packages': ['glib', 'glib-introspection', 'libgirepository-1.0',
-                     'libffi', 'cairo', 'gtk4', 'llvm18'],
+                     'libffi', 'cairo', 'gtk4', 'llvm18', 'libsoup3'],
         'build_packages': ['gobject-introspection'] + ([] if args.cross else ['native-sdk']),
     })
     print('Ooblerg SDK: ' + str(args.root.resolve() / 'mingw64'))

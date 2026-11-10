@@ -47,13 +47,6 @@ class SqgiPkgHost {
         return null
     }
 
-    function download_to(url, dest, description) {
-        if (this.starts_with(url, "file://")) { this.copy_path(url.slice(7), dest); return }
-        if (this.executable_available("curl")) this.run_process(["curl", "-L", "--fail", "--show-error", "--output", dest, url], description)
-        else if (this.executable_available("wget")) this.run_process(["wget", "-O", dest, url], description)
-        else this.fail("download requires curl or wget in PATH")
-    }
-
     function is_directory(path) {
         return Gio.File.new_for_path(path).query_file_type(Gio.FileQueryInfoFlags.none, null) == Gio.FileType.directory
     }

@@ -3,6 +3,17 @@
 This first package has one Squirrel script and no manifest. It is the smallest
 way to see what `sqgipkg` does.
 
+On Ubuntu, install the networking libraries used to download AppImageTool and
+Linux packages:
+
+```sh
+sudo apt install gir1.2-soup-3.0 glib-networking ca-certificates
+```
+
+On Windows, install `libsoup3` through Ooblerg to enable NSIS downloads.
+These downloads use libsoup 3. Set `SQGIPKG_DOWNLOAD_TIMEOUT` to the network
+timeout in seconds; the default is `300`, and `0` disables it.
+
 ## Create A Project
 
 Make a directory with `main.nut`:
