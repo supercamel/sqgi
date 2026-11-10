@@ -9,6 +9,57 @@ permissions:
   contents: read
 
 jobs:
+  android-arm64:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    env:
+      JAVA_HOME: /usr/lib/jvm/java-21-openjdk-arm64
+      ANDROID_HOME: ${{ runner.temp }}/sqgi-android-sdk
+      ANDROID_SDK_ROOT: ${{ runner.temp }}/sqgi-android-sdk
+      ANDROID_NDK_HOME: ${{ runner.temp }}/no-ndk
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install ARM host dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build build-essential pkg-config \
+            libglib2.0-dev libgirepository1.0-dev libffi-dev libcairo2-dev \
+            libglib2.0-bin libxml2-utils gir1.2-soup-3.0 glib-networking \
+            gir1.2-gdkpixbuf-2.0 librsvg2-common openjdk-21-jdk curl unzip binutils adb
+      - name: Build the ARM packaging runtime
+        run: |
+          test "$(uname -m)" = aarch64
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DSQ_ENABLE_JIT=OFF -DSQGI_ENABLE_KERNELS=OFF
+          cmake --build build --target sqgi-bin --parallel 4
+          python3 tools/sqgipkg_tests/test_android_setup.py build/sqgi
+      - name: Prepare Android packaging without an NDK
+        run: |
+          build/sqgi tools/sqgipkg setup --platform android --accept-licenses
+          build/sqgi tools/sqgipkg setup --platform android --check
+          test ! -e "$ANDROID_SDK_ROOT/ndk"
+          test ! -e "$ANDROID_NDK_HOME"
+      - name: Build APKs and an App Bundle from public packages
+        run: |
+          build/sqgi tools/sqgipkg build --manifest demo/gtk-gallery-android/sqgipkg.json \
+            --platform android --arch arm64-v8a --write-lock
+          build/sqgi tools/sqgipkg build --manifest demo/gworldscene-android/sqgipkg.json \
+            --platform android --arch arm64-v8a --write-lock
+          build/sqgi tools/sqgipkg build --manifest demo/gtk-gallery-android/sqgipkg.json \
+            --target android-aab --write-lock
+          test ! -e "$ANDROID_SDK_ROOT/ndk"
+          test ! -e "$ANDROID_NDK_HOME"
+      - name: Save ARM packaging artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-built-on-arm64
+          path: |
+            demo/gtk-gallery-android/dist-android*/
+            demo/gworldscene-android/dist-android*/
+            demo/gtk-gallery-android/sqgipkg.lock.json
+            demo/gworldscene-android/sqgipkg.lock.json
+            build/Testing/Temporary/
   linux:
     runs-on: ubuntu-24.04
     steps:
