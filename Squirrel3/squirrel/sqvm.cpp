@@ -1466,6 +1466,10 @@ exception_trap:
         while( ci ) {
             if(ci->_etraps > 0) {
                 SQExceptionTrap &et = _etraps.top();
+                // The catch register reuses the first local in the try scope.
+                // Preserve escaped closures before that register and the rest
+                // of the unwound scope are reused by the exception handler.
+                if(_openouters) CloseOuters(&_stack._vals[et._stackbase + et._extarget]);
                 ci->_ip = et._ip;
                 _top = et._stacksize;
                 _stackbase = et._stackbase;

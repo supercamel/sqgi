@@ -769,6 +769,12 @@ add_sqgi_nut_test(sqgi_test_task_cancel                 test_task_cancel.nut)
 add_sqgi_nut_test(sqgi_test_new_object                  test_new_object.nut)
 add_sqgi_nut_test(sqgi_test_promise_combinators         test_promise_combinators.nut)
 add_sqgi_nut_test(sqgi_test_stack_balance               test_stack_balance.nut)
+add_sqgi_nut_test(sqgi_test_exception_closures          test_exception_closures.nut)
+set_tests_properties(sqgi_test_exception_closures PROPERTIES
+    ENVIRONMENT "${SQGI_TEST_ENV};SQGI_JIT=0" LABELS "jit")
+add_sqgi_nut_test(sqgi_test_exception_closures_runtime  test_exception_closures.nut)
+set_tests_properties(sqgi_test_exception_closures_runtime PROPERTIES
+    ENVIRONMENT "${SQGI_TEST_ENV};SQGI_JIT=1;SQGI_JIT_THRESHOLD=1" LABELS "jit")
 add_sqgi_nut_test(sqgi_test_gerror                      test_gerror.nut)
 add_sqgi_nut_test(sqgi_test_gio_async                   test_gio_async.nut)
 add_sqgi_nut_test(sqgi_test_subclass                    test_subclass.nut)
