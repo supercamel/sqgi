@@ -677,7 +677,7 @@ class SquirrelSDKIntegrity(SDKIntegrity):
         source = self.root / 'media.c'
         source.write_text('void media_fixture(void) {}\n')
         stubs = []
-        for name in ['libcamera2ndk.so', 'libmediandk.so', 'libbinder.so', 'libz.so']:
+        for name in ['libcamera2ndk.so', 'libmediandk.so', 'libOpenSLES.so', 'libbinder.so', 'libz.so']:
             stub = self.root / name
             subprocess.run(['cc', '-nostdlib', '-shared', '-fPIC', source,
                             '-Wl,-soname,' + name, '-o', stub], check=True)
@@ -691,9 +691,9 @@ class SquirrelSDKIntegrity(SDKIntegrity):
             self.metadata['files']['usr/lib/libmedia-fixture.so'] = {'sha256': file_hash(target)}
             self.save()
 
-        install(stubs[:2])
+        install(stubs[:3])
         self.sdk_factory(self.root, 'x86_64', 31).validate()
-        for dependency in stubs[2:]:
+        for dependency in stubs[3:]:
             install([dependency])
             with self.subTest(dependency=dependency.name), self.assertRaisesRegex(ValueError, 'non-pinned'):
                 self.sdk_factory(self.root, 'x86_64', 31).validate()

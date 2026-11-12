@@ -2,7 +2,7 @@
 local C = import("common.nut"), GLib = import("GLib")
 local M = { SYSTEM_LIBRARIES = ["libc.so", "libm.so", "libdl.so", "liblog.so", "libandroid.so",
     "libEGL.so", "libGLESv2.so", "libvulkan.so", "libjnigraphics.so", "libnativewindow.so",
-    "libcamera2ndk.so", "libmediandk.so"] }
+    "libcamera2ndk.so", "libmediandk.so", "libOpenSLES.so"] }
 M.headers <- function(data) {
     if (data.len() < 64 || data.slice(0, 6) != "\x7fELF\x02\x01") throw "Expected a 64-bit little-endian ELF"
     local offset = C.uint_le(data, 32, 8), stride = C.uint_le(data, 54, 2), count = C.uint_le(data, 56, 2)

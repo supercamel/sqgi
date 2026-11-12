@@ -1,0 +1,22 @@
+{
+  "schema_version": 2,
+  "name": "Android audio qualification",
+  "app_id": "org.sqgi.android.audioqualification",
+  "script": "main.nut",
+  "compile_scripts": false,
+  "features": ["gtk4", "gstreamer"],
+  "files": [
+    {"path": "audio.nut", "dest": "usr/share/sqgi/app/audio.nut"},
+    {"path": "worker.nut", "dest": "usr/share/sqgi/app/worker.nut"}
+  ],
+  "native": [{
+    "name": "worker", "dir": "../../../native/android-worker", "build_system": "meson",
+    "gi": {"namespace": "SqWorker", "version": "1.0", "library": "sqgi-worker", "strategy": "target"}
+  }],
+  "platforms": {"android": {
+    "architectures": ["x86_64", "arm64-v8a"], "min_sdk": 31,
+    "sdk": "noble-android-r6", "runtime": "package",
+    "packages": ["media-gst-plugins-good", "media-gst-plugins-bad"],
+    "namespaces": ["Gtk-4.0", "Gst-1.0"]
+  }}
+}
