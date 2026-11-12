@@ -133,12 +133,22 @@ class SqgiPkgRecipes extends Base.SqgiPkgScripts {
         local configure = cmake ? ["cmake", "-S", source, "-B", dir, "-G", "Ninja", "-DCMAKE_BUILD_TYPE=Release"]
             : ["meson", "setup", dir, source, "--buildtype=release"]
         local machine_marker = GLib.build_filenamev([dir, ".sqgipkg-machine-file"])
-        local machine_changed = cross != "" && (!this.path_exists(machine_marker) ||
+        local machine_changed = cross != "" && (!this.path_exists(cross) || !this.path_exists(machine_marker) ||
             this.read_file(machine_marker) != this.read_file(cross))
         // Machine files initialise cached compiler/linker settings. Reconfigure
         // alone does not apply changes to their contents in either build system.
-        if (cmake && machine_changed && this.path_exists(GLib.build_filenamev([dir, "CMakeCache.txt"])))
-            configure.push("--fresh")
+        local cmake_cache = GLib.build_filenamev([dir, "CMakeCache.txt"])
+        if (cmake && this.path_exists(cmake_cache)) {
+            local source_changed = false
+            local home = "CMAKE_HOME_DIRECTORY:INTERNAL="
+            foreach (line in this.split_lines(this.read_file(cmake_cache)))
+                if (this.starts_with(line, home))
+                    source_changed = GLib.canonicalize_filename(line.slice(home.len()), null) !=
+                        GLib.canonicalize_filename(source, null)
+            // A recipe keeps its build directory when its source checkout moves.
+            // CMake otherwise rejects the previous checkout's cached source path.
+            if (machine_changed || source_changed) configure.push("--fresh")
+        }
         if (!cmake && this.path_exists(GLib.build_filenamev([dir, "meson-private", "coredata.dat"]))) {
             local marker = GLib.build_filenamev([dir, ".sqgipkg-native-sdk"])
             if (machine_changed || ("native_sdk" in opts && (!this.path_exists(marker) || this.read_file(marker) != opts.native_sdk)))

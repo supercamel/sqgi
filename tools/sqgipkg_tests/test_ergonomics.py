@@ -819,6 +819,65 @@ if (staged != "usr/bin/hello") throw "wrong staged entry"
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.strip(), 'native-entry=42')
 
+    @unittest.skipIf(os.name == 'nt', 'Linux executable staging test')
+    @unittest.skipUnless(all(shutil.which(tool) for tool in ('meson', 'cmake', 'ninja', 'cc')),
+                         'Meson, CMake, Ninja and C compiler required')
+    def test_native_recipe_switches_source_directory(self):
+        module = json.dumps((ROOT / 'tools/sqgipkg_lib/build.nut').as_posix())
+        for build_system in ('meson', 'cmake'):
+            with self.subTest(build_system=build_system):
+                for number in (1, 2):
+                    source = self.root / f'{build_system}-source-{number}'
+                    source.mkdir()
+                    (source / 'hello.c').write_text(
+                        f'#include <stdio.h>\nint main(void) {{ puts("source={number}"); return 0; }}\n')
+                    (source / 'meson.build').write_text(
+                        "project('source-switch', 'c')\nexecutable('hello', 'hello.c')\n")
+                    (source / 'CMakeLists.txt').write_text(
+                        'cmake_minimum_required(VERSION 3.24)\nproject(source_switch C)\n'
+                        'add_executable(hello hello.c)\n')
+                    payload = f'payload-{build_system}-{number}'
+                    self.run_script(f'''local B = import({module}), pkg = B.SqgiPkgBuild()
+local opts = pkg.new_options()
+pkg.apply_manifest_data(opts, {{ schema_version = 2, target = "appimage",
+    entry = {{ type = "native", project = "{build_system}", executable = "hello" }},
+    native = [{{ name = "{build_system}", dir = {json.dumps(source.as_posix())}, build_system = "{build_system}" }}],
+    linux = {{ deb = {{ download = false }} }} }}, {json.dumps(self.root.as_posix())})
+pkg.apply_project_defaults(opts)
+local selected = pkg.selected_configurations(opts)[0]
+pkg.run_native_recipe(selected, selected.native_projects[0])
+pkg.copy_linux_native_entry(selected, "{payload}")
+''')
+                    result = subprocess.run([str(self.root / payload / 'usr/bin/hello')],
+                                            text=True, capture_output=True, timeout=10)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(result.stdout.strip(), f'source={number}')
+
+    def test_native_recipe_plan_with_unprepared_machine_file(self):
+        module = json.dumps((ROOT / 'tools/sqgipkg_lib/build.nut').as_posix())
+        self.run_script(f'''local B = import({module})
+class Fixture extends B.SqgiPkgBuild {{
+    function recipe_cross_file(opts, cmake) {{ return "not-yet-generated/toolchain.ini" }}
+}}
+local pkg = Fixture(), opts = pkg.new_options()
+pkg.apply_manifest_data(opts, {{ schema_version = 2, target = "appimage",
+    entry = {{ type = "native", project = "meson", executable = "hello" }},
+    native = [{{ name = "meson", dir = ".", build_system = "meson" }},
+              {{ name = "cmake", dir = ".", build_system = "cmake" }}],
+    linux = {{ deb = {{ download = false }} }} }}, {json.dumps(self.root.as_posix())})
+pkg.apply_project_defaults(opts)
+local selected = pkg.selected_configurations(opts)[0]
+foreach (project in selected.native_projects) {{
+    local dir = pkg.recipe_build_dir(selected, project)
+    pkg.mkdir_p(dir + "/meson-private")
+    pkg.write_file(dir + "/.sqgipkg-machine-file", "old machine configuration")
+    pkg.write_file(dir + (project.build_system == "cmake" ? "/CMakeCache.txt" : "/meson-private/coredata.dat"), "fixture")
+    local command = pkg.recipe_commands(selected, project, project.dir)[0]
+    if (command.find(project.build_system == "cmake" ? "--fresh" : "--wipe") == null)
+        throw "missing machine file did not invalidate cached configuration"
+}}
+''')
+
     @unittest.skipIf(os.name == 'nt', 'Linux MIME postprocessing')
     @unittest.skipUnless(shutil.which('update-mime-database'), 'MIME generator required')
     def test_packaged_mime_database_generation(self):
