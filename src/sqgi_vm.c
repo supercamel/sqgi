@@ -170,8 +170,13 @@ HSQUIRRELVM sqgi_root_vm(HSQUIRRELVM v)
 
 SQRESULT sqgi_vm_dofile(HSQUIRRELVM v, const SQChar *filename)
 {
+    /* Embedders (including Android) need the same module-relative imports as
+     * the command-line interpreter. Always restore the frame after failure. */
+    if (!sqgi_import_push_file(v, filename))
+        return sq_throwerror(v, _SC("out of memory registering script path"));
     sq_pushroottable(v);
     SQRESULT res = sqstd_dofile(v, filename, SQFalse, SQTrue);
+    sqgi_import_pop_file(v);
     if (SQ_FAILED(res)) {
         sq_pop(v, 1); /* pop root table */
         return res;

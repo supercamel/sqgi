@@ -68,7 +68,7 @@ M.prepare <- function(request, sdk, work, tools) {
     if (!(config.entry in files) && !(config.entry == "" && entry != null)) throw "Staged application entry is missing"
     local snapshot = { schema = 1, project = config, files = files }
     C.atomic_json(application + "/project.json", snapshot); C.atomic_json(destination + "/project.json", config)
-    Resources.prepare(destination, config, C.get(request, "icon", ""))
+    Resources.prepare(destination, config, C.get(request, "icon", ""), sdk)
     C.copy(HERE + "/fonts.conf", assets + "/fonts.conf")
     local schemas = assets + "/share/glib-2.0/schemas"; C.mkdir(schemas)
     foreach (item in C.children(sdk.prefix + "/share/glib-2.0/schemas"))

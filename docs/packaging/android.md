@@ -61,6 +61,12 @@ AVD is rejected without stopping or changing it. Logs are in
 the bundled ANGLE driver for the application when available, preserving other
 applications' settings. Physical-device driver settings are unchanged.
 
+Graphics acceleration is selected automatically. For 3D apps, use
+`sqgipkg emulator --gpu host` to select your computer's GPU. On machines without
+a working graphics driver, `--gpu swangle` provides software rendering, which
+can be much slower for terrain and large scenes. Stop the emulator before
+changing graphics mode; both modes support `--headless`.
+
 For a phone, omit `--emulator`, enable USB debugging and use the device serial
 from `adb devices` with `--arch arm64-v8a`. A device or emulator is not needed
 just to build an APK:
@@ -435,9 +441,16 @@ Use `platforms.android.native` for partial overrides of existing named recipes:
 
 Within the Android platform object, this merges `options` and `gi` by key;
 other supplied fields replace their shared values. Paths resolve relative to
-the manifest. Unknown/duplicate recipe names and competing source aliases fail.
+the manifest. Unknown names in partial overrides, duplicate names, and competing
+source aliases fail.
 The shared desktop recipe is preserved. Resolved overrides participate in source
 provenance, dependency ordering and the development rebuild contract.
+
+To add a module used only on Android, put its complete recipe in the same
+`platforms.android.native` array. Give it a unique `name` and a source (`dir`,
+`git` or `repo`) or an `android_package`. Source recipes default to Meson.
+These modules can depend on shared recipes through `depends_on`; they are
+excluded from Linux and Windows builds.
 
 `--android-runner qemu` is the desktop default (`auto` selects it). To use an
 attached device for GI generation, select `--android-runner adb
@@ -589,9 +602,18 @@ SDK's GNOME development files.
 An omitted `platforms.android.runtime` follows this shared selection. Set it to
 `"package"` to use the Android SDK's SQGI while building SQGI from source for
 desktop outputs, or `"source"` to require a shared source selector. Android
-source builds disable JIT and typed kernels while preserving desktop defaults.
-An explicitly authored `runtime.jit: true` is rejected for Android source
-builds; remove the explicit setting or set it false.
+source builds disable JIT and typed kernels by default while preserving desktop defaults.
+
+To enable the experimental LLVM compiler for a source runtime, set
+`platforms.android.compiler` to `"llvm"`. This requires an Android SDK release
+whose unified catalog contains `compiler-llvm18`. SQGI builds against that
+package's Ubuntu 24.04 LLVM 18.1.3 headers and library and bundles the library in
+the APK. Typed kernels are enabled; `runtime.jit` controls the bytecode JIT and
+defaults to `true`. Setting `runtime.jit` to `false` keeps typed kernels available
+with the Squirrel interpreter. The compiler package and runtime build options
+are recorded in the build lock. The default `"none"` compiler setting disables
+both features and avoids the LLVM dependency.
+An explicitly authored `runtime.jit: true` requires the `"llvm"` compiler setting.
 
 The replacement must retain the SDK's public SQGI/Squirrel C function exports,
 provide `libsqgi.so` with the correct ABI/SONAME and 16 KB alignment, and install

@@ -132,9 +132,16 @@ class SqgiPkgRecipes extends Base.SqgiPkgScripts {
         local cross = this.recipe_cross_file(opts, cmake)
         local configure = cmake ? ["cmake", "-S", source, "-B", dir, "-G", "Ninja", "-DCMAKE_BUILD_TYPE=Release"]
             : ["meson", "setup", dir, source, "--buildtype=release"]
+        local machine_marker = GLib.build_filenamev([dir, ".sqgipkg-machine-file"])
+        local machine_changed = cross != "" && (!this.path_exists(machine_marker) ||
+            this.read_file(machine_marker) != this.read_file(cross))
+        // Machine files initialise cached compiler/linker settings. Reconfigure
+        // alone does not apply changes to their contents in either build system.
+        if (cmake && machine_changed && this.path_exists(GLib.build_filenamev([dir, "CMakeCache.txt"])))
+            configure.push("--fresh")
         if (!cmake && this.path_exists(GLib.build_filenamev([dir, "meson-private", "coredata.dat"]))) {
             local marker = GLib.build_filenamev([dir, ".sqgipkg-native-sdk"])
-            if ("native_sdk" in opts && (!this.path_exists(marker) || this.read_file(marker) != opts.native_sdk))
+            if (machine_changed || ("native_sdk" in opts && (!this.path_exists(marker) || this.read_file(marker) != opts.native_sdk)))
                 configure.push("--wipe") // Meson caches machine-file compiler/sysroot settings.
             else {
                 configure.push("--reconfigure")
@@ -174,6 +181,8 @@ class SqgiPkgRecipes extends Base.SqgiPkgScripts {
         foreach (argv in this.recipe_commands(opts, project, project.dir))
             this.run_process(argv, project.name + " " + argv[0], null, env)
         local dir = this.recipe_build_dir(opts, project)
+        local cross = this.recipe_cross_file(opts, project.build_system == "cmake")
+        if (cross != "") this.write_file(GLib.build_filenamev([dir, ".sqgipkg-machine-file"]), this.read_file(cross))
         if ("native_sdk" in opts) this.write_file(GLib.build_filenamev([dir, ".sqgipkg-native-sdk"]), opts.native_sdk)
         // Explicit outputs remain available. Otherwise collect the native build
         // products, including projects whose Meson targets use install:false.

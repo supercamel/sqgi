@@ -25,7 +25,7 @@ M.prepare <- function(offline) {
             C.temporary(function(root) {
                 C.write(root + "/config.ini", "AvdId=" + M.name + "\navd.ini.encoding=UTF-8\nabi.type=x86_64\nhw.cpu.arch=x86_64\nhw.cpu.ncore=4\n" +
                     "image.sysdir.1=" + paths.image + "\ntag.id=google_apis\nhw.ramSize=4096\nhw.keyboard=yes\nhw.mainKeys=no\n" +
-                    "hw.gpu.enabled=yes\nhw.gpu.mode=swangle\nhw.initialOrientation=landscape\nhw.lcd.width=1440\nhw.lcd.height=900\n" +
+                    "hw.gpu.enabled=yes\nhw.gpu.mode=auto\nhw.initialOrientation=landscape\nhw.lcd.width=1440\nhw.lcd.height=900\n" +
                     "hw.lcd.density=240\nhw.sensors.orientation=yes\ndisk.dataPartition.size=6G\nshowDeviceFrame=no\nskin.name=1440x900\n" +
                     "skin.path=_no_skin\nskin.dynamic=yes\nPlayStore.enabled=false\n");
                 C.atomic_json(root + "/sqgipkg.json", { schema = 1, image = lock.image.sha256 })
@@ -42,16 +42,27 @@ M.port <- function(value) {
     if (result < 5554 || result > 5682 || result % 2) throw "Emulator port must be an even number from 5554 to 5682"
     return result
 }
-M.command <- function(paths, port, headless) {
+M.gpu <- function(value) {
+    if (value == null) return "auto"
+    if (["auto", "host", "software", "lavapipe", "swiftshader", "swangle"].find(value) == null)
+        throw "Emulator --gpu must be auto, host, software, lavapipe, swiftshader or swangle"
+    return value
+}
+M.command <- function(paths, port, headless, gpu = null) {
     local result = ["setsid", paths.emulator, "-avd", M.name, "-port", port.tostring(),
-        "-no-snapshot", "-no-audio", "-no-boot-anim", "-gpu", "swangle", "-memory", "4096"]
+        "-no-snapshot", "-no-audio", "-no-boot-anim", "-gpu", M.gpu(gpu), "-memory", "4096",
+        // Emulator 37.2.13's host compositor can present older portions of
+        // CPU-drawn GTK surfaces. Let SurfaceFlinger compose them instead;
+        // the selected GPU still accelerates rendering and composition.
+        "-feature", "-HostComposition"]
     if (headless) result.push("-no-window")
     result.extend(["-qemu", "-cpu", "host"]) // Expose AES for ARM64 native translation.
     return result
 }
-M.run <- function(port, headless, stop) {
+M.run <- function(port, headless, stop, gpu = null) {
     if (E.host_arch() != "x86_64") throw "The bundled Android emulator requires Linux x86_64; deploy to a phone from ARM64"
     port = M.port(port)
+    local selected_gpu = M.gpu(gpu)
     local paths = M.paths(), sdk = E.paths().android_sdk, adb = sdk + "/platform-tools/adb", serial = "emulator-" + port
     if (!C.is_file(adb)) throw "Missing Android platform-tools; run sqgipkg setup --platform android"
     local call = function(args) { local command = ["timeout", "10", adb, "-s", serial]; command.extend(args); return Host.process(command, null, null, true) }
@@ -71,6 +82,7 @@ M.run <- function(port, headless, stop) {
             return { serial = serial, stopped = true }
         }
         print("sqgipkg: reusing " + serial + " (" + M.name + ")\n")
+        if (gpu != null) print("sqgipkg: --gpu applies at startup; stop the emulator first to change its renderer\n")
     } else {
         if (stop) return { serial = serial, stopped = true }
         foreach (line in split(C.process([adb, "devices"]), "\n")) {
@@ -89,8 +101,8 @@ M.run <- function(port, headless, stop) {
         local launch = Gio.SubprocessLauncher.new(Gio.SubprocessFlags.stderr_merge)
         launch.setenv("ANDROID_AVD_HOME", paths.avds, true); launch.setenv("ANDROID_SDK_ROOT", sdk, true)
         launch.set_stdout_file_path(log)
-        local child = launch.spawnv(M.command(paths, port, headless))
-        C.atomic_json(P.root() + "/emulator.json", { pid = child.get_identifier(), serial = serial, avd = M.name, log = log })
+        local child = launch.spawnv(M.command(paths, port, headless, selected_gpu))
+        C.atomic_json(P.root() + "/emulator.json", { pid = child.get_identifier(), serial = serial, avd = M.name, gpu = selected_gpu, log = log })
         print("sqgipkg: starting " + serial + "; log: " + log + "\n")
     }
     local deadline = GLib.get_monotonic_time() + 180000000

@@ -879,6 +879,16 @@
     "nsis_options": {
       "type": "object",
       "properties": {
+        "side_by_side": {
+          "type": "boolean",
+          "default": false,
+          "description": "Install each payload in its own directory and refuse occupied destinations."
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._+\\-]*$",
+          "description": "Version displayed in Windows and prefixed to side-by-side installation identifiers."
+        },
         "autostart": {
           "type": "boolean"
         },
@@ -1847,7 +1857,12 @@
             "package",
             "source"
           ],
-          "description": "Omitted: follow runtime.source/runtime.sqgi when present, otherwise use the SDK package. Explicit package overrides a shared desktop source recipe. Source builds use the pinned GNOME SDK with JIT and typed kernels disabled."
+          "description": "Omitted: follow runtime.source/runtime.sqgi when present, otherwise use the SDK package. Explicit package overrides a shared desktop source recipe. Source builds use the pinned GNOME SDK."
+        },
+        "compiler": {
+          "enum": ["none", "llvm"],
+          "default": "none",
+          "description": "For source runtimes, llvm adds the pinned Android LLVM package and enables typed kernels; runtime.jit controls the bytecode JIT. none disables both compiler features."
         },
         "namespaces": {
           "type": "array",

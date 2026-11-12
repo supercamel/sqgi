@@ -33,6 +33,7 @@ class SqgiPkg extends Base.SqgiPkgProtocol {
         this.add_option("android-sdk-root", 0, GLib.OptionArg.string, "With setup: Google Android SDK location (distinct from --android-sdk)", "DIR")
         this.add_option("java-home", 0, GLib.OptionArg.string, "With setup: full JDK 17/21 directory, saved for subsequent builds", "DIR")
         this.add_option("headless", 0, GLib.OptionArg.none, "With emulator: run without a desktop window", null)
+        this.add_option("gpu", 0, GLib.OptionArg.string, "With emulator: graphics mode (default: auto; host uses the GPU)", "MODE")
         this.add_option("port", 0, GLib.OptionArg.string, "With emulator: even emulator port (default: 5564)", "PORT")
         this.add_option("stop", 0, GLib.OptionArg.none, "With emulator: stop only the selected SQGI-managed emulator", null)
         this.add_option("logs-once", 0, GLib.OptionArg.none, "Print current application logs and exit", null)
@@ -244,7 +245,7 @@ class SqgiPkg extends Base.SqgiPkgProtocol {
         if (action == "setup" || action == "emulator") {
             local allowed = action == "setup" ?
                 ["command", "platform", "check", "emulator", "native-tools", "accept-licenses", "android-sdk-root", "java-home", "android-ndk", "no-android-download", "json"] :
-                ["command", "platform", "port", "headless", "stop"]
+                ["command", "platform", "port", "headless", "stop", "gpu"]
             foreach (name, unused in this.long_options)
                 if (this.option_present(option_dict, name) && allowed.find(name) == null) this.fail(action + " cannot use --" + name)
             if (args.len() != 1 || args[0] != "--") this.fail(action + " does not take positional arguments")
@@ -254,7 +255,7 @@ class SqgiPkg extends Base.SqgiPkgProtocol {
             if (action == "emulator") {
                 local port = this.option_value(option_dict, "port")
                 AndroidEmulator.run(port == null ? AndroidEmulator.default_port : port,
-                    this.option_present(option_dict, "headless"), this.option_present(option_dict, "stop"))
+                    this.option_present(option_dict, "headless"), this.option_present(option_dict, "stop"), this.option_value(option_dict, "gpu"))
                 return 0
             }
             local check = this.option_present(option_dict, "check"), json = this.option_present(option_dict, "json")
@@ -268,7 +269,7 @@ class SqgiPkg extends Base.SqgiPkgProtocol {
             }
             return AndroidSetup.run(options)
         }
-        foreach (name in ["check", "emulator", "native-tools", "accept-licenses", "android-sdk-root", "java-home", "headless", "port", "stop"])
+        foreach (name in ["check", "emulator", "native-tools", "accept-licenses", "android-sdk-root", "java-home", "headless", "port", "stop", "gpu"])
             if (this.option_present(option_dict, name)) this.fail("--" + name + " requires setup or emulator")
         if (this.option_present(option_dict, "serial")) {
             if (this.option_present(option_dict, "android-serial") && option_dict.serial != option_dict["android-serial"])

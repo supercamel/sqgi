@@ -9,7 +9,7 @@ try {
         result = import("../sqgipkg_lib/android/device.nut").angle_selection(request.packages, request.drivers, request.package)
     } else if (request.operation == "emulator-command") {
         local emulator = import("../sqgipkg_lib/android/emulator.nut")
-        result = emulator.command(request.paths, emulator.port(request.port), request.headless)
+        result = emulator.command(request.paths, emulator.port(request.port), request.headless, C.get(request,"gpu"))
     } else if (request.operation == "provision-tool") {
         result = import("../sqgipkg_lib/android/provision.nut").prepare(request.input, request.offline)
     } else if (request.operation == "host-toolchain") {
@@ -27,7 +27,7 @@ try {
         local pkg = import("../sqgipkg_lib/main.nut").SqgiPkg([])
         result = import("../sqgipkg_lib/android/compat.nut").normalize(request.args, pkg.long_options)
     } else if (request.operation == "android-resources") {
-        import("../sqgipkg_lib/android/resources.nut").prepare(request.destination, request.project, C.get(request, "icon", ""))
+        import("../sqgipkg_lib/android/resources.nut").prepare(request.destination, request.project, C.get(request, "icon", ""), C.get(request, "sdk"))
         result = true
     } else if (request.operation == "project-stage") {
         local pkg = import("../sqgipkg_lib/main.nut").SqgiPkg([])
@@ -93,6 +93,8 @@ try {
         result = true
     } else if (request.operation == "native-source-provenance") {
         result = import("../sqgipkg_lib/android/source.nut").source_provenance(request.project, request.source, C.get(request, "excludes", []))
+    } else if (request.operation == "runtime-source-provenance") {
+        result = import("../sqgipkg_lib/android/runtime.nut").identity(request.source, C.get(request, "configuration"))
     } else if (request.operation == "native-expand") {
         result = import("../sqgipkg_lib/android/source.nut").expand(request.value, request.variables)
     } else if (request.operation == "native-cmake-flags") {

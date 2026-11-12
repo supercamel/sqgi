@@ -13,6 +13,7 @@ import java.nio.file.Files;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.Iterator;
+import java.util.Arrays;
 import org.json.JSONException;
 import org.json.JSONObject;
 import org.gtk.android.GlueLibraryContext;
@@ -24,6 +25,7 @@ public final class GtkApplication extends Application {
     private static native void loadGStreamerPlugin(String filename, String cache);
     private static native void configure(String runtime, String libraries, String cache,
                                          String source, String entry);
+    private static native void configureWorker(String runtime, String libraries, String cache, String source);
     private static native void configureNative(String runtime, String libraries, String cache,
         String source, String script, String applicationId, String library,
         String symbol, String shutdown);
@@ -32,6 +34,7 @@ public final class GtkApplication extends Application {
         super.onCreate();
         File runtime = new File(getFilesDir(), "runtime");
         File application = new File(getFilesDir(), "application");
+        boolean worker = getProcessName().startsWith(getPackageName() + ":sqgi_worker_");
         try {
             System.loadLibrary("sqgi-platform");
             String abi = runtimeAbi();
@@ -45,8 +48,12 @@ public final class GtkApplication extends Application {
             }
             if (index.getInt("schema") != 2 || !index.getJSONObject("abis").has(abi))
                 throw new IOException("No SQGI metadata for loaded ABI " + abi);
-            installAssets("runtime/" + abi, runtime);
-            installAssets("application", application);
+            // Workers share the parent's verified payload. Reinstalling it here
+            // would delete files while another process is reading those files.
+            if (!worker) {
+                installAssets("runtime/" + abi, runtime);
+                installAssets("application", application);
+            }
             String baseId = hash(new File(runtime, "provenance.json"));
             if (!baseId.equals(index.getJSONObject("abis").getString(abi)))
                 throw new IOException("SQGI runtime provenance differs for " + abi);
@@ -91,13 +98,28 @@ public final class GtkApplication extends Application {
             session.put("entry_type", nativeEntry == null ? "sqgi" : "native");
             session.put("snapshot", hash(new File(selected, "project.json")));
             session.put("base_id", baseId);
-            Files.write(new File(runtime, "session.json").toPath(), session.toString().getBytes(StandardCharsets.UTF_8));
-            String glue = nativeEntry == null ? "sqgi-gtk" : "sqgi-entry";
+            if (!worker) {
+                Files.write(new File(runtime, "session.json").toPath(), session.toString().getBytes(StandardCharsets.UTF_8));
+                preparePixbufLoaders(runtime);
+            }
+            String glue = worker ? "sqgi-worker" : nativeEntry == null ? "sqgi-gtk" : "sqgi-entry";
             // Set application paths before GLib caches process directories.
             // The same payload root is used for packaged and development code.
             configurePaths(this, getFilesDir().getAbsolutePath(), source.getAbsolutePath(),
                            runtime.getAbsolutePath(), getApplicationInfo().nativeLibraryDir);
             System.loadLibrary(glue);
+            if (worker) {
+                configureWorker(runtime.getAbsolutePath(), getApplicationInfo().nativeLibraryDir,
+                                getCacheDir().getAbsolutePath(), source.getAbsolutePath());
+            } else if (nativeEntry == null) {
+                configure(runtime.getAbsolutePath(), getApplicationInfo().nativeLibraryDir,
+                          getCacheDir().getAbsolutePath(), source.getAbsolutePath(), entry);
+            } else {
+                configureNative(runtime.getAbsolutePath(), getApplicationInfo().nativeLibraryDir,
+                    getCacheDir().getAbsolutePath(), source.getAbsolutePath(),
+                    entry.isEmpty() ? null : entry, getPackageName(), nativeEntry.getString("library"),
+                    nativeEntry.getString("symbol"), nativeEntry.has("shutdown") ? nativeEntry.getString("shutdown") : null);
+            }
             File modules = new File(runtime, "share/gio-modules.list");
             if (modules.isFile()) {
                 for (String line : Files.readAllLines(modules.toPath(), StandardCharsets.UTF_8)) {
@@ -125,20 +147,30 @@ public final class GtkApplication extends Application {
                     }
                 }
             }
-            if (nativeEntry == null) {
-                configure(runtime.getAbsolutePath(), getApplicationInfo().nativeLibraryDir,
-                          getCacheDir().getAbsolutePath(), source.getAbsolutePath(), entry);
-            } else {
-                configureNative(runtime.getAbsolutePath(), getApplicationInfo().nativeLibraryDir,
-                    getCacheDir().getAbsolutePath(), source.getAbsolutePath(),
-                    entry.isEmpty() ? null : entry, getPackageName(), nativeEntry.getString("library"),
-                    nativeEntry.getString("symbol"), nativeEntry.has("shutdown") ? nativeEntry.getString("shutdown") : null);
+            if (!worker) {
+                GlueLibraryContext.setGlueLibraryProvider(() -> glue);
+                Log.i("SqgiAndroid", "Starting " + mode + " source " + entry);
             }
-            GlueLibraryContext.setGlueLibraryProvider(() -> glue);
-            Log.i("SqgiAndroid", "Starting " + mode + " source " + entry);
         } catch (IOException | JSONException error) {
             throw new IllegalStateException("Cannot install SQGI application assets", error);
         }
+    }
+
+    private void preparePixbufLoaders(File runtime) throws IOException {
+        File directory = new File(runtime, "share/gdk-pixbuf-2.0/loaders");
+        if (!directory.isDirectory()) return;
+        File[] fragments = directory.listFiles();
+        if (fragments == null) throw new IOException("Cannot read packaged image loaders");
+        Arrays.sort(fragments, (a, b) -> a.getName().compareTo(b.getName()));
+        StringBuilder cache = new StringBuilder("# Packaged SQGI image loaders\n");
+        for (File fragment : fragments) {
+            if (!fragment.isFile() || !fragment.getName().matches("[A-Za-z0-9_.+\\-]+\\.cache"))
+                throw new IOException("Invalid packaged image loader metadata");
+            cache.append(readText(fragment).replace("@NATIVE_LIB_DIR@", getApplicationInfo().nativeLibraryDir));
+            cache.append('\n');
+        }
+        Files.write(new File(runtime, "pixbuf-loaders.cache").toPath(),
+                    cache.toString().getBytes(StandardCharsets.UTF_8));
     }
 
     private JSONObject metadata(File directory) throws IOException, JSONException {

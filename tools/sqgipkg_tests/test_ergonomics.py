@@ -498,7 +498,6 @@ opts.windows.console = true
 n.write_nsis_script(opts, "installer output/App with spaces")
 ''')
         script = output_dir / 'App with spaces.nsi'
-        self.assertIn(f'File /r "App with spaces{os.sep}*"', script.read_text(encoding='utf8'))
         result = subprocess.run([shutil.which('makensis'), script.name], cwd=output_dir,
                                 text=True, capture_output=True, timeout=90)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)

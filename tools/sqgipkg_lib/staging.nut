@@ -59,7 +59,8 @@ class SqgiPkgStaging extends Base.SqgiPkgRecipes {
     function stage_script_kernels(opts, appdir, src_abs, staged) {
         // kernel.load paths are relative to the application working directory,
         // not to the importing module. Packaged runtimes use SQGI_APP_SHARE.
-        local root = opts.manifest_dir != "" ? opts.manifest_dir : GLib.get_current_dir()
+        local root = opts.script_source_root != "" ? opts.script_source_root :
+            (opts.manifest_dir != "" ? opts.manifest_dir : GLib.get_current_dir())
         foreach (path in this.script_kernel_literals(src_abs)) {
             if (GLib.path_is_absolute(path) || this.is_windows_drive_path(path) || path.find("://") != null) continue
             local relative = this.relative_dest(path)

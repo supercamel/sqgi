@@ -172,6 +172,10 @@ class Provider(unittest.TestCase):
         root = Path(self.request['root'])
         node = ET.parse(root / gir).find('.//{*}enumeration[@name="Format"]/{*}member[@name="argb32"]')
         self.assertEqual(node.attrib['value'], '0')
+        namespace = ET.parse(root / gir).find('{*}namespace')
+        self.assertEqual(namespace.attrib['shared-library'], 'libcairo-gobject-2.dll')
+        for name in ('Context', 'Surface', 'Pattern', 'Region', 'FontOptions'):
+            self.assertEqual(namespace.find('{*}record[@name="' + name + '"]').attrib['foreign'], '1')
         self.assertEqual(result['packages'][0]['compatibility_originals'][typelib], hashlib.sha256(b'opaque').hexdigest())
         self.request.update(locked=result['packages'], download=False)
         self.assertEqual(self.prepare(), result)

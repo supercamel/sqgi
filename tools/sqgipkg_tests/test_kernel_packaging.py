@@ -148,6 +148,19 @@ print("dynamic-scripts=42\\n")
                     self.assertIn('kernel source not found: kernels/missing.sqk', output)
                     self.assertIn('src/engine/helper.nut', output.replace('\\', '/'))
 
+    def test_explicit_source_root_resolves_kernels_outside_manifest_directory(self):
+        self.write(self.project / 'src/kernels/math.sqk', KERNEL)
+        self.write(self.project / 'src/main.nut',
+                   'assert(sqgi.kernel.load("kernels/math.sqk").answer() == 42)\n')
+        for target in TARGETS:
+            for compiled in (False, True):
+                with self.subTest(target=target, compiled=compiled):
+                    stage, output = self.stage(target, compiled, manifest={
+                        'entry': {'type': 'sqgi', 'path': 'src/main.nut', 'source_root': 'src'}})
+                    self.assertIn('kernel-resources=1\n', output)
+                    self.assertEqual((self.app_root(stage, target) / 'kernels/math.sqk').read_text(), KERNEL)
+                    self.run_payload(stage, target, compiled)
+
     @unittest.skipUnless(sys.platform.startswith('linux'), 'AppRun is a Linux launcher')
     def test_relocated_apprun_loads_kernel_and_detects_missing_payload(self):
         self.write(self.project / 'kernels/math.sqk', KERNEL)

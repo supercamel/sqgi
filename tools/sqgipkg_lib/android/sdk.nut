@@ -17,7 +17,14 @@ class SDK {
         if (typeof(min_api) != "integer" || min_api < t.min_api) throw "Application minimum API is below the SDK minimum"
         if (C.get(m, "wrapper_abi") != 1) throw "Android SDK requires another application wrapper ABI"
         local runtime = C.get(m, "runtime", {})
-        if (C.get(runtime, "jit") != false || C.get(runtime, "kernels") != false) throw "Unsupported Android SQGI runtime capabilities"
+        foreach (feature in ["jit", "kernels"])
+            if (typeof(C.get(runtime, feature)) != "bool") throw "Invalid Android SQGI runtime capability: " + feature
+        if (runtime.jit || runtime.kernels) {
+            local compiler = C.get(runtime, "compiler", {})
+            if (C.get(compiler, "name") != "LLVM" || C.get(compiler, "version") != "18.1.3" ||
+                C.get(compiler, "library") != "libLLVM.so" || !("usr/lib/libLLVM.so" in C.get(m, "files", {})))
+                throw "Android SQGI compiler capabilities require inventoried Ubuntu 24.04 LLVM 18.1.3"
+        }
         if ("min_api" in runtime && (typeof(runtime.min_api) != "integer" || min_api < runtime.min_api)) throw "Application minimum API is below the SQGI runtime minimum"
         prefix = root + "/usr"; abi = target_abi
     }

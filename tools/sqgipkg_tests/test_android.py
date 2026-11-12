@@ -226,6 +226,26 @@ class AndroidCLI(unittest.TestCase):
                 self.assertIn('-DPLATFORM_OPTION=desktop',library['commands'][0])
         self.assertEqual(self.manifest['native'][0]['options']['PLATFORM_OPTION'],'desktop')
 
+    def test_android_only_native_recipe_does_not_enter_desktop_plans(self):
+        self.manifest['native'] = [{'name': 'shared', 'dir': 'shared', 'build_system': 'cmake'}]
+        self.manifest['platforms']['android']['native'] = [
+            {'name': 'worker', 'dir': 'worker', 'depends_on': ['shared'],
+             'gi': {'namespace': 'SqWorker', 'version': '1.0', 'library': 'sqgi-worker', 'strategy': 'target'}}]
+        self.save()
+        plans = self.run_pkg('explain', '--target', 'all', '--json')['configurations']
+        for plan in plans:
+            names = [p['name'] for p in plan['native']]
+            if plan['target'].startswith('android-'):
+                self.assertEqual(names, ['shared', 'worker'])
+                self.assertEqual(plan['native'][1]['dir'], str(self.root / 'worker'))
+                self.assertEqual(plan['native'][1]['build_system'], 'meson')
+            else:
+                self.assertEqual(names, ['shared'])
+        self.manifest['platforms']['android']['native'][0]['depends_on'] = ['missing']
+        self.save()
+        result = self.run_pkg('explain', '--platform', 'android', '--json', success=False)
+        self.assertIn('missing', result['diagnostics'][0]['message'])
+
     def test_android_native_override_names_cycles_and_source_aliases(self):
         self.manifest['native'] = [{'name':'module','repo':'https://example.invalid/shared.git','commit':'old','build_system':'cmake'}]
         self.manifest['platforms']['android']['native'] = [{'name':'module','git':'https://example.invalid/android.git','tag':'android-r1'}]
@@ -292,6 +312,7 @@ class AndroidCLI(unittest.TestCase):
         self.manifest['platforms']['android']['runtime']='package'; self.save()
         result=self.run_pkg('explain','--platform','android','--json')
         self.assertFalse(result['configurations'][0]['runtime']['recipe'])
+        self.assertIsNone(result['configurations'][0]['runtime']['requested'])
         self.assertEqual(result['configurations'][0]['packages'], ['sqgi-android-runtime'])
 
     def test_android_source_requires_a_source_selector_and_does_not_change_desktop_defaults(self):
@@ -311,6 +332,51 @@ class AndroidCLI(unittest.TestCase):
                               (['sync','--platform','android'],'cannot use --json')]:
             result=self.run_pkg(*args,'--json',success=False)
             self.assertIn(message,result['diagnostics'][0]['message'])
+
+    def test_compiler_selection_preserves_platform_defaults(self):
+        self.manifest['runtime'] = {'source': 'runtime-src'}
+        self.manifest['platforms']['android']['compiler'] = 'llvm'
+        self.save()
+        before = sorted(self.root.rglob('*'))
+        plans = self.run_pkg('explain', '--target', 'all', '--json')['configurations']
+        for plan in plans:
+            self.assertTrue(plan['runtime']['requested']['jit'])
+            self.assertTrue(plan['runtime']['requested']['kernels'])
+            if plan['target'].startswith('android-'):
+                self.assertIn('compiler-llvm18', plan['packages'])
+        self.assertEqual(before, sorted(self.root.rglob('*')))
+        self.manifest['runtime']['jit'] = False
+        self.save()
+        plans = self.run_pkg('explain', '--target', 'all', '--json')['configurations']
+        for plan in plans:
+            self.assertFalse(plan['runtime']['requested']['jit'])
+            self.assertTrue(plan['runtime']['requested']['kernels'])
+
+    def test_compiler_requires_source_and_unified_catalog(self):
+        self.manifest['platforms']['android']['compiler'] = 'llvm'
+        self.save()
+        result = self.run_pkg('explain', '--platform', 'android', '--json', success=False)
+        self.assertEqual(result['diagnostics'][0]['path'], ['platforms', 'android', 'compiler'])
+        self.manifest['runtime'] = {'source': 'runtime-src'}
+        self.manifest['platforms']['android']['module_set'] = 'legacy'
+        self.save()
+        result = self.run_pkg('explain', '--platform', 'android', '--json', success=False)
+        self.assertIn('unified', result['diagnostics'][0]['message'])
+
+    def test_compiler_is_automatically_selected(self):
+        self.manifest['runtime'] = {'source': 'runtime-src'}
+        self.manifest['platforms']['android'].update(compiler='llvm', packages=['compiler-llvm18'])
+        self.save()
+        result = self.run_pkg('explain', '--platform', 'android', '--json', success=False)
+        self.assertIn('automatically', result['diagnostics'][0]['message'])
+
+    def test_compiler_enum_and_schema(self):
+        schema = self.run_pkg('describe', '--json')['schema']['$defs']['platform_android']
+        self.assertEqual(schema['properties']['compiler']['enum'], ['none', 'llvm'])
+        self.manifest['platforms']['android']['compiler'] = 'unknown'
+        self.save()
+        result = self.run_pkg('explain', '--platform', 'android', '--json', success=False)
+        self.assertEqual(result['diagnostics'][0]['path'], ['platforms', 'android', 'compiler'])
 
     def test_android_native_entry_preserves_desktop_selector(self):
         self.manifest['entry']={'type':'native','project':'application','executable':'desktop-app',
@@ -422,6 +488,33 @@ class AndroidHostInputs(unittest.TestCase):
 
 
 class AndroidResources(unittest.TestCase):
+    def test_native_services_are_private_and_owned(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            declaration = 'usr/share/sqgi-android/services/worker.json'
+            java = 'usr/share/sqgi-android/java/org/example/Worker.java'
+            path = root / declaration
+            path.parent.mkdir(parents=True)
+            metadata = {'schema': 1, 'services': [{'class': 'org.example.Worker$Slot0', 'process': ':sqgi_worker_0'}]}
+            path.write_text(json.dumps(metadata))
+            sdk = {'root': str(root), 'metadata': {'files': {declaration: {}, java: {}}}}
+            destination = root / 'prepared'
+            squirrel_backend('android-resources', destination=str(destination), project={}, sdk=sdk)
+            service = ET.parse(destination / 'AndroidManifest.xml').getroot().find('application/service')
+            android = '{http://schemas.android.com/apk/res/android}'
+            self.assertEqual(service.attrib[android + 'exported'], 'false')
+            self.assertEqual(service.attrib[android + 'process'], ':sqgi_worker_0')
+            for invalid in ['external', ':sqgi_worker_0" android:exported="true', ':']:
+                metadata['services'][0]['process'] = invalid
+                path.write_text(json.dumps(metadata))
+                with self.assertRaisesRegex(ValueError, 'private service'):
+                    squirrel_backend('android-resources', destination=str(destination), project={}, sdk=sdk)
+            metadata['services'][0]['process'] = ':sqgi_worker_0'
+            path.write_text(json.dumps(metadata))
+            del sdk['metadata']['files'][java]
+            with self.assertRaisesRegex(ValueError, 'inventoried Java'):
+                squirrel_backend('android-resources', destination=str(destination), project={}, sdk=sdk)
+
     def test_manifest_permissions_and_icon_render_and_reject_stale_inputs(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory); icon = root/'icon.png'; destination = root/'input'
@@ -578,6 +671,51 @@ class SDKIntegrity(unittest.TestCase):
 
 class SquirrelSDKIntegrity(SDKIntegrity):
     sdk_factory = SquirrelSDK
+
+    @unittest.skipUnless(shutil.which('cc') and shutil.which('readelf'), 'ELF compiler tools required')
+    def test_media_ndk_dependencies_are_system_libraries_but_private_libraries_are_not(self):
+        source = self.root / 'media.c'
+        source.write_text('void media_fixture(void) {}\n')
+        stubs = []
+        for name in ['libcamera2ndk.so', 'libmediandk.so', 'libbinder.so', 'libz.so']:
+            stub = self.root / name
+            subprocess.run(['cc', '-nostdlib', '-shared', '-fPIC', source,
+                            '-Wl,-soname,' + name, '-o', stub], check=True)
+            stubs.append(stub)
+        target = self.root / 'usr/lib/libmedia-fixture.so'
+
+        def install(dependencies):
+            subprocess.run(['cc', '-nostdlib', '-shared', '-fPIC', source,
+                            '-Wl,-soname,libmedia-fixture.so', '-Wl,-z,max-page-size=16384',
+                            '-Wl,--no-as-needed', *dependencies, '-o', target], check=True)
+            self.metadata['files']['usr/lib/libmedia-fixture.so'] = {'sha256': file_hash(target)}
+            self.save()
+
+        install(stubs[:2])
+        self.sdk_factory(self.root, 'x86_64', 31).validate()
+        for dependency in stubs[2:]:
+            install([dependency])
+            with self.subTest(dependency=dependency.name), self.assertRaisesRegex(ValueError, 'non-pinned'):
+                self.sdk_factory(self.root, 'x86_64', 31).validate()
+
+    def test_compiler_runtime_requires_pinned_inventoried_llvm(self):
+        self.metadata['runtime'].update(jit=True, kernels=True,
+            compiler={'name': 'LLVM', 'version': '18.1.3', 'library': 'libLLVM.so'})
+        self.save()
+        with self.assertRaisesRegex(ValueError, 'inventoried'):
+            self.sdk_factory(self.root, 'x86_64', 31)
+        library = self.root / 'usr/lib/libLLVM.so'
+        library.write_bytes(b'compiler inventory fixture')
+        self.metadata['files']['usr/lib/libLLVM.so'] = {'sha256': file_hash(library)}
+        self.save()
+        self.sdk_factory(self.root, 'x86_64', 31).validate()
+        library.write_bytes(b'changed compiler')
+        with self.assertRaisesRegex(ValueError, 'differs'):
+            self.sdk_factory(self.root, 'x86_64', 31).validate()
+        self.metadata['runtime']['compiler']['version'] = '19.0.0'
+        self.save()
+        with self.assertRaisesRegex(ValueError, 'LLVM 18.1.3'):
+            self.sdk_factory(self.root, 'x86_64', 31)
 
     @unittest.skipUnless(Path(os.environ.get('SQGI_ANDROID_XMLLINT', '/usr/bin/xmllint')).is_file(), 'xmllint required')
     def test_local_sdk_derives_catalog_from_inventoried_target_gir(self):
@@ -1331,6 +1469,39 @@ class SquirrelGIContracts(unittest.TestCase):
 
 
 class SquirrelSourceContracts(unittest.TestCase):
+    def test_git_source_inventory_ignores_sqgipkg_outputs_without_gitignore(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            source = Path(temporary)
+            subprocess.run(['git', 'init', '-q', source], check=True)
+            (source / 'main.c').write_text('int main(void) { return 0; }\n')
+            def identity():
+                return squirrel_backend('native-source-provenance', source=str(source), project={'build_system': 'cmake'})
+            initial = identity()
+            output = source / 'nested/.sqgipkg/android'
+            output.mkdir(parents=True)
+            (output / 'libexample.so').write_bytes(b'generated binary')
+            self.assertEqual(initial, identity())
+            (source / 'main.c').write_text('int main(void) { return 1; }\n')
+            self.assertNotEqual(initial['sha256'], identity()['sha256'])
+
+    def test_runtime_compiler_features_change_the_source_lock(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            source = Path(temporary) / 'source'
+            source.mkdir()
+            (source / 'CMakeLists.txt').write_text('project(runtime)\n')
+            def identity(configuration=None):
+                return squirrel_backend('runtime-source-provenance', source=str(source), configuration=configuration)
+            default = identity()
+            kernel = identity(dict(compiler='llvm', jit=False, kernels=True))
+            jit = identity(dict(compiler='llvm', jit=True, kernels=True))
+            self.assertEqual(len({default['sha256'], kernel['sha256'], jit['sha256']}), 3)
+            self.assertEqual(default['files'], jit['files'])
+            for configuration in [dict(compiler='none', jit=True, kernels=False),
+                                  dict(compiler='none', jit=False, kernels=True),
+                                  dict(compiler='llvm', jit=True, kernels=False)]:
+                with self.assertRaises(ValueError):
+                    identity(configuration)
+
     @unittest.skipUnless(shutil.which('cmake') and shutil.which('cc'), 'CMake and C compiler required')
     def test_cmake_flags_survive_cache_parsing_and_spaced_sdk_paths(self):
         with tempfile.TemporaryDirectory(prefix='android flags ') as temp:

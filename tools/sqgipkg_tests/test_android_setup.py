@@ -145,6 +145,8 @@ class AndroidSetup(unittest.TestCase):
             ["setup", "--platform", "android", "--manifest", "missing.json"],
             ["setup", "--platform", "android", "--json"],
             ["build", "--headless"],
+            ["build", "--gpu", "host"],
+            ["emulator", "--gpu", "invalid"],
             ["emulator", "--port", "5555"],
             ["emulator", "--port", "5554; touch surprise"],
         ]:
@@ -205,7 +207,17 @@ class AndroidSetup(unittest.TestCase):
                              port="5564", headless=True)["result"]
         self.assertIn("/a path/emulator", result)
         self.assertIn("-no-window", result)
+        self.assertEqual(result[result.index("-gpu") + 1], "auto")
+        self.assertEqual(result[result.index("-feature") + 1], "-HostComposition")
+        self.assertLess(result.index("-feature"), result.index("-qemu"))
         self.assertEqual(result[-3:], ["-qemu", "-cpu", "host"])
+        for gpu in ("host", "swangle"):
+            selected = self.bridge("emulator-command", paths=dict(emulator="/a path/emulator"),
+                                   port="5564", headless=True, gpu=gpu)["result"]
+            self.assertEqual(selected[selected.index("-gpu") + 1], gpu)
+            self.assertEqual(selected[selected.index("-feature") + 1], "-HostComposition")
+        self.assertFalse(self.bridge("emulator-command", paths=dict(emulator="/a path/emulator"),
+                                     port="5564", headless=True, gpu="host; touch surprise")["ok"])
 
     @unittest.skipUnless(platform.machine() == "x86_64", "bundled emulator requires x86_64")
     def test_stop_waits_for_adb_to_drop_the_stopped_device(self):

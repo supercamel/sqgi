@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <dlfcn.h>
+#include <unistd.h>
 #include <android/log.h>
 
 static JavaVM *application_vm;
@@ -28,6 +29,7 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved)
 /* Public JNI hooks for Android native modules and GStreamer's androidmedia. */
 JNIEXPORT JavaVM *sqgi_android_get_java_vm(void) { return application_vm; }
 JNIEXPORT jobject sqgi_android_get_application_class_loader(void) { return application_class_loader; }
+JNIEXPORT jobject sqgi_android_get_application_context(void) { return application_context; }
 JNIEXPORT JavaVM *gst_android_get_java_vm(void) { return application_vm; }
 JNIEXPORT jobject gst_android_get_application_class_loader(void) { return application_class_loader; }
 JNIEXPORT jobject gst_android_get_application_context(void) { return application_context; }
@@ -97,6 +99,11 @@ Java_org_sqgi_android_GtkApplication_configurePaths(JNIEnv *env, jclass klass,
     else { failed |= setenv("PROJ_DATA", path, 1); free(path); }
     if (asprintf(&path, "%s/share/gdal", runtime_path) < 0) failed = 1;
     else { failed |= setenv("GDAL_DATA", path, 1); free(path); }
+    if (asprintf(&path, "%s/pixbuf-loaders.cache", runtime_path) < 0) failed = 1;
+    else {
+        if (access(path, R_OK) == 0) failed |= setenv("GDK_PIXBUF_MODULE_FILE", path, 1);
+        free(path);
+    }
     (*env)->ReleaseStringUTFChars(env, libraries, library_path);
     (*env)->ReleaseStringUTFChars(env, runtime, runtime_path);
     if (failed) {

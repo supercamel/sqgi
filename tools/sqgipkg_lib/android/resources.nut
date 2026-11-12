@@ -14,7 +14,30 @@ M.permissions <- function(values) {
     names["android.permission.REORDER_TASKS"] <- true
     return C.keys(names)
 }
-M.prepare <- function(destination, config, icon = "") {
+M.services <- function(sdk) {
+    if (sdk == null) return ""
+    local declarations = "", classes = {}, processes = {}, prefix = "usr/share/sqgi-android/services/"
+    foreach (path in C.keys(sdk.metadata.files)) if (C.starts(path, prefix)) {
+        if (!C.ends(path, ".json")) throw "Invalid Android service metadata filename"
+        local descriptor = sqgi.json.parse(C.read(sdk.root + "/" + path))
+        if (C.get(descriptor, "schema") != 1 || typeof(C.get(descriptor, "services")) != "array")
+            throw "Invalid Android service metadata"
+        foreach (service in descriptor.services) {
+            local name = C.get(service, "class", ""), process = C.get(service, "process", "")
+            if (typeof(name) != "string" || !regexp("^[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z][A-Za-z0-9_]*)+(\\$[A-Za-z][A-Za-z0-9_]*)?$").match(name) ||
+                typeof(process) != "string" || !regexp("^:sqgi_[a-z][a-z0-9_]*$").match(process))
+                throw "Invalid Android private service class or process"
+            if (name in classes || process in processes) throw "Duplicate Android service class or process"
+            local outer = split(name, "$", true)[0]
+            local java = "usr/share/sqgi-android/java/" + C.concat(split(outer, ".", true), "/") + ".java"
+            if (!(java in sdk.metadata.files)) throw "Android service lacks inventoried Java source: " + name
+            classes[name] <- true; processes[process] <- true
+            declarations += "        <service android:name=\"" + name + "\" android:process=\"" + process + "\" android:exported=\"false\" />\n"
+        }
+    }
+    return declarations
+}
+M.prepare <- function(destination, config, icon = "", sdk = null) {
     C.mkdir(destination)
     local declarations = ""
     foreach (name in M.permissions(C.get(config, "permissions", [])))
@@ -31,7 +54,7 @@ M.prepare <- function(destination, config, icon = "") {
         icon_attribute = " android:icon=\"@drawable/sqgi_app_icon\""
     } else if (C.get(config, "icon_sha256") != null) throw "Android icon input is missing"
     local manifest = C.read(HERE + "/template/app/src/main/AndroidManifest.xml")
-    foreach (marker, value in { ["@SQGI_PERMISSIONS@"] = declarations, ["@SQGI_ICON@"] = icon_attribute }) {
+    foreach (marker, value in { ["@SQGI_PERMISSIONS@"] = declarations, ["@SQGI_ICON@"] = icon_attribute, ["@SQGI_SERVICES@"] = M.services(sdk) }) {
         local offset = manifest.find(marker)
         if (offset == null || manifest.find(marker, offset + marker.len()) != null) throw "Android manifest template marker is missing or repeated"
         manifest = manifest.slice(0, offset) + value + manifest.slice(offset + marker.len())

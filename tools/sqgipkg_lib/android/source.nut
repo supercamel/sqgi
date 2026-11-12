@@ -92,7 +92,9 @@ M.source_provenance <- function(project, source, excludes = []) {
     }
     local files = {}, recipe = {}
     foreach (path in paths) if (C.is_file(path)) {
-        local excluded = false
+        // sqgipkg's own output is never a source input, even when a Git
+        // checkout has not added it to .gitignore.
+        local excluded = split(path.slice(source.len() + 1), "/").find(".sqgipkg") != null
         foreach (root in excludes) if (C.within(C.absolute(path), C.absolute(root))) excluded = true
         if (!excluded) files[path.slice(source.len() + 1)] <- C.file_hash(path)
     }

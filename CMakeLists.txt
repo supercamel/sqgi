@@ -76,8 +76,9 @@ endif()
 option(SQ_ENABLE_JIT "Build experimental Squirrel bytecode JIT support" ${SQGI_COMPILER_FEATURES_DEFAULT})
 option(SQGI_THREADED_DISPATCH "Use experimental GCC/Clang threaded interpreter dispatch" OFF)
 option(SQGI_ENABLE_KERNELS "Build experimental typed kernel compiler" ${SQGI_COMPILER_FEATURES_DEFAULT})
-if(ANDROID AND (SQ_ENABLE_JIT OR SQGI_ENABLE_KERNELS))
-    message(FATAL_ERROR "Android SQGI currently requires SQ_ENABLE_JIT=OFF and SQGI_ENABLE_KERNELS=OFF")
+option(SQGI_ANDROID_EXPERIMENTAL_COMPILERS "Enable Android LLVM compiler qualification builds" OFF)
+if(ANDROID AND (SQ_ENABLE_JIT OR SQGI_ENABLE_KERNELS) AND NOT SQGI_ANDROID_EXPERIMENTAL_COMPILERS)
+    message(FATAL_ERROR "Android compilers require SQGI_ANDROID_EXPERIMENTAL_COMPILERS=ON and a matching Android LLVM 18 build")
 endif()
 set(SQGI_KERNEL_BACKEND "LLVM" CACHE STRING "Kernel compiler backend: LLVM or NATIVE")
 set_property(CACHE SQGI_KERNEL_BACKEND PROPERTY STRINGS LLVM NATIVE)
@@ -174,6 +175,9 @@ if(MINGW AND SQGI_MINGW_STATIC_CXX_RUNTIME)
     list(APPEND SQGI_MINGW_RUNTIME_LINK_OPTIONS
         -static-libgcc
         -static-libstdc++
+        # A DLL's compiler runtime is private. Exporting its unwind functions
+        # makes a second statically linked native DLL fail with duplicate symbols.
+        -Wl,--exclude-libs,libgcc.a:libgcc_eh.a:libstdc++.a:libstdc++exp.a
     )
 endif()
 
@@ -528,6 +532,11 @@ endif()
 
 # ── sqgi executable ────────────────────────────────────────────────────────────
 add_executable(sqgi-bin src/main.c $<TARGET_OBJECTS:sqgi-core>)
+if(WIN32)
+    enable_language(RC)
+    target_sources(sqgi-bin PRIVATE src/windows/sqgi.rc)
+    target_include_directories(sqgi-bin PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/windows)
+endif()
 set_target_properties(sqgi-bin PROPERTIES
     OUTPUT_NAME sqgi
     LINKER_LANGUAGE CXX
@@ -1004,6 +1013,25 @@ if(Python3_Interpreter_FOUND)
     # Android build/provisioning fixtures require the supported Linux host.
     # Shared manifest/GUI resolution remains in the cross-platform suites.
     if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND NOT CMAKE_CROSSCOMPILING)
+        find_program(SQGI_MINGW_CXX x86_64-w64-mingw32-g++)
+        find_program(SQGI_TEST_WINE wine)
+        find_program(SQGI_TEST_XVFB xvfb-run)
+        if(SQGI_MINGW_CXX AND SQGI_TEST_WINE AND SQGI_TEST_XVFB)
+            add_test(NAME sqgi_test_windows_launcher
+                COMMAND ${SQGI_TEST_XVFB} -a ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/sqgipkg_tests/test_windows_launcher.py $<TARGET_FILE:sqgi-bin>)
+            set_tests_properties(sqgi_test_windows_launcher PROPERTIES LABELS "packaging;windows" TIMEOUT 240)
+            add_test(NAME sqgi_test_windows_recipes
+                COMMAND ${SQGI_TEST_XVFB} -a ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/sqgipkg_tests/test_windows_recipes.py $<TARGET_FILE:sqgi-bin>)
+            set_tests_properties(sqgi_test_windows_recipes PROPERTIES LABELS "packaging;windows" TIMEOUT 180)
+            find_program(SQGI_TEST_NSIS makensis)
+            if(SQGI_TEST_NSIS)
+                add_test(NAME sqgi_test_windows_installer
+                    COMMAND ${CMAKE_COMMAND} -E env "SQGI=$<TARGET_FILE:sqgi-bin>"
+                        ${SQGI_TEST_XVFB} -a ${Python3_EXECUTABLE}
+                        ${CMAKE_SOURCE_DIR}/tools/sqgipkg_tests/test_windows_installer.py)
+                set_tests_properties(sqgi_test_windows_installer PROPERTIES LABELS "packaging;windows" TIMEOUT 180)
+            endif()
+        endif()
         add_test(NAME sqgi_test_sqgipkg_android
             COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/sqgipkg_tests/test_android.py $<TARGET_FILE:sqgi-bin>)
         set_tests_properties(sqgi_test_sqgipkg_android PROPERTIES LABELS "packaging;android" TIMEOUT 180)

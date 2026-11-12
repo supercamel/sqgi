@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Windows acceptance: native launcher, staging, execution and NSIS compilation."""
+"""Windows acceptance: native launcher, staging, execution and NSIS lifecycle."""
 import json
 import os
 from pathlib import Path
@@ -68,6 +68,37 @@ with tempfile.TemporaryDirectory(prefix='sqgipkg é spaces-') as temp:
         assert 'kernel: cannot open kernels/math.sqk' in result.stdout + result.stderr
     finally:
         (project / 'hidden kernels').rename(project / 'kernels')
+    # Keep native installer tests inside the temporary directory. Shortcut and
+    # registry ownership are exercised separately in the isolated Wine prefix.
+    manifest['windows']['nsis_options'] = dict(side_by_side=True, version='1.0.0',
+        desktop_shortcut=False, start_menu_shortcut=False, autostart=False,
+        uninstall_registry=False)
+    (project / 'sqgipkg.json').write_text(json.dumps(manifest), encoding='utf8')
     run([exe, 'build', '--target', 'win-nsis'])
-    assert (project / 'dist-windows-x86_64/NativeAcceptance-Setup.exe').is_file()
-    print('Native Windows kernel packaging, relocation and installer compilation passed')
+    installer = project / 'dist-windows-x86_64/NativeAcceptance-Setup.exe'
+    assert installer.is_file()
+
+    def nsis(binary, mode, destination, expected=0):
+        # NSIS consumes the final /D= or _?= tail literally, without quotes.
+        tail = '/D=' if mode == 'install' else '_?='
+        command = f'"{binary}" /S {tail}{destination}'
+        result = subprocess.run(command, cwd=project, capture_output=True, timeout=120)
+        assert result.returncode == expected, (command, result.returncode, result.stdout, result.stderr)
+
+    occupied = project / 'occupied'; occupied.mkdir()
+    (occupied / 'user.txt').write_text('KEEP')
+    nsis(installer, 'install', occupied, 2)
+    assert [p.name for p in occupied.iterdir()] == ['user.txt']
+    installed = project / 'installed é spaces'
+    nsis(installer, 'install', installed)
+    try:
+        assert (installed / 'share/sqgi/app/kernels/math.sqk').read_text(encoding='utf8') == kernel
+        result = subprocess.run([str(installed / 'NativeAcceptance-console.exe')], cwd=project,
+                                env=environment, text=True, capture_output=True, timeout=60)
+        assert result.returncode == 0 and 'Windows packaged kernel=42' in result.stdout, result.stdout + result.stderr
+        (installed / 'user.txt').write_text('KEEP INSTALLED')
+    finally:
+        nsis(installed / 'Uninstall.exe', 'uninstall', installed)
+    assert (installed / 'user.txt').read_text() == 'KEEP INSTALLED'
+    assert not (installed / 'share/sqgi/app/kernels/math.sqk').exists()
+    print('Native Windows kernel packaging, relocation, installed execution and nonrecursive uninstall passed')

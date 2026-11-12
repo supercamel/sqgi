@@ -195,8 +195,8 @@ class SqgiPkgWindowsEnv extends Base.SqgiPkgAppImage {
             "set(CMAKE_STRIP x86_64-w64-mingw32-strip)\n" +
             "\n" +
             "set(CMAKE_EXE_LINKER_FLAGS_INIT \"-static-libgcc -static-libstdc++\")\n" +
-            "set(CMAKE_SHARED_LINKER_FLAGS_INIT \"-static-libgcc -static-libstdc++\")\n" +
-            "set(CMAKE_MODULE_LINKER_FLAGS_INIT \"-static-libgcc -static-libstdc++\")\n" +
+            "set(CMAKE_SHARED_LINKER_FLAGS_INIT \"-static-libgcc -static-libstdc++ -Wl,--exclude-libs,libgcc.a:libgcc_eh.a:libstdc++.a:libstdc++exp.a\")\n" +
+            "set(CMAKE_MODULE_LINKER_FLAGS_INIT \"-static-libgcc -static-libstdc++ -Wl,--exclude-libs,libgcc.a:libgcc_eh.a:libstdc++.a:libstdc++exp.a\")\n" +
             "\n" +
             "set(SQGI_WINDOWS_DEPENDENCY_PREFIX \"" + prefix_dir + "\")\n" +
             "set(CMAKE_FIND_ROOT_PATH \"${SQGI_WINDOWS_DEPENDENCY_PREFIX}\")\n" +
@@ -334,8 +334,8 @@ class SqgiPkgWindowsEnv extends Base.SqgiPkgAppImage {
             "pkg_config_libdir = ['" + prefix_dir + "/lib/pkgconfig', '" + prefix_dir + "/share/pkgconfig']\n" +
             "\n" +
             "[built-in options]\n" +
-            "c_link_args = ['-static-libgcc']\n" +
-            "cpp_link_args = ['-static-libgcc', '-static-libstdc++']\n" +
+            "c_link_args = ['-static-libgcc', '-Wl,--exclude-libs,libgcc.a:libgcc_eh.a']\n" +
+            "cpp_link_args = ['-static-libgcc', '-static-libstdc++', '-Wl,--exclude-libs,libgcc.a:libgcc_eh.a:libstdc++.a:libstdc++exp.a']\n" +
             "\n" +
             "[host_machine]\n" +
             "system = 'windows'\n" +

@@ -64,8 +64,23 @@ int main(void)
     write_module(b, "same.nut", "return {name=\"b\"};");
     write_module(a, "child.nut", "return import(\"same.nut\");");
     write_module(b, "child.nut", "return import(\"same.nut\");");
+    write_module(a, "entry.nut", "assert(import(\"same.nut\").name==\"a\");");
+    write_module(b, "entry.nut", "assert(import(\"same.nut\").name==\"b\");");
+    write_module(a, "failure.nut", "import(\"same.nut\"); throw \"entry failed\";");
     write_module(dir, "token.nut", "local value=::cacheToken; delete ::cacheToken; return {token=value};");
     HSQUIRRELVM v = new_vm(dir);
+    /* The embedding API is called from an unrelated working directory.
+     * Failure must restore both its stack and its import-directory context. */
+    SQInteger entry_top = sq_gettop(v);
+    const char *entry_names[] = {"a/entry.nut", "a/failure.nut", "b/entry.nut"};
+    for (guint i=0;i<G_N_ELEMENTS(entry_names);i++) {
+        char *entry = g_build_filename(dir, entry_names[i], NULL);
+        SQRESULT result = sqgi_vm_dofile(v, entry);
+        g_assert_true(i == 1 ? SQ_FAILED(result) : SQ_SUCCEEDED(result));
+        g_assert_cmpint(sq_gettop(v), ==, entry_top);
+        g_free(entry);
+    }
+    run(v, "local caught=false; try { import(\"same.nut\"); } catch(e) { caught=true; } assert(caught);");
     int released = 0;
     sq_pushroottable(v);
     sq_pushstring(v, "cacheToken", -1);
@@ -132,7 +147,7 @@ int main(void)
     }
     const char *files[] = {"value.nut", "token.nut", "weak.nut", "null.nut", "retry.nut", "syntax.nut", "missing.nut",
                           "cycle-a.nut", "cycle-b.nut", "thread.nut", "a/same.nut", "b/same.nut",
-                          "a/child.nut", "b/child.nut"};
+                          "a/child.nut", "b/child.nut", "a/entry.nut", "a/failure.nut", "b/entry.nut"};
     for (guint i=0;i<G_N_ELEMENTS(files);i++) {
         char *path=g_build_filename(dir,files[i],NULL);
         g_assert_cmpint(g_remove(path), ==, 0);

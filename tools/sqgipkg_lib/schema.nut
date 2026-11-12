@@ -9,7 +9,7 @@ class SqgiPkgSchema extends Base.SqgiPkgOptions {
             sqgi_source = ["branch", "cache", "cache_dir", "commit", "dir", "git", "path", "ref", "repo", "shallow", "submodules", "tag", "update"],
             entry = ["executable", "linux", "path", "project", "script", "source_root", "type", "windows", "android"],
             entry_android = ["project", "library", "symbol", "shutdown"],
-            nsis_options = ["autostart", "desktop_shortcut", "header_image", "icon", "install_dir", "installer_name", "license", "request_execution_level", "start_menu_folder", "start_menu_shortcut", "uninstall_registry", "welcome_finish_image", "welcome_image"],
+            nsis_options = ["autostart", "desktop_shortcut", "header_image", "icon", "install_dir", "installer_name", "license", "request_execution_level", "side_by_side", "version", "start_menu_folder", "start_menu_shortcut", "uninstall_registry", "welcome_finish_image", "welcome_image"],
             native_projects = ["linux_package", "windows_package", "android_package", "depends_on", "branch", "build", "commit", "dir", "files", "git", "install", "libraries", "name", "ref", "repo", "shallow", "stage", "submodules", "tag", "typelibs", "update", "build_system", "options", "gi", "targets"],
             arches = ["appimage_arch", "arch", "build", "build_dir", "cmake_toolchain", "copy_dependencies", "deb", "deb_download", "deb_package_cache", "deb_packages", "deb_refresh", "deb_suite", "deb_sysroot_cache", "download_packages", "entry_linux", "files", "gdk_pixbuf_loaders", "gio_modules", "gsettings_schemas", "gstreamer_plugins", "gtk_data", "inherit_native_projects", "libraries", "library_dirs", "meson_cross_file", "native_projects", "output", "package_arch", "package_cache", "packages", "refresh_packages", "resources", "suite", "sysroot", "sysroot_cache", "typelibs"],
             deb = ["download", "package_cache", "packages", "refresh", "suite", "sysroot_cache"],
@@ -100,6 +100,9 @@ class SqgiPkgSchema extends Base.SqgiPkgOptions {
                 continue
             }
             if (item == null) continue
+            if (kind == "nsis_options" && key == "side_by_side" && typeof(item) != "bool") this.fail(label + " must be a boolean")
+            if (kind == "nsis_options" && key == "version" && (typeof(item) != "string" || !regexp("^[A-Za-z0-9][A-Za-z0-9._+\\-]*$").match(item)))
+                this.fail(label + " must be a version string containing letters, numbers, dots, underscores, plus or minus signs")
             if (kind == "windows" && key == "package_source" && item != "ooblerg") this.fail(label + " must be ooblerg; MSYS2 support has been removed")
             if (kind == "windows" && key == "runtime" && item != "inherit" && item != "package") this.fail(label + " must be inherit or package")
             if ((key == "windows_package" || key == "linux_package" || key == "android_package") && (typeof(item) != "string" || item == "")) this.fail(label + " requires a nonempty Ooblerg package name")

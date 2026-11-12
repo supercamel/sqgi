@@ -1,4 +1,5 @@
 local GLib = import("GLib")
+local Launcher = import("launcher.nut")
 local Gio = import("Gio")
 local Base = import("ooblerg.nut")
 local typelib_compat = GLib.path_get_dirname(GLib.canonicalize_filename(__FILE__, null)) + "/typelib_compat.py"
@@ -443,62 +444,6 @@ class SqgiPkgWindowsStaging extends Base.SqgiPkgWindowsOoblerg {
         return package_name + ".exe"
     }
 
-    function windows_exe_launcher_source(bat_name) {
-        return "#define WIN32_LEAN_AND_MEAN\n" +
-            "#include <windows.h>\n" +
-            "\n" +
-            "int main(void) {\n" +
-            "    wchar_t dir[MAX_PATH];\n" +
-            "    DWORD n = GetModuleFileNameW(NULL, dir, MAX_PATH);\n" +
-            "    if (n == 0 || n >= MAX_PATH) return 1;\n" +
-            "    while (n > 0 && dir[n - 1] != L'\\\\') n--;\n" +
-            "    if (n > 0) dir[n - 1] = 0;\n" +
-            "    wchar_t cmd[1024];\n" +
-            "    lstrcpyW(cmd, L\"cmd.exe /c \\\"\\\"\");\n" +
-            "    lstrcatW(cmd, dir);\n" +
-            "    lstrcatW(cmd, L\"\\\\" + bat_name + "\\\"\\\"\");\n" +
-            "    STARTUPINFOW si;\n" +
-            "    ZeroMemory(&si, sizeof(si));\n" +
-            "    si.cb = sizeof(si);\n" +
-            "    si.dwFlags = STARTF_USESHOWWINDOW;\n" +
-            "    si.wShowWindow = SW_HIDE;\n" +
-            "    PROCESS_INFORMATION pi;\n" +
-            "    ZeroMemory(&pi, sizeof(pi));\n" +
-            "    if (!CreateProcessW(NULL, cmd, NULL, NULL, FALSE, CREATE_NO_WINDOW, NULL, dir, &si, &pi))\n" +
-            "        return 1;\n" +
-            "    CloseHandle(pi.hThread);\n" +
-            "    CloseHandle(pi.hProcess);\n" +
-            "    return 0;\n" +
-            "}\n"
-    }
-
-    function write_windows_exe_launcher(opts, windir, package_name) {
-        local compiler = this.host_windows() ? "gcc" : "x86_64-w64-mingw32-gcc"
-        if (!this.executable_available(compiler)) {
-            this.report_warn(opts, "mingw C compiler not found (" + compiler +
-                "); GUI shortcut will fall back to the .bat launcher")
-            return false
-        }
-
-        local bat_name = this.windows_primary_launcher_name(opts, package_name)
-        local out = GLib.build_filenamev([windir, this.windows_exe_launcher_name(opts, package_name)])
-        local src = GLib.build_filenamev([GLib.get_tmp_dir(),
-            "sqgipkg-launcher-" + GLib.get_monotonic_time() + ".c"])
-
-        this.write_file(src, this.windows_exe_launcher_source(bat_name))
-        local status = this.process([compiler, "-O2", "-s", "-mwindows", "-o", out, src]).status
-        remove(src)
-
-        if (status != 0 || !this.path_exists(out)) {
-            this.report_warn(opts, "failed to compile Windows GUI launcher; " +
-                "falling back to the .bat shortcut")
-            return false
-        }
-
-        this.info("wrote Windows GUI launcher: " + this.windows_exe_launcher_name(opts, package_name))
-        return true
-    }
-
     function write_windows_launcher(opts, windir, app_name, entry_rel) {
         local path = GLib.build_filenamev([windir, app_name + ".bat"])
         local gtk_theme = this.windows_effective_gtk_theme(opts)
@@ -604,8 +549,7 @@ class SqgiPkgWindowsStaging extends Base.SqgiPkgWindowsOoblerg {
                 "--record", windir + ".typelib-compat.json"], "checking Ooblerg typelib library names")
         }
         this.write_windows_launcher(opts, windir, package_name, entry_rel)
-        if (this.windows_gui_enabled(opts))
-            this.write_windows_exe_launcher(opts, windir, package_name)
+        Launcher.build(this, opts, windir, package_name, entry_rel)
 
         return windir
     }

@@ -292,6 +292,31 @@ header bitmap and `welcome_image` sets the welcome/finish bitmap.
 When `autostart` is true, the installer creates a current-user Startup shortcut
 and the uninstaller removes it.
 
+Set `windows.nsis_options.side_by_side` to `true` to install separate builds
+alongside each other. The default installation path gains a directory named
+from the packaged files' checksum, prefixed by `windows.nsis_options.version`
+when supplied. For example:
+
+```json
+{
+  "windows": {
+    "nsis_options": {
+      "side_by_side": true,
+      "version": "0.1.0.181"
+    }
+  }
+}
+```
+
+Each build has its own Windows uninstall entry. An explicit `install_dir`
+overrides the default path; side-by-side installers require an empty destination,
+including when run silently. The `version` also appears in the Windows
+installed-apps list.
+
+Uninstallers remove the files supplied by their installer and retain additional
+files you create in the installation directory. Removing an older installation
+preserves shortcuts and registered fonts last installed by a newer one.
+
 ## Smoke Tests And Reports
 
 Use `--doctor` before the expensive targets:

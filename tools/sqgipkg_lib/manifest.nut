@@ -405,6 +405,8 @@ class SqgiPkgManifest extends Base.SqgiPkgSchema {
 
         local installer_name = this.table_get(nsis_options, "installer_name")
         local install_dir = this.table_get(nsis_options, "install_dir")
+        local side_by_side = this.table_get(nsis_options, "side_by_side")
+        local version = this.table_get(nsis_options, "version")
         local request_execution_level = this.table_get(nsis_options, "request_execution_level")
         local license = this.table_get(nsis_options, "license")
         local icon = this.table_get(nsis_options, "icon")
@@ -419,6 +421,8 @@ class SqgiPkgManifest extends Base.SqgiPkgSchema {
 
         if (installer_name != null) opts.windows.nsis_installer_name = installer_name
         if (install_dir != null) opts.windows.nsis_install_dir = install_dir
+        if (side_by_side != null) opts.windows.nsis_side_by_side = side_by_side
+        if (version != null) opts.windows.nsis_version = version
         if (request_execution_level != null) opts.windows.nsis_request_execution_level = request_execution_level
         if (license != null) opts.windows.nsis_license = this.manifest_path(base_dir, license)
         if (icon != null) opts.windows.nsis_icon = this.manifest_path(base_dir, icon)

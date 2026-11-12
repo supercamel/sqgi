@@ -4,6 +4,7 @@ local Base = import("staging.nut")
 
 class SqgiPkgWindowsNsis extends Base.SqgiPkgWindowsStaging {
     function nsis_escape(value) {
+        this.nsis_validate_string(value)
         local out = ""
         for (local i = 0; i < value.len(); i++) {
             local ch = value.slice(i, i + 1)
@@ -15,6 +16,7 @@ class SqgiPkgWindowsNsis extends Base.SqgiPkgWindowsStaging {
     }
 
     function nsis_escape_keep_vars(value) {
+        this.nsis_validate_string(value)
         local out = ""
         for (local i = 0; i < value.len(); i++) {
             local ch = value.slice(i, i + 1)
@@ -22,6 +24,47 @@ class SqgiPkgWindowsNsis extends Base.SqgiPkgWindowsStaging {
             else out += ch
         }
         return out
+    }
+
+    function nsis_validate_string(value) {
+        if (typeof(value) != "string") this.fail("NSIS values must be strings")
+        for (local i = 0; i < value.len(); i++) if (value[i] == 0 || value[i] == 10 || value[i] == 13)
+            this.fail("NSIS values cannot contain NUL or newline characters")
+    }
+
+    function nsis_payload(root, hash_files) {
+        local files = [], directories = [], seen = {}, visit
+        visit = function(path, prefix) {
+            foreach (entry in this.children(path)) {
+                local name = entry.name, lower = GLib.utf8_casefold(name, -1), relative = prefix + name
+                if (entry.symlink || name == "" || name[name.len() - 1] == '.' || name[name.len() - 1] == ' ' ||
+                    regexp("^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\\..*)?$").match(lower))
+                    this.fail("Unsupported Windows installer payload path: " + relative)
+                for (local i = 0; i < name.len(); i++) if ((name[i] & 255) < 32 || "<>:\\|?*\"".find(name.slice(i, i + 1)) != null)
+                    this.fail("Unsupported Windows installer payload path: " + relative)
+                local key = GLib.utf8_casefold(relative, -1)
+                if (key in seen || key == "uninstall.exe") this.fail("Conflicting Windows installer payload path: " + relative)
+                seen[key] <- true
+                if (entry.directory) { directories.push(relative); visit(entry.path, relative + "/") }
+                else {
+                    if (Gio.File.new_for_path(entry.path).query_file_type(Gio.FileQueryInfoFlags.nofollow_symlinks, null) != Gio.FileType.regular)
+                        this.fail("Installer payload must contain regular files: " + relative)
+                    files.push({ path = relative, source = entry.path, sha256 = hash_files ? this.file_sha256(entry.path) : null })
+                }
+            }
+        }.bindenv(this)
+        visit(root, "")
+        local identity = []; foreach (entry in files) identity.push([entry.path, entry.sha256])
+        return { files = files, directories = directories,
+            sha256 = GLib.compute_checksum_for_data(GLib.ChecksumType.sha256, sqgi.json.stringify([identity, directories])) }
+    }
+
+    function nsis_owned_shortcut(link, owner, action) {
+        local key = this.nsis_escape(owner), path = this.nsis_escape_keep_vars(link)
+        if (action == "install") return "  WriteRegStr HKCU \"" + key + "\" \"" + path + "\" \"$INSTDIR\"\n"
+        return "  ReadRegStr $0 HKCU \"" + key + "\" \"" + path + "\"\n" +
+            "  ${If} $0 == $INSTDIR\n  Delete \"" + path + "\"\n" +
+            "  DeleteRegValue HKCU \"" + key + "\" \"" + path + "\"\n  ${EndIf}\n"
     }
 
     function nsis_install_dir(opts, package_name) {
@@ -64,6 +107,10 @@ class SqgiPkgWindowsNsis extends Base.SqgiPkgWindowsStaging {
     }
 
     function nsis_shortcut_target(opts, package_name, windir) {
+        if (this.windows_console_enabled(opts)) {
+            local console = package_name + "-console.exe"
+            if (this.path_exists(GLib.build_filenamev([windir, console]))) return console
+        }
         if (this.windows_gui_enabled(opts)) {
             local exe = this.windows_exe_launcher_name(opts, package_name)
             if (this.path_exists(GLib.build_filenamev([windir, exe])))
@@ -112,6 +159,7 @@ class SqgiPkgWindowsNsis extends Base.SqgiPkgWindowsStaging {
                 "  WriteRegStr HKCU \"Software\\Microsoft\\Windows NT\\CurrentVersion\\Fonts\" \"" +
                 this.nsis_escape(registry_name) + "\" \"" + this.nsis_escape_keep_vars(target) + "\"\n" +
                 "  System::Call 'gdi32::AddFontResourceW(w \"" + this.nsis_escape_keep_vars(target) + "\") i .r0'\n"
+            text += "  WriteRegStr HKCU \"Software\\sqgipkg\\FontInstallations\" \"" + this.nsis_escape(registry_name) + "\" \"$INSTDIR\"\n"
         }
         text += this.nsis_font_broadcast_line()
         return text
@@ -127,11 +175,16 @@ class SqgiPkgWindowsNsis extends Base.SqgiPkgWindowsStaging {
             if (file_name == "" || registry_name == "") continue
 
             local target = this.nsis_font_target_path(font)
-            text += "  System::Call 'gdi32::RemoveFontResourceW(w \"" + this.nsis_escape_keep_vars(target) + "\") i .r0'\n" +
+            text += "  ReadRegStr $0 HKCU \"Software\\sqgipkg\\FontInstallations\" \"" + this.nsis_escape(registry_name) + "\"\n" +
+                "  ${If} $0 == $INSTDIR\n" +
+                "  System::Call 'gdi32::RemoveFontResourceW(w \"" + this.nsis_escape_keep_vars(target) + "\") i .r0'\n" +
                 "  DeleteRegValue HKCU \"Software\\Microsoft\\Windows NT\\CurrentVersion\\Fonts\" \"" +
                 this.nsis_escape(registry_name) + "\"\n" +
-                "  Delete \"" + this.nsis_escape_keep_vars(target) + "\"\n"
+                "  Delete \"" + this.nsis_escape_keep_vars(target) + "\"\n" +
+                "  DeleteRegValue HKCU \"Software\\sqgipkg\\FontInstallations\" \"" + this.nsis_escape(registry_name) + "\"\n" +
+                "  ${EndIf}\n"
         }
+        text += "  DeleteRegKey /ifempty HKCU \"Software\\sqgipkg\\FontInstallations\"\n"
         text += this.nsis_font_broadcast_line()
         return text
     }
@@ -140,8 +193,6 @@ class SqgiPkgWindowsNsis extends Base.SqgiPkgWindowsStaging {
         local package_name = this.package_basename(opts.name)
         local script = GLib.build_filenamev([opts.output_dir, package_name + ".nsi"])
         local installer = this.nsis_installer_name(opts, package_name)
-        // Native Windows NSIS only recognizes backslashes when splitting File patterns.
-        local source_glob = GLib.build_filenamev([package_name, "*"])
         local launcher = this.nsis_shortcut_target(opts, package_name, windir)
         local install_dir = this.nsis_install_dir(opts, package_name)
         local level = this.nsis_validate_execution_level(opts.windows.nsis_request_execution_level)
@@ -152,6 +203,12 @@ class SqgiPkgWindowsNsis extends Base.SqgiPkgWindowsStaging {
         local header_image_abs = this.nsis_compile_asset_path(opts.windows.nsis_header_image, "NSIS header image")
         local welcome_image_abs = this.nsis_compile_asset_path(opts.windows.nsis_welcome_image, "NSIS welcome image")
         local has_license = license_abs != ""
+        local payload = this.nsis_payload(windir, opts.windows.nsis_side_by_side)
+        local build_id = (opts.windows.nsis_version == "" ? "" : opts.windows.nsis_version + "-") + payload.sha256.slice(0, 12)
+        if (opts.windows.nsis_side_by_side && opts.windows.nsis_install_dir == "") install_dir += "\\" + build_id
+        local owner = "Software\\sqgipkg\\Installations\\" + (opts.app_id != "" ? opts.app_id : package_name)
+        local uninstall = "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\" + package_name +
+            (opts.windows.nsis_side_by_side ? "-" + build_id : "")
 
         // Stable Windows NSIS distributions may contain only x86 stubs. A
         // 32-bit installer can deploy our x86_64 payload on 64-bit Windows.
@@ -191,13 +248,30 @@ class SqgiPkgWindowsNsis extends Base.SqgiPkgWindowsStaging {
                 "    MessageBox MB_OK|MB_ICONSTOP \"This application requires 64-bit Windows.\"\n" +
                 "    Abort\n" +
                 "  ${EndIf}\n" +
+                "  SetShellVarContext current\n" +
                 "  SetRegView 64\n" +
                 "FunctionEnd\n\n"
         }
 
-        text += "Section \"Install\"\n" +
-            "  SetOutPath \"$INSTDIR\"\n" +
-            "  File /r \"" + this.nsis_escape(source_glob) + "\"\n"
+        text += "Section \"Install\"\n"
+        if (opts.windows.nsis_side_by_side) text +=
+            "  FindFirst $0 $1 \"$INSTDIR\\*\"\ncheck_directory:\n" +
+            "  StrCmp $1 \"\" directory_ready\n  StrCmp $1 \".\" next_entry\n  StrCmp $1 \"..\" next_entry\n" +
+            "  FindClose $0\n  MessageBox MB_OK|MB_ICONSTOP \"Choose an empty installation folder.\" /SD IDOK\n" +
+            "  SetErrorLevel 2\n  Abort\nnext_entry:\n  FindNext $0 $1\n  Goto check_directory\n" +
+            "directory_ready:\n  FindClose $0\n"
+        foreach (directory in payload.directories)
+            text += "  CreateDirectory \"$INSTDIR\\" + this.nsis_escape(this.windows_path(directory)) + "\"\n"
+        foreach (entry in payload.files) {
+            local parent = GLib.path_get_dirname(entry.path)
+            local source = this.abs_path(entry.source)
+            // Native NSIS splits its source patterns using Windows separators.
+            if (this.host_windows()) source = this.windows_path(source)
+            text += "  SetOutPath \"$INSTDIR" + (parent == "." ? "" : "\\" + this.nsis_escape(this.windows_path(parent))) + "\"\n" +
+                "  File \"/oname=" + this.nsis_escape(GLib.path_get_basename(entry.path)) + "\" \"" +
+                this.nsis_escape_keep_vars(source) + "\"\n"
+        }
+        text += "  SetOutPath \"$INSTDIR\"\n"
 
         text += this.nsis_install_fonts_lines(opts)
 
@@ -207,6 +281,7 @@ class SqgiPkgWindowsNsis extends Base.SqgiPkgWindowsStaging {
                 launcher,
                 has_icon
             )
+            text += this.nsis_owned_shortcut("$DESKTOP\\" + this.nsis_escape(opts.name) + ".lnk", owner, "install")
         }
 
         if (opts.windows.nsis_start_menu_shortcut) {
@@ -218,6 +293,8 @@ class SqgiPkgWindowsNsis extends Base.SqgiPkgWindowsStaging {
                     ) +
                     "  CreateShortcut \"$SMPROGRAMS\\" + this.nsis_escape(start_menu_folder) + "\\Uninstall " + this.nsis_escape(opts.name) + ".lnk\" " +
                     "\"$INSTDIR\\Uninstall.exe\"\n"
+            text += this.nsis_owned_shortcut("$SMPROGRAMS\\" + this.nsis_escape(start_menu_folder) + "\\" + this.nsis_escape(opts.name) + ".lnk", owner, "install")
+            text += this.nsis_owned_shortcut("$SMPROGRAMS\\" + this.nsis_escape(start_menu_folder) + "\\Uninstall " + this.nsis_escape(opts.name) + ".lnk", owner, "install")
         }
 
         if (opts.windows.nsis_autostart) {
@@ -227,36 +304,45 @@ class SqgiPkgWindowsNsis extends Base.SqgiPkgWindowsStaging {
                         launcher,
                         has_icon
                     )
+            text += this.nsis_owned_shortcut("$SMSTARTUP\\" + this.nsis_escape(opts.name) + ".lnk", owner, "install")
         }
 
         text += "  WriteUninstaller \"$INSTDIR\\Uninstall.exe\"\n"
 
         if (opts.windows.nsis_uninstall_registry) {
-            text += "  WriteRegStr HKCU \"Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\" + this.nsis_escape(package_name) + "\" \"DisplayName\" \"" + this.nsis_escape(opts.name) + "\"\n" +
-                    "  WriteRegStr HKCU \"Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\" + this.nsis_escape(package_name) + "\" \"UninstallString\" \"$INSTDIR\\Uninstall.exe\"\n" +
-                    "  WriteRegStr HKCU \"Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\" + this.nsis_escape(package_name) + "\" \"InstallLocation\" \"$INSTDIR\"\n" +
-                    "  WriteRegStr HKCU \"Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\" + this.nsis_escape(package_name) + "\" \"DisplayIcon\" \"$INSTDIR\\" + (has_icon ? "app.ico" : launcher) + "\"\n"
+            local key = this.nsis_escape(uninstall)
+            text += "  WriteRegStr HKCU \"" + key + "\" \"DisplayName\" \"" + this.nsis_escape(opts.name) + "\"\n" +
+                    "  WriteRegStr HKCU \"" + key + "\" \"DisplayVersion\" \"" + this.nsis_escape(opts.windows.nsis_version) + "\"\n" +
+                    "  WriteRegStr HKCU \"" + key + "\" \"UninstallString\" '$\\\"$INSTDIR\\Uninstall.exe$\\\"'\n" +
+                    "  WriteRegStr HKCU \"" + key + "\" \"InstallLocation\" \"$INSTDIR\"\n" +
+                    "  WriteRegStr HKCU \"" + key + "\" \"DisplayIcon\" \"$INSTDIR\\" + this.nsis_escape(has_icon ? "app.ico" : launcher) + "\"\n"
         }
 
         text += "SectionEnd\n\n" +
             "Section \"Uninstall\"\n"
 
         if (opts.windows.nsis_desktop_shortcut)
-            text += "  Delete \"$DESKTOP\\" + this.nsis_escape(opts.name) + ".lnk\"\n"
+            text += this.nsis_owned_shortcut("$DESKTOP\\" + this.nsis_escape(opts.name) + ".lnk", owner, "uninstall")
         if (opts.windows.nsis_start_menu_shortcut) {
-            text += "  Delete \"$SMPROGRAMS\\" + this.nsis_escape(start_menu_folder) + "\\" + this.nsis_escape(opts.name) + ".lnk\"\n" +
-                    "  Delete \"$SMPROGRAMS\\" + this.nsis_escape(start_menu_folder) + "\\Uninstall " + this.nsis_escape(opts.name) + ".lnk\"\n" +
+            text += this.nsis_owned_shortcut("$SMPROGRAMS\\" + this.nsis_escape(start_menu_folder) + "\\" + this.nsis_escape(opts.name) + ".lnk", owner, "uninstall") +
+                    this.nsis_owned_shortcut("$SMPROGRAMS\\" + this.nsis_escape(start_menu_folder) + "\\Uninstall " + this.nsis_escape(opts.name) + ".lnk", owner, "uninstall") +
                     "  RMDir \"$SMPROGRAMS\\" + this.nsis_escape(start_menu_folder) + "\"\n"
         }
         if (opts.windows.nsis_autostart)
-            text += "  Delete \"$SMSTARTUP\\" + this.nsis_escape(opts.name) + ".lnk\"\n"
+            text += this.nsis_owned_shortcut("$SMSTARTUP\\" + this.nsis_escape(opts.name) + ".lnk", owner, "uninstall")
         if (opts.windows.nsis_uninstall_registry)
-            text += "  DeleteRegKey HKCU \"Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\" + this.nsis_escape(package_name) + "\"\n"
+            text += "  ReadRegStr $0 HKCU \"" + this.nsis_escape(uninstall) + "\" \"InstallLocation\"\n" +
+                "  ${If} $0 == $INSTDIR\n  DeleteRegKey HKCU \"" + this.nsis_escape(uninstall) + "\"\n  ${EndIf}\n"
+        text += "  DeleteRegKey /ifempty HKCU \"" + this.nsis_escape(owner) + "\"\n"
         text += this.nsis_uninstall_fonts_lines(opts)
-        text += "  RMDir /r \"$INSTDIR\"\n" +
-            "SectionEnd\n"
+        foreach (entry in payload.files) text += "  Delete \"$INSTDIR\\" + this.nsis_escape(this.windows_path(entry.path)) + "\"\n"
+        text += "  Delete \"$INSTDIR\\Uninstall.exe\"\n"
+        for (local i = payload.directories.len() - 1; i >= 0; i--)
+            text += "  RMDir \"$INSTDIR\\" + this.nsis_escape(this.windows_path(payload.directories[i])) + "\"\n"
+        text += "  RMDir \"$INSTDIR\"\nSectionEnd\n"
 
-        this.write_file(script, text)
+        // Explicit UTF-8 also preserves non-ASCII paths with native makensis.
+        this.write_file(script, "\xEF\xBB\xBF" + text)
         return script
     }
 

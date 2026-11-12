@@ -75,7 +75,7 @@ class SqgiPkgAndroid extends Base.SqgiPkgDoctor {
             repository = "https://ooblerg.xyz", download = true, refresh = false,
             runner = "auto", inspection_root = "", serial = "", module_set = "", variant = "debug",
             version_code = 1, version_name = "0.1.0", namespaces = ["Gtk-4.0"], runtime = "package",
-            permissions = [], icon = "", native = [], packages = [], profile = "auto" }
+            permissions = [], icon = "", native = [], packages = [], profile = "auto", compiler = "none" }
         return opts
     }
     function schema_fields() {
@@ -83,7 +83,7 @@ class SqgiPkgAndroid extends Base.SqgiPkgDoctor {
         fields.platforms.push("android")
         fields.platform_linux.push("enabled"); fields.platform_windows.push("enabled")
         fields.platform_android <- ["enabled", "architectures", "format", "sdk", "sdk_path", "min_sdk", "version_code",
-            "version_name", "namespaces", "runtime", "repository", "download", "runner", "inspection_root", "serial", "module_set", "variant", "permissions", "icon", "native", "packages", "profile"]
+            "version_name", "namespaces", "runtime", "repository", "download", "runner", "inspection_root", "serial", "module_set", "variant", "permissions", "icon", "native", "packages", "profile", "compiler"]
         return fields
     }
     function apply_option_dict(opts, options) {
@@ -249,7 +249,7 @@ class SqgiPkgAndroid extends Base.SqgiPkgDoctor {
     function android_resolve_native_overrides(opts) {
         if (opts.android_overrides_applied) return
         if (!opts.android.native.len()) { opts.android_overrides_applied = true; return }
-        local recipes = {}, authored = {}, result = []
+        local recipes = {}, authored = {}, result = [], additions = []
         foreach (project in opts.native_projects) recipes[project.name] <- project
         if (authored_manifest != null) foreach (field in ["native", "native_projects"]) {
             local values = this.table_get(authored_manifest, field, [])
@@ -264,8 +264,13 @@ class SqgiPkgAndroid extends Base.SqgiPkgDoctor {
         }
         foreach (index, override in opts.android.native) {
             current_error_path = ["platforms", "android", "native", index]
-            if (!(override.name in recipes) || !(override.name in authored)) this.fail("Unknown Android native override: " + override.name)
-            local merged = clone authored[override.name]
+            local existing = override.name in recipes && override.name in authored
+            // A complete platform recipe adds a module only to Android. A
+            // name-only partial override must still identify a shared recipe.
+            if (!existing && !("dir" in override) && !("repo" in override) && !("git" in override) && !("android_package" in override))
+                this.fail("Unknown Android native override: " + override.name)
+            local merged = existing ? clone authored[override.name] : { build_system = "meson" }
+            if (!existing) additions.push(override.name)
             foreach (aliases in [["repo", "git"], ["ref", "tag", "commit"]]) {
                 local count = 0
                 foreach (key in aliases) if (key in override) count++
@@ -280,9 +285,10 @@ class SqgiPkgAndroid extends Base.SqgiPkgDoctor {
                 } else merged[key] <- value
             }
             this.validate_manifest_schema(merged, "native_projects", "Android native recipe " + override.name, true, ["platforms", "android", "native", index])
-            recipes[override.name] = this.manifest_native_projects(opts.manifest_dir, [merged])[0]
+            recipes[override.name] <- this.manifest_native_projects(opts.manifest_dir, [merged])[0]
         }
         foreach (project in opts.native_projects) result.push(recipes[project.name])
+        foreach (name in additions) result.push(recipes[name])
         this.validate_recipe_names(result)
         opts.native_projects = this.order_native_projects(result)
         opts.android_overrides_applied = true
@@ -290,6 +296,9 @@ class SqgiPkgAndroid extends Base.SqgiPkgDoctor {
     }
     function android_runtime_source_dir(opts) {
         return opts.sqgi_source.dir != "" ? opts.sqgi_source.dir : this.sqgi_source_checkout_dir(opts)
+    }
+    function android_runtime_configuration(opts) {
+        return AndroidRuntime.configuration(opts.android.compiler, opts.android.compiler == "llvm" && opts.runtime_jit)
     }
     function validate_android(opts) {
         this.android_resolve_native_overrides(opts)
@@ -306,13 +315,23 @@ class SqgiPkgAndroid extends Base.SqgiPkgDoctor {
             if (!found) this.fail("entry.android.project must name a native recipe")
         }
         opts.android.runtime = this.android_source_runtime(opts) ? "source" : "package"
+        current_error_path = ["platforms", "android", "compiler"]
+        if (["none", "llvm"].find(opts.android.compiler) == null) this.fail("Android compiler must be none or llvm")
+        if (opts.android.compiler == "llvm") {
+            if (opts.android.runtime != "source") this.fail("Android compiler selection requires runtime.source or runtime.sqgi")
+            if (opts.android.module_set != "") this.fail("Android compiler selection requires the unified package catalog")
+            if (opts.android.packages.find(AndroidRuntime.COMPILER_PACKAGE) != null)
+                this.fail("compiler-llvm18 is selected automatically by platforms.android.compiler")
+            foreach (project in opts.native_projects) if (project.android_package == AndroidRuntime.COMPILER_PACKAGE)
+                this.fail("compiler-llvm18 is selected automatically by platforms.android.compiler")
+        }
         if (opts.android.runtime == "source") {
             current_error_path = ["runtime"]
             if (!opts.runtime_recipe) this.fail("Android runtime source requires runtime.source or runtime.sqgi")
             local requested = authored_manifest == null ? null : this.table_get(authored_manifest, "runtime")
-            if (requested != null && this.table_get(requested, "jit", false)) {
+            if (opts.android.compiler == "none" && requested != null && this.table_get(requested, "jit", false)) {
                 current_error_path = ["runtime", "jit"]
-                this.fail("Android SQGI source builds require runtime.jit false; JIT and typed kernels are disabled")
+                this.fail("Android runtime.jit true requires platforms.android.compiler llvm")
             }
         }
         if (opts.entry_type == "sqgi" && opts.script == "") this.fail("Android packaging requires an entry script")
@@ -404,10 +423,13 @@ class SqgiPkgAndroid extends Base.SqgiPkgDoctor {
             runtime = { recipe = this.android_source_runtime(opts), package = this.android_source_runtime(opts) ? null : "sqgi",
                 source = this.android_source_runtime(opts) ? this.android_runtime_source_dir(opts) : null,
                 revision = this.android_source_runtime(opts) ? opts.sqgi_source.ref : null, commands = [],
-                requested = { jit = false, kernels = false }, verified_binary = null },
+                requested = this.android_source_runtime(opts) ? { jit = this.android_runtime_configuration(opts).jit,
+                    kernels = this.android_runtime_configuration(opts).kernels } : null,
+                verified_binary = null },
             generated_outputs = "Android native exports and dependency closure are verified during the build.",
             native = native, package_source = opts.android.sdk_path == "" ? "ooblerg" : "local-sdk",
-            packages = opts.android.sdk_path == "" ? ["sqgi-android-" + this.android_sdk_profile(opts)].extend(opts.android.packages) : [], build_packages = [], linux_suite = null, files = opts.files,
+            packages = opts.android.sdk_path == "" ? ["sqgi-android-" + this.android_sdk_profile(opts)].extend(opts.android.packages).extend(
+                opts.android.compiler == "llvm" ? [AndroidRuntime.COMPILER_PACKAGE] : []) : [], build_packages = [], linux_suite = null, files = opts.files,
             scripts = opts.scripts, script_dirs = opts.script_dirs, resources = opts.resources,
             features = opts.features, discovery = opts.report }
     }
@@ -457,7 +479,7 @@ class SqgiPkgAndroid extends Base.SqgiPkgDoctor {
         if (this.android_source_runtime(opts)) {
             local source = this.android_runtime_source_dir(opts)
             if (!AndroidCommon.is_dir(source)) this.fail("SQGI runtime sources are missing; build/deploy before syncing: " + source)
-            result.runtime_source <- AndroidRuntime.identity(source).sha256
+            result.runtime_source <- AndroidRuntime.identity(source, this.android_runtime_configuration(opts)).sha256
         }
         if (opts.entry_type == "native") result.native_entry_header <- AndroidCommon.file_hash(AndroidEntry.directory + "/sqgi_android_entry.h")
         return result
@@ -543,7 +565,9 @@ class SqgiPkgAndroid extends Base.SqgiPkgDoctor {
                 if (actual != wanted) this.fail("SQGI runtime source checkout does not match runtime.sqgi")
             }
             opts.sqgi_source = clone opts.sqgi_source; opts.sqgi_source.dir = source
-            runtime_source = { directory = source, identity = AndroidRuntime.identity(source), revision = opts.sqgi_source.ref }
+            local configuration = this.android_runtime_configuration(opts)
+            runtime_source = { directory = source, identity = AndroidRuntime.identity(source, configuration),
+                configuration = configuration, revision = opts.sqgi_source.ref }
             this.record_input("android-runtime-source", { sha256 = runtime_source.identity.sha256, source = runtime_source.identity,
                 requested_revision = runtime_source.revision })
         }
@@ -568,6 +592,7 @@ class SqgiPkgAndroid extends Base.SqgiPkgDoctor {
                 request.locked = this.locked_inputs["android-catalog"]
             }
             request.native_packages <- []
+            if (opts.android.compiler == "llvm") request.native_packages.push(AndroidRuntime.COMPILER_PACKAGE)
             foreach (project in opts.native_projects) if (project.android_package != "") request.native_packages.push(project.android_package)
             local result = this.android_request(request, job)
             catalog_lock = result.lock
@@ -605,6 +630,10 @@ class SqgiPkgAndroid extends Base.SqgiPkgDoctor {
         else this.begin_build_output(artifact)
         this.report_build_progress(opts, prepare_only ? "preparing" : "packaging")
         local has_native = opts.native_projects.len() || module_packages.len()
+        if (this.locked_inputs != null && opts.android.compiler == "llvm") {
+            if (!("android-runtime-compiler" in this.locked_inputs)) this.fail("lockfile has no Android runtime compiler input")
+            request.runtime_modules_lock <- this.locked_inputs["android-runtime-compiler"]
+        }
         if (this.locked_inputs != null && has_native) {
             if (!("android-inspection" in this.locked_inputs)) this.fail("lockfile has no Android inspection input")
             request.inspection_sha256 <- this.locked_inputs["android-inspection"].sha256
@@ -616,6 +645,7 @@ class SqgiPkgAndroid extends Base.SqgiPkgDoctor {
             }
         }
         local result = this.android_request(request, job)
+        if (opts.android.compiler == "llvm") this.record_input("android-runtime-compiler", result.runtime_build.compiler.modules.modules_lock)
         if (has_native) this.record_input("android-inspection", { sha256 = result.native.inspection_sha256 })
         if (has_native && result.native.modules_lock != null) this.record_input("android-modules", result.native.modules_lock)
         this.mkdir_p(opts.output_dir)

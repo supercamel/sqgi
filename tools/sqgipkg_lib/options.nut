@@ -125,6 +125,8 @@ class SqgiPkgOptions extends Base.SqgiPkgCore {
                 nsis = "makensis",
                 nsis_installer_name = "",
                 nsis_install_dir = "",
+                nsis_side_by_side = false,
+                nsis_version = "",
                 nsis_request_execution_level = "user",
                 nsis_license = "",
                 nsis_icon = "",
