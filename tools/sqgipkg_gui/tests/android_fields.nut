@@ -2,7 +2,7 @@ local D = import("../src/document.nut"), A = import("../src/android.nut")
 function require(ok, message) { if (!ok) throw message }
 local original = { target="all", future={keep=true}, entry={type="native",android={project="app",library="libapp.so",symbol="start"}},
     platforms={linux={architectures=["x86_64"]},android={enabled=false,sdk_path="private-sdk",runner="adb",architectures=["arm64-v8a"]}} }
-require(A.read({}).sdk == "noble-android-r4" && A.read({}).module_set == "", "New Android projects use the combined catalog")
+require(A.read({}).sdk == "noble-android-r6" && A.read({}).module_set == "", "New Android projects use the combined catalog")
 local snapshot = D.pretty(original)
 local changed = A.write(original, {min_sdk="31",version_code="7",version_name="0.7",namespaces="Gtk-4.0, MyModule-1.0",variant="release"})
 local resources = A.write(changed, {permissions="android.permission.INTERNET, android.permission.CAMERA",icon="art/android.svg"})

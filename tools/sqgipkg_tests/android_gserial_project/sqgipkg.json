@@ -1,0 +1,58 @@
+{
+  "schema_version": 2,
+  "name": "Android USB serial qualification",
+  "app_id": "org.sqgi.android.gserialqualification",
+  "script": "main.nut",
+  "compile_scripts": false,
+  "features": [
+    "gtk4"
+  ],
+  "files": [
+    {
+      "path": "probe.nut",
+      "dest": "usr/share/sqgi/app/probe.nut"
+    },
+    {
+      "path": "worker.nut",
+      "dest": "usr/share/sqgi/app/worker.nut"
+    }
+  ],
+  "native": [
+    {
+      "name": "gserial",
+      "android_package": "extras-gserial",
+      "gi": {
+        "namespace": "GSerial",
+        "version": "1.0",
+        "library": "gserial-1.0",
+        "strategy": "target"
+      }
+    },
+    {
+      "name": "worker",
+      "android_package": "extras-sqgi-worker",
+      "gi": {
+        "namespace": "SqWorker",
+        "version": "1.0",
+        "library": "sqgi-worker",
+        "strategy": "target"
+      }
+    }
+  ],
+  "platforms": {
+    "android": {
+      "architectures": [
+        "x86_64",
+        "arm64-v8a"
+      ],
+      "min_sdk": 31,
+      "sdk": "noble-android-r6",
+      "runtime": "package",
+      "namespaces": [
+        "Gtk-4.0",
+        "GSerial-1.0",
+        "SqWorker-1.0"
+      ]
+    }
+  }
+}

@@ -71,7 +71,7 @@ class SqgiPkgAndroid extends Base.SqgiPkgDoctor {
         opts.android_overrides_applied <- false
         opts.android_source_excludes <- []
         opts.android <- { declared = false, architectures = ["arm64-v8a"], format = "apk",
-            sdk_path = "", ndk = "", sdk = "noble-android-r4", min_sdk = 31,
+            sdk_path = "", ndk = "", sdk = "noble-android-r6", min_sdk = 31,
             repository = "https://ooblerg.xyz", download = true, refresh = false,
             runner = "auto", inspection_root = "", serial = "", module_set = "", variant = "debug",
             version_code = 1, version_name = "0.1.0", namespaces = ["Gtk-4.0"], runtime = "package",
