@@ -208,14 +208,20 @@ class AndroidSetup(unittest.TestCase):
         self.assertIn("/a path/emulator", result)
         self.assertIn("-no-window", result)
         self.assertEqual(result[result.index("-gpu") + 1], "auto")
-        self.assertEqual(result[result.index("-feature") + 1], "-HostComposition")
-        self.assertLess(result.index("-feature"), result.index("-qemu"))
+        def check_graphics_features(command):
+            features = [(i, command[i + 1]) for i, arg in enumerate(command) if arg == "-feature"]
+            self.assertEqual([value for _, value in features],
+                             ["-HostComposition", "VulkanAllocateHostMemory"])
+            for position, _ in features:
+                self.assertLess(position, command.index("-qemu"))
+
+        check_graphics_features(result)
         self.assertEqual(result[-3:], ["-qemu", "-cpu", "host"])
-        for gpu in ("host", "swangle"):
+        for gpu in ("auto", "host", "software", "lavapipe", "swiftshader", "swangle"):
             selected = self.bridge("emulator-command", paths=dict(emulator="/a path/emulator"),
                                    port="5564", headless=True, gpu=gpu)["result"]
             self.assertEqual(selected[selected.index("-gpu") + 1], gpu)
-            self.assertEqual(selected[selected.index("-feature") + 1], "-HostComposition")
+            check_graphics_features(selected)
         self.assertFalse(self.bridge("emulator-command", paths=dict(emulator="/a path/emulator"),
                                      port="5564", headless=True, gpu="host; touch surprise")["ok"])
 

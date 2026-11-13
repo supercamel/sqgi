@@ -54,7 +54,11 @@ M.command <- function(paths, port, headless, gpu = null) {
         // Emulator 37.2.13's host compositor can present older portions of
         // CPU-drawn GTK surfaces. Let SurfaceFlinger compose them instead;
         // the selected GPU still accelerates rendering and composition.
-        "-feature", "-HostComposition"]
+        "-feature", "-HostComposition",
+        // Allocate host-visible Vulkan memory in the emulator. Driver-owned
+        // mappings in 37.2.13 can corrupt individual GWorldScene draws,
+        // producing black sky frames even with host composition disabled.
+        "-feature", "VulkanAllocateHostMemory"]
     if (headless) result.push("-no-window")
     result.extend(["-qemu", "-cpu", "host"]) // Expose AES for ARM64 native translation.
     return result
