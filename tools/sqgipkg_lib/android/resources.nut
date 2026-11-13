@@ -16,25 +16,38 @@ M.permissions <- function(values) {
 }
 M.services <- function(sdk) {
     if (sdk == null) return ""
-    local declarations = "", classes = {}, processes = {}, prefix = "usr/share/sqgi-android/services/"
+    local declarations = "", classes = {}, processes = {}, initializers = {}, prefix = "usr/share/sqgi-android/services/"
+    local source = function(name) {
+        if (typeof(name) != "string" || !regexp("^[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z][A-Za-z0-9_]*)+(\\$[A-Za-z][A-Za-z0-9_]*)?$").match(name))
+            throw "Invalid Android component class"
+        local outer = split(name, "$", true)[0]
+        local java = "usr/share/sqgi-android/java/" + C.concat(split(outer, ".", true), "/") + ".java"
+        if (!(java in sdk.metadata.files)) throw "Android component lacks inventoried Java source: " + name
+    }
     foreach (path in C.keys(sdk.metadata.files)) if (C.starts(path, prefix)) {
         if (!C.ends(path, ".json")) throw "Invalid Android service metadata filename"
         local descriptor = sqgi.json.parse(C.read(sdk.root + "/" + path))
         if (C.get(descriptor, "schema") != 1 || typeof(C.get(descriptor, "services")) != "array")
             throw "Invalid Android service metadata"
         foreach (service in descriptor.services) {
-            local name = C.get(service, "class", ""), process = C.get(service, "process", "")
-            if (typeof(name) != "string" || !regexp("^[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z][A-Za-z0-9_]*)+(\\$[A-Za-z][A-Za-z0-9_]*)?$").match(name) ||
-                typeof(process) != "string" || !regexp("^:sqgi_[a-z][a-z0-9_]*$").match(process))
+            local name = C.get(service, "class", ""), process = C.get(service, "process")
+            source(name)
+            if (typeof(process) != "string" || (process != "" && !regexp("^:sqgi_[a-z][a-z0-9_]*$").match(process)))
                 throw "Invalid Android private service class or process"
-            if (name in classes || process in processes) throw "Duplicate Android service class or process"
-            local outer = split(name, "$", true)[0]
-            local java = "usr/share/sqgi-android/java/" + C.concat(split(outer, ".", true), "/") + ".java"
-            if (!(java in sdk.metadata.files)) throw "Android service lacks inventoried Java source: " + name
-            classes[name] <- true; processes[process] <- true
-            declarations += "        <service android:name=\"" + name + "\" android:process=\"" + process + "\" android:exported=\"false\" />\n"
+            if (name in classes || (process != "" && process in processes)) throw "Duplicate Android service class or process"
+            classes[name] <- true; if (process != "") processes[process] <- true
+            declarations += "        <service android:name=\"" + name + "\"" + (process == "" ? "" : " android:process=\"" + process + "\"") + " android:exported=\"false\" />\n"
+        }
+        local startup = C.get(descriptor, "initializers", [])
+        if (typeof(startup) != "array") throw "Invalid Android initializers"
+        foreach (name in startup) {
+            source(name)
+            if (name in initializers) throw "Duplicate Android initializer: " + name
+            initializers[name] <- true
         }
     }
+    foreach (name in C.keys(initializers))
+        declarations += "        <meta-data android:name=\"org.sqgi.android.initializer." + name + "\" android:value=\"" + name + "\" />\n"
     return declarations
 }
 M.prepare <- function(destination, config, icon = "", sdk = null) {

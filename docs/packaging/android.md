@@ -461,6 +461,27 @@ are recorded in the input lock.
 
 ## Prebuilt application modules
 
+Native packages can install Java sources under `usr/share/sqgi-android/java`
+and a descriptor under `usr/share/sqgi-android/services/*.json`. For example:
+
+```json
+{
+  "schema": 1,
+  "services": [{"class": "org.example.Input$Service", "process": ""}],
+  "initializers": ["org.example.Input"]
+}
+```
+
+Every component must have inventoried Java source. Services are always private
+(`exported=false`). An explicit empty `process` runs a service in the main
+application process; named private processes must use `:sqgi_…`. Omitting the
+process is an error. Initializer classes expose
+`public static void initialize(android.app.Application application)`. They run
+on the Android main thread before the first Activity, in sorted class-name order,
+and are skipped in SQGI worker processes. Initialization failures stop startup.
+This supports package-owned Android lifecycle hooks and services used by native
+workers without adding library-specific code to the host Activity.
+
 The Android catalog contains the SDK, GStreamer, GSceneGraph, GWorldScene,
 GSerial, GJoystick and their dependencies. List the available packages with:
 

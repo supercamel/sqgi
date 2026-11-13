@@ -488,6 +488,36 @@ class AndroidHostInputs(unittest.TestCase):
 
 
 class AndroidResources(unittest.TestCase):
+    def test_main_process_services_and_package_initializers(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            declaration = 'usr/share/sqgi-android/services/input.json'
+            java = 'usr/share/sqgi-android/java/org/example/Input.java'
+            path = root / declaration
+            path.parent.mkdir(parents=True)
+            metadata = {'schema': 1, 'services': [{'class': 'org.example.Input$Service', 'process': ''}],
+                        'initializers': ['org.example.Input']}
+            sdk = {'root': str(root), 'metadata': {'files': {declaration: {}, java: {}}}}
+            destination = root / 'prepared'
+            def prepare():
+                path.write_text(json.dumps(metadata))
+                squirrel_backend('android-resources', destination=str(destination), project={}, sdk=sdk)
+                return ET.parse(destination / 'AndroidManifest.xml').getroot().find('application')
+            app = prepare()
+            android = '{http://schemas.android.com/apk/res/android}'
+            self.assertNotIn(android + 'process', app.find('service').attrib)
+            self.assertEqual(app.find('service').attrib[android + 'exported'], 'false')
+            self.assertEqual(app.find('meta-data').attrib[android + 'value'], 'org.example.Input')
+            metadata['initializers'].append('org.example.Input')
+            with self.assertRaisesRegex(ValueError, 'Duplicate Android initializer'): prepare()
+            metadata['initializers'] = ['org.example.Missing']
+            with self.assertRaisesRegex(ValueError, 'inventoried Java'): prepare()
+            metadata['initializers'] = ['org.example.Input\"']
+            with self.assertRaisesRegex(ValueError, 'component class'): prepare()
+            metadata['initializers'] = []
+            del metadata['services'][0]['process']
+            with self.assertRaisesRegex(ValueError, 'private service'): prepare()
+
     def test_native_services_are_private_and_owned(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

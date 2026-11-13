@@ -148,11 +148,30 @@ public final class GtkApplication extends Application {
                 }
             }
             if (!worker) {
+                initializePackages();
                 GlueLibraryContext.setGlueLibraryProvider(() -> glue);
                 Log.i("SqgiAndroid", "Starting " + mode + " source " + entry);
             }
         } catch (IOException | JSONException error) {
             throw new IllegalStateException("Cannot install SQGI application assets", error);
+        }
+    }
+
+    // Packaged libraries can register public Android lifecycle hooks before the
+    // first Activity starts. Workers connect to their main-process services.
+    private void initializePackages() throws IOException {
+        try {
+            android.os.Bundle metadata = getPackageManager().getApplicationInfo(
+                getPackageName(), android.content.pm.PackageManager.GET_META_DATA).metaData;
+            if (metadata == null) return;
+            java.util.ArrayList<String> names = new java.util.ArrayList<>();
+            for (String key : metadata.keySet())
+                if (key.startsWith("org.sqgi.android.initializer.")) names.add(metadata.getString(key));
+            java.util.Collections.sort(names);
+            for (String name : names)
+                getClassLoader().loadClass(name).getMethod("initialize", Application.class).invoke(null, this);
+        } catch (ReflectiveOperationException | android.content.pm.PackageManager.NameNotFoundException failure) {
+            throw new IOException("Cannot initialize a packaged Android library", failure);
         }
     }
 
