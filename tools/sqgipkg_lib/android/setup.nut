@@ -60,7 +60,7 @@ M.report <- function(paths, emulator, native) {
     }
     local ok = true; foreach (item in checks) if (!item.ok) ok = false
     return { protocol_version = 1, ok = ok, platform = "android", paths = paths, checks = checks,
-        configuration = E.config_path(), sdk_release = "noble-android-r6", ndk_revision = "28.2.13676358" }
+        configuration = E.config_path(), sdk_release = "noble-android-r7", ndk_revision = "28.2.13676358" }
 }
 M.install <- function(paths, accept, emulator, offline, native = false) {
     if (emulator && E.host_arch() != "x86_64") throw "The bundled Android emulator requires Linux x86_64; deploy to a phone from ARM64"

@@ -46,7 +46,7 @@ M.legacy <- function(path) {
     if (!(entry in inventory)) throw "Legacy entry script is missing: " + entry
     local manifest = { schema_version = 2, name = config.name, app_id = id, target = "android-apk", compile_scripts = false,
         entry = { type = "sqgi", script = source_dir == "." ? entry : source_dir + "/" + entry, source_root = source_dir },
-        platforms = { android = { architectures = ["arm64-v8a", "x86_64"], format = "apk", sdk = "noble-android-r6", min_sdk = 31,
+        platforms = { android = { architectures = ["arm64-v8a", "x86_64"], format = "apk", sdk = "noble-android-r7", min_sdk = 31,
             version_code = code, version_name = config.version_name, namespaces = C.keys(unique) } } }
     if ("Gtk-4.0" in unique) manifest.features <- ["gtk4"]
     local common_files = [], windows_files = []

@@ -21,7 +21,7 @@ class SqgiPkgTemplates extends Base.SqgiPkgWindowsNsis {
             manifest.files <- [{ from = "src", to = "usr/share/sqgi/app", exclude = ["**/.git/**", "**/__pycache__/**"] }]
             manifest.windows <- { files = [{ from = "src", to = "share/sqgi/app", exclude = ["**/.git/**", "**/__pycache__/**"] }] }
             manifest.platforms <- { android = { architectures = ["arm64-v8a", "x86_64"], format = "apk",
-                sdk = "noble-android-r6", min_sdk = 31, namespaces = ["Gtk-4.0"] } }
+                sdk = "noble-android-r7", min_sdk = 31, namespaces = ["Gtk-4.0"] } }
         }
         else if (name == "gtk4" || name == "gtk4-gstreamer") {
             manifest.features <- name == "gtk4" ? ["gtk4"] : ["gtk4", "gstreamer"]

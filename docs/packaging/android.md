@@ -198,11 +198,11 @@ sqgipkg build --platform android --arch x86_64 --write-lock
 sqgipkg build --platform android --arch x86_64 --locked --no-android-download
 ```
 
-The default SDK release is `noble-android-r6` from `https://ooblerg.xyz`.
+The default SDK release is `noble-android-r7` from `https://ooblerg.xyz`.
 Its package catalogs are available for
-[ARM64](https://ooblerg.xyz/android/noble-android-r6/aarch64-linux-android/v3/index.json)
-and [x86_64](https://ooblerg.xyz/android/noble-android-r6/x86_64-linux-android/v3/index.json),
-alongside a [corresponding-source index](https://ooblerg.xyz/android/noble-android-r6/sources/index.json).
+[ARM64](https://ooblerg.xyz/android/noble-android-r7/aarch64-linux-android/v3/index.json)
+and [x86_64](https://ooblerg.xyz/android/noble-android-r7/x86_64-linux-android/v3/index.json),
+alongside a [corresponding-source index](https://ooblerg.xyz/android/noble-android-r7/sources/index.json).
 For an application using an older SDK release, update `platforms.android.sdk`
 and rebuild with `--write-lock`. Existing locks are not silently upgraded.
 A `file://` repository origin is supported for locally supplied catalogs.
@@ -476,7 +476,7 @@ library families can be used together:
   "platforms": {
     "android": {
       "architectures": ["x86_64", "arm64-v8a"],
-      "sdk": "noble-android-r6",
+      "sdk": "noble-android-r7",
       "packages": ["extras-gworldscene", "media-gst-plugins-bad"]
     }
   }
@@ -505,7 +505,7 @@ package selectors. Source recipes can depend on these named recipes through
 `--locked --no-android-download` replays cached SDK and library packages offline.
 Older manifests with `module_set` and their existing catalog locks remain
 supported; new projects select packages from the combined catalog.
-To migrate an older app, remove `module_set`, select `noble-android-r6`, and
+To migrate an older app, remove `module_set`, select `noble-android-r7`, and
 rebuild with `--write-lock`.
 
 ## Native application entry
@@ -570,7 +570,7 @@ Add the GStreamer package and camera permission to the Android settings:
 {
   "platforms": {
     "android": {
-      "sdk": "noble-android-r6",
+      "sdk": "noble-android-r7",
       "packages": ["media-gst-plugins-bad"],
       "permissions": ["android.permission.CAMERA"]
     }
@@ -611,7 +611,7 @@ desktop outputs, or `"source"` to require a shared source selector. Android
 source builds disable JIT and typed kernels by default while preserving desktop defaults.
 
 To enable the experimental LLVM compiler for a source runtime, set
-`platforms.android.compiler` to `"llvm"`. The `noble-android-r6` catalog provides
+`platforms.android.compiler` to `"llvm"`. The `noble-android-r7` catalog provides
 `compiler-llvm18` for ARM64 and x86_64. SQGI builds against that
 package's Ubuntu 24.04 LLVM 18.1.3 headers and library and bundles the library in
 the APK. Typed kernels are enabled; `runtime.jit` controls the bytecode JIT and

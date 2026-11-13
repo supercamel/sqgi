@@ -1,6 +1,6 @@
 // Common Android settings; the CLI owns SDK resolution and compatibility checks.
 local W = import("widgets.nut"), D = import("document.nut")
-local defaults = { min_sdk = 31, version_code = 1, version_name = "0.1.0", sdk = "noble-android-r6",
+local defaults = { min_sdk = 31, version_code = 1, version_name = "0.1.0", sdk = "noble-android-r7",
     repository = "https://ooblerg.xyz", module_set = "", namespaces = ["Gtk-4.0"], variant = "debug", runtime = "auto",
     permissions = [], icon = "", packages = [], profile = "auto" }
 local function read(value) {
