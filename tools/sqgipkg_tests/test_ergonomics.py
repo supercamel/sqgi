@@ -878,6 +878,7 @@ foreach (project in selected.native_projects) {{
 }}
 ''')
 
+    @unittest.skipIf(os.name == 'nt', 'cross-build fixture requires a POSIX host')
     @unittest.skipUnless(all(shutil.which(tool) for tool in ['meson', 'ninja', 'valac', 'x86_64-w64-mingw32-gcc']),
                          'Meson, Vala and MinGW required')
     def test_windows_native_vala_recipe_uses_target_sdk_bindings(self):
