@@ -32,6 +32,7 @@ M.metadata_closure <- function(roots, catalog) {
     return { namespaces = C.keys(found), libraries = libraries }
 }
 M.prepare <- function(request, sdk, work, tools) {
+    C.progress("preparing Android assets and library closure")
     local abi = request.abi, config = request.application, namespaces = ["Gtk-4.0"]
     namespaces.extend(config.namespaces); namespaces.extend(C.get(request, "native_namespaces", []))
     local metadata = M.metadata_closure(namespaces, C.get(sdk.metadata, "namespaces")), roots = [], entry = null
@@ -99,6 +100,7 @@ M.prepare <- function(request, sdk, work, tools) {
     return destination
 }
 M.package <- function(request, prepared, work, abis, tools = null) {
+    C.progress("packaging Android " + request.format)
     if (tools == null) tools = T.resolve(request)
     local variant = C.get(request, "variant", "debug"), java = tools.java
     Signing.configured(variant)
@@ -115,6 +117,7 @@ M.package <- function(request, prepared, work, abis, tools = null) {
     C.process(command, env, false)
     local suffix = request.format, output = project + "/app/build/outputs/" + (suffix == "apk" ? "apk" : "bundle") + "/" + variant + "/app-" + variant + "." + suffix
     if (suffix == "aab" && variant == "debug") output = Signing.sign_debug_bundle(output, work + "/app-debug-signed.aab", java)
+    C.progress("verifying Android artifact and signature")
     local verification = P.verify_artifact(output, abis), splits = {}, signer
     if (suffix == "aab") {
         signer = Signing.verify_aab(output, java, expected)
@@ -127,12 +130,14 @@ M.package <- function(request, prepared, work, abis, tools = null) {
         variant = variant, signer_sha256 = signer, verification = verification }
 }
 M.build <- function(request) {
+    C.progress("resolving Android toolchain")
     local tools = T.resolve(request); Signing.configured(C.get(request, "variant", "debug"))
     local sdk = S.SDK(request.sdk, request.abi, request.application.min_sdk).validate()
     if (sdk.sha256 != request.sdk_sha256) throw "Android SDK descriptor changed after input resolution"
     sdk.resolve_namespaces()
     local work = C.absolute(request.work)
     return C.locked(work + "/build.lock", function() {
+        C.progress("preparing runtime and native dependencies")
         local runtime = Runtime.build(request, sdk, work, tools)
         sdk = runtime.sdk
         local native = N.build(request, sdk, work, tools), options = clone request

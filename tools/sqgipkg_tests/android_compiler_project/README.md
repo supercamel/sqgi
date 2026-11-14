@@ -7,7 +7,7 @@ Run the host checker against a dedicated test device or emulator:
 
 ```sh
 python3 check_compiler.py --serial emulator-5570 --abi x86_64 \
-  --apk dist-android/org.sqgi.android.compilerqualification-x86_64-debug.apk \
+  --apk dist-android-x86_64/org.sqgi.android.compilerqualification-x86_64-debug.apk \
   --output /tmp/android-compiler-check
 ```
 

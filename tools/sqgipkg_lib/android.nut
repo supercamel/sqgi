@@ -215,15 +215,30 @@ class SqgiPkgAndroid extends Base.SqgiPkgDoctor {
                 this.fail("Android bytecode packaging is not yet supported; use compile_scripts: false")
             opts.compile_scripts = false
             if (!opts.output_dir_forced) opts.output_dir = GLib.build_filenamev([opts.manifest_dir, "dist-android"])
-            local output = this.abs_path(opts.output_dir)
-            opts.android_source_excludes = [output, output + "-arm64-v8a", output + "-x86_64",
-                GLib.build_filenamev([opts.manifest_dir, "sqgipkg.lock.json"])]
+            opts.android_source_excludes = this.android_source_exclusions(opts)
         }
+    }
+    function android_source_exclusions(opts) {
+        local output = this.abs_path(opts.output_dir)
+        local excludes = [output, output + "-arm64-v8a", output + "-x86_64", this.lock_path(opts), this.lock_path(opts) + ".tmp"]
+        // A single-platform rebuild or source sync must ignore artifacts left
+        // by a previous manifest matrix build as well as its own outputs.
+        local saved_output = this.table_get(authored_manifest, "output")
+        local matrix = saved_output == null ? this.abs_path("dist") : this.manifest_path(opts.manifest_dir, saved_output)
+        excludes.extend([matrix + "-windows-x86_64", matrix + "-android", matrix + "-android-arm64-v8a", matrix + "-android-x86_64"])
+        excludes.push(matrix + "-linux-" + opts.appimage_arch)
+        foreach (config in this.effective_linux_arches(opts))
+            excludes.push(config.output != "" ? config.output : matrix + "-linux-" + this.linux_arch_display_suffix(config.arch))
+        return excludes
     }
     function android_configurations(opts) {
         local result = []
+        // Resolve exclusions with the concrete Android configuration, including
+        // configurations expanded from --target all. The lock is an output too.
+        local excludes = this.android_source_exclusions(opts)
         if (opts.target == "android-aab") {
             local config = clone opts
+            config.android_source_excludes = clone excludes
             config.android = clone opts.android
             config.android.abi <- opts.android.architectures.len() > 1 ? "multi" : opts.android.architectures[0]
             config.architecture = config.android.abi
@@ -233,12 +248,13 @@ class SqgiPkgAndroid extends Base.SqgiPkgDoctor {
         }
         foreach (abi in opts.android.architectures) {
             local config = clone opts
+            config.android_source_excludes = clone excludes
             config.android = clone opts.android
             config.android.abi <- abi
             config.architecture = abi
             config.compile_scripts = false
             config.report = this.new_report()
-            if (opts.android.architectures.len() > 1) config.output_dir += "-" + abi
+            if (!opts.output_dir_forced || opts.android.architectures.len() > 1) config.output_dir += "-" + abi
             result.push(config)
         }
         return result
@@ -514,7 +530,11 @@ class SqgiPkgAndroid extends Base.SqgiPkgDoctor {
         return result
     }
     function build_android(opts) {
-        if (opts.target == "android-aab") return this.build_android_bundle(opts)
+        if (opts.target == "android-aab") {
+            local pkg = this
+            return AndroidCommon.with_progress(function(message) { pkg.report_build_progress(opts, message) },
+                function() { return pkg.build_android_bundle(opts) })
+        }
         return this.build_android_abi(opts)
     }
     function build_android_bundle(opts) {
@@ -548,6 +568,12 @@ class SqgiPkgAndroid extends Base.SqgiPkgDoctor {
         return result
     }
     function build_android_abi(opts, prepare_only = false) {
+        local pkg = this
+        return AndroidCommon.with_progress(function(message) { pkg.report_build_progress(opts, message) },
+            function() { return pkg.build_android_abi_inputs(opts, prepare_only) })
+    }
+    function build_android_abi_inputs(opts, prepare_only) {
+        AndroidCommon.progress("preparing inputs")
         this.validate_android(opts)
         if (authored_manifest != null && this.table_get(authored_manifest, "compile_scripts", false))
             this.fail("Android bytecode packaging is not yet supported; use compile_scripts: false")
@@ -558,6 +584,7 @@ class SqgiPkgAndroid extends Base.SqgiPkgDoctor {
             this.record_input("android-icon", { sha256 = AndroidCommon.file_hash(this.android_icon(opts)) })
         local runtime_source = null
         if (this.android_source_runtime(opts)) {
+            AndroidCommon.progress("resolving runtime sources")
             local source = this.ensure_sqgi_source(opts)
             if (opts.sqgi_source.ref != "") {
                 local actual = strip(AndroidCommon.process(["git", "-C", source, "rev-parse", "HEAD"]))
@@ -572,6 +599,7 @@ class SqgiPkgAndroid extends Base.SqgiPkgDoctor {
                 requested_revision = runtime_source.revision })
         }
         foreach (project in opts.native_projects) if (project.android_package == "") {
+            AndroidCommon.progress("hashing native sources: " + project.name)
             this.ensure_git_native_project(project, "native project " + project.name)
             local identity = AndroidSource.source_provenance(project, AndroidCommon.resolve_path(project.dir), opts.android_source_excludes)
             this.record_input("android-native:" + project.name, identity)
@@ -581,6 +609,7 @@ class SqgiPkgAndroid extends Base.SqgiPkgDoctor {
         this.mkdir_p(job)
         local sdk = opts.android.sdk_path, catalog_lock = null, module_packages = []
         if (sdk == "") {
+            AndroidCommon.progress("resolving Android SDK " + opts.android.sdk)
             local request = { protocol_version = 1, operation = "resolve-sdk", abi = opts.android.abi,
                 sdk_id = opts.android.sdk, min_api = opts.android.min_sdk, profile = this.android_sdk_profile(opts), packages = opts.android.packages,
                 module_set = opts.android.module_set,
@@ -602,12 +631,14 @@ class SqgiPkgAndroid extends Base.SqgiPkgDoctor {
         } else if (!this.path_exists(sdk + "/sqgi-android-sdk.json")) sdk += "/" + opts.android.abi
         this.record_input("android-sdk", { sha256 = this.file_sha256(sdk + "/sqgi-android-sdk.json") })
         local staged = job + "/payload"
+        AndroidCommon.progress("staging application")
         this.mkdir_p(staged)
         local application = this.android_stage_application(opts, staged)
         local artifact = GLib.build_filenamev([this.abs_path(opts.output_dir), opts.app_id + "-" + opts.android.abi + "-" + opts.android.variant + "." + opts.android.format])
         local config = application.project
         // Resolve the SDK first: current prebuilt wrappers need no NDK. A legacy
         // SDK or authored native sources still identify their compiler in locks.
+        AndroidCommon.progress("resolving and hashing host tools")
         this.record_input("android-host-tools", AndroidToolchain.identity({ ndk = opts.android.ndk, sdk = sdk,
             application = config, offline = !opts.android.download, native = opts.native_projects, runtime_source = runtime_source }))
         local request = { protocol_version = 1, operation = prepare_only ? "prepare" : "build", abi = opts.android.abi,
@@ -628,7 +659,7 @@ class SqgiPkgAndroid extends Base.SqgiPkgDoctor {
             request.native_inputs[project.name] <- this.active_inputs["android-native:" + project.name]
         if (prepare_only) request.prepared <- job + "/input"
         else this.begin_build_output(artifact)
-        this.report_build_progress(opts, prepare_only ? "preparing" : "packaging")
+        this.report_build_progress(opts, "preparing Android payload")
         local has_native = opts.native_projects.len() || module_packages.len()
         if (this.locked_inputs != null && opts.android.compiler == "llvm") {
             if (!("android-runtime-compiler" in this.locked_inputs)) this.fail("lockfile has no Android runtime compiler input")

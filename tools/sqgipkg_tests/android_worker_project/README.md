@@ -9,7 +9,7 @@ Run the APK on an explicitly selected test device:
 python3 check_worker.py \
   --serial emulator-5570 \
   --abi x86_64 \
-  --apk dist-android/org.sqgi.android.workerqualification-x86_64-debug.apk \
+  --apk dist-android-x86_64/org.sqgi.android.workerqualification-x86_64-debug.apk \
   --output /tmp/sqgi-worker-result
 ```
 

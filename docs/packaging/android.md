@@ -77,8 +77,10 @@ sqgipkg build --target android-aab --write-lock
 ```
 
 The starter creates `sqgipkg.json`, `src/main.nut` and `src/message.txt`, and
-selects both ABIs for an App Bundle. APKs go under `dist-android/` when one ABI
-is selected. Apps include their SQGI runtime, native libraries and GI metadata.
+selects both ABIs for an App Bundle. APKs go under `dist-android-<abi>/`, including
+when one ABI is selected with `--arch` or in the manifest. These default paths
+are the same for individual builds and `--target all`. Apps include their SQGI
+runtime, native libraries and GI metadata.
 Use `sqgipkg preview --platform android` to run the app with your desktop's GTK
 libraries before deploying it.
 
@@ -215,9 +217,24 @@ libraries select `sqgi-android-runtime`, which excludes headers, GIR and target
 executables. Prebuilt application libraries and native recipes select development
 files as needed.
 
-The APK is `dist-android/org.example.myapp-x86_64-debug.apk`. Builds use private
+The APK is `dist-android-x86_64/org.example.myapp-x86_64-debug.apk`. An explicit
+`--output DIR` (or manifest `output`) uses that directory for a single Android
+APK or an App Bundle; multiple APKs use `DIR-<abi>`. For `--target all`, an explicit
+output is a platform prefix: Android uses `DIR-android-<abi>` for multiple APKs
+and `DIR-android` for a single APK or App Bundle. `sqgipkg explain --json` reports
+the resolved paths, and `install`/`deploy` use the same resolution as `build`.
+
+Builds print target and ABI progress to stderr, including package extraction,
+SDK validation, host tool hashing and native preparation. Long file inventories
+report counts at most once every five seconds. `--build-result FILE` also records
+the current phase for tools monitoring a build; `check`/`explain --json` remain
+machine-readable.
+
+Builds use private
 application directories under `.sqgipkg/android/`; `sqgipkg-build.json` records
-the artifact and SDK input. `--locked` pins the catalog and descriptor checksums,
+the artifact and SDK input. Native source inventories exclude the generated
+lockfile and configured output directories even when they are not gitignored,
+including in `--target all` builds. `--locked` pins the catalog and descriptor checksums,
 which pin every selected archive, target identity and installed file. It rejects
 a changed manifest, origin, profile or SDK descriptor. `--no-android-download`
 requires cached packages and passes `--offline` to Gradle; a missing cached input

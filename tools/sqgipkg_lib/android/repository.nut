@@ -74,6 +74,7 @@ M.closure <- function(index, seeds) {
 M.extract <- function(archive, root, owners, package, target) {
     local paths = [], links = {}
     A.tar_read(archive, function(member) {
+        C.progress("extracting " + package + ": " + paths.len() + " files", true)
         if (member.type == '5' && (member.name == "." || member.name == "./")) return
         local path = M.relative_path(member.name, "usr")
         if (member.type == '2') {
@@ -131,11 +132,13 @@ M.prepare <- function(request, validate = null) {
     local staging = root + ".prepare-" + GLib.uuid_string_random(), prepared = [], owners = {}, result = null, error = null
     C.mkdir(staging)
     try {
-        foreach (entry in entries) {
+        foreach (position, entry in entries) {
             local paths = []
             if (C.get(entry, "kind") != "meta") {
                 local archive = repo.cache + "/packages/" + entry.sha256 + ".tar.gz"
+                C.progress("fetching/verifying package " + entry.name + " (" + (position + 1) + "/" + entries.len() + ")")
                 repo.fetch(entry.artifact, archive, entry.sha256)
+                C.progress("extracting package " + entry.name)
                 paths = M.extract(archive, staging, owners, entry.name, repo.target)
             }
             prepared.push({ repository = repo.url, target = repo.target, metadata = entry, sha256 = C.get(entry, "sha256"), files = paths })

@@ -22,6 +22,7 @@ M.tree <- function(root) {
             }
             ancestors.pop()
         } else if (info.get_file_type() == Gio.FileType.regular) {
+            C.progress("hashing host tools: " + root + " (" + files.len() + " files)", true)
             local id = info.get_attribute_string("id::file")
             if (id == null) id = path
             if (!(id in contents)) contents[id] <- C.file_hash(path)
@@ -33,7 +34,10 @@ M.tree <- function(root) {
 }
 M.identify <- function(roots) {
     local components = {}
-    foreach (name in C.keys(roots)) components[name] <- M.tree(roots[name])
+    foreach (name in C.keys(roots)) {
+        C.progress("hashing host tool: " + name)
+        components[name] <- M.tree(roots[name])
+    }
     return { sha256 = C.digest(C.encoded(components)), components = components }
 }
 return M

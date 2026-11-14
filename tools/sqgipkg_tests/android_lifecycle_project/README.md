@@ -10,7 +10,7 @@ Build with the Android runtime being tested, then choose a test device:
 
 ```sh
 sqgipkg build --platform android --arch x86_64
-python3 check_exit.py dist-android/org.sqgi.NativeExit-x86_64-debug.apk results \
+python3 check_exit.py dist-android-x86_64/org.sqgi.NativeExit-x86_64-debug.apk results \
   --serial emulator-5564
 ```
 

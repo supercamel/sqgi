@@ -44,9 +44,12 @@ class SDK {
                 if (!("usr/lib/" + library in metadata.files)) throw "Android SDK is missing its declared application wrapper: " + library
         }
         if (C.is_link(prefix)) throw "Android SDK prefix must not be a symlink"
+        C.progress("validating Android SDK: " + files.len() + " files")
         local actual = []; foreach (path in C.walk(prefix)) actual.push(path.slice(root.len() + 1))
         if (!C.equal(actual, C.keys(files))) throw "Android SDK file inventory differs from its descriptor"
+        local verified = 0
         foreach (name, record in files) {
+            C.progress("validating Android SDK: " + verified++ + "/" + files.len() + " files", true)
             if (typeof(record) != "table") throw "Invalid Android SDK file record: " + name
             local normalized = C.relative(name), path = root + "/" + normalized
             if (normalized != name || name.len() < 4 || name.slice(0, 4) != "usr/") throw "SDK file escapes the target prefix: " + name

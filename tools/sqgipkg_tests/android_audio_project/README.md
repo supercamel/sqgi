@@ -11,7 +11,7 @@ Build and test on an explicitly selected device:
 ```sh
 sqgipkg build --platform android --arch x86_64
 python3 check_audio.py --adb adb --serial emulator-5570 --abi x86_64 \
-  --apk dist-android/org.sqgi.android.audioqualification-x86_64-debug.apk \
+  --apk dist-android-x86_64/org.sqgi.android.audioqualification-x86_64-debug.apk \
   --output audio-results
 ```
 

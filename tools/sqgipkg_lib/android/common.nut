@@ -3,6 +3,23 @@ local GLib = import("GLib"), Gio = import("Gio")
 local Host = import("../provenance.nut")
 local host = Host.SqgiPkgProvenance()
 local M = {}
+local progress_sink = null, progress_time = 0
+M.progress <- function(message, periodic = false) {
+    if (progress_sink == null) return
+    local now = GLib.get_monotonic_time()
+    if (periodic && now - progress_time < 5000000) return
+    progress_time = now
+    progress_sink(message)
+}
+M.with_progress <- function(sink, callback) {
+    local previous = progress_sink, previous_time = progress_time
+    progress_sink = sink; progress_time = 0
+    local result = null, caught = null
+    try { result = callback() } catch (failure) { caught = failure }
+    progress_sink = previous; progress_time = previous_time
+    if (caught != null) throw caught
+    return result
+}
 M.get <- function(value, key, fallback = null) { return typeof(value) == "table" && key in value ? value[key] : fallback }
 // Unsigned UTF-8 order matches Unicode code-point order in canonical JSON.
 // Squirrel's default string comparator can place high bytes before ASCII.

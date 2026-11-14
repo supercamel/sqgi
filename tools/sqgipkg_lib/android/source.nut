@@ -50,6 +50,7 @@ M.prepare_directory <- function(directory, context) {
 }
 M.run <- function(argv, env, cwd = null) {
     print("sqgipkg Android native: " + M.quote(argv) + "\n")
+    stdout.flush()
     C.process(argv, env, false, cwd)
 }
 M.expand <- function(value, variables) {
@@ -92,6 +93,7 @@ M.source_provenance <- function(project, source, excludes = []) {
     }
     local files = {}, recipe = {}
     foreach (path in paths) if (C.is_file(path)) {
+        C.progress("hashing native sources: " + files.len() + "/" + paths.len() + " files", true)
         // sqgipkg's own output is never a source input, even when a Git
         // checkout has not added it to .gitignore.
         local excluded = split(path.slice(source.len() + 1), "/").find(".sqgipkg") != null
@@ -115,6 +117,7 @@ M.shims <- function(work) {
     return { directory = root, sqgi = sqgi }
 }
 M.build <- function(project, request, sdk_base, root, work, tools, inspection, shims) {
+    C.progress("building native project: " + project.name)
     local name = project.name, system = C.get(project, "build_system", "custom"), abi = request.abi, api = request.application.min_sdk
     if (["meson", "cmake", "custom"].find(system) == null) throw "Unknown Android native build system: " + system
     local source = C.resolve_path(project.dir), directory = work + "/native/" + name, prefix = root + "/usr"

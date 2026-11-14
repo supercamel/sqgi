@@ -24,9 +24,14 @@ class SqgiPkgBuild extends Base.SqgiPkgAndroid {
         Gio.File.new_for_path(build_result_path).replace_contents(sqgi.json.stringify(build_result), null, false, Gio.FileCreateFlags.private, null)
     }
     function report_build_progress(opts, phase) {
+        local architecture = this.is_android(opts) ? opts.android.abi : this.starts_with(opts.target, "win-") ? "x86_64" : opts.appimage_arch
+        if (!machine_output) {
+            error("sqgipkg: [" + opts.target + " " + architecture + "] " + phase + "\n")
+            stderr.flush()
+        }
         if (build_result == null) return
         build_result.progress <- { target = opts.target,
-            architecture = this.is_android(opts) ? opts.android.abi : this.starts_with(opts.target, "win-") ? "x86_64" : opts.appimage_arch,
+            architecture = architecture,
             phase = phase, completed = build_result.artifacts.len() }
         this.finish_build_result("running")
     }
@@ -80,11 +85,15 @@ class SqgiPkgBuild extends Base.SqgiPkgAndroid {
             if (opts.android.declared && opts.platform_enabled.android) {
                 local android = clone opts
                 android.target = "android-" + opts.android.format
-                android.output_dir = opts.output_dir + "-android"
+                android.output_dir = opts.output_dir_forced ? opts.output_dir + "-android" : GLib.build_filenamev([opts.manifest_dir, "dist-android"])
                 foreach (config in this.android_configurations(android)) out.push(config)
             }
         }
         if (!out.len()) this.fail("No platforms are enabled for target all")
+        // Earlier matrix builds may have written artifacts within a native
+        // source checkout. None of this matrix's output directories are inputs.
+        foreach (selected in out) if (this.is_android(selected))
+            foreach (config in out) selected.android_source_excludes.push(this.abs_path(config.output_dir))
         foreach (selected in out) if (!this.is_android(selected)) this.resolve_native_recipe_entry(selected)
         return out
     }

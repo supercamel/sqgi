@@ -5,6 +5,7 @@ import gzip
 import io
 import json
 import os
+import selectors
 from pathlib import Path
 import subprocess
 import shutil
@@ -35,11 +36,11 @@ from payload import seal, verify_artifact, verify_splits
 from common import digest, atomic_json
 
 
-def squirrel_backend(operation, **values):
+def squirrel_backend(operation, cwd=None, **values):
     with tempfile.NamedTemporaryFile(mode='w', suffix='.json') as request:
         json.dump(dict(operation=operation, **values), request); request.flush()
         process = subprocess.run([SQGI, ROOT / 'tools/sqgipkg_tests/android_backend_test.nut', request.name],
-                                 capture_output=True, text=True)
+                                 capture_output=True, text=True, cwd=cwd)
     try:
         result = json.loads(process.stdout)
     except ValueError:
@@ -106,6 +107,120 @@ class AndroidCLI(unittest.TestCase):
         self.assertEqual(targets.count('android-apk'), 2)
         self.assertIn('appimage', targets)
         self.assertIn('win-nsis', targets)
+
+    def test_default_apk_outputs_are_stable_across_target_selection(self):
+        matrix = self.run_pkg('explain', '--target', 'all', '--json')['configurations']
+        android = self.run_pkg('explain', '--platform', 'android', '--json')['configurations']
+        for config in android:
+            abi = config['architecture']
+            expected = str(self.root / ('dist-android-' + abi))
+            self.assertEqual(config['output'], expected)
+            self.assertEqual(next(c['output'] for c in matrix if c['target'] == 'android-apk' and c['architecture'] == abi), expected)
+            single = self.run_pkg('explain', '--platform', 'android', '--arch', abi, '--json')['configurations'][0]
+            self.assertEqual(single['output'], expected)
+        self.manifest['platforms']['android']['architectures'] = ['x86_64']
+        self.save()
+        for args in [('--target', 'all'), ('--target', 'android-apk')]:
+            plans = self.run_pkg('explain', *args, '--json')['configurations']
+            self.assertEqual(next(c['output'] for c in plans if c['target'] == 'android-apk'), str(self.root/'dist-android-x86_64'))
+
+    def test_custom_android_outputs_and_bundle_directory(self):
+        for manifest_output in [False, True]:
+            with self.subTest(manifest_output=manifest_output):
+                if manifest_output:
+                    self.manifest['output'] = 'packages'
+                    self.save()
+                args = [] if manifest_output else ['--output', 'packages']
+                single = self.run_pkg('explain', '--platform', 'android', '--arch', 'x86_64', *args, '--json')['configurations'][0]
+                self.assertEqual(single['output'], str(self.root/'packages'))
+                multiple = self.run_pkg('explain', '--platform', 'android', *args, '--json')['configurations']
+                self.assertEqual([c['output'] for c in multiple], [str(self.root/('packages-'+abi)) for abi in ['arm64-v8a', 'x86_64']])
+                bundle = self.run_pkg('explain', '--target', 'android-aab', *args, '--json')['configurations'][0]
+                self.assertEqual(bundle['output'], str(self.root/'packages'))
+        del self.manifest['output']
+        self.manifest['platforms']['android']['format'] = 'aab'
+        self.save()
+        for args in [('--target', 'all'), ('--platform', 'android')]:
+            plans = self.run_pkg('explain', *args, '--json')['configurations']
+            self.assertEqual(next(c['output'] for c in plans if c['target'] == 'android-aab'), str(self.root/'dist-android'))
+
+    def test_configured_native_inputs_exclude_lock_and_build_outputs(self):
+        self.manifest['native'] = [{'name': 'fixture', 'dir': '.', 'build_system': 'meson'}]
+        self.save()
+        (self.root/'meson.build').write_text("project('fixture', 'c')\n")
+        source = self.root/'fixture.c'
+        source.write_text('int fixture = 1;\n')
+        subprocess.run(['git', 'init', '-q', self.root], check=True)
+        lock = self.root/'sqgipkg.lock.json'
+        lock.write_text('first lock')
+        subprocess.run(['git', '-C', self.root, 'add', '.'], check=True)
+        # Exercise tracked and untracked locks without relying on .gitignore.
+        for target in ['all', 'android-apk', 'android-aab']:
+            with self.subTest(target=target):
+                options = dict(manifest=str(self.root/'sqgipkg.json'), target=target, output=str(self.root/('custom-'+target)))
+                def identities():
+                    return squirrel_backend('configured-native-provenance', options=options, cwd=self.root)
+                before = identities()
+                self.assertTrue(before)
+                for config in before:
+                    self.assertNotIn('sqgipkg.lock.json', config['inputs']['fixture']['files'])
+                    output = Path(config['output']); output.mkdir(exist_ok=True)
+                    (output/'app.apk').write_bytes(b'generated artifact')
+                    (output/'sqgipkg-build.json').write_text('generated receipt')
+                lock.write_text('updated lock')
+                (self.root/'sqgipkg.lock.json.tmp').write_text('partial lock')
+                self.assertEqual(before, identities())
+                source.write_text('int fixture = 2;\n')
+                self.assertNotEqual(before, identities())
+                source.write_text('int fixture = 1;\n')
+                for config in before:
+                    shutil.rmtree(config['output'])
+                subprocess.run(['git', '-C', self.root, 'rm', '--cached', '-f', '-q', '--ignore-unmatch', 'sqgipkg.lock.json'], check=True)
+
+    def test_matrix_artifacts_do_not_change_single_build_or_sync_inputs(self):
+        self.manifest['native'] = [{'name': 'fixture', 'dir': '.', 'build_system': 'meson'}]
+        self.save()
+        (self.root/'meson.build').write_text("project('fixture', 'c')\n")
+        subprocess.run(['git', 'init', '-q', self.root], check=True)
+        options = dict(manifest=str(self.root/'sqgipkg.json'), target='android-apk', arch='x86_64')
+        def inputs():
+            return squirrel_backend('configured-native-provenance', options=options, cwd=self.root)
+        def development():
+            return squirrel_backend('configured-development-contract', options=options, cwd=self.root)
+        before, contract = inputs(), development()
+        matrix = self.run_pkg('explain', '--target', 'all', '--json')['configurations']
+        for config in matrix:
+            output = Path(config['output']); output.mkdir(exist_ok=True)
+            (output/'generated-package').write_text('generated output')
+        (self.root/'sqgipkg.lock.json').write_text('updated lock')
+        self.assertEqual(before, inputs())
+        self.assertEqual(contract, development())
+
+    @unittest.skipUnless(hasattr(os, 'mkfifo'), 'requires POSIX FIFOs')
+    def test_build_progress_is_live_before_slow_preparation_finishes(self):
+        sdk = self.root/'sdk'; sdk.mkdir()
+        os.mkfifo(sdk/'sqgi-android-sdk.json')
+        process = subprocess.Popen([str(SQGI), str(ROOT/'tools/sqgipkg'), 'build', '--platform', 'android',
+                                    '--arch', 'x86_64', '--android-sdk', str(sdk)], cwd=self.root,
+                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        try:
+            with selectors.DefaultSelector() as selector:
+                selector.register(process.stderr, selectors.EVENT_READ)
+                self.assertTrue(selector.select(10), 'no progress while SDK input is blocked')
+            line = process.stderr.readline().decode()
+            self.assertIn('[android-apk x86_64] preparing inputs', line)
+            self.assertIsNone(process.poll(), 'progress was buffered until process exit')
+        finally:
+            process.terminate()
+            process.communicate(timeout=10)
+
+    def test_inspection_keeps_json_stdout_and_stderr_clean(self):
+        for command in ['explain', 'check']:
+            result = subprocess.run([str(SQGI), str(ROOT/'tools/sqgipkg'), command, '--platform', 'android', '--json'],
+                                    cwd=self.root, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue(json.loads(result.stdout)['ok'])
+            self.assertEqual(result.stderr, '')
 
     def test_enabled_platforms_control_all_but_not_explicit_targets(self):
         self.manifest['platforms'].update(linux={'enabled': False}, windows={'enabled': False})

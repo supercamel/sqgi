@@ -93,6 +93,22 @@ try {
         result = true
     } else if (request.operation == "native-source-provenance") {
         result = import("../sqgipkg_lib/android/source.nut").source_provenance(request.project, request.source, C.get(request, "excludes", []))
+    } else if (request.operation == "configured-native-provenance") {
+        local pkg = import("../sqgipkg_lib/main.nut").SqgiPkg([])
+        local opts = pkg.parse_args([], request.options)
+        result = []
+        foreach (config in pkg.selected_configurations(opts)) if (pkg.is_android(config)) {
+            pkg.validate_android(config)
+            local identities = {}
+            foreach (project in config.native_projects) if (project.android_package == "")
+                identities[project.name] <- import("../sqgipkg_lib/android/source.nut").source_provenance(project, project.dir, config.android_source_excludes)
+            result.push({ abi = config.android.abi, output = pkg.abs_path(config.output_dir), inputs = identities })
+        }
+    } else if (request.operation == "configured-development-contract") {
+        local pkg = import("../sqgipkg_lib/main.nut").SqgiPkg([])
+        local opts = pkg.parse_args([], request.options)
+        pkg.validate_android(opts)
+        result = pkg.android_development_contract(opts)
     } else if (request.operation == "runtime-source-provenance") {
         result = import("../sqgipkg_lib/android/runtime.nut").identity(request.source, C.get(request, "configuration"))
     } else if (request.operation == "native-expand") {
