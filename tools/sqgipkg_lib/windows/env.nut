@@ -317,6 +317,14 @@ class SqgiPkgWindowsEnv extends Base.SqgiPkgAppImage {
             binary_overrides += "g-ir-compiler = '" + gir_compiler + "'\n"
         if (exe_wrapper != null)
             binary_overrides += "exe_wrapper = '" + exe_wrapper + "'\n"
+        // Native Meson recipes run directly, without the legacy shell build
+        // environment. Record target bindings in the machine file so cached
+        // recipes are also reconfigured when these search paths change.
+        local vala_args = ""
+        foreach (dir in this.windows_vala_vapi_dirs(opts)) {
+            if (vala_args != "") vala_args += ", "
+            vala_args += "'--vapidir=" + this.replace_char(this.replace_char(dir, "\\", "\\\\"), "'", "\\'") + "'"
+        }
         this.mkdir_p(this.dirname(path))
         this.write_file(path,
             "[binaries]\n" +
@@ -334,6 +342,7 @@ class SqgiPkgWindowsEnv extends Base.SqgiPkgAppImage {
             "pkg_config_libdir = ['" + prefix_dir + "/lib/pkgconfig', '" + prefix_dir + "/share/pkgconfig']\n" +
             "\n" +
             "[built-in options]\n" +
+            "vala_args = [" + vala_args + "]\n" +
             "c_link_args = ['-static-libgcc', '-Wl,--exclude-libs,libgcc.a:libgcc_eh.a']\n" +
             "cpp_link_args = ['-static-libgcc', '-static-libstdc++', '-Wl,--exclude-libs,libgcc.a:libgcc_eh.a:libstdc++.a:libstdc++exp.a']\n" +
             "\n" +

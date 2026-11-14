@@ -878,6 +878,52 @@ foreach (project in selected.native_projects) {{
 }}
 ''')
 
+    @unittest.skipUnless(all(shutil.which(tool) for tool in ['meson', 'ninja', 'valac', 'x86_64-w64-mingw32-gcc']),
+                         'Meson, Vala and MinGW required')
+    def test_windows_native_vala_recipe_uses_target_sdk_bindings(self):
+        prefix = self.root / 'target SDK/mingw64'
+        bindings = prefix / 'share/vala/vapi'
+        bindings.mkdir(parents=True)
+        (bindings / 'sqgipkg-target-only.vapi').write_text(
+            '[CCode (cheader_filename = "target-only.h")]\n'
+            'namespace TargetOnly { [CCode (cname = "TARGET_VALUE")] public const int value; }\n')
+        pkgconfig = prefix / 'lib/pkgconfig'
+        pkgconfig.mkdir(parents=True)
+        (pkgconfig / 'sqgipkg-target-only.pc').write_text(
+            'Name: sqgipkg-target-only\nDescription: Target-only Vala fixture\nVersion: 1.0\n')
+        source = self.root / 'native'
+        source.mkdir()
+        (source / 'main.vala').write_text('int main() { return TargetOnly.value; }\n')
+        missing = subprocess.run(['valac', '-C', '--pkg', 'sqgipkg-target-only', 'main.vala'],
+                                 cwd=source, text=True, capture_output=True)
+        self.assertNotEqual(missing.returncode, 0, 'fixture binding unexpectedly available on host')
+        (source / 'meson.build').write_text(
+            "project('target-only', 'vala', 'c')\n"
+            "executable('probe', 'main.vala', dependencies: dependency('sqgipkg-target-only'))\n")
+        module = json.dumps((ROOT / 'tools/sqgipkg_lib/build.nut').as_posix())
+        self.run_script(f'''local B = import({module}), pkg = B.SqgiPkgBuild()
+local opts = pkg.new_options()
+pkg.apply_manifest_data(opts, {{ schema_version = 2, target = "win-dir",
+    entry = {{ type = "native", project = "probe", executable = "probe" }},
+    native = [{{ name = "probe", dir = "native", build_system = "meson" }}]
+}}, {json.dumps(self.root.as_posix())})
+pkg.apply_project_defaults(opts)
+opts.windows.sysroot = {json.dumps(str(prefix.parent))}
+local selected = pkg.selected_configurations(opts)[0]
+pkg.write_windows_meson_cross_file(selected, pkg.windows_meson_cross_file_path(selected))
+local project = selected.windows.native_projects[0]
+local commands = pkg.recipe_commands(selected, project, project.dir)
+local env = pkg.recipe_environment(selected)
+// A host-installed binding or externally supplied Vala flags must not mask
+// missing target SDK paths. Only the generated machine file supplies them.
+env.VALAFLAGS <- null
+pkg.run_process(commands[0], "configure target-only Vala fixture", null, env)
+pkg.run_process(["ninja", "-C", pkg.recipe_build_dir(selected, project), "probe.exe.p/main.c"],
+    "compile target-only Vala bindings", null, env)
+''')
+        generated = self.root / '.sqgipkg/build/windows-x86_64-ooblerg/probe/probe.exe.p/main.c'
+        self.assertIn('TARGET_VALUE', generated.read_text())
+
     @unittest.skipIf(os.name == 'nt', 'Linux MIME postprocessing')
     @unittest.skipUnless(shutil.which('update-mime-database'), 'MIME generator required')
     def test_packaged_mime_database_generation(self):
