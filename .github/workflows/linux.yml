@@ -56,11 +56,11 @@ jobs:
           trap 'python3 tools/report_ci_failure.py "$arm_log"' ERR
           build/sqgi tools/sqgipkg build --manifest demo/gtk-gallery-android/sqgipkg.json \
             --platform android --arch arm64-v8a --write-lock 2>&1 | tee "$arm_log"
-          test -s demo/gtk-gallery-android/dist-android/org.sqgi.demo.widgets-arm64-v8a-debug.apk
+          test -s demo/gtk-gallery-android/dist-android-arm64-v8a/org.sqgi.demo.widgets-arm64-v8a-debug.apk
           arm_log=build/alpine-arm.log
           build/sqgi tools/sqgipkg build --manifest demo/gworldscene-android/sqgipkg.json \
             --platform android --arch arm64-v8a --write-lock 2>&1 | tee "$arm_log"
-          test -s demo/gworldscene-android/dist-android/org.sqgi.demo.alpine-arm64-v8a-debug.apk
+          test -s demo/gworldscene-android/dist-android-arm64-v8a/org.sqgi.demo.alpine-arm64-v8a-debug.apk
           arm_log=build/bundle-arm.log
           build/sqgi tools/sqgipkg build --manifest demo/gtk-gallery-android/sqgipkg.json \
             --target android-aab --write-lock 2>&1 | tee "$arm_log"

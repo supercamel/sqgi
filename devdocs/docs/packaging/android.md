@@ -66,8 +66,8 @@ sqgipkg build --platform android --arch arm64-v8a --write-lock
 sqgipkg build --target android-aab --write-lock
 ```
 
-The starter selects both ABIs for an App Bundle. APKs go under `dist-android/`
-when one ABI is selected. Apps include their SQGI runtime, native libraries
+The starter selects both ABIs for an App Bundle. APKs go under `dist-android-<abi>/`
+for both individual builds and `--target all`. Apps include their SQGI runtime, native libraries
 and GI metadata; Android does not need a separate SQGI installation.
 
 ## Setup locations and diagnostics
@@ -316,7 +316,7 @@ unlocked catalog. `--android-sdk /path/to/export` selects local files instead.
 `check` and `explain` do not download packages. Builds without native recipes
 select `sqgi-android-runtime`, which excludes headers, GIR and target executables.
 
-The APK is `dist-android/org.example.myapp-x86_64-debug.apk`. Builds use private
+The APK is `dist-android-x86_64/org.example.myapp-x86_64-debug.apk`. Builds use private
 application directories under `.sqgipkg/android/`; `sqgipkg-build.json` records
 the artifact and SDK input. `--locked` pins the catalog and descriptor checksums,
 which pin every selected archive, target identity and installed file. It rejects
