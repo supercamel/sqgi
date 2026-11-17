@@ -23,7 +23,7 @@ compat_spec.loader.exec_module(compat)
 
 
 class TypelibCompatibility(unittest.TestCase):
-    @unittest.skipUnless(shutil.which('g-ir-compiler'), 'GI compiler required')
+    @unittest.skipUnless(shutil.which('g-ir-compiler') and shutil.which('g-ir-generate'), 'GI tools required')
     def test_bundled_typelibs_match_checked_in_declarations(self):
         source = Path(provider.__file__).parent
         with tempfile.TemporaryDirectory() as temporary:
@@ -31,7 +31,12 @@ class TypelibCompatibility(unittest.TestCase):
                 output = Path(temporary) / (name + '.typelib')
                 subprocess.run(['g-ir-compiler', str(source / (name + '.gir')), '-o', str(output)],
                                check=True, capture_output=True)
-                self.assertEqual(output.read_bytes(), (source / output.name).read_bytes())
+                # Compiler versions/hosts can choose different internal string
+                # offsets. Compare the complete decoded metadata contract.
+                generated = subprocess.check_output(['g-ir-generate', str(output)])
+                bundled = subprocess.check_output(['g-ir-generate', str(source / output.name)])
+                self.assertEqual(ET.canonicalize(generated.decode('utf8')),
+                                 ET.canonicalize(bundled.decode('utf8')))
 
     def fixture(self):
         data = bytearray(128)
