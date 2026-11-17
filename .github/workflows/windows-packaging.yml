@@ -162,7 +162,7 @@ jobs:
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: |
           # CTest runs every selected suite even when an earlier suite fails.
-          ctest --test-dir build -R '^sqgi_test_(sqgipkg_ergonomics|ooblerg_provider|kernel_packaging|bytecode_packaging|windows_ci_guard)$' --output-on-failure --no-tests=error --output-log build/packaging-tests.log --output-junit "$env:GITHUB_WORKSPACE/build/packaging-tests.xml"
+          ctest --test-dir build -R '^sqgi_test_(sqgipkg_ergonomics|ooblerg_provider|kernel_packaging|bytecode_packaging|cpp_sqoptimizer|windows_ci_guard)$' --output-on-failure --no-tests=error --output-log build/packaging-tests.log --output-junit "$env:GITHUB_WORKSPACE/build/packaging-tests.xml"
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
       - name: Manifest authoring contracts
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}

@@ -60,6 +60,44 @@ static SQFunctionProto *get_proto(SQVM *v, const SQChar *name)
 int main()
 {
     int rc = 0;
+    // Closure streams use an integer-sized outer type, but the in-memory enum
+    // can have padding before the next field. Poison it to catch bytecode that
+    // leaks allocator contents or differs between Android ABI builds.
+    {
+        SQVM *v = sq_open(64);
+        const SQChar *source = _SC("local value = 42; return function() { return value }");
+        bool compiled = SQ_SUCCEEDED(sq_compilebuffer(v, source, scstrlen(source), _SC("outer-padding"), SQTrue));
+        CHECK(compiled, "compile closure with captured variable");
+        if(compiled) {
+            HSQOBJECT object; sq_getstackobj(v, -1, &object);
+            SQFunctionProto *nested = _funcproto(_closure(object)->_function->_functions[0]);
+            CHECK(nested->_noutervalues == 1, "fixture has a captured outer");
+            if(nested->_noutervalues == 1) {
+                SQOuterVar &outer = nested->_outervalues[0];
+                Buffer first, second;
+                unsigned char *bytes = reinterpret_cast<unsigned char *>(&outer);
+                for(size_t i = sizeof(outer._type); i < sizeof(SQUnsignedInteger); ++i) bytes[i] = 0x11;
+                CHECK(SQ_SUCCEEDED(sq_writeclosure(v, write_buffer, &first)), "serialize first outer padding pattern");
+                for(size_t i = sizeof(outer._type); i < sizeof(SQUnsignedInteger); ++i) bytes[i] = 0xee;
+                CHECK(SQ_SUCCEEDED(sq_writeclosure(v, write_buffer, &second)), "serialize second outer padding pattern");
+                CHECK(first.data == second.data, "serialized outers exclude padding bytes");
+                sq_settop(v, 0);
+                bool loaded = SQ_SUCCEEDED(sq_readclosure(v, read_buffer, &first));
+                if(loaded) {
+                    sq_pushroottable(v);
+                    loaded = SQ_SUCCEEDED(sq_call(v, 1, SQTrue, SQTrue));
+                }
+                if(loaded) {
+                    sq_pushroottable(v);
+                    loaded = SQ_SUCCEEDED(sq_call(v, 1, SQTrue, SQTrue));
+                }
+                SQInteger value = 0;
+                CHECK(loaded && SQ_SUCCEEDED(sq_getinteger(v, -1, &value)) && value == 42,
+                    "serialized captured variable still executes");
+            }
+        }
+        sq_close(v);
+    }
     // Overflow/error expressions must remain runtime operations. Compiling
     // them must itself be safe under UBSan; deliberately do not execute them.
     {

@@ -560,7 +560,9 @@ bool SQFunctionProto::Save(SQVM *v,SQUserPointer up,SQWRITEFUNC write)
 
     _CHECK_IO(WriteTag(v,write,up,SQ_CLOSURESTREAM_PART));
     for(i=0;i<noutervalues;i++){
-        _CHECK_IO(SafeWrite(v,write,up,&_outervalues[i]._type,sizeof(SQUnsignedInteger)));
+        // The enum can be smaller than SQUnsignedInteger; never serialize its padding.
+        SQUnsignedInteger type = static_cast<SQUnsignedInteger>(_outervalues[i]._type);
+        _CHECK_IO(SafeWrite(v,write,up,&type,sizeof(type)));
         _CHECK_IO(WriteObject(v,up,write,_outervalues[i]._src));
         _CHECK_IO(WriteObject(v,up,write,_outervalues[i]._name));
     }

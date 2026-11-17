@@ -73,10 +73,10 @@ class SqgiPkgScripts extends Base.SqgiPkgManifest {
     function script_dest_for_source(src, script_root = null) {
         local src_abs = this.abs_path(src)
         if (script_root != null) {
-            local root = this.strip_trailing_slashes(this.abs_path(script_root))
-            local prefix = root + "/"
-            if (src_abs == root) return this.basename(src_abs)
-            if (this.starts_with(src_abs, prefix)) return src_abs.slice(prefix.len())
+            local root = Gio.File.new_for_path(this.abs_path(script_root)), source = Gio.File.new_for_path(src_abs)
+            if (source.equal(root)) return this.basename(src_abs)
+            local relative = root.get_relative_path(source)
+            if (relative != null) return this.relative_dest(relative)
         }
         return this.basename(src_abs)
     }

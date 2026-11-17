@@ -196,17 +196,13 @@ class SqgiPkgStaging extends Base.SqgiPkgRecipes {
         return typeof(spec) == "table" && this.table_get(spec, "kind", "") == "file_rule"
     }
 
-    function path_has_prefix(path, prefix) {
-        if (path == prefix) return true
-        return this.starts_with(path, prefix + "/")
-    }
-
     function file_rule_relative_path(rule, path) {
-        local root = this.strip_trailing_slashes(rule.from)
-        if (path == root) return this.basename(path)
-        if (!this.path_has_prefix(path, root))
+        local root = Gio.File.new_for_path(rule.from), source = Gio.File.new_for_path(path)
+        if (source.equal(root)) return this.basename(path)
+        local relative = root.get_relative_path(source)
+        if (relative == null)
             this.fail(rule.label + " rule produced path outside source root: " + path)
-        return path.slice(root.len() + 1)
+        return this.relative_dest(relative)
     }
 
     function list_file_rule_sources(rule) {

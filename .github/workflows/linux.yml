@@ -97,7 +97,7 @@ jobs:
       - name: Check Android tooling and shared packaging contracts
         run: |
           ctest --test-dir build --output-on-failure --no-tests=error \
-            -R '^sqgi_test_(sqgipkg_android|android_setup|sqgipkg_ergonomics|system_module|manifest_contracts|manifest_delivery)$' \
+            -R '^sqgi_test_(sqgipkg_android|android_setup|sqgipkg_ergonomics|bytecode_packaging|cpp_sqoptimizer|system_module|manifest_contracts|manifest_delivery)$' \
             --output-junit "$GITHUB_WORKSPACE/build/host-tools-tests.xml" || {
               python3 tools/report_ci_failure.py build/host-tools-tests.xml
               exit 1

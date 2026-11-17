@@ -57,7 +57,7 @@ class BytecodePackaging(unittest.TestCase):
         self.write('src/main.nut', '''// SOURCE_ONLY_SENTINEL
 local child = import("lib/child.nut")
 assert(child == 42)
-local dynamic = "dynamic.nut"
+local dynamic = "plugins/dynamic.nut"
 assert(import(dynamic) == 7)
 local resource = "resources/asset.nut"
 assert(import(resource) == 9)
@@ -67,7 +67,7 @@ assert(loadfile("renamed.data")() == 11)
 print("bytecode-payload-ok\\n")
 ''')
         self.write('src/lib/child.nut', '// SOURCE_ONLY_SENTINEL\nreturn 42')
-        self.write('src/dynamic.nut', '// SOURCE_ONLY_SENTINEL\nreturn 7')
+        self.write('src/plugins/dynamic.nut', '// SOURCE_ONLY_SENTINEL\nreturn 7')
         self.write('assets/asset.nut', '// SOURCE_ONLY_SENTINEL\nreturn 9')
         self.write('renamed.nut', '// SOURCE_ONLY_SENTINEL\nreturn 11')
         self.write('included.nut', '// SOURCE_ONLY_SENTINEL\nreturn 13')
@@ -105,6 +105,8 @@ else {{
 ''')
                 self.assertNotIn('bytecode-payload-ok', output)
                 app = stage / app_rel
+                self.assertTrue((app / 'plugins/dynamic.cnut').is_file())
+                self.assertFalse((app / 'dynamic.cnut').exists())
                 scripts = [p for p in stage.rglob('*') if p.suffix in ('.nut', '.cnut')]
                 self.assertGreaterEqual(len(scripts), 7)
                 for path in scripts + [app / 'renamed.data']:
@@ -145,7 +147,7 @@ assert(loadfile("stage/module.cnut")() == 123)
 
     def test_finalized_assets_are_identical_across_abi_staging_directories(self):
         for abi in ('x86_64', 'arm64-v8a'):
-            self.write(abi + '/assets/helper.nut', 'return { answer = 42 }')
+            self.write(abi + '/assets/helper.nut', 'local answer = 42; return { get = function() { return answer } }')
             self.run_script(f'''
 local p = import({MODULE}).SqgiPkgBuild()
 p.finalize_packaged_scripts(p.new_options(), "{abi}")
