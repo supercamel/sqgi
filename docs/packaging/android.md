@@ -155,7 +155,7 @@ A minimal application manifest is:
   "name": "My App",
   "app_id": "org.example.myapp",
   "features": ["gtk4"],
-  "compile_scripts": false,
+  "compile_scripts": true,
   "platforms": {
     "android": {
       "architectures": ["x86_64"],
@@ -266,7 +266,10 @@ Manifest Studio exposes the profile and additional packages in Targets.
 ABIs. `--arch x86_64` limits it to one ABI. APK builds still produce one APK per
 ABI. The multi-ABI output is `dist-android/<app-id>-multi-debug.aab`; JSON
 inspection reports one output with an explicit `architectures` array.
-Android packages contain Squirrel source files; set `compile_scripts` to `false`.
+Android APKs and AABs contain compiled Squirrel bytecode, including debug builds.
+Omit `compile_scripts` or set it to `true`. Existing `.nut` import paths contain
+bytecode copies; the `assets/application/source` directory name is retained for
+runtime compatibility and does not indicate source contents.
 
 ## Deploying and updating an app
 
@@ -302,7 +305,7 @@ bundletool for AABs; it does not require the NDK.
 `sync` stages the same scripts and resources as `build`, uploads a complete
 snapshot (including deletions), and restarts the Android process. `watch` repeats
 that after stable source changes and reloads the manifest. Private app data is
-preserved. `reset` removes only source overrides and runs the packaged sources.
+preserved. `reset` removes only application overrides and runs the packaged bytecode.
 Native source/recipe, runtime, namespace and application configuration changes
 require `deploy`. Source updates are available in debug builds only. `logs` streams
 the current process's logcat entries; `--logs-once` prints the current buffer.

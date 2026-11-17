@@ -550,6 +550,7 @@ class SqgiPkgWindowsStaging extends Base.SqgiPkgWindowsOoblerg {
         }
         this.write_windows_launcher(opts, windir, package_name, entry_rel)
         Launcher.build(this, opts, windir, package_name, entry_rel)
+        this.finalize_packaged_scripts(opts, windir)
 
         return windir
     }

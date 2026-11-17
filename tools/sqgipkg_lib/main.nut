@@ -124,7 +124,7 @@ class SqgiPkg extends Base.SqgiPkgProtocol {
         this.add_option("init", 0, GLib.OptionArg.string,
             "Write a starter manifest: simple, gtk4, gtk4-gstreamer, native-gobject, native-vala, native-application, android-gtk4", "TEMPLATE")
         this.add_option("no-compile-scripts", 0, GLib.OptionArg.none,
-            "Copy .nut scripts as source instead of compiling bytecode", null)
+            "Removed: packages require compiled Squirrel bytecode", null)
         this.add_option("script", 0, GLib.OptionArg.string_array,
             "Add a project .nut script or PATH=DEST script module", "SPEC")
         this.add_option("script-dir", 0, GLib.OptionArg.string_array,

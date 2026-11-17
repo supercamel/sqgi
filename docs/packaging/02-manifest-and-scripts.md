@@ -109,7 +109,7 @@ The destination is relative to the packaged SQGI app script directory.
 
 ## Bytecode And Compatibility Paths
 
-By default, scripts are compiled to `.cnut` bytecode:
+Scripts are always compiled to `.cnut` bytecode:
 
 ```text
 usr/share/sqgi/app/main.cnut
@@ -118,25 +118,13 @@ usr/share/sqgi/app/ui/window.cnut
 usr/share/sqgi/app/ui/window.nut -> window.cnut
 ```
 
-Windows packages copy compatibility files instead of symlinking them.
+Windows and Android packages copy bytecode compatibility files instead of symlinking them.
 
-Disable bytecode compilation only when you specifically want source packages or
-easier debugging:
-
-```json
-{
-  "compile_scripts": false,
-  "script_dirs": [
-    "."
-  ]
-}
-```
-
-or:
-
-```sh
-sqgipkg --no-compile-scripts
-```
+All distribution targets require bytecode. Remove `compile_scripts: false` or
+`--no-compile-scripts` from older projects; these settings now produce an error.
+Scripts copied through file rules, resources, native installs, or dependencies
+are compiled before packaging too. A `.nut` filename in a package is a bytecode
+compatibility path, not Squirrel source.
 
 ## Start From A Template
 

@@ -1047,6 +1047,9 @@ if(Python3_Interpreter_FOUND)
     endif()
     set_tests_properties(sqgi_test_sqgipkg_ergonomics PROPERTIES
         LABELS "packaging" TIMEOUT 180 ENVIRONMENT "${SQGI_TEST_ENV}")
+    add_test(NAME sqgi_test_bytecode_packaging
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/sqgipkg_tests/test_bytecode_packaging.py $<TARGET_FILE:sqgi-bin>)
+    set_tests_properties(sqgi_test_bytecode_packaging PROPERTIES LABELS "packaging" TIMEOUT 120)
     if(SQGI_ENABLE_KERNELS)
         add_test(NAME sqgi_test_kernel_packaging
             COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/sqgipkg_tests/test_kernel_packaging.py $<TARGET_FILE:sqgi-bin>)

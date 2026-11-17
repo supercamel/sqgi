@@ -138,6 +138,7 @@ class SqgiPkgBuild extends Base.SqgiPkgAndroid {
         this.write_apprun(opts, appdir, entry_rel)
         this.write_desktop_file(appdir, app_id, opts.name, opts)
         this.write_icon(appdir, app_id, opts.desktop_icon)
+        this.finalize_packaged_scripts(opts, appdir)
 
         return appdir
     }

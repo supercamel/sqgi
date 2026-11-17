@@ -22,6 +22,7 @@ class SqgiPkgManifest extends Base.SqgiPkgSchema {
     }
 
     function apply_project_defaults(opts) {
+        this.require_compiled_scripts(opts)
         this.validate_recipe_names(opts.native_projects)
         this.validate_recipe_names(opts.windows.native_projects)
         local project_dir = opts.manifest_dir == "" ? GLib.get_current_dir() : opts.manifest_dir
@@ -40,6 +41,11 @@ class SqgiPkgManifest extends Base.SqgiPkgSchema {
             opts.output_dir = this.default_output_dir_for_target(opts)
         if (!opts.build_dir_forced)
             opts.build_dir = this.default_build_dir_for_target(opts)
+    }
+
+    function require_compiled_scripts(opts) {
+        if (!opts.compile_scripts)
+            this.fail("Packages require compiled Squirrel bytecode; remove compile_scripts: false or --no-compile-scripts")
     }
 
     function default_linux_build_dir(opts) {

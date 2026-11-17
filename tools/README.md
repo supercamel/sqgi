@@ -443,17 +443,11 @@ Whether `.nut` scripts are compiled to `.cnut` bytecode. Default:
 "compile_scripts": true
 ```
 
-Disable it for source/debug packages:
-
-```json
-"compile_scripts": false
-```
-
-Or on the command line:
-
-```sh
-sqgipkg --no-compile-scripts
-```
+All distribution targets require bytecode. Remove `compile_scripts: false` or
+`--no-compile-scripts` from older projects; these settings now produce an error.
+Scripts copied through file rules, resources, native installs, or dependencies
+are compiled before packaging too. A `.nut` filename in a package is a bytecode
+compatibility path, not Squirrel source.
 
 ## Script packaging
 

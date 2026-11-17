@@ -31,7 +31,7 @@ local directory = O.write(initial, { x86_64 = true, aarch64 = true, windows = tr
 records.push({ manifest = directory, expected = ["appimage:x86_64", "appimage:aarch64", "win-dir:x86_64"] })
 capabilities.targets.extend(["android-apk", "android-aab"])
 local mobile = O.write(seed, O.normalize({ x86_64 = false, aarch64 = false, windows = false, format = "installer", android_arm64 = true }), capabilities)
-mobile.app_id <- "org.sqgi.gui.matrix"; mobile.compile_scripts <- false
+mobile.app_id <- "org.sqgi.gui.matrix"; mobile.compile_scripts <- true
 mobile.platforms.android.repository <- "https://packages.example.test"
 mobile.platforms.android.module_set <- "custom-r1"
 mobile.platforms.android.namespaces <- ["Gtk-4.0"]

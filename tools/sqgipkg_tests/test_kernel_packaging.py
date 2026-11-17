@@ -100,7 +100,7 @@ local loader = sqgi.kernel.load
 assert(loader(filename).answer() == 42)
 print("mapped-kernel=42\\n")
 ''')
-        for target, compiled, newline in product(TARGETS, (False, True), ('\n', '\r\n')):
+        for target, compiled, newline in product(TARGETS, (True,), ('\n', '\r\n')):
             with self.subTest(target=target, compiled=compiled, newline=newline):
                 # Bypass text-mode newline translation and verify both formats
                 # are preserved byte-for-byte on every host platform.
@@ -128,7 +128,7 @@ print("dynamic-scripts=42\\n")
             self.write(self.project / f'plugins/{name}.nut',
                        'return sqgi.kernel.load("kernels/math.sqk")\n')
         for target in TARGETS:
-            for compiled in (False, True):
+            for compiled in (True,):
                 with self.subTest(target=target, compiled=compiled):
                     stage, output = self.stage(target, compiled, manifest={'script_dirs': ['plugins']})
                     self.assertIn('kernel-resources=1\n', output)
@@ -142,7 +142,7 @@ print("dynamic-scripts=42\\n")
         helper = self.project / 'src/engine/helper.nut'
         self.write(helper, 'return sqgi.kernel.load("kernels/missing.sqk")\n')
         for target in TARGETS:
-            for compiled in (False, True):
+            for compiled in (True,):
                 with self.subTest(target=target, compiled=compiled):
                     _, output = self.stage(target, compiled, succeeds=False)
                     self.assertIn('kernel source not found: kernels/missing.sqk', output)
@@ -153,7 +153,7 @@ print("dynamic-scripts=42\\n")
         self.write(self.project / 'src/main.nut',
                    'assert(sqgi.kernel.load("kernels/math.sqk").answer() == 42)\n')
         for target in TARGETS:
-            for compiled in (False, True):
+            for compiled in (True,):
                 with self.subTest(target=target, compiled=compiled):
                     stage, output = self.stage(target, compiled, manifest={
                         'entry': {'type': 'sqgi', 'path': 'src/main.nut', 'source_root': 'src'}})
@@ -168,7 +168,7 @@ print("dynamic-scripts=42\\n")
 assert(sqgi.kernel.load("kernels/math.sqk" /* packaged source */).answer() == 42)
 print("apprun-kernel=42\\n")
 ''')
-        for compiled in (False, True):
+        for compiled in (True,):
             with self.subTest(compiled=compiled):
                 stage, _ = self.stage('appimage', compiled, launcher=True)
                 # Exercise the generated launcher using the tested host runtime;

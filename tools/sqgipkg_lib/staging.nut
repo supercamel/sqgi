@@ -4,13 +4,15 @@ local Base = import("recipes.nut")
 
 class SqgiPkgStaging extends Base.SqgiPkgRecipes {
     function cnut_dest_for_script_dest(dest_rel) {
+        if (this.ends_with(dest_rel, ".cnut")) return dest_rel
         return this.ends_with(dest_rel, ".nut")
             ? this.replace_suffix(dest_rel, ".nut", ".cnut")
             : (dest_rel + ".cnut")
     }
 
-    function compile_script_to(src_abs, dest_abs) {
-        local closure = loadfile(src_abs, true)
+    function compile_script_to(src_abs, dest_abs, source_name = null) {
+        local closure = source_name == null || this.script_is_bytecode(src_abs)
+            ? loadfile(src_abs, true) : compilestring(this.read_file(src_abs), source_name)
         if (closure == null) this.fail("failed to compile script: " + src_abs)
         writeclosuretofile(dest_abs, closure)
     }
@@ -20,7 +22,7 @@ class SqgiPkgStaging extends Base.SqgiPkgRecipes {
 
         local link_abs = GLib.build_filenamev([appdir, script_dest_rel])
         local target_rel = this.basename(cnut_dest_rel)
-        if (this.starts_with(opts.target, "win-")) {
+        if (this.starts_with(opts.target, "win-") || this.starts_with(opts.target, "android-")) {
             local cnut_abs = GLib.build_filenamev([appdir, cnut_dest_rel])
             this.copy_path(cnut_abs, link_abs)
             this.report_inc(opts, "script_links")
@@ -76,6 +78,7 @@ class SqgiPkgStaging extends Base.SqgiPkgRecipes {
     }
 
     function stage_script_file(opts, appdir, src, dest_rel, description, staged, source_root = null, dest_root_rel = null) {
+        this.require_compiled_scripts(opts)
         local src_abs = this.abs_path(src)
         if (!this.path_exists(src_abs)) this.fail(description + " not found: " + src)
         this.scan_script_imports(opts, src_abs)
@@ -83,13 +86,6 @@ class SqgiPkgStaging extends Base.SqgiPkgRecipes {
         dest_rel = this.relative_dest(dest_rel)
         if (this.table_get(staged, dest_rel, false)) return null
         staged[dest_rel] <- true
-
-        if (!opts.compile_scripts) {
-            this.copy_into_appdir(src_abs, appdir, dest_rel, description)
-            this.report_inc(opts, "scripts_copied")
-            this.stage_script_imports(opts, appdir, src_abs, dest_rel, staged, source_root, dest_root_rel)
-            return dest_rel
-        }
 
         local cnut_dest_rel = this.relative_dest(this.cnut_dest_for_script_dest(dest_rel))
         local cnut_abs = GLib.build_filenamev([appdir, cnut_dest_rel])
@@ -99,6 +95,39 @@ class SqgiPkgStaging extends Base.SqgiPkgRecipes {
         this.link_script_compat(opts, appdir, dest_rel, cnut_dest_rel)
         this.stage_script_imports(opts, appdir, src_abs, dest_rel, staged, source_root, dest_root_rel)
         return cnut_dest_rel
+    }
+
+    function script_is_bytecode(path) {
+        local input = file(path, "rb")
+        local header = input.len() >= 2 ? input.readblob(2) : null
+        input.close()
+        return header != null && header[0] == 0xfa && header[1] == 0xfa
+    }
+
+    function finalize_packaged_scripts(opts, directory) {
+        this.require_compiled_scripts(opts)
+        // File rules, resources, native installs and dependency packages can
+        // introduce scripts after normal script staging (or overwrite it).
+        // Compile in place so their authored paths and imports remain valid.
+        foreach (path in this.find_files(directory)) {
+            local name = path.tolower()
+            if (!this.ends_with(name, ".nut") && !this.ends_with(name, ".cnut")) continue
+            if (this.script_is_bytecode(path)) {
+                if (loadfile(path, true) == null) this.fail("invalid packaged bytecode: " + path)
+                continue
+            }
+            local temporary = path + "." + GLib.uuid_string_random() + ".tmp"
+            try {
+                // Android ABI builds must produce identical shared assets.
+                // Do not embed the per-build staging directory in bytecode.
+                this.compile_script_to(path, temporary, path.slice(directory.len() + 1))
+                Gio.File.new_for_path(temporary).move(Gio.File.new_for_path(path), Gio.FileCopyFlags.overwrite, null, null)
+            } catch (error) {
+                this.remove_tree(temporary)
+                throw error
+            }
+            this.report_inc(opts, "scripts_compiled")
+        }
     }
 
     function copy_or_compile_include_spec(opts, spec, appdir, staged) {
@@ -366,6 +395,18 @@ class SqgiPkgStaging extends Base.SqgiPkgRecipes {
         local src = parts[0]
         local dest = parts[1]
         if (dest == null) this.fail("--file requires PATH=DEST")
+        local name = src.tolower()
+        if (!this.is_directory(src) && (this.ends_with(name, ".nut") || this.ends_with(name, ".cnut"))) {
+            this.require_compiled_scripts(opts)
+            local destination = GLib.build_filenamev([appdir, this.relative_dest(dest)])
+            this.mkdir_p(this.dirname(destination))
+            // A file mapping may deliberately rename a script without an
+            // extension. Compile using the source type, preserving its path.
+            this.compile_script_to(this.abs_path(src), destination)
+            this.report_inc(opts, "scripts_compiled")
+            this.report_inc(opts, "manual_files")
+            return
+        }
         this.copy_into_appdir(src, appdir, dest, "file")
         this.report_inc(opts, "manual_files")
     }

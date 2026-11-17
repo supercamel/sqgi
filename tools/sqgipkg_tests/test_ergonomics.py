@@ -1054,7 +1054,7 @@ assert(imports.len() == 1 && imports[0] == "module.nut")
         (engine / 'spatial.sqk').write_text(kernel, encoding='utf8')
         targets = ('win-dir',) if os.name == 'nt' else ('appimage', 'win-dir')
         for target in targets:
-            for compile_scripts in (False, True):
+            for compile_scripts in (True,):
                 with self.subTest(target=target, compile_scripts=compile_scripts):
                     stage = self.root / f'{target}-{compile_scripts}'
                     self.run_script(f'''

@@ -15,7 +15,7 @@ class SqgiPkgTemplates extends Base.SqgiPkgWindowsNsis {
         if (name == "simple") {}
         else if (name == "android-gtk4") {
             manifest.name <- "SQGI Application"; manifest.app_id <- "org.example.sqgiapp"
-            manifest.target <- "android-apk"; manifest.compile_scripts <- false; manifest.features <- ["gtk4"]
+            manifest.target <- "android-apk"; manifest.features <- ["gtk4"]
             manifest.entry <- { type = "sqgi", script = "src/main.nut", source_root = "src" }
             manifest.script_dirs <- ["src"]
             manifest.files <- [{ from = "src", to = "usr/share/sqgi/app", exclude = ["**/.git/**", "**/__pycache__/**"] }]

@@ -380,11 +380,11 @@ class AndroidCLI(unittest.TestCase):
                 self.assertIn(message,result['diagnostics'][0]['message'])
 
 
-    def test_android_bytecode_is_not_silently_ignored(self):
+    def test_android_bytecode_is_supported(self):
         self.manifest['compile_scripts'] = True
         self.save()
-        result = self.run_pkg('explain', '--platform', 'android', '--json', success=False)
-        self.assertIn('bytecode', result['diagnostics'][0]['message'])
+        result = self.run_pkg('explain', '--platform', 'android', '--json')
+        self.assertTrue(result['ok'])
 
     def test_gstreamer_can_be_provided_by_an_android_module(self):
         (self.root / 'main.nut').write_text('local Gst = import("Gst", "1.0")\n')
@@ -1863,6 +1863,16 @@ class AndroidProjectMigration(unittest.TestCase):
     def inventory(self, root):
         return {p.relative_to(root).as_posix(): p.read_bytes() for p in root.rglob('*') if p.is_file()}
 
+    def assert_compiled_inventory(self, root, original):
+        inventory = self.inventory(root)
+        for name, data in original.items():
+            if name.endswith('.nut'):
+                self.assertTrue(inventory[name].startswith(b'\xfa\xfa'), name)
+                self.assertTrue(inventory[name[:-4] + '.cnut'].startswith(b'\xfa\xfa'), name)
+            else:
+                self.assertEqual(inventory[name], data, name)
+        self.assertEqual(set(inventory), set(original) | {n[:-4] + '.cnut' for n in original if n.endswith('.nut')})
+
     def test_migration_preserves_nested_entry_and_assets_on_all_platforms(self):
         before = self.inventory(self.root)
         self.cli('migrate')
@@ -1877,9 +1887,9 @@ class AndroidProjectMigration(unittest.TestCase):
             staged = self.root/('staged-'+target)
             result = squirrel_backend('project-stage', manifest=str(manifest), target=target, destination=str(staged))
             source = staged/('share/sqgi/app' if target=='win-dir' else 'usr/share/sqgi/app')
-            self.assertEqual(self.inventory(source), expected, target)
+            self.assert_compiled_inventory(source, expected)
             entry = result['project']['entry'] if target=='android-apk' else result['entry'].split('sqgi/app/',1)[1]
-            self.assertEqual(entry, 'app/start.nut')
+            self.assertEqual(entry, 'app/start.cnut')
 
     def test_existing_destinations_and_sources_are_never_overwritten(self):
         self.cli('migrate')
@@ -1918,8 +1928,8 @@ class AndroidProjectMigration(unittest.TestCase):
         self.cli('migrate')
         staged = self.root/'stage'
         result = squirrel_backend('project-stage', manifest=str(self.root/'sqgipkg.json'), target='android-apk', destination=str(staged))
-        self.assertEqual(result['project']['entry'], 'src/app/start.nut')
-        self.assertEqual(self.inventory(staged/'usr/share/sqgi/app'), before)
+        self.assertEqual(result['project']['entry'], 'src/app/start.cnut')
+        self.assert_compiled_inventory(staged/'usr/share/sqgi/app', before)
 
     def test_android_starter_keeps_existing_sources_and_refuses_reinitialization(self):
         self.cli('init', 'android-gtk4', '--app-id', 'org.sqgi.starter', '--name', 'Hello "λ"')

@@ -149,25 +149,14 @@ For scripts loaded dynamically, keep `script_dirs`:
 }
 ```
 
-By default, `.nut` scripts are compiled to `.cnut` bytecode, and compatibility
+`.nut` scripts are always compiled to `.cnut` bytecode, and compatibility
 `.nut` paths are kept so existing `import("module.nut")` calls continue to work.
 
-Use this only for debugging/source packages:
-
-```json
-{
-  "compile_scripts": false,
-  "script_dirs": [
-    "."
-  ]
-}
-```
-
-or:
-
-```sh
-sqgipkg --no-compile-scripts
-```
+All distribution targets require bytecode. Remove `compile_scripts: false` or
+`--no-compile-scripts` from older projects; these settings now produce an error.
+Scripts copied through file rules, resources, native installs, or dependencies
+are compiled before packaging too. A `.nut` filename in a package is a bytecode
+compatibility path, not Squirrel source.
 
 ## 4. Add App Resources
 

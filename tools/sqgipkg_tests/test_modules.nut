@@ -1093,20 +1093,9 @@ build.write_file(GLib.build_filenamev([source_script_dir, "main.nut"]),
 build.write_file(GLib.build_filenamev([source_script_dir, "helper.nut"]),
     "function message() { return \"source scripts\" }\nreturn { message = message }\n")
 source_script_opts.script = GLib.build_filenamev([source_script_dir, "main.nut"])
-local source_script_entry = build.stage_app_scripts(source_script_opts, source_script_appdir, {})
-check("source script packaging keeps nut entry",
-    source_script_entry == GLib.build_filenamev(["usr", "share", "sqgi", "app", "main.nut"]))
-check("source script packaging copies main nut",
-    build.path_exists(GLib.build_filenamev([source_script_appdir, "usr", "share", "sqgi", "app", "main.nut"])))
-check("source script packaging copies imported nut",
-    build.path_exists(GLib.build_filenamev([source_script_appdir, "usr", "share", "sqgi", "app", "helper.nut"])))
-check("source script packaging skips cnut bytecode",
-    !build.path_exists(GLib.build_filenamev([source_script_appdir, "usr", "share", "sqgi", "app", "main.cnut"])) &&
-    !build.path_exists(GLib.build_filenamev([source_script_appdir, "usr", "share", "sqgi", "app", "helper.cnut"])))
-check("source script packaging reports copied scripts",
-    source_script_opts.report.scripts_copied == 2 &&
-    source_script_opts.report.scripts_compiled == 0 &&
-    source_script_opts.report.script_links == 0)
+expect_error("source script packaging is rejected", function() {
+    build.stage_app_scripts(source_script_opts, source_script_appdir, {})
+}, "compiled Squirrel bytecode")
 system("rm -rf " + build.shell_quote(source_script_root))
 local plugin_stage_opts = appimage.new_options()
 local plugin_stage_root = GLib.build_filenamev([GLib.get_tmp_dir(), "sqgipkg-plugin-stage-" + GLib.get_monotonic_time()])

@@ -209,11 +209,6 @@ class SqgiPkgAndroid extends Base.SqgiPkgDoctor {
         opts.windows.native_projects = this.order_native_projects(opts.windows.native_projects, opts.windows.native_dependencies)
         if (this.is_android(opts)) {
             opts.android.format = opts.target == "android-aab" ? "aab" : "apk"
-            // Android source packaging is the supported default. Explicit bytecode
-            // requests remain errors until producer/consumer compatibility is tested.
-            if (authored_manifest != null && this.table_get(authored_manifest, "compile_scripts", false))
-                this.fail("Android bytecode packaging is not yet supported; use compile_scripts: false")
-            opts.compile_scripts = false
             if (!opts.output_dir_forced) opts.output_dir = GLib.build_filenamev([opts.manifest_dir, "dist-android"])
             opts.android_source_excludes = this.android_source_exclusions(opts)
         }
@@ -242,7 +237,6 @@ class SqgiPkgAndroid extends Base.SqgiPkgDoctor {
             config.android = clone opts.android
             config.android.abi <- opts.android.architectures.len() > 1 ? "multi" : opts.android.architectures[0]
             config.architecture = config.android.abi
-            config.compile_scripts = false
             config.report = this.new_report()
             return [config]
         }
@@ -252,7 +246,6 @@ class SqgiPkgAndroid extends Base.SqgiPkgDoctor {
             config.android = clone opts.android
             config.android.abi <- abi
             config.architecture = abi
-            config.compile_scripts = false
             config.report = this.new_report()
             if (!opts.output_dir_forced || opts.android.architectures.len() > 1) config.output_dir += "-" + abi
             result.push(config)
@@ -503,6 +496,7 @@ class SqgiPkgAndroid extends Base.SqgiPkgDoctor {
     function android_stage_application(opts, destination) {
         local scripts = {}, entry = this.stage_app_scripts(opts, destination, scripts)
         this.stage_extra_files(opts, destination, scripts)
+        this.finalize_packaged_scripts(opts, destination)
         local root = this.app_script_root_rel(opts), source = destination + "/" + root
         if (opts.entry_type == "native") {
             AndroidCommon.mkdir(source)
@@ -575,8 +569,6 @@ class SqgiPkgAndroid extends Base.SqgiPkgDoctor {
     function build_android_abi_inputs(opts, prepare_only) {
         AndroidCommon.progress("preparing inputs")
         this.validate_android(opts)
-        if (authored_manifest != null && this.table_get(authored_manifest, "compile_scripts", false))
-            this.fail("Android bytecode packaging is not yet supported; use compile_scripts: false")
         if (opts.libraries.len() || opts.typelibs.len())
             this.fail("Declare Android application libraries and typelibs in a native recipe")
         this.begin_inputs(opts)

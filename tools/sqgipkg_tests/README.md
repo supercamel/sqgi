@@ -21,6 +21,16 @@ Omit it to use the declared private dependency sysroot. The demo runtime's
 `HEAD` plus local `source` intentionally exercises this checkout; release
 applications should select a pinned runtime revision.
 
+Verify bytecode-only payloads for AppImage, Windows directory/NSIS, and Android
+APK/AAB staging, including imports, file rules, renamed scripts and resources:
+
+```sh
+python3 tools/sqgipkg_tests/test_bytecode_packaging.py build/sqgi -v
+```
+
+The tests inspect binary headers and execute relocated payloads with the original
+sources hidden. `compile_scripts: false` and `--no-compile-scripts` are rejected.
+
 Run all packaging regressions and retain the generated AppImages and logs:
 
 ```sh
@@ -40,7 +50,7 @@ python3 tools/sqgipkg_tests/test_kernel_packaging.py build/sqgi -v
 ctest --test-dir build -R '^sqgi_test_kernel_packaging$' --output-on-failure
 ```
 
-These require a kernel-enabled runtime and execute both copied and compiled
+These require a kernel-enabled runtime and execute compiled
 Squirrel payloads. Linux hosts test both directory layouts; Windows hosts test
 the Windows layout without requiring a POSIX shell. Coverage includes
 explicit mappings for computed/aliased kernel paths, dynamic `script_dirs`,

@@ -69,7 +69,7 @@ def main():
                 'override_executed': False, 'log': str(root / (label + '.log'))}
 
     manifest = {'schema_version': 2, 'name': 'SQGI release signing', 'app_id': package,
-                'compile_scripts': False, 'features': ['gtk4'],
+                'compile_scripts': True, 'features': ['gtk4'],
                 'platforms': {'android': {'architectures': ['x86_64', 'arm64-v8a']}}}
     (root / 'sqgipkg.json').write_bytes(encoded(manifest))
     (root / 'main.nut').write_text('''local Gtk = import("Gtk", "4.0"), Gio = import("Gio", "2.0")

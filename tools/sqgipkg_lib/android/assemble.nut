@@ -6,6 +6,7 @@ local Entry = import("entry.nut")
 local Runtime = import("runtime.nut")
 local Resources = import("resources.nut")
 local Wrapper = import("wrapper.nut")
+local Staging = import("../staging.nut")
 local HERE = GLib.path_get_dirname(GLib.canonicalize_filename(__FILE__, null))
 local M = {}
 M.native_java <- function(sdk, destination) {
@@ -85,6 +86,10 @@ M.prepare <- function(request, sdk, work, tools) {
     }
     C.copy_tree(sdk.prefix + "/share/gtk4/android/java", destination + "/java")
     M.native_java(sdk, destination + "/java")
+    // Native packages can also export scripts as runtime data. Compile these
+    // before sealing their inventory, just like application files/resources.
+    local staging = Staging.SqgiPkgStaging(), script_options = staging.new_options()
+    staging.finalize_packaged_scripts(script_options, assets)
     local provenance = { schema = 2, abi = abi, profile = "gui", variant = C.get(request, "variant", "debug"),
         sdk_sha256 = sdk.sha256, sdk_target = sdk.metadata.target, base_sdk_sha256 = C.get(sdk.metadata, "base_sdk_sha256", sdk.sha256),
         native = C.get(request, "native_evidence", {}), libraries = libraries, typelibs = metadata.namespaces,
